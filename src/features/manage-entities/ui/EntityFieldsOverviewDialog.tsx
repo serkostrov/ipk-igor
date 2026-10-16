@@ -289,13 +289,13 @@ function OverviewFieldRow({
     </div>
   );
 
-  const createSwitch =
-    showCreateToggle && toggleEnabled ? (
-      <div
-        className="flex shrink-0 items-center gap-1.5 pl-1"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-      >
+  const createSwitch = showCreateToggle ? (
+    <div
+      className="flex w-9 shrink-0 items-center justify-end"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {toggleEnabled ? (
         <Switch
           checked={onCreate}
           disabled={!canEdit || toggleLocked || !onToggleShowOnCreate}
@@ -314,32 +314,53 @@ function OverviewFieldRow({
             onToggleShowOnCreate?.(checked);
           }}
         />
-      </div>
-    ) : showCreateToggle && !toggleEnabled ? (
-      <div className="w-9 shrink-0" aria-hidden />
-    ) : null;
-
-  const deleteButton = canDelete ? (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 hover:text-destructive"
-      aria-label={`Удалить поле «${name}»`}
-      title="Удалить"
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onDelete?.();
-      }}
-    >
-      <Trash2 className="size-3.5" />
-    </Button>
+      ) : null}
+    </div>
   ) : null;
+
+  /** Collapses until row hover — pushes the switch left along the right edge. */
+  const deleteSlot = canDelete ? (
+    <div
+      className={cn(
+        "grid shrink-0 transition-[grid-template-columns] duration-150 ease-out",
+        "grid-cols-[0fr] group-hover/row:grid-cols-[1fr] group-focus-within/row:grid-cols-[1fr]",
+      )}
+    >
+      <div className="min-w-0 overflow-hidden">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="ml-1 shrink-0 text-muted-foreground hover:text-destructive"
+          aria-label={`Удалить поле «${name}»`}
+          title="Удалить"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onDelete?.();
+          }}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    </div>
+  ) : null;
+
+  const trailing = (
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-end",
+        showCreateToggle || canDelete ? "pr-1.5 pl-1" : "pr-1.5",
+      )}
+    >
+      {createSwitch}
+      {deleteSlot}
+    </div>
+  );
 
   if (canEdit && onSelect) {
     return (
-      <div className="group/row flex items-center gap-1 pr-1.5 transition-colors hover:bg-muted/60">
+      <div className="group/row flex items-center transition-colors hover:bg-muted/60">
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left focus-visible:outline-none"
@@ -347,17 +368,15 @@ function OverviewFieldRow({
         >
           {meta}
         </button>
-        {createSwitch}
-        {deleteButton}
+        {trailing}
       </div>
     );
   }
 
   return (
-    <div className="group/row flex items-center gap-1 px-3 py-2.5 pr-1.5">
+    <div className="group/row flex items-center px-3 py-2.5">
       {meta}
-      {createSwitch}
-      {deleteButton}
+      {trailing}
     </div>
   );
 }
@@ -411,7 +430,8 @@ function EntityFieldsOverviewBody({
   const totalFields = entity.fields.length;
   const canEdit = !readOnly && onEditField != null;
   const canDeleteAny = !readOnly && onDeleteField != null;
-  const showCreateToggle = !readOnly;
+  /** Create-visibility switches only on the «При создании» filter. */
+  const showCreateToggle = !readOnly && createFilter === "onCreate";
 
   return (
     <>
