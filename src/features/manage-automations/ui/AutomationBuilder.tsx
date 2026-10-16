@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import {
   createAutomationScenarioId,
   createAutomationTemplateId,
@@ -375,6 +376,37 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       >
         <Plus className="size-4" />
       </Button>
+
+      {scenario && !scenario.isDefault && entity ? (
+        <Popover>
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-9 shrink-0"
+                aria-label="Условия сценария"
+                title="Условия сценария"
+              />
+            }
+          >
+            <Filter className="size-4" />
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 p-3">
+            <p className="mb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              Условия сценария
+            </p>
+            <ConditionGroupBuilder
+              entity={entity}
+              value={scenario.entryConditions}
+              onChange={(entryConditions) =>
+                void saveScenario({ ...scenario, entryConditions })
+              }
+            />
+          </PopoverContent>
+        </Popover>
+      ) : null}
     </div>
   );
 
@@ -458,31 +490,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 />
               </div>
             </aside>
-          ) : (
-            <aside className="relative z-20 hidden h-full min-h-0 w-[min(34rem,40vw)] min-w-[28rem] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex">
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-                <Filter className="size-5 text-muted-foreground/60" />
-                <p className="text-sm font-medium">Инспектор шага</p>
-                <p className="text-xs text-muted-foreground">
-                  Выберите задачу на схеме
-                </p>
-              </div>
-              {scenario && !scenario.isDefault && entity ? (
-                <div className="border-t border-border p-3">
-                  <p className="mb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                    Условия сценария
-                  </p>
-                  <ConditionGroupBuilder
-                    entity={entity}
-                    value={scenario.entryConditions}
-                    onChange={(entryConditions) =>
-                      void saveScenario({ ...scenario, entryConditions })
-                    }
-                  />
-                </div>
-              ) : null}
-            </aside>
-          )}
+          ) : null}
         </div>
       )}
     </div>

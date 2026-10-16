@@ -85,20 +85,22 @@ export function AutomationTasksHost() {
           null;
         if (!actionable) return;
 
-        if (!getActiveAutomationTaskDialogId()) {
-          openAutomationTaskFillDialog(actionable.id);
-        }
-
-        toast(actionable.name || "Новая задача", {
-          description: automationTaskNeedsFillDialog(actionable)
-            ? "Заполните поля, чтобы продолжить процесс"
-            : "Выберите результат, чтобы продолжить процесс",
-          duration: 8_000,
-          action: {
-            label: "Открыть",
-            onClick: () => openAutomationTaskFillDialog(actionable.id),
-          },
-        });
+        // Defer so list/kanban pickers can finish closing before the dialog mounts.
+        window.setTimeout(() => {
+          if (!getActiveAutomationTaskDialogId()) {
+            openAutomationTaskFillDialog(actionable.id);
+          }
+          toast(actionable.name || "Новая задача", {
+            description: automationTaskNeedsFillDialog(actionable)
+              ? "Заполните поля, чтобы продолжить процесс"
+              : "Выберите результат, чтобы продолжить процесс",
+            duration: 8_000,
+            action: {
+              label: "Открыть",
+              onClick: () => openAutomationTaskFillDialog(actionable.id),
+            },
+          });
+        }, 80);
       } catch (error: unknown) {
         console.error("[automation] task host sync failed", error);
       }

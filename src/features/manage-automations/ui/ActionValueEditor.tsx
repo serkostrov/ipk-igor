@@ -1,3 +1,4 @@
+import * as React from "react";
 import {
   AUTOMATION_VALUE_CURRENT_USER,
   AUTOMATION_VALUE_NOW,
@@ -157,6 +158,35 @@ function SourceFieldSelect({
   );
 }
 
+/**
+ * Mode can be `custom` / `fromField` while the stored value is still empty
+ * (user just switched type and has not filled the picker yet).
+ * Remount via `key={field.id}` clears pending when the target field changes.
+ */
+function useEditorMode(value: string, field: EntityField) {
+  const detected = detectMode(value, field);
+  const [pendingMode, setPendingMode] = React.useState<ValueMode | null>(null);
+
+  const mode = detected !== "empty" ? detected : (pendingMode ?? "empty");
+
+  const selectMode = React.useCallback(
+    (next: ValueMode, nextValue: string) => {
+      const nextDetected = detectMode(nextValue, field);
+      if (nextDetected === next) {
+        setPendingMode(null);
+      } else if (next === "custom" || next === "fromField") {
+        setPendingMode(next);
+      } else {
+        setPendingMode(null);
+      }
+      return nextValue;
+    },
+    [field],
+  );
+
+  return { mode, selectMode };
+}
+
 /** Type-aware value picker for automation `setField` / relation actions. */
 export function ActionValueEditor({
   field,
@@ -182,7 +212,39 @@ export function ActionValueEditor({
     );
   }
 
-  const mode = detectMode(value, field);
+  return (
+    <ActionValueEditorBody
+      key={field.id}
+      field={field}
+      value={value}
+      onChange={onChange}
+      sourceFields={sourceFields}
+      entities={entities}
+      className={className}
+    />
+  );
+}
+
+function ActionValueEditorBody({
+  field,
+  value,
+  onChange,
+  sourceFields,
+  entities,
+  className,
+}: {
+  field: EntityField;
+  value: string;
+  onChange: (value: string) => void;
+  sourceFields: EntityField[];
+  entities: Entity[];
+  className?: string;
+}) {
+  const { mode, selectMode } = useEditorMode(value, field);
+
+  const applyMode = (next: ValueMode, nextValue: string) => {
+    onChange(selectMode(next, nextValue));
+  };
 
   if (field.type === "datetime") {
     const withTime = field.datetimeWithTime !== false;
@@ -200,13 +262,17 @@ export function ActionValueEditor({
             { value: "fromField", label: "Из другого поля" },
           ]}
           onChange={(next) => {
-            if (next === "empty") onChange("");
-            else if (next === "today") onChange(AUTOMATION_VALUE_TODAY);
-            else if (next === "tomorrow") onChange(AUTOMATION_VALUE_TOMORROW);
-            else if (next === "now") onChange(AUTOMATION_VALUE_NOW);
-            else if (next === "custom") onChange(date || "");
-            else if (next === "fromField") {
-              onChange(toFieldRef(fieldRefId(value)));
+            if (next === "empty") applyMode("empty", "");
+            else if (next === "today") {
+              applyMode("today", AUTOMATION_VALUE_TODAY);
+            } else if (next === "tomorrow") {
+              applyMode("tomorrow", AUTOMATION_VALUE_TOMORROW);
+            } else if (next === "now") {
+              applyMode("now", AUTOMATION_VALUE_NOW);
+            } else if (next === "custom") {
+              applyMode("custom", mode === "custom" ? value : "");
+            } else if (next === "fromField") {
+              applyMode("fromField", isFieldRef(value) ? value : "");
             }
           }}
         />
@@ -261,12 +327,13 @@ export function ActionValueEditor({
             { value: "fromField", label: "Из другого поля" },
           ]}
           onChange={(next) => {
-            if (next === "empty") onChange("");
-            else if (next === "now") onChange(AUTOMATION_VALUE_TIME_NOW);
-            else if (next === "custom") {
-              onChange(mode === "custom" ? value : "");
+            if (next === "empty") applyMode("empty", "");
+            else if (next === "now") {
+              applyMode("now", AUTOMATION_VALUE_TIME_NOW);
+            } else if (next === "custom") {
+              applyMode("custom", mode === "custom" ? value : "");
             } else if (next === "fromField") {
-              onChange(toFieldRef(fieldRefId(value)));
+              applyMode("fromField", isFieldRef(value) ? value : "");
             }
           }}
         />
@@ -293,17 +360,17 @@ export function ActionValueEditor({
   }
 
   if (field.type === "boolean") {
+    const booleanMode =
+      mode === "true" ||
+      mode === "false" ||
+      mode === "fromField" ||
+      mode === "empty"
+        ? mode
+        : "empty";
     return (
       <div className={cn("flex flex-col gap-1.5", className)}>
         <ModeSelect
-          value={
-            mode === "true" ||
-            mode === "false" ||
-            mode === "fromField" ||
-            mode === "empty"
-              ? mode
-              : "empty"
-          }
+          value={booleanMode}
           options={[
             { value: "empty", label: "Очистить" },
             { value: "true", label: "Да" },
@@ -311,10 +378,12 @@ export function ActionValueEditor({
             { value: "fromField", label: "Из другого поля" },
           ]}
           onChange={(next) => {
-            if (next === "empty") onChange("");
-            else if (next === "true") onChange("true");
-            else if (next === "false") onChange("false");
-            else onChange(toFieldRef(fieldRefId(value)));
+            if (next === "empty") applyMode("empty", "");
+            else if (next === "true") applyMode("true", "true");
+            else if (next === "false") applyMode("false", "false");
+            else {
+              applyMode("fromField", isFieldRef(value) ? value : "");
+            }
           }}
         />
         {mode === "true" || mode === "false" ? (
@@ -343,29 +412,31 @@ export function ActionValueEditor({
   if (field.type === "list") {
     const listOptions = resolveEntityListFieldOptions(field, entities);
     const presentation = resolveEntityListFieldPresentation(field, entities);
+    const listMode =
+      mode === "fromField"
+        ? "fromField"
+        : mode === "empty"
+          ? "empty"
+          : "custom";
     return (
       <div className={cn("flex flex-col gap-1.5", className)}>
         <ModeSelect
-          value={
-            mode === "fromField"
-              ? "fromField"
-              : mode === "empty"
-                ? "empty"
-                : "custom"
-          }
+          value={listMode}
           options={[
             { value: "empty", label: "Очистить" },
             { value: "custom", label: "Выбрать вариант" },
             { value: "fromField", label: "Из другого поля" },
           ]}
           onChange={(next) => {
-            if (next === "empty") onChange("");
+            if (next === "empty") applyMode("empty", "");
             else if (next === "custom") {
-              onChange(mode === "custom" ? value : "");
-            } else onChange(toFieldRef(fieldRefId(value)));
+              applyMode("custom", mode === "custom" ? value : "");
+            } else {
+              applyMode("fromField", isFieldRef(value) ? value : "");
+            }
           }}
         />
-        {mode !== "fromField" && mode !== "empty" ? (
+        {listMode === "custom" ? (
           <ListSelect
             options={listOptions}
             value={value}
@@ -379,7 +450,7 @@ export function ActionValueEditor({
             onChange={onChange}
           />
         ) : null}
-        {mode === "fromField" ? (
+        {listMode === "fromField" ? (
           <SourceFieldSelect
             fields={sourceFields.filter((item) => item.type === "list")}
             value={fieldRefId(value)}
@@ -412,12 +483,17 @@ export function ActionValueEditor({
             { value: "fromField", label: "Из другого поля" },
           ]}
           onChange={(next) => {
-            if (next === "empty") onChange("");
+            if (next === "empty") applyMode("empty", "");
             else if (next === "currentUser") {
-              onChange(AUTOMATION_VALUE_CURRENT_USER);
+              applyMode("currentUser", AUTOMATION_VALUE_CURRENT_USER);
             } else if (next === "custom") {
-              onChange(mode === "custom" && !isFieldRef(value) ? value : "");
-            } else onChange(toFieldRef(fieldRefId(value)));
+              applyMode(
+                "custom",
+                mode === "custom" && !isFieldRef(value) ? value : "",
+              );
+            } else {
+              applyMode("fromField", isFieldRef(value) ? value : "");
+            }
           }}
         />
         {relationMode === "custom" ? (
@@ -453,29 +529,31 @@ export function ActionValueEditor({
   }
 
   if (field.type === "textarea") {
+    const textMode =
+      mode === "fromField"
+        ? "fromField"
+        : mode === "empty"
+          ? "empty"
+          : "custom";
     return (
       <div className={cn("flex flex-col gap-1.5", className)}>
         <ModeSelect
-          value={
-            mode === "fromField"
-              ? "fromField"
-              : mode === "empty"
-                ? "empty"
-                : "custom"
-          }
+          value={textMode}
           options={[
             { value: "empty", label: "Очистить" },
             { value: "custom", label: "Текст" },
             { value: "fromField", label: "Из другого поля" },
           ]}
           onChange={(next) => {
-            if (next === "empty") onChange("");
+            if (next === "empty") applyMode("empty", "");
             else if (next === "custom") {
-              onChange(mode === "custom" ? value : "");
-            } else onChange(toFieldRef(fieldRefId(value)));
+              applyMode("custom", mode === "custom" ? value : "");
+            } else {
+              applyMode("fromField", isFieldRef(value) ? value : "");
+            }
           }}
         />
-        {mode !== "fromField" && mode !== "empty" ? (
+        {textMode === "custom" ? (
           <Textarea
             className="min-h-16 resize-none text-sm"
             placeholder="Значение"
@@ -483,7 +561,7 @@ export function ActionValueEditor({
             onChange={(event) => onChange(event.target.value)}
           />
         ) : null}
-        {mode === "fromField" ? (
+        {textMode === "fromField" ? (
           <SourceFieldSelect
             fields={sourceFields}
             value={fieldRefId(value)}
@@ -504,29 +582,28 @@ export function ActionValueEditor({
           ? "email"
           : undefined;
 
+  const textMode =
+    mode === "fromField" ? "fromField" : mode === "empty" ? "empty" : "custom";
+
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <ModeSelect
-        value={
-          mode === "fromField"
-            ? "fromField"
-            : mode === "empty"
-              ? "empty"
-              : "custom"
-        }
+        value={textMode}
         options={[
           { value: "empty", label: "Очистить" },
           { value: "custom", label: "Значение" },
           { value: "fromField", label: "Из другого поля" },
         ]}
         onChange={(next) => {
-          if (next === "empty") onChange("");
+          if (next === "empty") applyMode("empty", "");
           else if (next === "custom") {
-            onChange(mode === "custom" ? value : "");
-          } else onChange(toFieldRef(fieldRefId(value)));
+            applyMode("custom", mode === "custom" ? value : "");
+          } else {
+            applyMode("fromField", isFieldRef(value) ? value : "");
+          }
         }}
       />
-      {mode !== "fromField" && mode !== "empty" ? (
+      {textMode === "custom" ? (
         <Input
           className="h-8"
           type={field.type === "url" ? "url" : "text"}
@@ -542,7 +619,7 @@ export function ActionValueEditor({
           }
         />
       ) : null}
-      {mode === "fromField" ? (
+      {textMode === "fromField" ? (
         <SourceFieldSelect
           fields={sourceFields}
           value={fieldRefId(value)}

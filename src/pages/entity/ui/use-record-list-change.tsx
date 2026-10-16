@@ -28,6 +28,13 @@ function listOptionId(value: string) {
   return value.trim();
 }
 
+function optionIdsMatch(a: string, b: string) {
+  const left = listOptionId(a);
+  const right = listOptionId(b);
+  if (!left || !right) return false;
+  return left === right;
+}
+
 function isAutomationBlockedError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return message.includes("AUTOMATION_BLOCKED");
@@ -56,7 +63,7 @@ function findBlockingTasks(
     (task) =>
       task.isBlocking &&
       task.triggerFieldId === fieldId &&
-      listOptionId(task.triggerOptionId) === optionId &&
+      optionIdsMatch(task.triggerOptionId, optionId) &&
       (task.status === "pending" || task.status === "returned"),
   );
 }
@@ -67,9 +74,11 @@ function tasksForDestination(
   optionId: string,
 ) {
   return tasks.filter((task) => {
-    if (task.triggerFieldId !== fieldId) return false;
+    if (fieldId && task.triggerFieldId && task.triggerFieldId !== fieldId) {
+      return false;
+    }
     if (!optionId) return true;
-    return listOptionId(task.triggerOptionId) === optionId;
+    return optionIdsMatch(task.triggerOptionId, optionId);
   });
 }
 
@@ -84,32 +93,80 @@ function pickTaskToOpen(
   const eligible = options?.allowDismissed
     ? tasks
     : tasks.filter((task) => !isAutomationTaskFillDialogDismissed(task.id));
+  if (eligible.length === 0) return null;
   return (
     eligible.find((task) => automationTaskNeedsFillDialog(task)) ??
+    eligible.find((task) => (task.config.outcomes?.length ?? 0) > 0) ??
     eligible[0] ??
     null
   );
 }
 
-function openTaskDialog(task: AutomationTask) {
+/** Defer so the list/select popup can close before the dialog mounts. */
+function openTaskDialog(
+  task: AutomationTask,
+  options?: { toast?: "spawn" | "blocked" | "none" },
+) {
+  const toastKind = options?.toast ?? "spawn";
   clearAutomationTaskFillDialogDismissed(task.id);
-  openAutomationTaskFillDialog(task.id);
-  toast(task.name || "Новая задача", {
-    description: automationTaskNeedsFillDialog(task)
-      ? "Заполните поля, чтобы продолжить процесс"
-      : "Выберите результат, чтобы продолжить процесс",
-    duration: 8_000,
-    action: {
-      label: "Открыть",
-      onClick: () => openAutomationTaskFillDialog(task.id),
-    },
-  });
+  window.setTimeout(() => {
+    openAutomationTaskFillDialog(task.id);
+    if (toastKind === "none") return;
+    if (toastKind === "blocked") {
+      toast.warning("Сначала выполните задачу", {
+        description:
+          task.name ||
+          "Есть незавершённые блокирующие задачи на текущем статусе",
+        duration: 7_000,
+        action: {
+          label: "Открыть",
+          onClick: () => openAutomationTaskFillDialog(task.id),
+        },
+      });
+      return;
+    }
+    toast(task.name || "Новая задача", {
+      description: automationTaskNeedsFillDialog(task)
+        ? "Заполните поля, чтобы продолжить процесс"
+        : "Выберите результат, чтобы продолжить процесс",
+      duration: 8_000,
+      action: {
+        label: "Открыть",
+        onClick: () => openAutomationTaskFillDialog(task.id),
+      },
+    });
+  }, 80);
+}
+
+function pickTaskAfterStageChange(input: {
+  tasks: AutomationTask[];
+  fieldId: string;
+  toOptionId: string;
+  knownTaskIds: Set<string>;
+}) {
+  const { tasks, fieldId, toOptionId, knownTaskIds } = input;
+  const fresh = tasks.filter((task) => !knownTaskIds.has(task.id));
+  const destination = tasksForDestination(tasks, fieldId, toOptionId);
+  const freshDestination = fresh.filter((task) =>
+    destination.some((item) => item.id === task.id),
+  );
+  const fieldTasks = tasks.filter(
+    (task) => !fieldId || task.triggerFieldId === fieldId,
+  );
+
+  return (
+    pickTaskToOpen(freshDestination, { allowDismissed: true }) ??
+    pickTaskToOpen(destination, { allowDismissed: true }) ??
+    pickTaskToOpen(fresh, { allowDismissed: true }) ??
+    pickTaskToOpen(fieldTasks, { allowDismissed: true }) ??
+    pickTaskToOpen(tasks, { allowDismissed: true })
+  );
 }
 
 /**
  * After a stage change, open the automation dialog for the destination.
- * Looks up by trigger field + option (not only “fresh” ids) so unique
- * pending tasks and re-entry still open the window.
+ * Looks up by trigger field + option, then falls back to any new/pending
+ * task on the record so the window still appears when matching is fuzzy.
  */
 async function openDialogAfterStageChange(input: {
   recordId: string;
@@ -119,22 +176,21 @@ async function openDialogAfterStageChange(input: {
 }) {
   const { recordId, fieldId, toOptionId, knownTaskIds } = input;
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    if (attempt > 0) await sleep(120 + attempt * 100);
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (attempt > 0) await sleep(80 + attempt * 90);
     const tasks = await fetchPendingTasksForRecord(recordId);
-    const destination = tasksForDestination(tasks, fieldId, toOptionId);
-    const fresh = tasks.filter((task) => !knownTaskIds.has(task.id));
-
-    const task =
-      pickTaskToOpen(destination, { allowDismissed: true }) ??
-      pickTaskToOpen(fresh) ??
-      pickTaskToOpen(destination);
-
+    const task = pickTaskAfterStageChange({
+      tasks,
+      fieldId,
+      toOptionId,
+      knownTaskIds,
+    });
     if (task) {
       openTaskDialog(task);
-      return;
+      return true;
     }
   }
+  return false;
 }
 
 /**
@@ -170,18 +226,7 @@ export function useRecordListChange() {
             const ask =
               pickTaskToOpen(blocking, { allowDismissed: true }) ??
               blocking[0]!;
-            clearAutomationTaskFillDialogDismissed(ask.id);
-            openAutomationTaskFillDialog(ask.id);
-            toast.warning("Сначала выполните задачу", {
-              description:
-                ask.name ||
-                "Есть незавершённые блокирующие задачи на текущем статусе",
-              duration: 7_000,
-              action: {
-                label: "Открыть",
-                onClick: () => openAutomationTaskFillDialog(ask.id),
-              },
-            });
+            openTaskDialog(ask, { toast: "blocked" });
             return false;
           }
         } catch (error: unknown) {
@@ -235,14 +280,16 @@ export function useRecordListChange() {
       }
 
       if (isSupabaseConfigured && toOptionId) {
-        void openDialogAfterStageChange({
-          recordId: record.id,
-          fieldId: field.id,
-          toOptionId,
-          knownTaskIds,
-        }).catch((error: unknown) => {
+        try {
+          await openDialogAfterStageChange({
+            recordId: record.id,
+            fieldId: field.id,
+            toOptionId,
+            knownTaskIds,
+          });
+        } catch (error: unknown) {
           console.error("[automation] open spawned task dialog failed", error);
-        });
+        }
       }
 
       return true;

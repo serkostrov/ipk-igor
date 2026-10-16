@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -18,8 +19,12 @@ import {
 import {
   getEntityFieldDisplayName,
   isEntityComputedFieldType,
+  ListSelect,
+  parseEntityListValueIds,
+  serializeEntityListValueIds,
   type Entity,
   type EntityField,
+  type EntityListOption,
 } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
 import { ActionValueEditor } from "./ActionValueEditor";
@@ -389,44 +394,49 @@ function RequireFieldsEditor({
   title: string;
   hint?: string;
 }) {
+  const options = useMemo<EntityListOption[]>(
+    () =>
+      fields.map((field) => ({
+        id: field.id,
+        name: getEntityFieldDisplayName(field),
+        color: "#94a3b8",
+        parentOptionId: null,
+      })),
+    [fields],
+  );
+  const knownIds = useMemo(
+    () => new Set(options.map((option) => option.id)),
+    [options],
+  );
+  const value = serializeEntityListValueIds(
+    selectedIds.filter((id) => knownIds.has(id)),
+  );
+
   if (fields.length === 0) {
     return <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>;
   }
 
   return (
-    <div className="mt-2 flex flex-col gap-1">
-      <p className="text-[11px] text-muted-foreground">{title}</p>
-      {hint ? (
-        <p className="text-[10px] leading-snug text-muted-foreground/80">
-          {hint}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-1">
-        {fields.map((field) => {
-          const active = selectedIds.includes(field.id);
-          return (
-            <button
-              key={field.id}
-              type="button"
-              className={cn(
-                "rounded-md border px-2 py-1 text-[11px] transition-colors",
-                active
-                  ? "border-primary/40 bg-primary/10 text-foreground"
-                  : "border-border/70 bg-background text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => {
-                onChange(
-                  active
-                    ? selectedIds.filter((id) => id !== field.id)
-                    : [...selectedIds, field.id],
-                );
-              }}
-            >
-              {getEntityFieldDisplayName(field)}
-            </button>
-          );
-        })}
+    <div className="mt-2 flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="text-[11px] font-medium text-muted-foreground">{title}</p>
+        {hint ? (
+          <p className="text-[10px] leading-snug text-muted-foreground/80">
+            {hint}
+          </p>
+        ) : null}
       </div>
+      <ListSelect
+        options={options}
+        value={value}
+        multiple
+        size="sm"
+        showColors={false}
+        emptyLabel="Выберите поля"
+        aria-label={title}
+        className="h-8 rounded-md border-input font-normal shadow-xs"
+        onChange={(next) => onChange(parseEntityListValueIds(next))}
+      />
     </div>
   );
 }
