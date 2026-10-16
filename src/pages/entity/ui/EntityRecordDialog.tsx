@@ -224,8 +224,12 @@ function EntityRecordForm({
     ) {
       return null;
     }
+    // Pinned header must still respect create visibility (e.g. Stage OFF).
+    if (!isEdit && !isEntityFieldVisibleOnCreate(field)) {
+      return null;
+    }
     return field;
-  }, [entity, hiddenFieldIds]);
+  }, [entity, hiddenFieldIds, isEdit]);
   const pinnedFields = useMemo(() => {
     const fields: EntityField[] = [];
     if (nameField) fields.push(nameField);
