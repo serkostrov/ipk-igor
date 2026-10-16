@@ -115,7 +115,9 @@ export async function completeAutomationTaskRpc(
     p_outcome_id: outcomeId,
     p_actor_user_id: actorUserId ?? null,
   });
-  if (error) throw error;
+  if (error) {
+    throw new Error(error.message || "Ошибка завершения задачи");
+  }
   const result = data as {
     taskId?: string;
     runId?: string;
@@ -140,7 +142,9 @@ export async function returnAutomationTaskForRevisionRpc(
       p_actor_user_id: actorUserId ?? null,
     },
   );
-  if (error) throw error;
+  if (error) {
+    throw new Error(error.message || "Ошибка возврата задачи");
+  }
   return String(data);
 }
 

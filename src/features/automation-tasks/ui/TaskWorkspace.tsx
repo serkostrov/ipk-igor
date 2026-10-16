@@ -12,6 +12,7 @@ import {
 } from "@/entities/automation";
 import { getEntityFieldDisplayName, useEntityConfig } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
+import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import {
   automationTaskNeedsFillDialog,
   getAutomationTaskAskFields,
@@ -98,7 +99,7 @@ export function TaskWorkspace({
       await onComplete(outcomeId);
       onCompleted();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Ошибка завершения");
+      setError(getAutomationErrorMessage(err, "Ошибка завершения"));
     } finally {
       setBusy(false);
     }

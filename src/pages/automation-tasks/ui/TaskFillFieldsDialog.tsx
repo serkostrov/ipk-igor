@@ -38,6 +38,7 @@ import {
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { getAutomationTaskAskFields } from "@/features/automation-tasks";
+import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 
 type TaskFillFieldsDialogProps = {
@@ -154,24 +155,29 @@ function TaskFillFieldsDialogBody({
     );
   }
 
-  /** Write only fields flagged «запись» (and present on the entity). */
-  function persistValues(outcomeId?: string) {
+  /**
+   * Persist form values that should land on the record before complete/return.
+   * Includes «запись» and required fields so setField / spawn see them.
+   */
+  async function persistValues(outcomeId?: string) {
     if (!task || !entity || !record) return;
-    const recordFieldIds = new Set(
-      outcomeId
-        ? (task.config.outcomes.find((item) => item.id === outcomeId)
-            ?.fieldAccess.recordFieldIds ?? [])
-        : task.config.outcomes.flatMap(
-            (item) => item.fieldAccess.recordFieldIds,
-          ),
+    const outcomes = outcomeId
+      ? task.config.outcomes.filter((item) => item.id === outcomeId)
+      : task.config.outcomes;
+    const fieldIds = new Set(
+      outcomes.flatMap((item) => [
+        ...item.fieldAccess.recordFieldIds,
+        ...item.fieldAccess.requiredFieldIds,
+      ]),
     );
     const patch: Record<string, string> = {};
-    for (const fieldId of recordFieldIds) {
+    for (const fieldId of fieldIds) {
       if (!entity.fields.some((field) => field.id === fieldId)) continue;
       if (values[fieldId] === undefined) continue;
       patch[fieldId] = values[fieldId]!;
     }
-    updateEntityRecord(task.entityId, task.recordId, {
+    if (Object.keys(patch).length === 0) return;
+    await updateEntityRecord(task.entityId, task.recordId, {
       ...record.values,
       ...patch,
     });
@@ -210,7 +216,7 @@ function TaskFillFieldsDialogBody({
     setBusy(true);
     setError(null);
     try {
-      persistValues(outcomeId);
+      await persistValues(outcomeId);
       await completeAutomationTask(
         task!.id,
         outcomeId,
@@ -220,7 +226,7 @@ function TaskFillFieldsDialogBody({
       onOpenChange(false);
       onCompleted?.();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Ошибка завершения");
+      setError(getAutomationErrorMessage(err, "Ошибка завершения"));
     } finally {
       setBusy(false);
     }
@@ -231,12 +237,12 @@ function TaskFillFieldsDialogBody({
     setBusy(true);
     setError(null);
     try {
-      persistValues();
+      await persistValues();
       await returnAutomationTaskForRevision(task.id, sessionUser?.id ?? null);
       onOpenChange(false);
       onCompleted?.();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Ошибка возврата");
+      setError(getAutomationErrorMessage(err, "Ошибка возврата"));
     } finally {
       setBusy(false);
     }

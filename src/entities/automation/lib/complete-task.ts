@@ -22,7 +22,7 @@ import { executeAutomationActions } from "./execute-actions";
 import type { AutomationOutcomeFieldAccess } from "../model/types";
 
 /** Append selected form-field values as notes on the first «Записи» tab. */
-function appendOutcomeFieldComments(
+async function appendOutcomeFieldComments(
   entity: Entity,
   record: EntityRecord,
   fieldAccess: AutomationOutcomeFieldAccess,
@@ -63,7 +63,7 @@ function appendOutcomeFieldComments(
     authorId: getCurrentUserRecordId(),
     editedAt: null,
   };
-  updateEntityRecord(entity.id, record.id, {
+  await updateEntityRecord(entity.id, record.id, {
     ...record.values,
     [valueKey]: serializeEntityTabRecordEntries([entry, ...existing]),
   });
@@ -119,7 +119,7 @@ export async function completeAutomationTask(
   };
 
   if (entity && record) {
-    appendOutcomeFieldComments(
+    await appendOutcomeFieldComments(
       entity,
       record,
       outcome.fieldAccess,
