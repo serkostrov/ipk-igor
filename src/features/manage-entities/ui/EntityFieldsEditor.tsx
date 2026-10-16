@@ -25,6 +25,7 @@ import {
 import {
   addEntityField,
   addEntityTab,
+  addEntityTabFromSource,
   addEntityTabWithExistingEntity,
   addEntityTabWithLinkedEntity,
   createEntityFieldGroupName,
@@ -4494,12 +4495,43 @@ export function EntityFieldsEditor({
             };
           })
           .sort((a, b) => a.name.localeCompare(b.name, "ru"))}
+        copySourceOptions={entities
+          .map((item) => {
+            const leaf =
+              item.namePlural.trim() || item.name.trim() || "Без названия";
+            const path = getEntityPathLabel(item.id, entities);
+            return {
+              id: item.id,
+              name: path === leaf ? leaf : path,
+              tabs: item.tabs.map((tab) => ({
+                id: tab.id,
+                name: tab.name,
+                kind: tab.kind,
+                locked: tab.locked,
+                linkedEntityId: tab.linkedEntityId,
+              })),
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name, "ru"))}
+        usedLinkedEntityIds={entity.tabs
+          .filter(isEntityTabWithLinkedEntity)
+          .map((tab) => tab.linkedEntityId)
+          .filter((id): id is string => Boolean(id))}
         onOpenChange={(open) => {
           if (!open) setTabDialog({ mode: "closed" });
         }}
         onSubmit={(data) => {
           if (tabDialog.mode === "edit") {
             updateEntityTab(entity.id, tabDialog.tab.id, { name: data.name });
+            return;
+          }
+          if (data.kind === "copy" && data.sourceEntityId && data.sourceTabId) {
+            const tab = addEntityTabFromSource(entity.id, {
+              sourceEntityId: data.sourceEntityId,
+              sourceTabId: data.sourceTabId,
+              name: data.name,
+            });
+            if (tab) setActiveTabId(tab.id);
             return;
           }
           if (data.kind === "entity") {
@@ -4522,6 +4554,7 @@ export function EntityFieldsEditor({
             if (tab) setActiveTabId(tab.id);
             return;
           }
+          if (data.kind === "copy") return;
           const tab = addEntityTab(entity.id, {
             name: data.name,
             kind: data.kind,

@@ -3,6 +3,7 @@ import type {
   AutomationConditionRule,
   AutomationConditions,
 } from "../model/conditions";
+import { folderHasFiles, folderIsEmpty } from "./folder-files-condition";
 
 export type AutomationConditionEvalContext = {
   /** Current field values of the record under test. */
@@ -121,6 +122,10 @@ function matchRule(
       }
       return current !== previous;
     }
+    case "folderHasFiles":
+      return folderHasFiles(current, rule.value ?? "");
+    case "folderEmpty":
+      return folderIsEmpty(current, rule.value ?? "");
   }
 }
 

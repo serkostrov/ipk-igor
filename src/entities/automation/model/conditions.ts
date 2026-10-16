@@ -27,10 +27,26 @@ export const AUTOMATION_CONDITION_OPERATORS = [
   "false",
   "fieldChanged",
   "fieldTransition",
+  /** Named folder (files tab / file field) has at least one direct file. */
+  "folderHasFiles",
+  /** Named folder has no direct files (missing folder counts as empty). */
+  "folderEmpty",
 ] as const;
 
 export type AutomationConditionOperator =
   (typeof AUTOMATION_CONDITION_OPERATORS)[number];
+
+/** Operators that inspect a folder inside a files tree value. */
+export const AUTOMATION_FOLDER_FILE_OPERATORS: readonly AutomationConditionOperator[] =
+  ["folderHasFiles", "folderEmpty"];
+
+export function isAutomationFolderFileOperator(
+  operator: string,
+): operator is "folderHasFiles" | "folderEmpty" {
+  return (AUTOMATION_FOLDER_FILE_OPERATORS as readonly string[]).includes(
+    operator,
+  );
+}
 
 export type AutomationConditionRule = {
   kind: "rule";
@@ -181,4 +197,6 @@ export const AUTOMATION_CONDITION_OPERATOR_LABELS: Record<
   false: "нет",
   fieldChanged: "изменилось",
   fieldTransition: "переход",
+  folderHasFiles: "есть файлы в папке",
+  folderEmpty: "папка пуста",
 };

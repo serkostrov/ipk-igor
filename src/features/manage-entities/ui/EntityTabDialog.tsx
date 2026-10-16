@@ -18,22 +18,30 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import {
+  isEntityOverviewTab,
+  isEntityTabWithLinkedEntity,
   normalizeEntityRecordColumns,
   normalizeEntityRecordsDisplay,
   normalizeEntityTabKind,
   type EntityRecordColumns,
   type EntityRecordsDisplay,
+  type EntityTab,
   type EntityTabKind,
 } from "@/entities/entity";
 import { EntityRecordsDisplayFields } from "./EntityRecordsDisplayFields";
 
 export type EntityTabEntitySource = "new" | "existing";
 
+/** Create-only wizard kind — materializes into a real `EntityTabKind` on submit. */
+export type EntityTabCreateKind = EntityTabKind | "copy";
+
 export type EntityTabFormPayload = {
   name: string;
-  kind: EntityTabKind;
+  kind: EntityTabKind | "copy";
   entitySource?: EntityTabEntitySource;
   linkedEntityId?: string;
+  sourceEntityId?: string;
+  sourceTabId?: string;
   recordsDisplay?: EntityRecordsDisplay;
   recordColumns?: EntityRecordColumns;
 };
@@ -45,6 +53,14 @@ export type EntityTabEntityOption = {
   recordColumns?: EntityRecordColumns;
 };
 
+export type EntityTabCopySourceOption = {
+  id: string;
+  name: string;
+  tabs: Array<
+    Pick<EntityTab, "id" | "name" | "kind" | "locked" | "linkedEntityId">
+  >;
+};
+
 type EntityTabDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -52,13 +68,35 @@ type EntityTabDialogProps = {
   initialKind?: EntityTabKind;
   mode?: "create" | "edit";
   entityOptions?: EntityTabEntityOption[];
+  /** Entities whose tabs can be used as a copy source. */
+  copySourceOptions?: EntityTabCopySourceOption[];
+  /** Linked entity ids already used by entity-tabs on the target. */
+  usedLinkedEntityIds?: readonly string[];
   onSubmit: (data: EntityTabFormPayload) => void;
 };
 
 const DEFAULT_RECORDS_DISPLAY: EntityRecordsDisplay = "cards";
 const DEFAULT_RECORD_COLUMNS: EntityRecordColumns = 2;
 
-const TAB_KIND_LABELS: Record<EntityTabKind, string> = {
+const TAB_KIND_LABELS: Record<EntityTabCreateKind, string> = {
+  fields: "Поля",
+  records: "Записи",
+  files: "Файлы",
+  history: "История",
+  entity: "Сущность",
+  copy: "Копия",
+};
+
+const TAB_KIND_ORDER: EntityTabCreateKind[] = [
+  "fields",
+  "records",
+  "files",
+  "history",
+  "entity",
+  "copy",
+];
+
+const SOURCE_TAB_KIND_LABELS: Record<EntityTabKind, string> = {
   fields: "Поля",
   records: "Записи",
   files: "Файлы",
@@ -66,19 +104,28 @@ const TAB_KIND_LABELS: Record<EntityTabKind, string> = {
   entity: "Сущность",
 };
 
-const TAB_KIND_ORDER: EntityTabKind[] = [
-  "fields",
-  "records",
-  "files",
-  "history",
-  "entity",
-];
+function isCopyableSourceTab(
+  tab: Pick<EntityTab, "kind" | "locked" | "id" | "linkedEntityId">,
+  usedLinkedEntityIds: Set<string>,
+) {
+  if (isEntityOverviewTab(tab)) return false;
+  if (
+    isEntityTabWithLinkedEntity(tab) &&
+    tab.linkedEntityId &&
+    usedLinkedEntityIds.has(tab.linkedEntityId)
+  ) {
+    return false;
+  }
+  return true;
+}
 
 function EntityTabForm({
   mode,
   initialName,
   initialKind = "fields",
   entityOptions = [],
+  copySourceOptions = [],
+  usedLinkedEntityIds = [],
   onCancel,
   onSubmit,
 }: {
@@ -86,11 +133,18 @@ function EntityTabForm({
   initialName: string;
   initialKind: EntityTabKind;
   entityOptions: EntityTabEntityOption[];
+  copySourceOptions: EntityTabCopySourceOption[];
+  usedLinkedEntityIds: readonly string[];
   onCancel: () => void;
   onSubmit: (data: EntityTabFormPayload) => void;
 }) {
+  const usedLinkedSet = useMemo(
+    () => new Set(usedLinkedEntityIds),
+    [usedLinkedEntityIds],
+  );
+
   const [name, setName] = useState(initialName);
-  const [kind, setKind] = useState<EntityTabKind>(
+  const [kind, setKind] = useState<EntityTabCreateKind>(
     mode === "edit" ? initialKind : "fields",
   );
   const [entitySource, setEntitySource] =
@@ -98,6 +152,8 @@ function EntityTabForm({
   const [linkedEntityId, setLinkedEntityId] = useState(
     entityOptions[0]?.id ?? "",
   );
+  const [sourceEntityId, setSourceEntityId] = useState("");
+  const [sourceTabId, setSourceTabId] = useState("");
   const [recordsDisplay, setRecordsDisplay] = useState<EntityRecordsDisplay>(
     DEFAULT_RECORDS_DISPLAY,
   );
@@ -106,6 +162,7 @@ function EntityTabForm({
   );
   const isEdit = mode === "edit";
   const isEntityTab = kind === "entity";
+  const isCopyTab = kind === "copy";
   const isExisting = isEntityTab && entitySource === "existing";
 
   const selectedEntity = useMemo(
@@ -113,9 +170,33 @@ function EntityTabForm({
     [entityOptions, linkedEntityId],
   );
 
-  const canSubmit = isExisting
-    ? linkedEntityId.trim().length > 0
-    : name.trim().length > 0;
+  const copyableSources = useMemo(() => {
+    return copySourceOptions
+      .map((source) => ({
+        ...source,
+        tabs: source.tabs.filter((tab) =>
+          isCopyableSourceTab(tab, usedLinkedSet),
+        ),
+      }))
+      .filter((source) => source.tabs.length > 0);
+  }, [copySourceOptions, usedLinkedSet]);
+
+  const selectedSourceEntity = useMemo(
+    () => copyableSources.find((item) => item.id === sourceEntityId) ?? null,
+    [copyableSources, sourceEntityId],
+  );
+
+  const selectedSourceTab = useMemo(
+    () =>
+      selectedSourceEntity?.tabs.find((tab) => tab.id === sourceTabId) ?? null,
+    [selectedSourceEntity, sourceTabId],
+  );
+
+  const canSubmit = isCopyTab
+    ? Boolean(sourceEntityId && sourceTabId)
+    : isExisting
+      ? linkedEntityId.trim().length > 0
+      : name.trim().length > 0;
 
   function applyDisplayFromOption(option: EntityTabEntityOption | null) {
     if (!option) {
@@ -135,10 +216,40 @@ function EntityTabForm({
     );
   }
 
+  function selectCopySourceEntity(nextId: string) {
+    setSourceEntityId(nextId);
+    const source = copyableSources.find((item) => item.id === nextId);
+    const firstTab = source?.tabs[0];
+    setSourceTabId(firstTab?.id ?? "");
+    if (!name.trim() && firstTab) {
+      setName(firstTab.name);
+    }
+  }
+
+  function selectCopySourceTab(nextId: string) {
+    setSourceTabId(nextId);
+    const tab = selectedSourceEntity?.tabs.find((item) => item.id === nextId);
+    if (tab && (!name.trim() || name === selectedSourceTab?.name)) {
+      setName(tab.name);
+    }
+  }
+
   function submit() {
     if (!canSubmit) return;
     if (isEdit) {
       onSubmit({ name: name.trim(), kind: initialKind });
+      onCancel();
+      return;
+    }
+
+    if (kind === "copy") {
+      if (!sourceEntityId || !sourceTabId) return;
+      onSubmit({
+        name: name.trim() || selectedSourceTab?.name || "Новая вкладка",
+        kind: "copy",
+        sourceEntityId,
+        sourceTabId,
+      });
       onCancel();
       return;
     }
@@ -175,7 +286,7 @@ function EntityTabForm({
         <DialogDescription>
           {isEdit
             ? "Измените название вкладки."
-            : "Поля, записи, файлы или связанная сущность."}
+            : "Поля, записи, файлы, связанная сущность или копия вкладки."}
         </DialogDescription>
       </DialogHeader>
 
@@ -187,6 +298,20 @@ function EntityTabForm({
               <Select
                 value={kind}
                 onValueChange={(value) => {
+                  if (value === "copy") {
+                    setKind("copy");
+                    const first = copyableSources[0];
+                    if (first) {
+                      setSourceEntityId(first.id);
+                      const firstTab = first.tabs[0];
+                      setSourceTabId(firstTab?.id ?? "");
+                      if (!name.trim() && firstTab) setName(firstTab.name);
+                    } else {
+                      setSourceEntityId("");
+                      setSourceTabId("");
+                    }
+                    return;
+                  }
                   if (value === normalizeEntityTabKind(value)) {
                     setKind(value);
                     if (value === "entity" && entitySource === "existing") {
@@ -216,6 +341,76 @@ function EntityTabForm({
                 </SelectContent>
               </Select>
             </div>
+          ) : null}
+
+          {!isEdit && isCopyTab ? (
+            <>
+              <div className="flex flex-col gap-2">
+                <Label>Сущность</Label>
+                {copyableSources.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+                    Нет вкладок, которые можно скопировать.
+                  </p>
+                ) : (
+                  <Select
+                    value={sourceEntityId || undefined}
+                    onValueChange={(value) => {
+                      if (value == null) return;
+                      selectCopySourceEntity(String(value));
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>
+                        {selectedSourceEntity?.name ?? "Выберите сущность"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {copyableSources.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label>Вкладка</Label>
+                {!selectedSourceEntity ? (
+                  <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+                    Сначала выберите сущность.
+                  </p>
+                ) : (
+                  <Select
+                    value={sourceTabId || undefined}
+                    onValueChange={(value) => {
+                      if (value == null) return;
+                      selectCopySourceTab(String(value));
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>
+                        {selectedSourceTab
+                          ? `${selectedSourceTab.name} · ${SOURCE_TAB_KIND_LABELS[selectedSourceTab.kind]}`
+                          : "Выберите вкладку"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {selectedSourceEntity.tabs.map((tab) => (
+                        <SelectItem key={tab.id} value={tab.id}>
+                          {tab.name}
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · {SOURCE_TAB_KIND_LABELS[tab.kind]}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </>
           ) : null}
 
           {!isEdit && isEntityTab ? (
@@ -293,32 +488,40 @@ function EntityTabForm({
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="entity-tab-name">
-              {isExisting ? "Название вкладки" : "Название"}
+              {isExisting || isCopyTab ? "Название вкладки" : "Название"}
             </Label>
             <Input
               id="entity-tab-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder={
-                isExisting
-                  ? selectedEntity?.name || "Например, Контакты"
-                  : isEntityTab
-                    ? "Например, Счета"
-                    : kind === "records"
-                      ? "Например, Комментарии"
-                      : kind === "files"
-                        ? "Например, Документы"
-                        : kind === "history"
-                          ? "Например, История"
-                          : "Например, Детали"
+                isCopyTab
+                  ? selectedSourceTab?.name || "Как у исходной вкладки"
+                  : isExisting
+                    ? selectedEntity?.name || "Например, Контакты"
+                    : isEntityTab
+                      ? "Например, Счета"
+                      : kind === "records"
+                        ? "Например, Комментарии"
+                        : kind === "files"
+                          ? "Например, Документы"
+                          : kind === "history"
+                            ? "Например, История"
+                            : "Например, Детали"
               }
-              autoFocus={!isExisting}
+              autoFocus={!isExisting && !isCopyTab}
               onKeyDown={(event) => {
                 if (event.key !== "Enter") return;
                 event.preventDefault();
                 submit();
               }}
             />
+            {!isEdit && isCopyTab ? (
+              <p className="text-xs text-muted-foreground">
+                Создаётся такая же вкладка: тип и настройки (папки, связь)
+                копируются. Содержимое записей не переносится.
+              </p>
+            ) : null}
             {!isEdit && isEntityTab ? (
               <p className="text-xs text-muted-foreground">
                 {isExisting
@@ -379,6 +582,8 @@ export function EntityTabDialog({
   initialKind = "fields",
   mode = "create",
   entityOptions = [],
+  copySourceOptions = [],
+  usedLinkedEntityIds = [],
   onSubmit,
 }: EntityTabDialogProps) {
   return (
@@ -386,11 +591,13 @@ export function EntityTabDialog({
       <DialogContent className="sm:max-w-md">
         {open ? (
           <EntityTabForm
-            key={`${mode}-${initialName}-${initialKind}-${entityOptions.length}`}
+            key={`${mode}-${initialName}-${initialKind}-${entityOptions.length}-${copySourceOptions.length}`}
             mode={mode}
             initialName={initialName}
             initialKind={initialKind}
             entityOptions={entityOptions}
+            copySourceOptions={copySourceOptions}
+            usedLinkedEntityIds={usedLinkedEntityIds}
             onCancel={() => onOpenChange(false)}
             onSubmit={onSubmit}
           />

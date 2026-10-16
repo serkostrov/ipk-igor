@@ -1053,6 +1053,64 @@ export function addEntityTab(
   return tab;
 }
 
+/**
+ * Create a tab by copying structure from another entity’s tab
+ * (kind, name, default folders, or entity link — not record content).
+ */
+export function addEntityTabFromSource(
+  entityId: string,
+  data: {
+    sourceEntityId: string;
+    sourceTabId: string;
+    name?: string;
+  },
+) {
+  const sourceEntity = config.entities.find(
+    (item) => item.id === data.sourceEntityId,
+  );
+  const sourceTab = sourceEntity?.tabs.find(
+    (tab) => tab.id === data.sourceTabId,
+  );
+  if (!sourceEntity || !sourceTab || isEntityOverviewTab(sourceTab)) {
+    return null;
+  }
+
+  const name = data.name?.trim() || sourceTab.name;
+
+  if (isEntityTabWithLinkedEntity(sourceTab) && sourceTab.linkedEntityId) {
+    const linked = config.entities.find(
+      (item) => item.id === sourceTab.linkedEntityId,
+    );
+    return addEntityTabWithExistingEntity(entityId, {
+      linkedEntityId: sourceTab.linkedEntityId,
+      name,
+      recordsDisplay: linked
+        ? normalizeEntityRecordsDisplay(linked.recordsDisplay)
+        : undefined,
+      recordColumns: linked
+        ? normalizeEntityRecordColumns(linked.recordColumns)
+        : undefined,
+    });
+  }
+
+  if (sourceTab.kind === "files") {
+    return addEntityTab(entityId, {
+      name,
+      kind: "files",
+      defaultFolders: sourceTab.defaultFolders.map((folder) => ({
+        id: createId("folder"),
+        name: folder.name,
+        color: folder.color,
+      })),
+    });
+  }
+
+  return addEntityTab(entityId, {
+    name,
+    kind: sourceTab.kind,
+  });
+}
+
 /** Tab with its own entity schema and records linked to the parent record. */
 export function addEntityTabWithLinkedEntity(
   parentEntityId: string,

@@ -30,8 +30,10 @@ export {
   AUTOMATION_CONDITION_OPERATOR_LABELS,
   AUTOMATION_CONDITION_OPERATORS,
   AUTOMATION_CONDITIONS_VERSION,
+  AUTOMATION_FOLDER_FILE_OPERATORS,
   createAutomationConditionId,
   emptyAutomationConditions,
+  isAutomationFolderFileOperator,
   normalizeAutomationConditions,
   type AutomationConditionGroup,
   type AutomationConditionMatch,
@@ -40,6 +42,11 @@ export {
   type AutomationConditionRule,
   type AutomationConditions,
 } from "./model/conditions";
+export {
+  countDirectFilesInNamedFolder,
+  folderHasFiles,
+  folderIsEmpty,
+} from "./lib/folder-files-condition";
 export { IPK_NEW_AUTOMATION_MAPPING_VERSION } from "./model/ipk-new-mapping";
 export {
   AUTOMATION_TRIGGER_KIND_LABELS,

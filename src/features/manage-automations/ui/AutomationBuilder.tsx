@@ -354,14 +354,22 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {processScenarios.map((item) => (
-            <SelectItem key={item.id} value={item.id}>
-              {item.name}
-              {item.isDefault && !/основн|default|по умолчанию/i.test(item.name)
+          {processScenarios.map((item) => {
+            const hasEntryRules = item.entryConditions.rules.length > 0;
+            const suffix = item.isDefault
+              ? !/основн|default|по умолчанию/i.test(item.name)
                 ? " · по умолчанию"
-                : ""}
-            </SelectItem>
-          ))}
+                : ""
+              : hasEntryRules
+                ? ""
+                : " · нет условий";
+            return (
+              <SelectItem key={item.id} value={item.id}>
+                {item.name}
+                {suffix}
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
 
@@ -397,6 +405,12 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
             <p className="mb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
               Условия сценария
             </p>
+            {scenario.entryConditions.rules.length === 0 ? (
+              <p className="mb-2 text-xs text-amber-700 dark:text-amber-400">
+                Без условий этот сценарий не запускается — задачи берутся из
+                сценария по умолчанию.
+              </p>
+            ) : null}
             <ConditionGroupBuilder
               entity={entity}
               value={scenario.entryConditions}

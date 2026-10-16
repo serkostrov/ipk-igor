@@ -6,7 +6,11 @@ import {
   File,
   Folder,
   FolderPlus,
+  LayoutGrid,
+  LayoutList,
+  Paperclip,
   Pencil,
+  Search,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -179,6 +183,8 @@ export function RecordFilesTabPanel({
     DEFAULT_ENTITY_FOLDER_COLOR,
   );
   const [dragOver, setDragOver] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [folderQuery, setFolderQuery] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const seededRef = useRef(false);
@@ -225,10 +231,42 @@ export function RecordFilesTabPanel({
     return trail;
   }, [byId, resolvedFolderId]);
 
-  const visibleEntries = useMemo(() => {
-    const items = entries.filter(
-      (entry) => entry.parentId === resolvedFolderId,
+  const rootFolders = useMemo(() => {
+    return entries
+      .filter((entry) => entry.kind === "folder" && entry.parentId == null)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  }, [entries]);
+
+  const rootFolderQuery = folderQuery.trim().toLocaleLowerCase("ru");
+  const filteredRootFolders = useMemo(() => {
+    if (!rootFolderQuery) return rootFolders;
+    return rootFolders.filter((folder) =>
+      folder.name.toLocaleLowerCase("ru").includes(rootFolderQuery),
     );
+  }, [rootFolderQuery, rootFolders]);
+
+  /** Root folder highlighted in the sidebar (ancestor of current path). */
+  const sidebarRootId = useMemo(() => {
+    if (!resolvedFolderId) return null;
+    let cursor: string | null = resolvedFolderId;
+    let root: string | null = resolvedFolderId;
+    while (cursor) {
+      const item = byId.get(cursor);
+      if (!item || item.kind !== "folder") break;
+      root = item.id;
+      cursor = item.parentId;
+    }
+    return root;
+  }, [byId, resolvedFolderId]);
+
+  const visibleEntries = useMemo(() => {
+    // Root ("Без папки"): only loose files — folders live in the sidebar.
+    const items = entries.filter((entry) => {
+      if (entry.parentId !== resolvedFolderId) return false;
+      if (resolvedFolderId == null && entry.kind === "folder") return false;
+      return true;
+    });
     return items.sort((a, b) => {
       if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
       return a.name.localeCompare(b.name, "ru");
@@ -248,6 +286,13 @@ export function RecordFilesTabPanel({
     }
     return map;
   }, [entries]);
+
+  const rootLooseFiles = useMemo(
+    () =>
+      entries.filter((entry) => entry.kind === "file" && entry.parentId == null)
+        .length,
+    [entries],
+  );
 
   function persist(next: EntityTabFileEntry[]) {
     updateEntityRecord(entity.id, record.id, {
@@ -458,8 +503,6 @@ export function RecordFilesTabPanel({
     setError(null);
   }
 
-  const folderCount = visibleEntries.filter((e) => e.kind === "folder").length;
-  const fileCount = visibleEntries.filter((e) => e.kind === "file").length;
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const allVisibleSelected =
     visibleEntries.length > 0 &&
@@ -472,56 +515,280 @@ export function RecordFilesTabPanel({
       .filter((entry): entry is EntityTabFileEntry => entry != null);
   }, [byId, pendingDeleteIds]);
 
-  return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold tracking-tight text-foreground">
-            {tab.name}
-          </h2>
-          <nav
-            className="mt-1 flex min-w-0 items-center gap-0.5 text-xs text-muted-foreground"
-            aria-label="Путь"
+  const currentTitle =
+    currentFolder?.kind === "folder" ? currentFolder.name : "Без папки";
+  const itemSummary =
+    visibleEntries.length === 0
+      ? "0 элем."
+      : `${visibleEntries.length} ${pluralRu(visibleEntries.length, "элемент", "элемента", "элементов")}`;
+
+  function openCreateFolderDialog() {
+    setFolderName("Новая папка");
+    setFolderColor(DEFAULT_ENTITY_FOLDER_COLOR);
+    setFolderDialogOpen(true);
+  }
+
+  function renderEntryActions(entry: EntityTabFileEntry) {
+    const isFolder = entry.kind === "folder";
+    return (
+      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
+        {!isFolder ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-7 text-muted-foreground"
+            aria-label="Скачать"
+            disabled={busy}
+            onClick={() => void handleDownload(entry)}
           >
-            <button
-              type="button"
-              className={cn(
-                "truncate rounded px-1 py-0.5 transition-colors hover:bg-muted hover:text-foreground",
-                resolvedFolderId == null && "font-medium text-foreground",
-              )}
-              onClick={() => navigateToFolder(null)}
-            >
-              Главная
-            </button>
-            {breadcrumbs.map((crumb) => (
-              <span
-                key={crumb.id}
-                className="flex min-w-0 items-center gap-0.5"
+            <Download className="size-3.5" />
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-7 text-muted-foreground"
+          aria-label="Переименовать"
+          disabled={busy}
+          onClick={() =>
+            setRenameState({
+              entry,
+              name: entry.name,
+              color: resolveFolderColor(entry.color),
+            })
+          }
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-7 text-muted-foreground hover:text-destructive"
+          aria-label="Удалить"
+          disabled={busy}
+          onClick={() => setPendingDeleteIds([entry.id])}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    );
+  }
+
+  function activateEntry(
+    entry: EntityTabFileEntry,
+    event?: { metaKey?: boolean; ctrlKey?: boolean },
+  ) {
+    if (selectedCount > 0 || event?.metaKey || event?.ctrlKey) {
+      toggleSelected(entry.id);
+      return;
+    }
+    if (entry.kind === "folder") {
+      navigateToFolder(entry.id);
+      return;
+    }
+    void handleOpenFile(entry);
+  }
+
+  return (
+    <section className="flex min-h-[28rem] overflow-hidden rounded-xl border border-border bg-card">
+      {/* Folder sidebar */}
+      <aside className="flex w-[min(17.5rem,38%)] shrink-0 flex-col border-r border-border bg-muted/20">
+        <div className="flex items-center gap-1.5 border-b border-border/80 p-2.5">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={folderQuery}
+              onChange={(event) => setFolderQuery(event.target.value)}
+              placeholder="Поиск папок"
+              className="h-8 bg-background pl-8 text-sm"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            className="size-8 shrink-0"
+            aria-label="Новая папка"
+            title="Новая папка"
+            disabled={busy}
+            onClick={() => {
+              navigateToFolder(null);
+              openCreateFolderDialog();
+            }}
+          >
+            <FolderPlus className="size-3.5" />
+          </Button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
+              sidebarRootId == null
+                ? "bg-primary/10 text-foreground"
+                : "text-foreground/90 hover:bg-muted/80",
+            )}
+            onClick={() => navigateToFolder(null)}
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <LayoutGrid className="size-3.5" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              Без папки
+            </span>
+            <span className="tabular-nums text-xs text-muted-foreground">
+              {rootLooseFiles}
+            </span>
+          </button>
+
+          {filteredRootFolders.length > 0 ? (
+            <p className="mt-2 mb-1 px-2.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              Папки
+            </p>
+          ) : null}
+
+          <ul className="flex flex-col gap-0.5">
+            {filteredRootFolders.map((folder) => {
+              const accent = resolveFolderColor(folder.color);
+              const counts = childCounts.get(folder.id) ?? {
+                folders: 0,
+                files: 0,
+              };
+              const total = counts.folders + counts.files;
+              const active = sidebarRootId === folder.id;
+              return (
+                <li key={folder.id}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
+                      active
+                        ? "bg-primary/10 text-foreground"
+                        : "hover:bg-muted/80",
+                    )}
+                    onClick={() => navigateToFolder(folder.id)}
+                  >
+                    <span
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${accent} 16%, transparent)`,
+                        color: accent,
+                      }}
+                    >
+                      <Folder className="size-3.5 stroke-[1.5]" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {folder.name}
+                    </span>
+                    <span className="tabular-nums text-xs text-muted-foreground">
+                      {total}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          {rootFolders.length === 0 ? (
+            <div className="mt-6 px-3 text-center">
+              <p className="text-xs text-muted-foreground">
+                Папок пока нет — создайте первую
+              </p>
+            </div>
+          ) : filteredRootFolders.length === 0 ? (
+            <p className="mt-4 px-3 text-center text-xs text-muted-foreground">
+              Ничего не найдено
+            </p>
+          ) : null}
+        </div>
+      </aside>
+
+      {/* Content */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex flex-col gap-3 border-b border-border px-4 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="truncate text-base font-semibold tracking-tight">
+                  {currentTitle}
+                </h2>
+                <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                  {itemSummary}
+                </span>
+              </div>
+              <nav
+                className="mt-1 flex min-w-0 items-center gap-0.5 text-xs text-muted-foreground"
+                aria-label="Путь"
               >
-                <ChevronRight className="size-3 shrink-0 opacity-60" />
                 <button
                   type="button"
                   className={cn(
                     "truncate rounded px-1 py-0.5 transition-colors hover:bg-muted hover:text-foreground",
-                    crumb.id === resolvedFolderId &&
-                      "font-medium text-foreground",
+                    resolvedFolderId == null && "font-medium text-foreground",
                   )}
-                  onClick={() => navigateToFolder(crumb.id)}
+                  onClick={() => navigateToFolder(null)}
                 >
-                  {crumb.name}
+                  Без папки
                 </button>
-              </span>
-            ))}
-          </nav>
-        </div>
+                {breadcrumbs.map((crumb) => (
+                  <span
+                    key={crumb.id}
+                    className="flex min-w-0 items-center gap-0.5"
+                  >
+                    <ChevronRight className="size-3 shrink-0 opacity-60" />
+                    <button
+                      type="button"
+                      className={cn(
+                        "truncate rounded px-1 py-0.5 transition-colors hover:bg-muted hover:text-foreground",
+                        crumb.id === resolvedFolderId &&
+                          "font-medium text-foreground",
+                      )}
+                      onClick={() => navigateToFolder(crumb.id)}
+                    >
+                      {crumb.name}
+                    </button>
+                  </span>
+                ))}
+              </nav>
+            </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
-          <span className="text-sm text-muted-foreground">
-            {visibleEntries.length === 0
-              ? "0 элементов"
-              : formatFolderContents(folderCount, fileCount)}
-          </span>
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <div className="flex items-center gap-0.5 rounded-lg border border-border/80 bg-muted/40 p-0.5">
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
+                  viewMode === "list"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                aria-pressed={viewMode === "list"}
+                onClick={() => setViewMode("list")}
+              >
+                <LayoutList className="size-3.5" />
+                Список
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
+                  viewMode === "grid"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                aria-pressed={viewMode === "grid"}
+                onClick={() => setViewMode("grid")}
+              >
+                <LayoutGrid className="size-3.5" />
+                Плитка
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
             {selectedCount > 0 ? (
               <>
                 <span className="mr-1 text-xs text-muted-foreground">
@@ -562,36 +829,34 @@ export function RecordFilesTabPanel({
               <>
                 <Button
                   type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy || visibleEntries.length === 0}
-                  onClick={selectAllVisible}
-                >
-                  Выбрать все
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => {
-                    setFolderName("Новая папка");
-                    setFolderColor(DEFAULT_ENTITY_FOLDER_COLOR);
-                    setFolderDialogOpen(true);
-                  }}
-                >
-                  <FolderPlus className="size-3.5" />
-                  Папка
-                </Button>
-                <Button
-                  type="button"
                   size="sm"
                   disabled={busy}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload className="size-3.5" />
-                  Загрузить
+                  Файл
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={openCreateFolderDialog}
+                >
+                  <FolderPlus className="size-3.5" />
+                  Папка
+                </Button>
+                {visibleEntries.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={selectAllVisible}
+                  >
+                    Выбрать все
+                  </Button>
+                ) : null}
               </>
             )}
             <input
@@ -602,229 +867,278 @@ export function RecordFilesTabPanel({
               onChange={(event) => void handleUpload(event.target.files)}
             />
           </div>
-        </div>
-      </header>
+        </header>
 
-      <div className="flex flex-col gap-3 p-4">
-        {error ? (
-          <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-
-        <div
-          className={cn(
-            // Grow with content; cap at ~3 tile rows, then scroll.
-            // tile ≈ 6.5rem, gap-2 = 0.5rem, padding p-2 = 1rem
-            "relative max-h-[calc(3*6.5rem+2*0.5rem+1rem)] overflow-y-auto rounded-xl border border-dashed transition-colors",
-            dragOver ? "border-primary bg-primary/5" : "border-border/80",
-            busy && "pointer-events-none opacity-70",
-          )}
-          onDragEnter={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            dragDepthRef.current += 1;
-            if (event.dataTransfer.types.includes("Files")) {
-              setDragOver(true);
-            }
-          }}
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (event.dataTransfer.types.includes("Files")) {
-              event.dataTransfer.dropEffect = "copy";
-            }
-          }}
-          onDragLeave={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-            if (dragDepthRef.current === 0) setDragOver(false);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            dragDepthRef.current = 0;
-            setDragOver(false);
-            void handleUpload(event.dataTransfer.files);
-          }}
-        >
-          {dragOver ? (
-            <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-xl bg-primary/5">
-              <span className="flex size-10 items-center justify-center rounded-xl border border-primary/40 text-primary">
-                <Upload className="size-5" />
-              </span>
-              <p className="text-sm font-medium text-foreground">
-                Отпустите, чтобы загрузить
-              </p>
-            </div>
+        <div className="flex min-h-0 flex-1 flex-col p-3">
+          {error ? (
+            <p className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
           ) : null}
 
-          {visibleEntries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-12 text-center">
-              <p className="text-sm font-medium text-foreground">Папка пуста</p>
-              <p className="max-w-sm text-sm text-muted-foreground">
-                Перетащите файлы сюда или создайте папку.
-              </p>
-            </div>
-          ) : (
-            <ul className="flex flex-wrap content-start gap-2 p-2">
-              {visibleEntries.map((entry) => {
-                const isFolder = entry.kind === "folder";
-                const selected = selectedSet.has(entry.id);
-                const counts = childCounts.get(entry.id) ?? {
-                  folders: 0,
-                  files: 0,
-                };
-                const meta = isFolder
-                  ? formatFolderContents(counts.folders, counts.files)
-                  : formatEntityFileSize(entry.size) ||
-                    formatEntryTime(entry.createdAt) ||
-                    "Файл";
-                const folderAccent = isFolder
-                  ? resolveFolderColor(entry.color)
-                  : null;
+          <div
+            className={cn(
+              "relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-dashed transition-colors",
+              dragOver ? "border-primary bg-primary/5" : "border-border/70",
+              busy && "pointer-events-none opacity-70",
+            )}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              dragDepthRef.current += 1;
+              if (event.dataTransfer.types.includes("Files")) {
+                setDragOver(true);
+              }
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (event.dataTransfer.types.includes("Files")) {
+                event.dataTransfer.dropEffect = "copy";
+              }
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+              if (dragDepthRef.current === 0) setDragOver(false);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              dragDepthRef.current = 0;
+              setDragOver(false);
+              void handleUpload(event.dataTransfer.files);
+            }}
+          >
+            {dragOver ? (
+              <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-xl bg-primary/5 backdrop-blur-[1px]">
+                <span className="flex size-12 items-center justify-center rounded-2xl border border-primary/35 bg-background text-primary shadow-sm">
+                  <Upload className="size-5" />
+                </span>
+                <p className="text-sm font-medium text-foreground">
+                  Отпустите, чтобы загрузить
+                </p>
+              </div>
+            ) : null}
 
-                return (
-                  <li key={entry.id} className="h-[6.5rem] w-[6.25rem]">
-                    <div
-                      className={cn(
-                        "group/file relative size-full overflow-hidden rounded-xl border transition-colors",
-                        selected
-                          ? "border-primary ring-1 ring-primary/25"
-                          : "border-border/70 hover:border-foreground/20",
-                        !isFolder && "bg-muted/35",
-                        !isFolder && selected && "bg-primary/[0.05]",
-                      )}
-                      style={
-                        folderAccent
-                          ? {
-                              backgroundColor: `color-mix(in srgb, ${folderAccent} ${selected ? "18%" : "12%"}, transparent)`,
-                            }
-                          : undefined
-                      }
-                    >
-                      <button
-                        type="button"
+            {visibleEntries.length === 0 ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-16 text-center">
+                <span className="flex size-14 items-center justify-center rounded-2xl border border-border/70 bg-muted/40 text-muted-foreground">
+                  <Paperclip className="size-6 stroke-[1.5]" />
+                </span>
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium text-foreground">
+                    Перетащите файлы сюда
+                  </p>
+                  <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+                    Или загрузите через кнопки — файлы появятся в текущей папке
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="size-3.5" />
+                    Загрузить файл
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={openCreateFolderDialog}
+                  >
+                    <FolderPlus className="size-3.5" />
+                    Создать папку
+                  </Button>
+                </div>
+              </div>
+            ) : viewMode === "list" ? (
+              <ul className="min-h-0 flex-1 overflow-y-auto p-1.5">
+                {visibleEntries.map((entry) => {
+                  const isFolder = entry.kind === "folder";
+                  const selected = selectedSet.has(entry.id);
+                  const counts = childCounts.get(entry.id) ?? {
+                    folders: 0,
+                    files: 0,
+                  };
+                  const meta = isFolder
+                    ? formatFolderContents(counts.folders, counts.files)
+                    : [
+                        formatEntityFileSize(entry.size),
+                        formatEntryTime(entry.createdAt),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Файл";
+                  const folderAccent = isFolder
+                    ? resolveFolderColor(entry.color)
+                    : null;
+
+                  return (
+                    <li key={entry.id}>
+                      <div
                         className={cn(
-                          "absolute top-1.5 left-1.5 z-10 flex size-4 items-center justify-center rounded-[4px] border transition-opacity",
-                          selected
-                            ? "border-primary bg-primary text-primary-foreground opacity-100"
-                            : "border-border/80 bg-background/90 opacity-0 group-hover/file:opacity-100 focus-visible:opacity-100",
+                          "group/row flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+                          selected ? "bg-primary/10" : "hover:bg-muted/60",
                         )}
-                        aria-label={selected ? "Снять выбор" : "Выбрать"}
-                        aria-pressed={selected}
-                        disabled={busy}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleSelected(entry.id);
-                        }}
                       >
-                        {selected ? <Check className="size-2.5" /> : null}
-                      </button>
-
-                      <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 rounded-md border border-border/70 bg-background/95 p-0.5 opacity-0 shadow-sm transition-opacity group-hover/file:opacity-100 focus-within:opacity-100">
-                        {!isFolder ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="size-5 text-muted-foreground"
-                            aria-label="Скачать"
-                            disabled={busy}
-                            onClick={() => void handleDownload(entry)}
-                          >
-                            <Download className="size-3" />
-                          </Button>
-                        ) : null}
-                        <Button
+                        <button
                           type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="size-5 text-muted-foreground"
-                          aria-label="Переименовать"
-                          disabled={busy}
-                          onClick={() =>
-                            setRenameState({
-                              entry,
-                              name: entry.name,
-                              color: resolveFolderColor(entry.color),
-                            })
-                          }
-                        >
-                          <Pencil className="size-3" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="size-5 text-muted-foreground hover:text-destructive"
-                          aria-label="Удалить"
-                          disabled={busy}
-                          onClick={() => setPendingDeleteIds([entry.id])}
-                        >
-                          <Trash2 className="size-3" />
-                        </Button>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="flex size-full flex-col items-center justify-center gap-1 px-2 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                        onClick={(event) => {
-                          if (
-                            selectedCount > 0 ||
-                            event.metaKey ||
-                            event.ctrlKey
-                          ) {
-                            toggleSelected(entry.id);
-                            return;
-                          }
-                          if (isFolder) {
-                            navigateToFolder(entry.id);
-                            return;
-                          }
-                          void handleOpenFile(entry);
-                        }}
-                        onDoubleClick={() => {
-                          if (isFolder) navigateToFolder(entry.id);
-                        }}
-                      >
-                        <span
                           className={cn(
-                            "flex size-8 shrink-0 items-center justify-center",
-                            !isFolder && "text-muted-foreground",
+                            "flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+                            selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border/80 bg-background",
                           )}
-                          style={
-                            folderAccent ? { color: folderAccent } : undefined
-                          }
+                          aria-label={selected ? "Снять выбор" : "Выбрать"}
+                          aria-pressed={selected}
+                          disabled={busy}
+                          onClick={() => toggleSelected(entry.id)}
                         >
-                          {isFolder ? (
-                            <Folder className="size-7 stroke-[1.5]" />
-                          ) : (
-                            <File className="size-7 stroke-[1.5]" />
-                          )}
-                        </span>
-                        <span className="flex min-w-0 flex-col gap-0.5">
+                          {selected ? <Check className="size-2.5" /> : null}
+                        </button>
+
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
+                          onClick={(event) => activateEntry(entry, event)}
+                        >
                           <span
-                            className="line-clamp-2 text-[11px] leading-snug font-medium break-all text-foreground"
+                            className={cn(
+                              "flex size-8 shrink-0 items-center justify-center rounded-md",
+                              !isFolder && "bg-muted/70 text-muted-foreground",
+                            )}
+                            style={
+                              folderAccent
+                                ? {
+                                    backgroundColor: `color-mix(in srgb, ${folderAccent} 14%, transparent)`,
+                                    color: folderAccent,
+                                  }
+                                : undefined
+                            }
+                          >
+                            {isFolder ? (
+                              <Folder className="size-4 stroke-[1.5]" />
+                            ) : (
+                              <File className="size-4 stroke-[1.5]" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span
+                              className="block truncate text-sm font-medium text-foreground"
+                              title={entry.name}
+                            >
+                              {entry.name}
+                            </span>
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {meta}
+                            </span>
+                          </span>
+                          {isFolder ? (
+                            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/70" />
+                          ) : null}
+                        </button>
+
+                        {renderEntryActions(entry)}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <ul className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto p-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+                {visibleEntries.map((entry) => {
+                  const isFolder = entry.kind === "folder";
+                  const selected = selectedSet.has(entry.id);
+                  const counts = childCounts.get(entry.id) ?? {
+                    folders: 0,
+                    files: 0,
+                  };
+                  const meta = isFolder
+                    ? formatFolderContents(counts.folders, counts.files)
+                    : formatEntityFileSize(entry.size) ||
+                      formatEntryTime(entry.createdAt) ||
+                      "Файл";
+                  const folderAccent = isFolder
+                    ? resolveFolderColor(entry.color)
+                    : null;
+
+                  return (
+                    <li key={entry.id}>
+                      <div
+                        className={cn(
+                          "group/row relative flex h-full min-h-[7.25rem] flex-col overflow-hidden rounded-xl border transition-colors",
+                          selected
+                            ? "border-primary ring-1 ring-primary/25"
+                            : "border-border/70 hover:border-foreground/15",
+                          !isFolder && "bg-muted/25",
+                        )}
+                        style={
+                          folderAccent
+                            ? {
+                                backgroundColor: `color-mix(in srgb, ${folderAccent} ${selected ? "16%" : "10%"}, transparent)`,
+                              }
+                            : undefined
+                        }
+                      >
+                        <button
+                          type="button"
+                          className={cn(
+                            "absolute top-2 left-2 z-10 flex size-4 items-center justify-center rounded-[4px] border",
+                            selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border/80 bg-background/90 opacity-0 group-hover/row:opacity-100",
+                          )}
+                          aria-label={selected ? "Снять выбор" : "Выбрать"}
+                          disabled={busy}
+                          onClick={() => toggleSelected(entry.id)}
+                        >
+                          {selected ? <Check className="size-2.5" /> : null}
+                        </button>
+                        <div className="absolute top-1.5 right-1.5 z-10">
+                          {renderEntryActions(entry)}
+                        </div>
+                        <button
+                          type="button"
+                          className="flex flex-1 flex-col items-center justify-center gap-1.5 px-3 py-4 text-center"
+                          onClick={(event) => activateEntry(entry, event)}
+                        >
+                          <span
+                            className={cn(
+                              "flex size-10 items-center justify-center",
+                              !isFolder && "text-muted-foreground",
+                            )}
+                            style={
+                              folderAccent ? { color: folderAccent } : undefined
+                            }
+                          >
+                            {isFolder ? (
+                              <Folder className="size-8 stroke-[1.4]" />
+                            ) : (
+                              <File className="size-8 stroke-[1.4]" />
+                            )}
+                          </span>
+                          <span
+                            className="line-clamp-2 text-xs font-medium break-all"
                             title={entry.name}
                           >
                             {entry.name}
                           </span>
-                          <span
-                            className="truncate text-[10px] leading-none text-muted-foreground"
-                            title={meta}
-                          >
+                          <span className="text-[10px] text-muted-foreground">
                             {meta}
                           </span>
-                        </span>
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
 

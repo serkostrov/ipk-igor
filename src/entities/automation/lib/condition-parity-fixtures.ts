@@ -144,6 +144,69 @@ export const AUTOMATION_CONDITION_PARITY_CASES: ConditionParityCase[] = [
     values: { note: "" },
     expected: true,
   },
+  {
+    id: "folder-has-files",
+    conditions: {
+      version: 1,
+      match: "all",
+      rules: [
+        {
+          kind: "rule",
+          id: "r1",
+          fieldId: "__tab_files__:tab-docs",
+          operator: "folderHasFiles",
+          value: "Договоры",
+        },
+      ],
+    },
+    values: {
+      "__tab_files__:tab-docs": JSON.stringify([
+        {
+          id: "f1",
+          name: "Договоры",
+          kind: "folder",
+          parentId: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "file1",
+          name: "a.pdf",
+          kind: "file",
+          parentId: "f1",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ]),
+    },
+    expected: true,
+  },
+  {
+    id: "folder-empty",
+    conditions: {
+      version: 1,
+      match: "all",
+      rules: [
+        {
+          kind: "rule",
+          id: "r1",
+          fieldId: "__tab_files__:tab-docs",
+          operator: "folderEmpty",
+          value: "Договоры",
+        },
+      ],
+    },
+    values: {
+      "__tab_files__:tab-docs": JSON.stringify([
+        {
+          id: "f1",
+          name: "Договоры",
+          kind: "folder",
+          parentId: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ]),
+    },
+    expected: true,
+  },
 ];
 
 /** Evaluate all fixtures with the TS matcher (smoke / CI helper). */

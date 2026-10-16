@@ -367,6 +367,7 @@ export {
   addEntityRecord,
   appendEntityRecord,
   addEntityTab,
+  addEntityTabFromSource,
   addEntityTabWithExistingEntity,
   addEntityTabWithLinkedEntity,
   dissolveEntityFieldGroup,
