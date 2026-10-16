@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
@@ -25,6 +26,8 @@ import {
   defaultAssigneeResolver,
   defaultDecisionOutcomes,
   emptyAutomationConditions,
+  emptyAutomationOutcomeFieldAccess,
+  normalizeAutomationOutcomeFieldAccess,
   removeNotificationRule,
   saveNotificationRule,
   type AutomationNotificationEvent,
@@ -36,12 +39,155 @@ import {
 import { AssigneeEditor } from "@/entities/automation/ui/AssigneeEditor";
 import {
   getEntityFieldDisplayName,
+  isEntityRecordsTab,
   type Entity,
   type EntityField,
 } from "@/entities/entity";
+import {
+  lockDragSelection,
+  unlockDragSelection,
+} from "@/shared/lib/drag-selection";
 import { ActionPipelineEditor } from "./ActionPipelineEditor";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
+import { TemplateFieldInput } from "./TemplateFieldInput";
 import { cn } from "@/shared/lib/cn";
+
+const OUTCOME_FIELD_MIME = "application/x-ipk-outcome-field";
+
+const fieldLayoutTransition = {
+  type: "spring" as const,
+  stiffness: 420,
+  damping: 36,
+  mass: 0.55,
+};
+
+const dropIndicatorTransition = {
+  type: "spring" as const,
+  stiffness: 520,
+  damping: 32,
+  mass: 0.4,
+};
+
+function reorderFieldIds(
+  ids: string[],
+  fieldId: string,
+  beforeFieldId: string | null,
+) {
+  const without = ids.filter((id) => id !== fieldId);
+  if (beforeFieldId == null) return [...without, fieldId];
+  const index = without.indexOf(beforeFieldId);
+  if (index < 0) return [...without, fieldId];
+  return [...without.slice(0, index), fieldId, ...without.slice(index)];
+}
+
+function getDropEdge(event: DragEvent<HTMLElement>): "before" | "after" {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+}
+
+function setFieldDragPreview(event: DragEvent, source: HTMLElement) {
+  const rect = source.getBoundingClientRect();
+  const ghost = source.cloneNode(true) as HTMLElement;
+  ghost.querySelectorAll("button, input, label").forEach((node) => {
+    node.remove();
+  });
+  ghost.setAttribute("aria-hidden", "true");
+  Object.assign(ghost.style, {
+    position: "fixed",
+    top: "-1000px",
+    left: "-1000px",
+    width: `${rect.width}px`,
+    margin: "0",
+    pointerEvents: "none",
+    zIndex: "99999",
+    opacity: "1",
+    transform: "rotate(1deg)",
+    boxShadow:
+      "0 14px 32px -14px rgb(0 0 0 / 0.35), 0 0 0 1px color-mix(in oklab, var(--primary) 35%, transparent)",
+    borderColor: "color-mix(in oklab, var(--primary) 45%, transparent)",
+    background: "var(--card)",
+  });
+  document.body.appendChild(ghost);
+  const offsetX = Math.min(
+    Math.max(event.clientX - rect.left, 10),
+    Math.max(rect.width - 10, 10),
+  );
+  const offsetY = Math.min(
+    Math.max(event.clientY - rect.top, 10),
+    Math.max(rect.height - 10, 10),
+  );
+  event.dataTransfer.setDragImage(ghost, offsetX, offsetY);
+  requestAnimationFrame(() => {
+    ghost.remove();
+  });
+}
+
+function FieldDropIndicator({ edge }: { edge: "before" | "after" }) {
+  return (
+    <motion.span
+      aria-hidden
+      initial={{ opacity: 0, scaleX: 0.82 }}
+      animate={{ opacity: 1, scaleX: 1 }}
+      exit={{ opacity: 0, scaleX: 0.9 }}
+      transition={dropIndicatorTransition}
+      className={cn(
+        "pointer-events-none absolute right-0 left-0 z-20 flex origin-left items-center",
+        edge === "before"
+          ? "top-0 -translate-y-1/2"
+          : "bottom-0 translate-y-1/2",
+      )}
+    >
+      <span className="relative flex size-2 shrink-0 items-center justify-center">
+        <motion.span
+          aria-hidden
+          className="absolute size-2 rounded-full bg-primary/30"
+          animate={{ scale: [1, 1.35, 1] }}
+          transition={{
+            duration: 0.9,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+        <span className="size-1.5 rounded-full bg-primary" />
+      </span>
+      <span className="h-0.5 min-w-0 flex-1 rounded-full bg-primary" />
+    </motion.span>
+  );
+}
+
+/** Red grab rail to the left of the field card (outside the border). */
+function FieldDragHandle({
+  label,
+  active = false,
+}: {
+  label: string;
+  active?: boolean;
+}) {
+  return (
+    <span
+      data-drag-handle
+      className={cn(
+        "relative z-10 flex w-2.5 shrink-0 touch-none items-center justify-center self-stretch select-none",
+        active ? "cursor-grabbing" : "cursor-grab",
+      )}
+      aria-label={label}
+      title={label}
+      onPointerDown={() => {
+        window.getSelection()?.removeAllRanges();
+      }}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "my-1 h-[calc(100%-0.5rem)] min-h-5 w-1 shrink-0 rounded-full bg-primary transition-[opacity,transform,box-shadow] duration-150",
+          active
+            ? "scale-y-105 opacity-100 shadow-[0_0_0_3px] shadow-primary/20"
+            : "opacity-45 group-hover/field:opacity-90 group-focus-within/field:opacity-90",
+        )}
+      />
+    </span>
+  );
+}
 
 const KIND_LABELS = {
   decision: "Решение",
@@ -57,40 +203,134 @@ function Field({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** Compact: only selected fields; add via select. Required = checkbox on the row. */
+function FieldFlagCheckbox({
+  checked,
+  disabled,
+  label,
+  title,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  title: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      data-no-drag
+      title={title}
+      className={cn(
+        "flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-muted-foreground",
+        checked && !disabled && "text-foreground",
+        disabled && "cursor-not-allowed opacity-50",
+      )}
+    >
+      <input
+        type="checkbox"
+        className="size-3 accent-primary"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onCheckedChange(event.target.checked)}
+      />
+      {label}
+    </label>
+  );
+}
+
+function toggleIdList(ids: string[], fieldId: string, enabled: boolean) {
+  if (enabled) {
+    return ids.includes(fieldId) ? ids : [...ids, fieldId];
+  }
+  return ids.filter((id) => id !== fieldId);
+}
+
+/** Compact: only selected fields; add via select. Flags = checkboxes on the row. */
 function OutcomeAskFieldsEditor({
   fields,
   value,
   onChange,
+  hasRecordsTab,
 }: {
   fields: EntityField[];
   value: AutomationOutcomeFieldAccess;
   onChange: (next: AutomationOutcomeFieldAccess) => void;
+  hasRecordsTab: boolean;
 }) {
-  const selected = value.visibleFieldIds
+  const access = normalizeAutomationOutcomeFieldAccess(value);
+  const selected = access.visibleFieldIds
     .map((id) => fields.find((field) => field.id === id))
     .filter((field): field is EntityField => field != null);
   const available = fields.filter(
-    (field) => !value.visibleFieldIds.includes(field.id),
+    (field) => !access.visibleFieldIds.includes(field.id),
   );
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<{
+    beforeFieldId: string | null;
+  } | null>(null);
+  const dragLockedRef = useRef(false);
+  const allowDragRef = useRef(false);
 
   function removeField(fieldId: string) {
     onChange({
-      ...value,
-      visibleFieldIds: value.visibleFieldIds.filter((id) => id !== fieldId),
-      requiredFieldIds: value.requiredFieldIds.filter((id) => id !== fieldId),
+      ...access,
+      visibleFieldIds: access.visibleFieldIds.filter((id) => id !== fieldId),
+      requiredFieldIds: access.requiredFieldIds.filter((id) => id !== fieldId),
+      commentFieldIds: access.commentFieldIds.filter((id) => id !== fieldId),
+      recordFieldIds: access.recordFieldIds.filter((id) => id !== fieldId),
     });
   }
 
   function setRequired(fieldId: string, required: boolean) {
     onChange({
-      ...value,
-      requiredFieldIds: required
-        ? value.requiredFieldIds.includes(fieldId)
-          ? value.requiredFieldIds
-          : [...value.requiredFieldIds, fieldId]
-        : value.requiredFieldIds.filter((id) => id !== fieldId),
+      ...access,
+      requiredFieldIds: toggleIdList(
+        access.requiredFieldIds,
+        fieldId,
+        required,
+      ),
     });
+  }
+
+  function setComment(fieldId: string, enabled: boolean) {
+    onChange({
+      ...access,
+      commentFieldIds: toggleIdList(access.commentFieldIds, fieldId, enabled),
+    });
+  }
+
+  function setRecord(fieldId: string, enabled: boolean) {
+    onChange({
+      ...access,
+      recordFieldIds: toggleIdList(access.recordFieldIds, fieldId, enabled),
+    });
+  }
+
+  function endDrag() {
+    allowDragRef.current = false;
+    setDraggingId(null);
+    setDropHint(null);
+    if (dragLockedRef.current) {
+      unlockDragSelection();
+      dragLockedRef.current = false;
+    }
+  }
+
+  function applyReorder(beforeFieldId: string | null) {
+    if (!draggingId) return;
+    const nextIds = reorderFieldIds(
+      access.visibleFieldIds,
+      draggingId,
+      beforeFieldId,
+    );
+    const unchanged =
+      nextIds.length === access.visibleFieldIds.length &&
+      nextIds.every((id, index) => id === access.visibleFieldIds[index]);
+    if (!unchanged) {
+      onChange({ ...access, visibleFieldIds: nextIds });
+    }
+    endDrag();
   }
 
   return (
@@ -118,8 +358,11 @@ function OutcomeAskFieldsEditor({
                   key={field.id}
                   onClick={() =>
                     onChange({
-                      ...value,
-                      visibleFieldIds: [...value.visibleFieldIds, field.id],
+                      ...access,
+                      visibleFieldIds: [...access.visibleFieldIds, field.id],
+                      recordFieldIds: access.recordFieldIds.includes(field.id)
+                        ? access.recordFieldIds
+                        : [...access.recordFieldIds, field.id],
                     })
                   }
                 >
@@ -133,47 +376,164 @@ function OutcomeAskFieldsEditor({
       {selected.length === 0 ? (
         <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>
       ) : (
-        <ul className="mt-2 flex flex-col gap-1">
-          {selected.map((field) => {
-            const required = value.requiredFieldIds.includes(field.id);
-            return (
-              <li
-                key={field.id}
-                className="flex h-8 items-center gap-1.5 rounded border border-border/50 px-2"
-              >
-                <span className="min-w-0 flex-1 truncate text-xs">
-                  {getEntityFieldDisplayName(field)}
-                </span>
-                <label
-                  className={cn(
-                    "flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-muted-foreground",
-                    required && "text-foreground",
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    className="size-3 accent-primary"
-                    checked={required}
-                    onChange={(event) =>
-                      setRequired(field.id, event.target.checked)
-                    }
-                  />
-                  обяз.
-                </label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-6 shrink-0"
-                  aria-label="Убрать поле"
-                  onClick={() => removeField(field.id)}
-                >
-                  <Trash2 className="size-3" />
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
+        <LayoutGroup id="outcome-ask-fields">
+          <ul className="mt-2 flex flex-col gap-1">
+            {selected.map((field, index) => {
+              const required = access.requiredFieldIds.includes(field.id);
+              const toComments = access.commentFieldIds.includes(field.id);
+              const toRecord = access.recordFieldIds.includes(field.id);
+              const label = getEntityFieldDisplayName(field);
+              const isDragging = draggingId === field.id;
+              const dropEdge: "before" | "after" | null =
+                dropHint == null || draggingId === field.id
+                  ? null
+                  : dropHint.beforeFieldId === field.id
+                    ? "before"
+                    : dropHint.beforeFieldId == null &&
+                        index === selected.length - 1
+                      ? "after"
+                      : null;
+
+              return (
+                <li key={field.id} className="list-none">
+                  <div
+                    className="group/field relative"
+                    draggable
+                    onMouseDown={(event) => {
+                      allowDragRef.current = Boolean(
+                        event.target instanceof Element &&
+                        event.target.closest("[data-drag-handle]"),
+                      );
+                      if (allowDragRef.current) {
+                        window.getSelection()?.removeAllRanges();
+                      }
+                    }}
+                    onDragStart={(event) => {
+                      if (!allowDragRef.current) {
+                        event.preventDefault();
+                        return;
+                      }
+                      lockDragSelection();
+                      dragLockedRef.current = true;
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData(OUTCOME_FIELD_MIME, field.id);
+                      event.dataTransfer.setData("text/plain", field.id);
+                      const preview =
+                        event.currentTarget.querySelector<HTMLElement>(
+                          "[data-outcome-field-card]",
+                        );
+                      if (preview) setFieldDragPreview(event, preview);
+                      setDraggingId(field.id);
+                      setDropHint(null);
+                    }}
+                    onDragEnd={endDrag}
+                    onDragOver={(event) => {
+                      if (draggingId == null || draggingId === field.id) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      const edge = getDropEdge(event);
+                      const beforeFieldId =
+                        edge === "before"
+                          ? field.id
+                          : (selected[index + 1]?.id ?? null);
+                      setDropHint((prev) =>
+                        prev?.beforeFieldId === beforeFieldId
+                          ? prev
+                          : { beforeFieldId },
+                      );
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (draggingId == null || draggingId === field.id) {
+                        endDrag();
+                        return;
+                      }
+                      const edge = getDropEdge(event);
+                      const beforeFieldId =
+                        edge === "before"
+                          ? field.id
+                          : (selected[index + 1]?.id ?? null);
+                      applyReorder(beforeFieldId);
+                    }}
+                  >
+                    <motion.div
+                      layout="position"
+                      layoutId={`outcome-field-${field.id}`}
+                      transition={fieldLayoutTransition}
+                      className="relative flex items-stretch gap-0.5"
+                    >
+                      <FieldDragHandle
+                        label={`Перетащить «${label}»`}
+                        active={isDragging}
+                      />
+                      <div className="relative min-w-0 flex-1">
+                        <AnimatePresence initial={false}>
+                          {dropEdge ? (
+                            <FieldDropIndicator key="drop" edge={dropEdge} />
+                          ) : null}
+                        </AnimatePresence>
+                        {isDragging ? (
+                          <div
+                            aria-hidden
+                            className="h-8 rounded border-2 border-dashed border-primary/35 bg-primary/[0.04]"
+                          />
+                        ) : (
+                          <div
+                            data-outcome-field-card
+                            className="flex h-8 items-center gap-1.5 rounded border border-border/50 bg-card px-2 transition-[border-color,box-shadow] duration-150 group-hover/field:border-border"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-xs">
+                              {label}
+                            </span>
+                            <FieldFlagCheckbox
+                              checked={required}
+                              label="обяз."
+                              title="Обязательное поле"
+                              onCheckedChange={(checked) =>
+                                setRequired(field.id, checked)
+                              }
+                            />
+                            <FieldFlagCheckbox
+                              checked={toComments}
+                              disabled={!hasRecordsTab}
+                              label="комм."
+                              title={
+                                hasRecordsTab
+                                  ? "Добавить содержимое в комментарии (вкладка «Записи»)"
+                                  : "Нет вкладки «Записи» у этой сущности"
+                              }
+                              onCheckedChange={(checked) =>
+                                setComment(field.id, checked)
+                              }
+                            />
+                            <FieldFlagCheckbox
+                              checked={toRecord}
+                              label="запись"
+                              title="Записать значение в поле сущности"
+                              onCheckedChange={(checked) =>
+                                setRecord(field.id, checked)
+                              }
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              className="size-6 shrink-0"
+                              aria-label="Убрать поле"
+                              onClick={() => removeField(field.id)}
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </LayoutGroup>
       )}
     </div>
   );
@@ -248,11 +608,7 @@ export function TemplateInspector({
           id: createAutomationOutcomeId(),
           label: "Результат",
           actions: [],
-          fieldAccess: {
-            requiredFieldIds: [],
-            visibleFieldIds: [],
-            requireAttachment: false,
-          },
+          fieldAccess: emptyAutomationOutcomeFieldAccess(),
         },
       ],
     });
@@ -313,23 +669,23 @@ export function TemplateInspector({
 
         <div className="min-h-0 flex-1 overflow-auto pt-4">
           <TabsContent value="general" className="mt-0 flex flex-col gap-3.5">
-            <Field title="Название">
-              <Input
-                value={draft.name}
-                placeholder="Согласовать смету"
-                onChange={(event) => patch({ name: event.target.value })}
-              />
-            </Field>
+            <TemplateFieldInput
+              id="template-name"
+              title="Название"
+              value={draft.name}
+              placeholder="Согласовать смету"
+              fields={entity.fields}
+              onChange={(name) => patch({ name })}
+            />
 
-            <Field title="Имя в списке">
-              <Input
-                value={draft.nameTemplate}
-                placeholder="{{поле}} или как в названии"
-                onChange={(event) =>
-                  patch({ nameTemplate: event.target.value })
-                }
-              />
-            </Field>
+            <TemplateFieldInput
+              id="template-name-list"
+              title="Имя в списке"
+              value={draft.nameTemplate}
+              placeholder="Как в названии"
+              fields={entity.fields}
+              onChange={(nameTemplate) => patch({ nameTemplate })}
+            />
 
             <Field title="Стадия">
               <Select
@@ -378,11 +734,8 @@ export function TemplateInspector({
                                   id: createAutomationOutcomeId(),
                                   label: "Готово",
                                   actions: [],
-                                  fieldAccess: {
-                                    requiredFieldIds: [],
-                                    visibleFieldIds: [],
-                                    requireAttachment: false,
-                                  },
+                                  fieldAccess:
+                                    emptyAutomationOutcomeFieldAccess(),
                                 },
                               ]
                             : draft.outcomes.length >= 2
@@ -461,6 +814,7 @@ export function TemplateInspector({
                   <OutcomeAskFieldsEditor
                     fields={entity.fields}
                     value={outcome.fieldAccess}
+                    hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
                     onChange={(fieldAccess) =>
                       patchOutcome(index, { ...outcome, fieldAccess })
                     }

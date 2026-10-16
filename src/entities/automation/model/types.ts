@@ -56,7 +56,56 @@ export type AutomationOutcomeFieldAccess = {
   /** Fields shown / editable on the task form. */
   visibleFieldIds: string[];
   requireAttachment: boolean;
+  /**
+   * On complete: append field content as a note on the entity’s
+   * «Записи» / comments tab (if the entity has one).
+   */
+  commentFieldIds: string[];
+  /**
+   * Write filled values onto the entity record field (when it exists).
+   * Defaults to all visible fields for legacy configs.
+   */
+  recordFieldIds: string[];
 };
+
+export function emptyAutomationOutcomeFieldAccess(): AutomationOutcomeFieldAccess {
+  return {
+    requiredFieldIds: [],
+    visibleFieldIds: [],
+    requireAttachment: false,
+    commentFieldIds: [],
+    recordFieldIds: [],
+  };
+}
+
+function normalizeStringIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (id): id is string => typeof id === "string" && id.trim().length > 0,
+  );
+}
+
+export function normalizeAutomationOutcomeFieldAccess(
+  value: unknown,
+): AutomationOutcomeFieldAccess {
+  const access =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  const visibleFieldIds = normalizeStringIdList(access.visibleFieldIds);
+  const requiredFieldIds = normalizeStringIdList(access.requiredFieldIds);
+  const commentFieldIds = normalizeStringIdList(access.commentFieldIds);
+  const recordFieldIds = Array.isArray(access.recordFieldIds)
+    ? normalizeStringIdList(access.recordFieldIds)
+    : visibleFieldIds;
+  return {
+    requiredFieldIds,
+    visibleFieldIds,
+    requireAttachment: access.requireAttachment === true,
+    commentFieldIds,
+    recordFieldIds,
+  };
+}
 
 export type AutomationOutcome = {
   id: string;
@@ -207,27 +256,11 @@ function normalizeOutcome(
     typeof item.label === "string" && item.label.trim()
       ? item.label.trim()
       : "Результат";
-  const access =
-    item.fieldAccess && typeof item.fieldAccess === "object"
-      ? (item.fieldAccess as Record<string, unknown>)
-      : {};
   return {
     id,
     label,
     actions: normalizeAutomationActions(item.actions),
-    fieldAccess: {
-      requiredFieldIds: Array.isArray(access.requiredFieldIds)
-        ? access.requiredFieldIds.filter(
-            (id): id is string => typeof id === "string",
-          )
-        : [],
-      visibleFieldIds: Array.isArray(access.visibleFieldIds)
-        ? access.visibleFieldIds.filter(
-            (id): id is string => typeof id === "string",
-          )
-        : [],
-      requireAttachment: access.requireAttachment === true,
-    },
+    fieldAccess: normalizeAutomationOutcomeFieldAccess(item.fieldAccess),
   };
 }
 
@@ -244,21 +277,13 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
       id: createAutomationOutcomeId(),
       label: "Да",
       actions: [],
-      fieldAccess: {
-        requiredFieldIds: [],
-        visibleFieldIds: [],
-        requireAttachment: false,
-      },
+      fieldAccess: emptyAutomationOutcomeFieldAccess(),
     },
     {
       id: createAutomationOutcomeId(),
       label: "Нет",
       actions: [],
-      fieldAccess: {
-        requiredFieldIds: [],
-        visibleFieldIds: [],
-        requireAttachment: false,
-      },
+      fieldAccess: emptyAutomationOutcomeFieldAccess(),
     },
   ];
 }
@@ -325,11 +350,7 @@ export function normalizeAutomationTaskTemplate(
                 id: createAutomationOutcomeId(),
                 label: "Готово",
                 actions: [],
-                fieldAccess: {
-                  requiredFieldIds: [],
-                  visibleFieldIds: [],
-                  requireAttachment: false,
-                },
+                fieldAccess: emptyAutomationOutcomeFieldAccess(),
               },
             ]
           : defaultDecisionOutcomes(),

@@ -147,11 +147,26 @@ function TaskFillFieldsDialogBody({
     );
   }
 
-  async function persistValues() {
+  /** Write only fields flagged «запись» (and present on the entity). */
+  function persistValues(outcomeId?: string) {
     if (!task || !entity || !record) return;
+    const recordFieldIds = new Set(
+      outcomeId
+        ? (task.config.outcomes.find((item) => item.id === outcomeId)
+            ?.fieldAccess.recordFieldIds ?? [])
+        : task.config.outcomes.flatMap(
+            (item) => item.fieldAccess.recordFieldIds,
+          ),
+    );
+    const patch: Record<string, string> = {};
+    for (const fieldId of recordFieldIds) {
+      if (!entity.fields.some((field) => field.id === fieldId)) continue;
+      if (values[fieldId] === undefined) continue;
+      patch[fieldId] = values[fieldId]!;
+    }
     updateEntityRecord(task.entityId, task.recordId, {
       ...record.values,
-      ...values,
+      ...patch,
     });
   }
 
@@ -188,11 +203,12 @@ function TaskFillFieldsDialogBody({
     setBusy(true);
     setError(null);
     try {
-      await persistValues();
+      persistValues(outcomeId);
       await completeAutomationTask(
         task!.id,
         outcomeId,
         sessionUser?.id ?? null,
+        values,
       );
       onOpenChange(false);
       onCompleted?.();
@@ -208,7 +224,7 @@ function TaskFillFieldsDialogBody({
     setBusy(true);
     setError(null);
     try {
-      await persistValues();
+      persistValues();
       await returnAutomationTaskForRevision(task.id, sessionUser?.id ?? null);
       onOpenChange(false);
       onCompleted?.();
