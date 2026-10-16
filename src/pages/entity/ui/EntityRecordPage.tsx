@@ -1140,7 +1140,7 @@ export function EntityRecordPage({
     if (!canField(role, entity.id, fieldId, "edit")) return;
     const field = entity.fields.find((item) => item.id === fieldId);
     if (!field) return;
-    requestListChange(entity, record, field, optionId);
+    void requestListChange(entity, record, field, optionId);
   }
 
   return (

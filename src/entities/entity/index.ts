@@ -406,6 +406,7 @@ export {
   updateEntityField,
   updateEntityFieldGroup,
   updateEntityListOption,
+  setEntityRecordValuesLocal,
   updateEntityRecord,
   updateEntityTab,
 } from "./store/entity-store";

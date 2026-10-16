@@ -2421,7 +2421,7 @@ function saveRecord(
   entityId: string,
   recordId: string,
   values: Record<string, string>,
-) {
+): Promise<void> {
   mapEntityLocal(entityId, (entity) => ({
     ...entity,
     records: entity.records.map((record) =>
@@ -2431,20 +2431,39 @@ function saveRecord(
     ),
   }));
 
-  if (isSupabaseConfigured) {
-    markLocalRecordWrite(recordId);
-    void updateEntityRecordValues(recordId, values).catch((error: unknown) => {
+  if (!isSupabaseConfigured) return Promise.resolve();
+
+  markLocalRecordWrite(recordId);
+  return updateEntityRecordValues(recordId, values)
+    .then(() => undefined)
+    .catch((error: unknown) => {
       handlePersistError(error, "Не удалось обновить запись");
+      throw error;
     });
-  }
+}
+
+/** In-memory record values only (no remote persist). Used for optimistic rollback. */
+export function setEntityRecordValuesLocal(
+  entityId: string,
+  recordId: string,
+  values: Record<string, string>,
+) {
+  mapEntityLocal(entityId, (entity) => ({
+    ...entity,
+    records: entity.records.map((record) =>
+      record.id === recordId
+        ? normalizeEntityRecord({ ...record, values })
+        : record,
+    ),
+  }));
 }
 
 export function updateEntityRecord(
   entityId: string,
   recordId: string,
   values: Record<string, string>,
-) {
-  saveRecord(entityId, recordId, values);
+): Promise<void> {
+  return saveRecord(entityId, recordId, values);
 }
 
 /**

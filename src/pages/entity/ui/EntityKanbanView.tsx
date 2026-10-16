@@ -828,10 +828,10 @@ export function EntityKanbanView({
 
     const nextValue = serializeEntityKanbanColumnValue(groupField, toColumnId);
     if (groupField.type === "list") {
-      requestListChange(entity, record, groupField, nextValue);
+      void requestListChange(entity, record, groupField, nextValue);
       return;
     }
-    updateEntityRecord(entity.id, recordId, {
+    void updateEntityRecord(entity.id, recordId, {
       ...record.values,
       [groupField.id]: nextValue,
     });

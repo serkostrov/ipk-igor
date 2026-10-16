@@ -1272,14 +1272,14 @@ export function EntityTableView({
                                       }
                                       disabled={listDisabled}
                                       aria-label={field.name.trim() || "Список"}
-                                      onChange={(next) =>
-                                        requestListChange(
+                                      onChange={(next) => {
+                                        void requestListChange(
                                           entity,
                                           record,
                                           field,
                                           next,
-                                        )
-                                      }
+                                        );
+                                      }}
                                     />
                                   );
                                 })()}
