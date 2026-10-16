@@ -44,29 +44,14 @@ import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { cn } from "@/shared/lib/cn";
 
 const KIND_LABELS = {
-  decision: "Решение (Да / Нет)",
+  decision: "Решение",
   single: "Одна кнопка",
 } as const;
 
-function Field({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-}) {
+function Field({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex flex-col gap-0.5">
-        <Label className="text-xs font-medium text-foreground">{title}</Label>
-        {description ? (
-          <p className="text-[11px] leading-snug text-muted-foreground">
-            {description}
-          </p>
-        ) : null}
-      </div>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <Label className="text-xs font-medium text-foreground">{title}</Label>
       {children}
     </div>
   );
@@ -109,9 +94,9 @@ function OutcomeAskFieldsEditor({
   }
 
   return (
-    <div className="rounded-md border border-border/70 bg-background p-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium">Запросить поля</p>
+    <div className="rounded-md border border-border/70 bg-background p-2.5">
+      <div className="flex h-7 items-center justify-between gap-2">
+        <p className="text-xs font-medium">Поля формы</p>
         {available.length > 0 ? (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -146,17 +131,15 @@ function OutcomeAskFieldsEditor({
         ) : null}
       </div>
       {selected.length === 0 ? (
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Исполнитель заполнит в карточке перед нажатием кнопки
-        </p>
+        <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>
       ) : (
-        <ul className="mt-1.5 flex flex-col gap-1">
+        <ul className="mt-2 flex flex-col gap-1">
           {selected.map((field) => {
             const required = value.requiredFieldIds.includes(field.id);
             return (
               <li
                 key={field.id}
-                className="flex items-center gap-1.5 rounded border border-border/50 px-2 py-1"
+                className="flex h-8 items-center gap-1.5 rounded border border-border/50 px-2"
               >
                 <span className="min-w-0 flex-1 truncate text-xs">
                   {getEntityFieldDisplayName(field)}
@@ -275,18 +258,19 @@ export function TemplateInspector({
     });
   }
 
+  const stageName =
+    options.find((item) => item.id === draft.triggerOptionId)?.name ??
+    "Без стадии";
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border pb-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border pb-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold">
             {draft.name.trim() || "Новая задача"}
           </h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {options.find((item) => item.id === draft.triggerOptionId)?.name ??
-              "Стадия не выбрана"}
-            {" · "}
-            {KIND_LABELS[draft.kind]}
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            {stageName} · {KIND_LABELS[draft.kind]}
           </p>
         </div>
         <Button
@@ -308,13 +292,13 @@ export function TemplateInspector({
       >
         <TabsList
           variant="line"
-          className="h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto"
+          className="h-9 w-full shrink-0 justify-start gap-4 overflow-x-auto"
         >
           <TabsTrigger value="general" className="px-0">
             Основное
           </TabsTrigger>
           <TabsTrigger value="assignee" className="px-0">
-            Кто делает
+            Кто
           </TabsTrigger>
           <TabsTrigger value="conditions" className="px-0">
             Условия
@@ -327,33 +311,27 @@ export function TemplateInspector({
           </TabsTrigger>
         </TabsList>
 
-        <div className="min-h-0 flex-1 overflow-auto pt-3">
-          <TabsContent value="general" className="mt-0 flex flex-col gap-4">
-            <Field title="Название задачи">
+        <div className="min-h-0 flex-1 overflow-auto pt-4">
+          <TabsContent value="general" className="mt-0 flex flex-col gap-3.5">
+            <Field title="Название">
               <Input
                 value={draft.name}
-                placeholder="Например, Согласовать смету"
+                placeholder="Согласовать смету"
                 onChange={(event) => patch({ name: event.target.value })}
               />
             </Field>
 
-            <Field
-              title="Имя в списке задач"
-              description="Можно подставить значение поля записи: {{id_поля}}"
-            >
+            <Field title="Имя в списке">
               <Input
                 value={draft.nameTemplate}
-                placeholder={draft.name || "Как в названии"}
+                placeholder="{{поле}} или как в названии"
                 onChange={(event) =>
                   patch({ nameTemplate: event.target.value })
                 }
               />
             </Field>
 
-            <Field
-              title="На какой стадии появляется"
-              description="Когда запись попадает на эту стадию — создаётся задача"
-            >
+            <Field title="Стадия">
               <Select
                 value={draft.triggerOptionId}
                 onValueChange={(next) => {
@@ -376,8 +354,8 @@ export function TemplateInspector({
               </Select>
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Field title="Порядок" description="Меньше — раньше">
+            <div className="grid grid-cols-2 items-end gap-3">
+              <Field title="Порядок">
                 <Input
                   type="number"
                   value={String(draft.stepOrder)}
@@ -427,22 +405,18 @@ export function TemplateInspector({
               </Field>
             </div>
 
-            <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2.5">
+            <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2">
               <SettingSwitch
                 id="template-blocking"
                 title="Блокирует переход"
-                description="Пока задача не закрыта, стадию нельзя сменить"
                 checked={draft.isBlocking}
                 onCheckedChange={(isBlocking) => patch({ isBlocking })}
               />
             </div>
           </TabsContent>
 
-          <TabsContent value="assignee" className="mt-0 flex flex-col gap-4">
-            <Field
-              title="Исполнитель"
-              description="Кому создаётся задача на этой стадии"
-            >
+          <TabsContent value="assignee" className="mt-0 flex flex-col gap-3.5">
+            <Field title="Исполнитель">
               <AssigneeEditor
                 value={draft.assignee}
                 fields={entity.fields}
@@ -451,11 +425,11 @@ export function TemplateInspector({
             </Field>
           </TabsContent>
 
-          <TabsContent value="conditions" className="mt-0 flex flex-col gap-4">
-            <Field
-              title="Когда создавать задачу"
-              description="Пустой список — всегда. Иначе только если запись подходит под правила"
-            >
+          <TabsContent
+            value="conditions"
+            className="mt-0 flex flex-col gap-3.5"
+          >
+            <Field title="Условия запуска">
               <ConditionGroupBuilder
                 entity={entity}
                 value={draft.launchConditions}
@@ -465,15 +439,12 @@ export function TemplateInspector({
           </TabsContent>
 
           <TabsContent value="outcomes" className="mt-0 flex flex-col gap-3">
-            <p className="text-[11px] leading-snug text-muted-foreground">
-              Кнопки завершения задачи
-            </p>
             {draft.outcomes.map((outcome, index) => (
               <div
                 key={outcome.id}
                 className="rounded-lg border border-border/70 p-3"
               >
-                <Field title="Название кнопки">
+                <Field title="Кнопка">
                   <Input
                     value={outcome.label}
                     placeholder="Да / Нет / Готово"
@@ -486,8 +457,7 @@ export function TemplateInspector({
                   />
                 </Field>
 
-                <div className="mt-3 flex flex-col gap-2">
-                  <p className="text-xs font-medium">Действия</p>
+                <div className="mt-3 flex flex-col gap-2.5">
                   <OutcomeAskFieldsEditor
                     fields={entity.fields}
                     value={outcome.fieldAccess}
@@ -499,7 +469,6 @@ export function TemplateInspector({
                     <SettingSwitch
                       id={`outcome-attach-${outcome.id}`}
                       title="Нужно вложение"
-                      description="Без файла завершить нельзя"
                       checked={outcome.fieldAccess.requireAttachment}
                       onCheckedChange={(requireAttachment) =>
                         patchOutcome(index, {
@@ -534,7 +503,7 @@ export function TemplateInspector({
                       })
                     }
                   >
-                    Удалить результат
+                    Удалить
                   </Button>
                 ) : null}
               </div>
@@ -547,19 +516,16 @@ export function TemplateInspector({
               onClick={addOutcome}
             >
               <Plus className="size-3.5" />
-              Добавить результат
+              Результат
             </Button>
           </TabsContent>
 
-          <TabsContent value="more" className="mt-0 flex flex-col gap-4">
-            <Field
-              title="Срок (часы)"
-              description="Через сколько часов задача станет просроченной. Пусто — без срока"
-            >
+          <TabsContent value="more" className="mt-0 flex flex-col gap-3.5">
+            <Field title="Срок, часы">
               <Input
                 type="number"
                 value={draft.sla?.hours != null ? String(draft.sla.hours) : ""}
-                placeholder="Например, 24"
+                placeholder="Без срока"
                 onChange={(event) => {
                   const hours = Number(event.target.value);
                   patch({
@@ -572,18 +538,13 @@ export function TemplateInspector({
               />
             </Field>
 
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-medium">Уведомления</p>
-                <p className="text-[11px] text-muted-foreground">
-                  Доставка в общий инбокс при назначении, завершении или
-                  просрочке
-                </p>
-              </div>
+            <div className="flex h-8 items-center justify-between gap-2">
+              <p className="text-xs font-medium">Уведомления</p>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
+                className="h-7"
                 onClick={() => void addNotificationRule()}
               >
                 <Plus className="size-3.5" />
@@ -592,7 +553,7 @@ export function TemplateInspector({
             </div>
             {notificationRules.length === 0 ? (
               <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-                Пока нет правил уведомлений
+                Нет правил
               </p>
             ) : (
               notificationRules.map((rule) => (
@@ -644,7 +605,7 @@ function NotificationRuleEditor({
 
   return (
     <div className="rounded-lg border border-border/70 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="mb-2 flex items-center gap-2">
         <Select
           value={draft.event}
           onValueChange={(next) => {
@@ -660,7 +621,7 @@ function NotificationRuleEditor({
             }
           }}
         >
-          <SelectTrigger className="h-9 w-full">
+          <SelectTrigger className="h-9 min-w-0 flex-1">
             <SelectValue>{eventLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -682,7 +643,7 @@ function NotificationRuleEditor({
       </div>
       <Input
         className="mb-2"
-        placeholder="Текст уведомления"
+        placeholder="Текст"
         value={draft.messageTemplate}
         onChange={(event) =>
           setDraft((prev) => ({
@@ -711,7 +672,7 @@ function NotificationRuleEditor({
         className="mt-2"
         onClick={() => onSave(draft)}
       >
-        Сохранить правило
+        Сохранить
       </Button>
     </div>
   );

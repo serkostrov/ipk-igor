@@ -435,10 +435,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
 
           {selectedTemplate && entity ? (
             <aside
-              className="relative z-20 hidden h-full min-h-0 w-[400px] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex"
+              className="relative z-20 hidden h-full min-h-0 w-[min(34rem,40vw)] min-w-[28rem] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex"
               onPointerDown={(event) => event.stopPropagation()}
             >
-              <div className="flex min-h-0 flex-1 flex-col p-3">
+              <div className="flex min-h-0 flex-1 flex-col p-4">
                 <TemplateInspector
                   key={selectedTemplate.id}
                   template={selectedTemplate}
@@ -457,12 +457,12 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
               </div>
             </aside>
           ) : (
-            <aside className="relative z-20 hidden h-full min-h-0 w-[300px] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex">
+            <aside className="relative z-20 hidden h-full min-h-0 w-[min(34rem,40vw)] min-w-[28rem] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex">
               <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
                 <Filter className="size-5 text-muted-foreground/60" />
                 <p className="text-sm font-medium">Инспектор шага</p>
                 <p className="text-xs text-muted-foreground">
-                  Выберите стадию сверху, затем задачу на схеме
+                  Выберите задачу на схеме
                 </p>
               </div>
               {scenario && !scenario.isDefault && entity ? (
