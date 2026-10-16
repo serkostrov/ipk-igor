@@ -65,13 +65,8 @@ function Field({
   );
 }
 
-function toggleId(ids: string[], id: string, on: boolean) {
-  if (on) return ids.includes(id) ? ids : [...ids, id];
-  return ids.filter((item) => item !== id);
-}
-
-/** Which record fields appear on the task and must be filled before the button. */
-function OutcomeFieldAccessEditor({
+/** Compact: only selected fields; add via select. Required = checkbox on the row. */
+function OutcomeAskFieldsEditor({
   fields,
   value,
   onChange,
@@ -80,90 +75,112 @@ function OutcomeFieldAccessEditor({
   value: AutomationOutcomeFieldAccess;
   onChange: (next: AutomationOutcomeFieldAccess) => void;
 }) {
-  if (fields.length === 0) {
-    return (
-      <p className="text-[11px] text-muted-foreground">
-        У сущности пока нет полей
-      </p>
-    );
+  const selected = value.visibleFieldIds
+    .map((id) => fields.find((field) => field.id === id))
+    .filter((field): field is EntityField => field != null);
+  const available = fields.filter(
+    (field) => !value.visibleFieldIds.includes(field.id),
+  );
+
+  function removeField(fieldId: string) {
+    onChange({
+      ...value,
+      visibleFieldIds: value.visibleFieldIds.filter((id) => id !== fieldId),
+      requiredFieldIds: value.requiredFieldIds.filter((id) => id !== fieldId),
+    });
+  }
+
+  function setRequired(fieldId: string, required: boolean) {
+    onChange({
+      ...value,
+      requiredFieldIds: required
+        ? value.requiredFieldIds.includes(fieldId)
+          ? value.requiredFieldIds
+          : [...value.requiredFieldIds, fieldId]
+        : value.requiredFieldIds.filter((id) => id !== fieldId),
+    });
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        Отметьте поля, которые нужно заполнить при этой кнопке. Исполнитель
-        увидит их в задаче и откроет карточку для ввода. «Установить поле» ниже
-        — это автозапись значения, а не форма.
-      </p>
-      <ul className="max-h-48 overflow-auto rounded-md border border-border/60 divide-y divide-border/50">
-        {fields.map((field) => {
-          const id = field.id;
-          const visible = value.visibleFieldIds.includes(id);
-          const required = value.requiredFieldIds.includes(id);
-          return (
-            <li
-              key={id}
-              className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
+    <div className="rounded-md border border-border/70 bg-background p-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium">Запросить поля</p>
+        {available.length > 0 ? (
+          <Select
+            key={value.visibleFieldIds.join("|")}
+            onValueChange={(next) => {
+              if (next == null) return;
+              const id = String(next);
+              onChange({
+                ...value,
+                visibleFieldIds: [...value.visibleFieldIds, id],
+              });
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              className="h-7 w-auto max-w-[9rem] gap-1 border-dashed px-2 text-xs text-muted-foreground"
             >
-              <span className="min-w-0 flex-1 truncate">
-                {getEntityFieldDisplayName(field)}
-              </span>
-              <label
-                className={cn(
-                  "flex shrink-0 cursor-pointer items-center gap-1 text-muted-foreground",
-                  visible && "text-foreground",
-                )}
+              <Plus className="size-3 shrink-0" />
+              <SelectValue placeholder="Поле" />
+            </SelectTrigger>
+            <SelectContent>
+              {available.map((field) => (
+                <SelectItem key={field.id} value={field.id}>
+                  {getEntityFieldDisplayName(field)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
+      {selected.length === 0 ? (
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          Исполнитель заполнит в карточке перед нажатием кнопки
+        </p>
+      ) : (
+        <ul className="mt-1.5 flex flex-col gap-1">
+          {selected.map((field) => {
+            const required = value.requiredFieldIds.includes(field.id);
+            return (
+              <li
+                key={field.id}
+                className="flex items-center gap-1.5 rounded border border-border/50 px-2 py-1"
               >
-                <input
-                  type="checkbox"
-                  className="size-3.5 accent-primary"
-                  checked={visible}
-                  onChange={(event) => {
-                    const nextVisible = toggleId(
-                      value.visibleFieldIds,
-                      id,
-                      event.target.checked,
-                    );
-                    onChange({
-                      ...value,
-                      visibleFieldIds: nextVisible,
-                      requiredFieldIds: event.target.checked
-                        ? value.requiredFieldIds
-                        : value.requiredFieldIds.filter((item) => item !== id),
-                    });
-                  }}
-                />
-                Показать
-              </label>
-              <label
-                className={cn(
-                  "flex shrink-0 cursor-pointer items-center gap-1 text-muted-foreground",
-                  required && "text-foreground",
-                  !visible && "opacity-40",
-                )}
-              >
-                <input
-                  type="checkbox"
-                  className="size-3.5 accent-primary"
-                  checked={required}
-                  disabled={!visible}
-                  onChange={(event) =>
-                    onChange({
-                      ...value,
-                      requiredFieldIds: toggleId(
-                        value.requiredFieldIds,
-                        id,
-                        event.target.checked,
-                      ),
-                    })
-                  }
-                />
-                Обязательно
-              </label>
-            </li>
-          );
-        })}
-      </ul>
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  {getEntityFieldDisplayName(field)}
+                </span>
+                <label
+                  className={cn(
+                    "flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-muted-foreground",
+                    required && "text-foreground",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="size-3 accent-primary"
+                    checked={required}
+                    onChange={(event) =>
+                      setRequired(field.id, event.target.checked)
+                    }
+                  />
+                  обяз.
+                </label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-6 shrink-0"
+                  aria-label="Убрать поле"
+                  onClick={() => removeField(field.id)}
+                >
+                  <Trash2 className="size-3" />
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -419,8 +436,7 @@ export function TemplateInspector({
 
           <TabsContent value="outcomes" className="mt-0 flex flex-col gap-3">
             <p className="text-[11px] leading-snug text-muted-foreground">
-              Кнопки завершения: какие поля заполнить и что сделать после
-              нажатия
+              Кнопки завершения задачи
             </p>
             {draft.outcomes.map((outcome, index) => (
               <div
@@ -439,41 +455,33 @@ export function TemplateInspector({
                     }
                   />
                 </Field>
-                <div className="mt-3">
-                  <p className="mb-1.5 text-xs font-medium">
-                    Поля на заполнение
-                  </p>
-                  <OutcomeFieldAccessEditor
+
+                <div className="mt-3 flex flex-col gap-2">
+                  <p className="text-xs font-medium">Действия</p>
+                  <OutcomeAskFieldsEditor
                     fields={entity.fields}
                     value={outcome.fieldAccess}
                     onChange={(fieldAccess) =>
                       patchOutcome(index, { ...outcome, fieldAccess })
                     }
                   />
-                </div>
-                <div className="mt-3 rounded-md border border-border/50 bg-muted/10 px-2.5 py-2">
-                  <SettingSwitch
-                    id={`outcome-attach-${outcome.id}`}
-                    title="Нужно вложение"
-                    description="Без файла завершить нельзя"
-                    checked={outcome.fieldAccess.requireAttachment}
-                    onCheckedChange={(requireAttachment) =>
-                      patchOutcome(index, {
-                        ...outcome,
-                        fieldAccess: {
-                          ...outcome.fieldAccess,
-                          requireAttachment,
-                        },
-                      })
-                    }
-                  />
-                </div>
-                <div className="mt-3">
-                  <p className="mb-1.5 text-xs font-medium">Действия после</p>
-                  <p className="mb-1.5 text-[11px] leading-snug text-muted-foreground">
-                    Автоматика после нажатия (смена стадии, создание записей и
-                    т.д.). Не заменяет заполнение полей выше.
-                  </p>
+                  <div className="rounded-md border border-border/70 bg-background px-2.5 py-2">
+                    <SettingSwitch
+                      id={`outcome-attach-${outcome.id}`}
+                      title="Нужно вложение"
+                      description="Без файла завершить нельзя"
+                      checked={outcome.fieldAccess.requireAttachment}
+                      onCheckedChange={(requireAttachment) =>
+                        patchOutcome(index, {
+                          ...outcome,
+                          fieldAccess: {
+                            ...outcome.fieldAccess,
+                            requireAttachment,
+                          },
+                        })
+                      }
+                    />
+                  </div>
                   <ActionPipelineEditor
                     actions={outcome.actions}
                     entities={entities}
@@ -483,6 +491,7 @@ export function TemplateInspector({
                     }
                   />
                 </div>
+
                 {draft.outcomes.length > 1 ? (
                   <Button
                     type="button"

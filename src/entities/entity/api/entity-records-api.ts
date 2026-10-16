@@ -83,7 +83,11 @@ export function subscribeEntityRecordChanges(handlers: {
         if (parsed) handlers.onUpsert(parsed.entityId, parsed.record);
       },
     )
-    .subscribe();
+    .subscribe((status, err) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error("[entity] records realtime", status, err);
+      }
+    });
 
   return () => {
     void client.removeChannel(channel);

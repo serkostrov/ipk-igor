@@ -3,7 +3,11 @@ import { parseLocalDatetime, toLocalDatetime } from "@/shared/lib/datetime";
 import { formatDateDisplay } from "@/shared/lib/format-date";
 import { withTimeout } from "@/shared/lib/with-timeout";
 import { syncEntityMenuItems } from "@/entities/menu";
-import { fetchEntityConfig, saveEntityConfig } from "../api/entity-config-api";
+import {
+  fetchEntityConfig,
+  saveEntityConfig,
+  subscribeEntityStructureChanges,
+} from "../api/entity-config-api";
 import {
   deleteEntityRecord,
   deleteEntityRecordsByEntityId,
@@ -18,6 +22,7 @@ import {
   normalizeEntityField,
   normalizeEntityListOption,
   normalizeEntityRecord,
+  toEntityStructure,
 } from "../lib/parse-entity-config";
 import { serializeEntityDecimal } from "../model/field";
 import { applyEntityFieldDefaults } from "../model/field-value";
@@ -101,12 +106,15 @@ let errorMessage: string | null = null;
 let initPromise: Promise<void> | null = null;
 let currentAuthUserId: string | null = null;
 let stopRecordSync: (() => void) | null = null;
+let stopStructureSync: (() => void) | null = null;
+let stopVisibilityRefresh: (() => void) | null = null;
 
 const listeners = new Set<Listener>();
 
 /** Remote echoes of our own writes arrive shortly after; ignore them. */
 const LOCAL_WRITE_ECHO_MS = 4000;
 const localRecordWrites = new Map<string, number>();
+const localStructureWrites = new Map<string, number>();
 
 function notify() {
   listeners.forEach((listener) => listener());
@@ -121,6 +129,21 @@ function isRecentLocalWrite(recordId: string) {
   if (at == null) return false;
   if (Date.now() - at > LOCAL_WRITE_ECHO_MS) {
     localRecordWrites.delete(recordId);
+    return false;
+  }
+  return true;
+}
+
+function markLocalStructureWrite(entityIds: Iterable<string>) {
+  const now = Date.now();
+  for (const id of entityIds) localStructureWrites.set(id, now);
+}
+
+function isRecentLocalStructureWrite(entityId: string) {
+  const at = localStructureWrites.get(entityId);
+  if (at == null) return false;
+  if (Date.now() - at > LOCAL_WRITE_ECHO_MS) {
+    localStructureWrites.delete(entityId);
     return false;
   }
   return true;
@@ -160,12 +183,122 @@ function applyRemoteRecordDelete(recordId: string) {
   }));
 }
 
+function applyRemoteStructureUpsert(remote: Entity) {
+  if (isRecentLocalStructureWrite(remote.id)) return;
+  const existing = config.entities.find((item) => item.id === remote.id);
+  const merged = normalizeEntity({
+    ...remote,
+    records: existing?.records ?? [],
+  });
+  if (existing) {
+    const sameStructure =
+      JSON.stringify(toEntityStructure(existing)) ===
+      JSON.stringify(toEntityStructure(merged));
+    if (sameStructure) return;
+    setLocalConfig({
+      entities: withOptionalTabLinkFields(
+        config.entities.map((item) => (item.id === remote.id ? merged : item)),
+      ),
+    });
+    syncEntityMenuItems(menuLabels(config.entities));
+    return;
+  }
+  setLocalConfig({
+    entities: withOptionalTabLinkFields([...config.entities, merged]),
+  });
+  syncEntityMenuItems(menuLabels(config.entities));
+}
+
+function applyRemoteStructureDelete(entityId: string) {
+  if (isRecentLocalStructureWrite(entityId)) return;
+  if (!config.entities.some((item) => item.id === entityId)) return;
+  setLocalConfig({
+    entities: config.entities.filter((item) => item.id !== entityId),
+  });
+  syncEntityMenuItems(menuLabels(config.entities));
+}
+
 function startRecordSync() {
   if (stopRecordSync || !isSupabaseConfigured) return;
   stopRecordSync = subscribeEntityRecordChanges({
     onUpsert: applyRemoteRecordUpsert,
     onDelete: applyRemoteRecordDelete,
   });
+}
+
+function startStructureSync() {
+  if (stopStructureSync || !isSupabaseConfigured) return;
+  stopStructureSync = subscribeEntityStructureChanges({
+    onUpsert: applyRemoteStructureUpsert,
+    onDelete: applyRemoteStructureDelete,
+  });
+}
+
+/** Pull structure (+ record values) when the tab becomes visible again. */
+async function refreshFromRemote() {
+  if (!isSupabaseConfigured || status === "loading") return;
+  if (persistStructureTimer) return;
+
+  try {
+    const remote = await withTimeout(
+      fetchEntityConfig(),
+      12_000,
+      "entity structure refresh",
+    );
+    if (!remote) return;
+
+    let recordsByEntity: Record<string, EntityRecord[]> = {};
+    try {
+      recordsByEntity = await withTimeout(
+        fetchRecordsByEntityId(),
+        30_000,
+        "entity records refresh",
+      );
+    } catch (error: unknown) {
+      console.error("[entity] records refresh failed", error);
+      for (const entity of config.entities) {
+        recordsByEntity[entity.id] = entity.records;
+      }
+    }
+
+    const localById = new Map(
+      config.entities.map((entity) => [entity.id, entity]),
+    );
+    const entities = withOptionalTabLinkFields(
+      remote.entities.map((remoteEntity) => {
+        const local = localById.get(remoteEntity.id);
+        const records =
+          recordsByEntity[remoteEntity.id] ?? local?.records ?? [];
+        return normalizeEntity({ ...remoteEntity, records });
+      }),
+    );
+
+    setLocalConfig({ entities });
+    syncEntityMenuItems(menuLabels(entities));
+  } catch (error: unknown) {
+    console.error("[entity] structure refresh failed", error);
+  }
+}
+
+function startVisibilityRefresh() {
+  if (stopVisibilityRefresh || !isSupabaseConfigured) return;
+  if (typeof document === "undefined") return;
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const onVisible = () => {
+    if (document.visibilityState !== "visible") return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      void refreshFromRemote();
+    }, 400);
+  };
+
+  document.addEventListener("visibilitychange", onVisible);
+  stopVisibilityRefresh = () => {
+    document.removeEventListener("visibilitychange", onVisible);
+    if (timer) clearTimeout(timer);
+  };
 }
 
 function withResolvedListDependencies(entity: Entity): Entity {
@@ -208,9 +341,12 @@ function persistStructure(next: EntityConfig) {
 
   if (!isSupabaseConfigured) return;
 
+  markLocalStructureWrite(next.entities.map((entity) => entity.id));
+
   if (persistStructureTimer) clearTimeout(persistStructureTimer);
   persistStructureTimer = setTimeout(() => {
     persistStructureTimer = null;
+    markLocalStructureWrite(config.entities.map((entity) => entity.id));
     void saveEntityConfig(config).catch((error: unknown) => {
       handlePersistError(error, "Не удалось сохранить сущности");
     });
@@ -406,6 +542,8 @@ export async function initEntityConfig() {
         }
       }
       startRecordSync();
+      startStructureSync();
+      startVisibilityRefresh();
     } catch (error: unknown) {
       const message =
         error instanceof Error

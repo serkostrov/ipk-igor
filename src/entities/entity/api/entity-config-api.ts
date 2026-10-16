@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
-import type { EntityConfig } from "../model/types";
+import type { Entity, EntityConfig } from "../model/types";
 import {
+  normalizeEntity,
   parseEntityConfig,
   toEntityStructure,
 } from "../lib/parse-entity-config";
@@ -22,6 +23,14 @@ function rowToDefinition(row: EntityRow): Record<string, unknown> {
     ...definition,
     id: row.id,
   };
+}
+
+/** Parse one `entities` row into a structure-only Entity (records = []). */
+export function parseEntityStructureRow(row: EntityRow): Entity | null {
+  if (typeof row.id !== "string" || row.id.trim().length === 0) return null;
+  const parsed = parseEntityConfig({ entities: [rowToDefinition(row)] });
+  const entity = parsed.entities[0];
+  return entity ? normalizeEntity(entity) : null;
 }
 
 export async function fetchEntityConfig(): Promise<EntityConfig | null> {
@@ -97,4 +106,39 @@ export async function saveEntityConfig(config: EntityConfig): Promise<void> {
       existingIds.length,
     );
   }
+}
+
+/** Subscribe to structure changes in `entities` (fields, list options, …). */
+export function subscribeEntityStructureChanges(handlers: {
+  onUpsert: (entity: Entity) => void;
+  onDelete: (entityId: string) => void;
+}): () => void {
+  if (!isSupabaseConfigured || !supabase) return () => {};
+  const client = supabase;
+  const channel = client
+    .channel("entity-structure-changes")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "entities" },
+      (payload) => {
+        if (payload.eventType === "DELETE") {
+          const id = (payload.old as { id?: unknown } | null)?.id;
+          if (typeof id === "string") handlers.onDelete(id);
+          return;
+        }
+        const row = payload.new as EntityRow | null;
+        if (!row) return;
+        const entity = parseEntityStructureRow(row);
+        if (entity) handlers.onUpsert(entity);
+      },
+    )
+    .subscribe((status, err) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error("[entity] structure realtime", status, err);
+      }
+    });
+
+  return () => {
+    void client.removeChannel(channel);
+  };
 }
