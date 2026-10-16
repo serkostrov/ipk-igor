@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
+import { withTimeout } from "@/shared/lib/with-timeout";
 import type { EntityRecord } from "../model/types";
 import { normalizeEntityRecord } from "../lib/parse-entity-config";
 import {
@@ -89,33 +90,74 @@ export function subscribeEntityRecordChanges(handlers: {
   };
 }
 
+/**
+ * PostgREST / Supabase silently caps a single response (default 1000 rows).
+ * Fetch in max-size pages — unrelated to the table UI page size (25/50/100).
+ */
+const ENTITY_RECORDS_FETCH_PAGE_SIZE = 1000;
+
+type FetchPageError = {
+  code?: string;
+  message?: string;
+  hint?: string;
+  details?: string;
+};
+
+async function fetchEntityRecordsPages(
+  select: string,
+  entityId?: string,
+): Promise<{ rows: EntityRecordRow[]; error: FetchPageError | null }> {
+  if (!supabase) return { rows: [], error: null };
+
+  const rows: EntityRecordRow[] = [];
+  let offset = 0;
+
+  for (;;) {
+    let query = supabase
+      .from("entity_records")
+      .select(select)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + ENTITY_RECORDS_FETCH_PAGE_SIZE - 1);
+    if (entityId) query = query.eq("entity_id", entityId);
+
+    const { data, error } = await withTimeout(
+      Promise.resolve(query),
+      15_000,
+      "entity_records page",
+    );
+    if (error) return { rows, error };
+
+    const page = (data ?? []) as unknown as EntityRecordRow[];
+    rows.push(...page);
+    if (page.length < ENTITY_RECORDS_FETCH_PAGE_SIZE) break;
+    offset += ENTITY_RECORDS_FETCH_PAGE_SIZE;
+  }
+
+  return { rows, error: null };
+}
+
 export async function fetchEntityRecords(
   entityId?: string,
 ): Promise<EntityRecordRow[]> {
   if (!isSupabaseConfigured || !supabase) return [];
 
   if (entityRecordsSupportsCreatedBy()) {
-    let query = supabase
-      .from("entity_records")
-      .select(ENTITY_RECORD_SELECT)
-      .order("created_at", { ascending: true });
-    if (entityId) query = query.eq("entity_id", entityId);
-    const { data, error } = await query;
-    if (!error) {
-      return (data ?? []) as unknown as EntityRecordRow[];
-    }
-    if (!isMissingCreatedByColumn(error)) throw error;
+    const result = await fetchEntityRecordsPages(
+      ENTITY_RECORD_SELECT,
+      entityId,
+    );
+    if (!result.error) return result.rows;
+    if (!isMissingCreatedByColumn(result.error)) throw result.error;
     markEntityRecordsCreatedByUnsupported();
   }
 
-  let legacy = supabase
-    .from("entity_records")
-    .select(ENTITY_RECORD_SELECT_LEGACY)
-    .order("created_at", { ascending: true });
-  if (entityId) legacy = legacy.eq("entity_id", entityId);
-  const { data, error } = await legacy;
-  if (error) throw error;
-  return (data ?? []) as unknown as EntityRecordRow[];
+  const legacy = await fetchEntityRecordsPages(
+    ENTITY_RECORD_SELECT_LEGACY,
+    entityId,
+  );
+  if (legacy.error) throw legacy.error;
+  return legacy.rows;
 }
 
 export async function fetchRecordsByEntityId(): Promise<

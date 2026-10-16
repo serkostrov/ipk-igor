@@ -1,5 +1,6 @@
 import { fetchMenuConfig, saveMenuConfig } from "../api/menu-config-api";
 import { isSupabaseConfigured } from "@/shared/api/supabase";
+import { withTimeout } from "@/shared/lib/with-timeout";
 import type {
   MenuConfig,
   MenuEntry,
@@ -209,7 +210,11 @@ export async function initMenuConfig() {
     setStatus("loading");
 
     try {
-      const remote = await fetchMenuConfig();
+      const remote = await withTimeout(
+        fetchMenuConfig(),
+        12_000,
+        "menu config",
+      );
       const loaded = ensureSystemMenuItems(remote ?? cloneDefaultMenuConfig());
       const stripped = stripLegacyReportMenuEntries(loaded);
       if (stripped.changed) {

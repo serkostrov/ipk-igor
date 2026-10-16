@@ -71,13 +71,19 @@ import {
   resolveRelationRecordLabel,
   getEntityFileDownloadUrl,
   useEntityConfig,
+  DEFAULT_ENTITY_TABLE_PAGE_SIZE,
+  ENTITY_TABLE_PAGE_SIZES,
+  ENTITY_TABLE_PAGE_SIZE_STORAGE_KEY,
   getNextEntityRecordSort,
+  isEntityTablePageSize,
   parseEntityRecordSort,
+  parseEntityTablePageSize,
   sortEntityRecords,
   type Entity,
   type EntityField,
   type EntityRecord,
   type EntityRecordSortDirection,
+  type EntityTablePageSize,
 } from "@/entities/entity";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import {
@@ -89,13 +95,6 @@ import {
   getEntityTableHeaderMinWidth,
 } from "../lib/table-column-width";
 import { useRecordListChange } from "./use-record-list-change";
-
-const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
-type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
-
-function isPageSize(value: number): value is PageSize {
-  return (PAGE_SIZE_OPTIONS as readonly number[]).includes(value);
-}
 
 function getVisiblePages(current: number, total: number) {
   if (total <= 7) {
@@ -138,10 +137,10 @@ function TablePagination({
   onPageSizeChange,
 }: {
   page: number;
-  pageSize: PageSize;
+  pageSize: EntityTablePageSize;
   total: number;
   onPageChange: (page: number) => void;
-  onPageSizeChange: (size: PageSize) => void;
+  onPageSizeChange: (size: EntityTablePageSize) => void;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(Math.max(1, page), totalPages);
@@ -157,7 +156,7 @@ function TablePagination({
           value={String(pageSize)}
           onValueChange={(next) => {
             const size = Number(next);
-            if (isPageSize(size)) onPageSizeChange(size);
+            if (isEntityTablePageSize(size)) onPageSizeChange(size);
           }}
         >
           <SelectTrigger
@@ -168,7 +167,7 @@ function TablePagination({
             <SelectValue>{pageSize}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {PAGE_SIZE_OPTIONS.map((size) => (
+            {ENTITY_TABLE_PAGE_SIZES.map((size) => (
               <SelectItem key={size} value={String(size)}>
                 {size}
               </SelectItem>
@@ -880,7 +879,11 @@ export function EntityTableView({
     parseEntityRecordSort,
     null,
   );
-  const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [pageSize, setPageSize] = useLocalStorageState(
+    ENTITY_TABLE_PAGE_SIZE_STORAGE_KEY,
+    parseEntityTablePageSize,
+    DEFAULT_ENTITY_TABLE_PAGE_SIZE,
+  );
   const [page, setPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<EntityRecord | null>(null);
   const tableFields = getEntityTableFields(entity.fields);

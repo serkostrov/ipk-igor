@@ -255,6 +255,15 @@ export {
   type FormulaValue,
 } from "./model/formula";
 export {
+  DEFAULT_ENTITY_TABLE_PAGE_SIZE,
+  ENTITY_TABLE_PAGE_SIZES,
+  ENTITY_TABLE_PAGE_SIZE_STORAGE_KEY,
+  isEntityTablePageSize,
+  parseEntityTablePageSize,
+  readEntityTablePageSize,
+  type EntityTablePageSize,
+} from "./model/table-page-size";
+export {
   getEntityDeadlineLabel,
   getEntityDeadlineState,
   isEntityDeadlineDone,

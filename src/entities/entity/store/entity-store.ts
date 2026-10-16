@@ -1,6 +1,7 @@
 import { isSupabaseConfigured } from "@/shared/api/supabase";
 import { parseLocalDatetime, toLocalDatetime } from "@/shared/lib/datetime";
 import { formatDateDisplay } from "@/shared/lib/format-date";
+import { withTimeout } from "@/shared/lib/with-timeout";
 import { syncEntityMenuItems } from "@/entities/menu";
 import { fetchEntityConfig, saveEntityConfig } from "../api/entity-config-api";
 import {
@@ -320,13 +321,21 @@ export async function initEntityConfig() {
     setStatus("loading");
 
     try {
-      const remote = await fetchEntityConfig();
+      const remote = await withTimeout(
+        fetchEntityConfig(),
+        12_000,
+        "entity config",
+      );
       const structure = remote ?? cloneDefaultEntityConfig();
       const remoteEmpty =
         remote != null && remote.entities.length === 0 && isSupabaseConfigured;
       let recordsByEntity: Record<string, EntityRecord[]> = {};
       try {
-        recordsByEntity = await fetchRecordsByEntityId();
+        recordsByEntity = await withTimeout(
+          fetchRecordsByEntityId(),
+          60_000,
+          "entity records",
+        );
       } catch (recordsError: unknown) {
         // Structure must still load if records schema lags (e.g. no created_by).
         console.error("[entity] records load failed", recordsError);
