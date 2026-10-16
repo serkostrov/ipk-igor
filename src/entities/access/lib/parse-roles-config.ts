@@ -131,6 +131,7 @@ export function ensureSystemRoles(roles: Role[]): {
   let changed = false;
   let next = [...roles];
 
+  // Only Administrator is mandatory. «Сотрудник» is optional and may be removed.
   const adminIndex = next.findIndex((role) => role.id === ROLE_ADMIN_ID);
   if (adminIndex < 0) {
     next = [createAdminRole(), ...next];
@@ -144,13 +145,10 @@ export function ensureSystemRoles(roles: Role[]): {
   }
 
   const employeeIndex = next.findIndex((role) => role.id === ROLE_EMPLOYEE_ID);
-  if (employeeIndex < 0) {
-    next = [...next, createEmployeeRole()];
-    changed = true;
-  } else {
+  if (employeeIndex >= 0) {
     const employee = next[employeeIndex]!;
-    if (!employee.isSystem) {
-      next[employeeIndex] = { ...employee, isSystem: true };
+    if (employee.isSystem) {
+      next[employeeIndex] = { ...employee, isSystem: false };
       changed = true;
     }
   }

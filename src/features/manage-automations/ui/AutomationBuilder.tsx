@@ -434,7 +434,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
           </main>
 
           {selectedTemplate && entity ? (
-            <aside className="hidden w-[400px] shrink-0 flex-col border-l border-border xl:flex">
+            <aside
+              className="relative z-20 hidden h-full min-h-0 w-[400px] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
               <div className="flex min-h-0 flex-1 flex-col p-3">
                 <TemplateInspector
                   key={selectedTemplate.id}
@@ -445,7 +448,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   notificationRules={notificationRules.filter(
                     (rule) => rule.templateId === selectedTemplate.id,
                   )}
-                  onSave={(next) => void saveTemplate(next)}
+                  onSave={(next) => saveTemplate(next)}
                   onDelete={() => {
                     void removeTemplate(selectedTemplate.id);
                     setSelectedTemplateId(null);
@@ -454,7 +457,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
               </div>
             </aside>
           ) : (
-            <aside className="hidden w-[300px] shrink-0 flex-col border-l border-border xl:flex">
+            <aside className="relative z-20 hidden h-full min-h-0 w-[300px] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex">
               <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
                 <Filter className="size-5 text-muted-foreground/60" />
                 <p className="text-sm font-medium">Инспектор шага</p>

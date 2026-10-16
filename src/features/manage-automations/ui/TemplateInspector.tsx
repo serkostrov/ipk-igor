@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -10,6 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { SettingSwitch } from "@/shared/ui/setting-controls";
 import {
@@ -106,32 +113,36 @@ function OutcomeAskFieldsEditor({
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium">Запросить поля</p>
         {available.length > 0 ? (
-          <Select
-            key={value.visibleFieldIds.join("|")}
-            onValueChange={(next) => {
-              if (next == null) return;
-              const id = String(next);
-              onChange({
-                ...value,
-                visibleFieldIds: [...value.visibleFieldIds, id],
-              });
-            }}
-          >
-            <SelectTrigger
-              size="sm"
-              className="h-7 w-auto max-w-[9rem] gap-1 border-dashed px-2 text-xs text-muted-foreground"
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 border-dashed px-2 text-xs text-muted-foreground"
+                />
+              }
             >
               <Plus className="size-3 shrink-0" />
-              <SelectValue placeholder="Поле" />
-            </SelectTrigger>
-            <SelectContent>
+              Поле
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-64 min-w-48">
               {available.map((field) => (
-                <SelectItem key={field.id} value={field.id}>
+                <DropdownMenuItem
+                  key={field.id}
+                  onClick={() =>
+                    onChange({
+                      ...value,
+                      visibleFieldIds: [...value.visibleFieldIds, field.id],
+                    })
+                  }
+                >
                   {getEntityFieldDisplayName(field)}
-                </SelectItem>
+                </DropdownMenuItem>
               ))}
-            </SelectContent>
-          </Select>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
       </div>
       {selected.length === 0 ? (
@@ -199,20 +210,39 @@ export function TemplateInspector({
   entities: Entity[];
   options: Array<{ id: string; name: string }>;
   notificationRules: AutomationNotificationRule[];
-  onSave: (template: AutomationTaskTemplate) => void;
+  onSave: (template: AutomationTaskTemplate) => void | Promise<void>;
   onDelete: () => void;
 }) {
   const [draft, setDraft] = useState(template);
   const [tab, setTab] = useState("general");
+  const [saving, setSaving] = useState(false);
 
   function patch(partial: Partial<AutomationTaskTemplate>) {
     setDraft((prev) => ({ ...prev, ...partial }));
   }
 
   function patchOutcome(index: number, outcome: AutomationOutcome) {
-    const outcomes = [...draft.outcomes];
-    outcomes[index] = outcome;
-    patch({ outcomes });
+    setDraft((prev) => {
+      const outcomes = [...prev.outcomes];
+      outcomes[index] = outcome;
+      return { ...prev, outcomes };
+    });
+  }
+
+  async function handleSave() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave(draft);
+      toast.success("Шаг сохранён");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Не удалось сохранить шаг";
+      console.error("[automation] save template failed", error);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function addNotificationRule() {
@@ -579,9 +609,14 @@ export function TemplateInspector({
         </div>
       </Tabs>
 
-      <div className="shrink-0 border-t border-border pt-3">
-        <Button type="button" className="w-full" onClick={() => onSave(draft)}>
-          Сохранить
+      <div className="relative z-10 shrink-0 border-t border-border bg-background pt-3">
+        <Button
+          type="button"
+          className="w-full"
+          disabled={saving}
+          onClick={() => void handleSave()}
+        >
+          {saving ? "Сохранение…" : "Сохранить"}
         </Button>
       </div>
     </div>

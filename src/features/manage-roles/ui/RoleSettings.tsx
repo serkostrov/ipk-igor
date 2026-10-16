@@ -4,7 +4,6 @@ import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import {
   ROLE_ADMIN_ID,
-  ROLE_EMPLOYEE_ID,
   cloneRole,
   createEmployeeRole,
   normalizeRole,
@@ -95,8 +94,7 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2">
           {roles.map((role) => {
-            const locked =
-              role.id === ROLE_ADMIN_ID || role.id === ROLE_EMPLOYEE_ID;
+            const locked = role.id === ROLE_ADMIN_ID;
             return (
               <li
                 key={role.id}

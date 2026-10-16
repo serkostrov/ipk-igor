@@ -201,7 +201,7 @@ export function upsertRole(role: Role) {
 }
 
 export function removeRole(roleId: string) {
-  if (roleId === ROLE_ADMIN_ID || roleId === ROLE_EMPLOYEE_ID) return;
+  if (roleId === ROLE_ADMIN_ID) return;
   applyRoles(
     { roles: config.roles.filter((role) => role.id !== roleId) },
     true,

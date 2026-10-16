@@ -12,6 +12,7 @@ import {
 } from "../api/automation-config-api";
 import {
   emptyAutomationConfig,
+  normalizeAutomationTaskTemplate,
   type AutomationConfig,
   type AutomationNotificationRule,
   type AutomationProcess,
@@ -153,17 +154,21 @@ export async function removeScenario(scenarioId: string) {
 }
 
 export async function saveTemplate(template: AutomationTaskTemplate) {
-  const exists = config.templates.some((item) => item.id === template.id);
+  const normalized = normalizeAutomationTaskTemplate(template);
+  if (!normalized) {
+    throw new Error("Некорректный шаблон задачи");
+  }
+  const exists = config.templates.some((item) => item.id === normalized.id);
   replaceConfig({
     ...config,
     templates: exists
       ? config.templates.map((item) =>
-          item.id === template.id ? template : item,
+          item.id === normalized.id ? normalized : item,
         )
-      : [...config.templates, template],
+      : [...config.templates, normalized],
   });
   if (!isSupabaseConfigured) return;
-  await upsertAutomationTemplate(template);
+  await upsertAutomationTemplate(normalized);
 }
 
 export async function removeTemplate(templateId: string) {

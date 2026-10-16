@@ -83,7 +83,7 @@ export function createEmployeeRole(): Role {
     id: ROLE_EMPLOYEE_ID,
     name: "Сотрудник",
     description: "Доступ к данным без настроек системы",
-    isSystem: true,
+    isSystem: false,
     permissions: {
       menuItemIds: "*",
       settingsTabs: [],

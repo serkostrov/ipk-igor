@@ -1,6 +1,5 @@
 import {
   ROLE_ADMIN_ID,
-  ROLE_EMPLOYEE_ID,
   createEmployeeRole,
   getRolesConfig,
   normalizeRole,
@@ -30,7 +29,7 @@ export function isUsersRoleListField(
 }
 
 export function isProtectedSystemRoleId(roleId: string) {
-  return roleId === ROLE_ADMIN_ID || roleId === ROLE_EMPLOYEE_ID;
+  return roleId === ROLE_ADMIN_ID;
 }
 
 /** Create a role; list options sync from the roles catalog. */
