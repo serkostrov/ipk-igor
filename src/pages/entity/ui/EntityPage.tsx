@@ -260,6 +260,7 @@ export function EntityPage({
   const hiddenRecordsAction =
     scope.hiddenCount > 0 ? <HiddenRecordsBar scope={scope} /> : undefined;
 
+  /** Full record page (kanban / timeline / row). Internal entities use a dialog. */
   function openRecordLocal(record: EntityRecord) {
     if (isInternal) {
       setCreateOpen(false);
@@ -270,6 +271,12 @@ export function EntityPage({
     openRecord(currentEntity.id, record.id);
   }
 
+  /** Pencil — always quick-edit dialog. */
+  function editRecordLocal(record: EntityRecord) {
+    setCreateOpen(false);
+    setEditingRecord(record);
+  }
+
   function renderView(view: EntityBrowseView) {
     if (view === "table") {
       return (
@@ -277,7 +284,8 @@ export function EntityPage({
           entity={currentEntity}
           records={scope.records}
           title={title}
-          onEditRecord={canOpenRecord ? openRecordLocal : undefined}
+          onEditRecord={canOpenRecord ? editRecordLocal : undefined}
+          onOpenRecord={canOpenRecord ? openRecordLocal : undefined}
           onOpenRelation={onOpenRelation}
         />
       );
@@ -436,7 +444,7 @@ export function EntityPage({
           }
         />
       ) : null}
-      {canOpenRecord && isInternal ? (
+      {canOpenRecord ? (
         <EntityRecordDialog
           open={editingRecord != null}
           onOpenChange={(open) => {

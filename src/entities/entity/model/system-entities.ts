@@ -173,17 +173,20 @@ export function syncUsersRoleFieldOptions(
       entityChanged = true;
     } else {
       const current = fields[roleIndex]!;
-      const same =
+      const sameOptions =
         current.listOptions.length === options.length &&
         current.listOptions.every(
           (option, index) =>
             option.id === options[index]?.id &&
             option.name === options[index]?.name,
-        ) &&
-        current.listFixed === true &&
+        );
+      const sameMeta =
         current.required === true &&
         current.systemKey === SYSTEM_FIELD_KEY_ROLE;
-      if (!same) {
+      if (!sameOptions || !sameMeta) {
+        // Preserve list presentation (colors / fixed) — user can change those
+        // in settings; only catalog options + required system meta are forced.
+        const listFixed = current.listFixed;
         fields[roleIndex] = {
           ...createUsersRoleField(options),
           name: current.name || "Роль",
@@ -196,6 +199,17 @@ export function syncUsersRoleFieldOptions(
           tableOrder: current.tableOrder,
           colSpan: current.colSpan,
           rowSpan: current.rowSpan,
+          listUseColors: current.listUseColors,
+          listFixed,
+          listMultiple: listFixed ? current.listMultiple : false,
+          listOptions: sameOptions
+            ? current.listOptions
+            : options.map((option) => ({
+                ...option,
+                color:
+                  current.listOptions.find((item) => item.id === option.id)
+                    ?.color ?? option.color,
+              })),
         };
         entityChanged = true;
       }

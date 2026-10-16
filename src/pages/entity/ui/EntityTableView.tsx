@@ -255,7 +255,10 @@ type EntityTableViewProps = {
   /** Records in scope (quick filter, hidden options) before search and filters. */
   records: EntityRecord[];
   title: string;
+  /** Pencil — quick edit dialog. */
   onEditRecord?: (record: EntityRecord) => void;
+  /** Row click — open full record (optional). */
+  onOpenRecord?: (record: EntityRecord) => void;
   onOpenRelation?: (entityId: string, recordId: string) => void;
 };
 
@@ -867,6 +870,7 @@ export function EntityTableView({
   records,
   title,
   onEditRecord,
+  onOpenRecord,
   onOpenRelation,
 }: EntityTableViewProps) {
   const { entities } = useEntityConfig();
@@ -1118,10 +1122,10 @@ export function EntityTableView({
                       key={record.id}
                       className={cn(
                         "border-border/70",
-                        onEditRecord && "cursor-pointer hover:bg-muted/35",
+                        onOpenRecord && "cursor-pointer hover:bg-muted/35",
                       )}
                       onClick={
-                        onEditRecord ? () => onEditRecord(record) : undefined
+                        onOpenRecord ? () => onOpenRecord(record) : undefined
                       }
                     >
                       {tableFields.map((field, index) => {

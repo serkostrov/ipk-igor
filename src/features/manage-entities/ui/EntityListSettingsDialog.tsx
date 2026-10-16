@@ -60,6 +60,15 @@ import {
   type EntityListDependencyParentValue,
   type EntityListOption,
 } from "@/entities/entity";
+import {
+  createUsersRoleFromListOption,
+  deleteUsersRoleFromListOption,
+  isProtectedSystemRoleId,
+  isUsersRoleListField,
+  reorderUsersRolesFromListOptions,
+  updateUsersRoleFromListOption,
+} from "../lib/users-role-list";
+
 const NO_DEPENDENCY = "__none__";
 
 type ListOptionEditorData = Pick<
@@ -603,6 +612,7 @@ function ListOptionRow({
   onDelete,
   onCancelEdit,
   onSaveEdit,
+  canDelete = true,
 }: {
   option: EntityListOption;
   showColors: boolean;
@@ -620,6 +630,7 @@ function ListOptionRow({
   onDelete: () => void;
   onCancelEdit: () => void;
   onSaveEdit: (data: ListOptionEditorData) => void;
+  canDelete?: boolean;
 }) {
   if (isEditing) {
     return (
@@ -670,16 +681,18 @@ function ListOptionRow({
         >
           <Pencil />
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-foreground hover:text-destructive"
-          aria-label={`Удалить вариант «${option.name}»`}
-          onClick={onDelete}
-        >
-          <Trash2 />
-        </Button>
+        {canDelete ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="text-foreground hover:text-destructive"
+            aria-label={`Удалить вариант «${option.name}»`}
+            onClick={onDelete}
+          >
+            <Trash2 />
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -749,6 +762,7 @@ function OptionGroupList({
   onDelete,
   onCancelEditor,
   onSaveEdit,
+  canDeleteOption,
 }: {
   parentOptionId: string | null;
   options: EntityListOption[];
@@ -762,6 +776,7 @@ function OptionGroupList({
   onDelete: (optionId: string) => void;
   onCancelEditor: () => void;
   onSaveEdit: (optionId: string, data: ListOptionEditorData) => void;
+  canDeleteOption?: (optionId: string) => boolean;
 }) {
   function renderOptionRow(option: EntityListOption, index: number) {
     const nextOptionId = options[index + 1]?.id ?? null;
@@ -800,6 +815,7 @@ function OptionGroupList({
         onDelete={() => onDelete(option.id)}
         onCancelEdit={onCancelEditor}
         onSaveEdit={(data) => onSaveEdit(option.id, data)}
+        canDelete={canDeleteOption?.(option.id) ?? true}
       />
     );
   }
@@ -1115,20 +1131,24 @@ export function EntityListSettingsDialog({
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const [handleEpoch, setHandleEpoch] = useState(0);
   const allowDragRef = useRef(false);
+  const isRoleCatalog = isUsersRoleListField(field);
   const listOptions = field.type === "list" ? field.listOptions : [];
   const listFixed = field.type === "list" ? field.listFixed : false;
   const listMultiple =
     field.type === "list" && listFixed ? field.listMultiple : false;
   const listAllowOther =
-    field.type === "list" && !listMultiple ? field.listAllowOther : false;
+    field.type === "list" && !listMultiple && !isRoleCatalog
+      ? field.listAllowOther
+      : false;
   const listUseColors = field.type === "list" ? field.listUseColors : true;
   const fieldLabel = field.name.trim() || "Список";
-  const parentField = getEntityListParentField(entity, field);
+  const parentField = isRoleCatalog
+    ? null
+    : getEntityListParentField(entity, field);
   const dependsOnFieldId = parentField?.id ?? null;
-  const dependencyCandidates = getEntityListDependencyCandidates(
-    entity,
-    field.id,
-  );
+  const dependencyCandidates = isRoleCatalog
+    ? []
+    : getEntityListDependencyCandidates(entity, field.id);
   const parentValues = getEntityListDependencyParentValues(
     parentField,
     entities,
@@ -1185,6 +1205,20 @@ export function EntityListSettingsDialog({
     parentOptionId: string | null,
     beforeOptionId: string | null,
   ) {
+    if (isRoleCatalog) {
+      const order = listOptions.map((option) => option.id);
+      const from = order.indexOf(optionId);
+      if (from < 0) return;
+      order.splice(from, 1);
+      let insertAt = order.length;
+      if (beforeOptionId) {
+        const before = order.indexOf(beforeOptionId);
+        if (before >= 0) insertAt = before;
+      }
+      order.splice(insertAt, 0, optionId);
+      reorderUsersRolesFromListOptions(order);
+      return;
+    }
     moveEntityListOption(
       entity.id,
       field.id,
@@ -1192,6 +1226,40 @@ export function EntityListSettingsDialog({
       parentOptionId,
       beforeOptionId,
     );
+  }
+
+  function saveCreateOption(
+    data: ListOptionEditorData,
+    parentOptionId: string | null,
+  ) {
+    if (isRoleCatalog) {
+      createUsersRoleFromListOption(data);
+      closeEditor();
+      return;
+    }
+    addEntityListOption(entity.id, field.id, {
+      ...data,
+      parentOptionId,
+    });
+    closeEditor();
+  }
+
+  function saveEditOption(optionId: string, data: ListOptionEditorData) {
+    if (isRoleCatalog) {
+      updateUsersRoleFromListOption(optionId, data);
+      closeEditor();
+      return;
+    }
+    updateEntityListOption(entity.id, field.id, optionId, data);
+    closeEditor();
+  }
+
+  function deleteOption(optionId: string) {
+    if (isRoleCatalog) {
+      deleteUsersRoleFromListOption(optionId);
+      return;
+    }
+    removeEntityListOption(entity.id, field.id, optionId);
   }
 
   const drag: OptionDragControllers = {
@@ -1359,103 +1427,108 @@ export function EntityListSettingsDialog({
               ) : null}
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-3 py-2">
-                <div className="min-w-0">
-                  <Label
-                    htmlFor="list-depends-on"
-                    className="text-sm font-medium"
-                  >
-                    Зависит от
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Варианты фильтруются по выбранному значению
-                  </p>
-                </div>
-                <Switch
-                  id="list-depends-on"
-                  checked={dependsOnFieldId != null}
-                  disabled={
-                    dependsOnFieldId == null &&
-                    dependencyCandidates.length === 0
-                  }
-                  onCheckedChange={(checked) => {
-                    closeEditor();
-                    if (!checked) {
-                      updateEntityField(entity.id, field.id, {
-                        listDependsOnFieldId: null,
-                      });
-                      return;
-                    }
-                    const nextId =
-                      dependsOnFieldId ?? dependencyCandidates[0]?.id ?? null;
-                    if (!nextId) return;
-                    updateEntityField(entity.id, field.id, {
-                      listDependsOnFieldId: nextId,
-                    });
-                  }}
-                />
-              </div>
-
-              {dependsOnFieldId != null ? (
-                <SettingsNestedGroup>
-                  <div className="flex flex-col gap-1.5 rounded-xl border border-border/70 bg-card px-3 py-2">
+            {!isRoleCatalog ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-3 py-2">
+                  <div className="min-w-0">
                     <Label
-                      htmlFor="list-depends-on-field"
-                      className="text-xs font-medium text-muted-foreground"
+                      htmlFor="list-depends-on"
+                      className="text-sm font-medium"
                     >
-                      Родительское поле
+                      Зависит от
                     </Label>
-                    {dependencyCandidates.length === 0 && !parentField ? (
-                      <p className="text-xs text-muted-foreground">
-                        Нет доступных списков или связей
-                      </p>
-                    ) : (
-                      <Select
-                        value={dependsOnFieldId}
-                        onValueChange={(next) => {
-                          closeEditor();
-                          if (next == null || next === NO_DEPENDENCY) return;
-                          updateEntityField(entity.id, field.id, {
-                            listDependsOnFieldId: String(next),
-                          });
-                        }}
-                      >
-                        <SelectTrigger
-                          id="list-depends-on-field"
-                          className="h-8 w-full"
-                        >
-                          <SelectValue>
-                            {parentField
-                              ? getEntityFieldDisplayName(parentField)
-                              : "Выберите поле"}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {parentField &&
-                          !dependencyCandidates.some(
-                            (item) => item.id === parentField.id,
-                          ) ? (
-                            <SelectItem value={parentField.id}>
-                              {getEntityFieldDisplayName(parentField)}
-                              {" · "}
-                              {getEntityFieldTypeLabel(parentField.type)}
-                            </SelectItem>
-                          ) : null}
-                          {dependencyCandidates.map((candidate) => (
-                            <SelectItem key={candidate.id} value={candidate.id}>
-                              {getEntityFieldDisplayName(candidate)}
-                              {" · "}
-                              {getEntityFieldTypeLabel(candidate.type)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Варианты фильтруются по выбранному значению
+                    </p>
                   </div>
-                </SettingsNestedGroup>
-              ) : null}
-            </div>
+                  <Switch
+                    id="list-depends-on"
+                    checked={dependsOnFieldId != null}
+                    disabled={
+                      dependsOnFieldId == null &&
+                      dependencyCandidates.length === 0
+                    }
+                    onCheckedChange={(checked) => {
+                      closeEditor();
+                      if (!checked) {
+                        updateEntityField(entity.id, field.id, {
+                          listDependsOnFieldId: null,
+                        });
+                        return;
+                      }
+                      const nextId =
+                        dependsOnFieldId ?? dependencyCandidates[0]?.id ?? null;
+                      if (!nextId) return;
+                      updateEntityField(entity.id, field.id, {
+                        listDependsOnFieldId: nextId,
+                      });
+                    }}
+                  />
+                </div>
+
+                {dependsOnFieldId != null ? (
+                  <SettingsNestedGroup>
+                    <div className="flex flex-col gap-1.5 rounded-xl border border-border/70 bg-card px-3 py-2">
+                      <Label
+                        htmlFor="list-depends-on-field"
+                        className="text-xs font-medium text-muted-foreground"
+                      >
+                        Родительское поле
+                      </Label>
+                      {dependencyCandidates.length === 0 && !parentField ? (
+                        <p className="text-xs text-muted-foreground">
+                          Нет доступных списков или связей
+                        </p>
+                      ) : (
+                        <Select
+                          value={dependsOnFieldId}
+                          onValueChange={(next) => {
+                            closeEditor();
+                            if (next == null || next === NO_DEPENDENCY) return;
+                            updateEntityField(entity.id, field.id, {
+                              listDependsOnFieldId: String(next),
+                            });
+                          }}
+                        >
+                          <SelectTrigger
+                            id="list-depends-on-field"
+                            className="h-8 w-full"
+                          >
+                            <SelectValue>
+                              {parentField
+                                ? getEntityFieldDisplayName(parentField)
+                                : "Выберите поле"}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {parentField &&
+                            !dependencyCandidates.some(
+                              (item) => item.id === parentField.id,
+                            ) ? (
+                              <SelectItem value={parentField.id}>
+                                {getEntityFieldDisplayName(parentField)}
+                                {" · "}
+                                {getEntityFieldTypeLabel(parentField.type)}
+                              </SelectItem>
+                            ) : null}
+                            {dependencyCandidates.map((candidate) => (
+                              <SelectItem
+                                key={candidate.id}
+                                value={candidate.id}
+                              >
+                                {getEntityFieldDisplayName(candidate)}
+                                {" · "}
+                                {getEntityFieldTypeLabel(candidate.type)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  </SettingsNestedGroup>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -1468,12 +1541,18 @@ export function EntityListSettingsDialog({
           >
             <div className="flex items-center justify-between gap-2 px-0.5">
               <h3 className="text-[11px] font-semibold tracking-wide text-foreground/65 uppercase">
-                Варианты
+                {isRoleCatalog ? "Роли" : "Варианты"}
               </h3>
               <span className="text-[11px] font-semibold tracking-wide text-foreground/45 tabular-nums">
                 {listOptions.length}
               </span>
             </div>
+            {isRoleCatalog ? (
+              <p className="px-0.5 text-[11px] leading-snug text-muted-foreground">
+                Сохраняются в каталог ролей (Настройки → Роли). Права
+                настраиваются там же.
+              </p>
+            ) : null}
 
             <div className="flex flex-col gap-2">
               {dependsOnFieldId && parentField ? (
@@ -1497,26 +1576,12 @@ export function EntityListSettingsDialog({
                           })
                         }
                         onEdit={(option) => setEditor({ mode: "edit", option })}
-                        onDelete={(optionId) =>
-                          removeEntityListOption(entity.id, field.id, optionId)
-                        }
+                        onDelete={deleteOption}
                         onCancelEditor={closeEditor}
-                        onSaveCreate={(data) => {
-                          addEntityListOption(entity.id, field.id, {
-                            ...data,
-                            parentOptionId: parentValue.id,
-                          });
-                          closeEditor();
-                        }}
-                        onSaveEdit={(optionId, data) => {
-                          updateEntityListOption(
-                            entity.id,
-                            field.id,
-                            optionId,
-                            data,
-                          );
-                          closeEditor();
-                        }}
+                        onSaveCreate={(data) =>
+                          saveCreateOption(data, parentValue.id)
+                        }
+                        onSaveEdit={saveEditOption}
                       />
                     );
                   })}
@@ -1537,26 +1602,18 @@ export function EntityListSettingsDialog({
                     editor={editor}
                     drag={drag}
                     onEdit={(option) => setEditor({ mode: "edit", option })}
-                    onDelete={(optionId) =>
-                      removeEntityListOption(entity.id, field.id, optionId)
-                    }
+                    onDelete={deleteOption}
                     onCancelEditor={closeEditor}
-                    onSaveEdit={(optionId, data) => {
-                      updateEntityListOption(
-                        entity.id,
-                        field.id,
-                        optionId,
-                        data,
-                      );
-                      closeEditor();
-                    }}
+                    onSaveEdit={saveEditOption}
                   />
                 </>
               ) : (
                 <>
                   {listOptions.length === 0 && editor.mode === "closed" ? (
                     <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-                      Пока нет вариантов. Добавьте первый.
+                      {isRoleCatalog
+                        ? "Пока нет ролей. Добавьте первую."
+                        : "Пока нет вариантов. Добавьте первый."}
                     </div>
                   ) : (
                     <OptionGroupList
@@ -1566,19 +1623,14 @@ export function EntityListSettingsDialog({
                       editor={editor}
                       drag={drag}
                       onEdit={(option) => setEditor({ mode: "edit", option })}
-                      onDelete={(optionId) =>
-                        removeEntityListOption(entity.id, field.id, optionId)
-                      }
+                      onDelete={deleteOption}
                       onCancelEditor={closeEditor}
-                      onSaveEdit={(optionId, data) => {
-                        updateEntityListOption(
-                          entity.id,
-                          field.id,
-                          optionId,
-                          data,
-                        );
-                        closeEditor();
-                      }}
+                      onSaveEdit={saveEditOption}
+                      canDeleteOption={
+                        isRoleCatalog
+                          ? (optionId) => !isProtectedSystemRoleId(optionId)
+                          : undefined
+                      }
                     />
                   )}
 
@@ -1586,13 +1638,7 @@ export function EntityListSettingsDialog({
                     <ListOptionEditor
                       showColors={listUseColors}
                       onCancel={closeEditor}
-                      onSubmit={(data) => {
-                        addEntityListOption(entity.id, field.id, {
-                          ...data,
-                          parentOptionId: null,
-                        });
-                        closeEditor();
-                      }}
+                      onSubmit={(data) => saveCreateOption(data, null)}
                     />
                   ) : (
                     <Button
@@ -1604,7 +1650,7 @@ export function EntityListSettingsDialog({
                       }
                     >
                       <Plus />
-                      Добавить вариант
+                      {isRoleCatalog ? "Добавить роль" : "Добавить вариант"}
                     </Button>
                   )}
                 </>
@@ -1626,36 +1672,38 @@ export function EntityListSettingsDialog({
                 </div>
               ) : null}
 
-              <div
-                className={cn(
-                  "flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-3 py-2.5",
-                  listMultiple && "opacity-60",
-                )}
-              >
-                <div className="min-w-0">
-                  <Label
-                    htmlFor="list-allow-other"
-                    className="text-sm font-medium"
-                  >
-                    Включить поле «Другое»
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {listMultiple
-                      ? "Недоступно при множественном выборе"
-                      : "Появится вариант с полем для своего текста"}
-                  </p>
+              {!isRoleCatalog ? (
+                <div
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-3 py-2.5",
+                    listMultiple && "opacity-60",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <Label
+                      htmlFor="list-allow-other"
+                      className="text-sm font-medium"
+                    >
+                      Включить поле «Другое»
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {listMultiple
+                        ? "Недоступно при множественном выборе"
+                        : "Появится вариант с полем для своего текста"}
+                    </p>
+                  </div>
+                  <Switch
+                    id="list-allow-other"
+                    checked={listAllowOther}
+                    disabled={listMultiple}
+                    onCheckedChange={(checked) => {
+                      updateEntityField(entity.id, field.id, {
+                        listAllowOther: checked,
+                      });
+                    }}
+                  />
                 </div>
-                <Switch
-                  id="list-allow-other"
-                  checked={listAllowOther}
-                  disabled={listMultiple}
-                  onCheckedChange={(checked) => {
-                    updateEntityField(entity.id, field.id, {
-                      listAllowOther: checked,
-                    });
-                  }}
-                />
-              </div>
+              ) : null}
             </div>
           </section>
         </LayoutGroup>

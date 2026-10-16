@@ -807,6 +807,21 @@ export function updateEntityField(
         if (patch.colSpan !== undefined) layoutOnly.colSpan = patch.colSpan;
         if (patch.rowSpan !== undefined) layoutOnly.rowSpan = patch.rowSpan;
         if (patch.tabId !== undefined) layoutOnly.tabId = patch.tabId;
+        // System «Роль» (list): allow presentation toggles — otherwise switches
+        // in list settings appear stuck (patch was silently dropped).
+        if (field.type === "list" && isSystemEntityField(field)) {
+          if (patch.listUseColors !== undefined) {
+            layoutOnly.listUseColors = patch.listUseColors;
+          }
+          if (patch.listFixed !== undefined) {
+            layoutOnly.listFixed = patch.listFixed;
+            layoutOnly.listMultiple = patch.listFixed
+              ? (patch.listMultiple ?? field.listMultiple)
+              : false;
+          } else if (patch.listMultiple !== undefined && field.listFixed) {
+            layoutOnly.listMultiple = patch.listMultiple;
+          }
+        }
         return normalizeEntityField({ ...field, ...layoutOnly });
       }
 
