@@ -230,15 +230,30 @@ export function EntityFilesTabFoldersEditor({
 
         <div className="mt-4 flex flex-col gap-2">
           {folders.length === 0 && editor.mode === "closed" ? (
-            <div className="rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-8 text-center">
-              <p className="text-sm font-medium text-foreground">
-                Пока нет папок
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Добавьте структуру — например, «Договоры», «ТКП», «Акты»
-              </p>
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-8 text-center">
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-foreground">
+                  Пока нет папок
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {readOnly
+                    ? "Для этой сущности структура папок не задана"
+                    : "Добавьте структуру — например, «Договоры», «ТКП», «Акты»"}
+                </p>
+              </div>
+              {!readOnly ? (
+                <Button
+                  type="button"
+                  onClick={() => setEditor({ mode: "create" })}
+                >
+                  <Plus />
+                  Добавить папку
+                </Button>
+              ) : null}
             </div>
-          ) : (
+          ) : null}
+
+          {folders.length > 0 ? (
             <ul className="flex flex-col gap-1.5">
               {folders.map((folder) => {
                 const color = normalizeListColor(folder.color);
@@ -300,34 +315,29 @@ export function EntityFilesTabFoldersEditor({
                 );
               })}
             </ul>
-          )}
+          ) : null}
 
-          {!readOnly ? (
-            editor.mode === "create" ? (
-              <FolderEditor
-                existingNames={namesForCreate}
-                onCancel={closeEditor}
-                onSubmit={handleCreate}
-              />
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={editor.mode !== "closed"}
-                onClick={() => setEditor({ mode: "create" })}
-              >
-                <Plus />
-                Добавить папку
-              </Button>
-            )
+          {!readOnly && editor.mode === "create" ? (
+            <FolderEditor
+              existingNames={namesForCreate}
+              onCancel={closeEditor}
+              onSubmit={handleCreate}
+            />
+          ) : null}
+
+          {!readOnly && folders.length > 0 && editor.mode === "closed" ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => setEditor({ mode: "create" })}
+            >
+              <Plus />
+              Добавить папку
+            </Button>
           ) : null}
         </div>
       </div>
-
-      <p className="px-1 text-center text-xs text-muted-foreground">
-        На странице карточки здесь будет файловая система записи: папки и файлы
-      </p>
     </div>
   );
 }
