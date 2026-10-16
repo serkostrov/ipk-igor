@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -24,6 +24,7 @@ import {
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import {
+  buildEntityTabDefaultFileEntries,
   DEFAULT_ENTITY_FOLDER_COLOR,
   DEFAULT_ENTITY_LIST_COLORS,
   deleteEntityFileObject,
@@ -180,6 +181,20 @@ export function RecordFilesTabPanel({
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
+  const seededRef = useRef(false);
+
+  // Existing empty records: seed configured default folders once.
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (record.values[valueKey] !== undefined) return;
+    if (tab.defaultFolders.length === 0) return;
+    seededRef.current = true;
+    const seeded = buildEntityTabDefaultFileEntries(tab.defaultFolders);
+    updateEntityRecord(entity.id, record.id, {
+      ...record.values,
+      [valueKey]: serializeEntityTabFileEntries(seeded),
+    });
+  }, [entity.id, record.id, record.values, tab.defaultFolders, valueKey]);
 
   const byId = useMemo(() => {
     const map = new Map<string, EntityTabFileEntry>();

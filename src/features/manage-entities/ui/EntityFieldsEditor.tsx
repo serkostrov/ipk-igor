@@ -109,6 +109,7 @@ import {
   EntityFieldsOverviewDialog,
 } from "./EntityFieldsOverviewDialog";
 import { EntitySubEntitySettingsDialog } from "./EntitySubEntitySettingsDialog";
+import { EntityFilesTabFoldersEditor } from "./EntityFilesTabFoldersEditor";
 import { EntityTabDialog } from "./EntityTabDialog";
 
 type EntityFieldsEditorProps = {
@@ -4215,13 +4216,11 @@ export function EntityFieldsEditor({
                 </p>
               </div>
             ) : activeTab && isEntityFilesTab(activeTab) ? (
-              <div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-muted/15 px-6 py-12 text-center">
-                <p className="text-sm font-medium text-foreground">Файлы</p>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  На странице карточки здесь будет файловая система записи:
-                  папки и файлы — без отдельных полей.
-                </p>
-              </div>
+              <EntityFilesTabFoldersEditor
+                entity={entity}
+                tab={activeTab}
+                readOnly={readOnly}
+              />
             ) : activeTab && isEntityHistoryTab(activeTab) ? (
               <div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-muted/15 px-6 py-12 text-center">
                 <p className="text-sm font-medium text-foreground">

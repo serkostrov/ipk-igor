@@ -333,8 +333,8 @@ function EntityTabForm({
             ) : null}
             {!isEdit && kind === "files" ? (
               <p className="text-xs text-muted-foreground">
-                На странице записи появится файловая система: папки и файлы
-                внутри этой записи.
+                Файловая система записи. Папки по умолчанию настроите на вкладке
+                после создания.
               </p>
             ) : null}
             {!isEdit && kind === "history" ? (

@@ -25,7 +25,10 @@ import {
   toEntityStructure,
 } from "../lib/parse-entity-config";
 import { serializeEntityDecimal } from "../model/field";
-import { applyEntityFieldDefaults } from "../model/field-value";
+import {
+  applyEntityFieldDefaults,
+  applyEntityFilesTabDefaults,
+} from "../model/field-value";
 import {
   getEntityTimelineSetup,
   scheduleEntityTimeline,
@@ -1025,7 +1028,7 @@ export function setEntityKanbanCardFields(
 
 export function addEntityTab(
   entityId: string,
-  data?: Partial<Pick<EntityTab, "name" | "kind">>,
+  data?: Partial<Pick<EntityTab, "name" | "kind" | "defaultFolders">>,
 ) {
   const tab = normalizeEntityTab({
     id: createId("tab"),
@@ -1034,6 +1037,7 @@ export function addEntityTab(
     kind: normalizeEntityTabKind(data?.kind),
     linkedEntityId: null,
     parentLinkFieldId: null,
+    defaultFolders: data?.defaultFolders ?? [],
   });
 
   mapEntity(entityId, (entity) => ({
@@ -1290,7 +1294,7 @@ export function addEntityTabWithExistingEntity(
 export function updateEntityTab(
   entityId: string,
   tabId: string,
-  patch: Partial<Pick<EntityTab, "name">>,
+  patch: Partial<Pick<EntityTab, "name" | "defaultFolders">>,
 ) {
   const parent = config.entities.find((item) => item.id === entityId);
   if (!parent || isEntityLocked(parent)) return;
@@ -1345,6 +1349,10 @@ export function updateEntityTab(
           ? normalizeEntityTab({
               ...tab,
               name: patch.name ?? tab.name,
+              defaultFolders:
+                patch.defaultFolders !== undefined
+                  ? patch.defaultFolders
+                  : tab.defaultFolders,
               locked: isOverview,
             })
           : tab,
@@ -2272,9 +2280,12 @@ export function moveEntityFieldToGroup(
 
 function insertRecord(entityId: string, values: Record<string, string>) {
   const entity = config.entities.find((item) => item.id === entityId);
-  const withDefaults = entity
+  const withFieldDefaults = entity
     ? applyEntityFieldDefaults(entity, values, getCurrentUserRecordId())
     : values;
+  const withDefaults = entity
+    ? applyEntityFilesTabDefaults(entity, withFieldDefaults)
+    : withFieldDefaults;
   const record = normalizeEntityRecord({
     id: createId("record"),
     values: withDefaults,

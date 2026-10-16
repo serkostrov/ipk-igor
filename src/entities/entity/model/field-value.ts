@@ -30,13 +30,17 @@ import {
   isEntityListOptionFinal,
   isEntityListOptionProblem,
 } from "./list-process";
-import type {
-  Entity,
-  EntityField,
-  EntityFormulaConfig,
-  EntityNumberDecimals,
-  EntityRecord,
-  RelationRecordOption,
+import {
+  buildEntityTabDefaultFileEntries,
+  getEntityTabFilesValueKey,
+  isEntityFilesTab,
+  serializeEntityTabFileEntries,
+  type Entity,
+  type EntityField,
+  type EntityFormulaConfig,
+  type EntityNumberDecimals,
+  type EntityRecord,
+  type RelationRecordOption,
 } from "./types";
 import {
   formatEntityListFieldValue,
@@ -1130,6 +1134,31 @@ export function applyEntityFieldDefaults(
     if (value == null) continue;
     if (next === values) next = { ...values };
     next[field.id] = value;
+  }
+  return next;
+}
+
+/**
+ * Seed root folders on files tabs when the record has no filesystem yet.
+ * Does not overwrite existing entries (including an explicit empty array).
+ */
+export function applyEntityFilesTabDefaults(
+  entity: Pick<Entity, "tabs">,
+  values: Record<string, string>,
+): Record<string, string> {
+  let next = values;
+  const createdAt = new Date().toISOString();
+  for (const tab of entity.tabs) {
+    if (!isEntityFilesTab(tab) || tab.defaultFolders.length === 0) continue;
+    const key = getEntityTabFilesValueKey(tab.id);
+    if (values[key] !== undefined) continue;
+    const entries = buildEntityTabDefaultFileEntries(
+      tab.defaultFolders,
+      createdAt,
+    );
+    if (entries.length === 0) continue;
+    if (next === values) next = { ...values };
+    next[key] = serializeEntityTabFileEntries(entries);
   }
   return next;
 }

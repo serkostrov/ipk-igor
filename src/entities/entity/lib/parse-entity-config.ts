@@ -611,6 +611,9 @@ function parseTab(value: unknown): EntityTab | null {
       typeof value.parentLinkFieldId === "string"
         ? value.parentLinkFieldId
         : null,
+    defaultFolders: Array.isArray(value.defaultFolders)
+      ? value.defaultFolders
+      : [],
   });
 }
 

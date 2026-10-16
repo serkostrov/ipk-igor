@@ -519,6 +519,13 @@ export function normalizeEntityTabKind(value: unknown): EntityTabKind {
     : "fields";
 }
 
+/** Root folder template for `kind: "files"` tabs (seeded on new records). */
+export type EntityTabDefaultFolder = {
+  id: string;
+  name: string;
+  color: string;
+};
+
 export type EntityTab = {
   id: string;
   name: string;
@@ -529,6 +536,11 @@ export type EntityTab = {
   linkedEntityId: string | null;
   /** Relation field on the child entity that stores the parent record id. */
   parentLinkFieldId: string | null;
+  /**
+   * For `kind: "files"` — folders created at the root of each new record.
+   * Empty for other tab kinds.
+   */
+  defaultFolders: EntityTabDefaultFolder[];
 };
 
 /** Free-form entries on a `kind: "records"` tab (stored on the parent record). */
@@ -765,6 +777,7 @@ export function createEntityOverviewTab(): EntityTab {
     kind: "fields",
     linkedEntityId: null,
     parentLinkFieldId: null,
+    defaultFolders: [],
   };
 }
 
@@ -899,7 +912,52 @@ export function isEntityOverviewTab(tab: Pick<EntityTab, "locked" | "id">) {
   return Boolean(tab.locked) || tab.id === ENTITY_OVERVIEW_TAB_ID;
 }
 
-export function normalizeEntityTab(tab: EntityTab): EntityTab {
+export function normalizeEntityTabDefaultFolders(
+  value: unknown,
+): EntityTabDefaultFolder[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: EntityTabDefaultFolder[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    result.push({
+      id,
+      name,
+      color: normalizeListColor(
+        typeof record.color === "string"
+          ? record.color
+          : DEFAULT_ENTITY_FOLDER_COLOR,
+      ),
+    });
+  }
+  return result;
+}
+
+/** File entries for a files tab root from configured default folders. */
+export function buildEntityTabDefaultFileEntries(
+  folders: readonly EntityTabDefaultFolder[],
+  createdAt = new Date().toISOString(),
+): EntityTabFileEntry[] {
+  return folders.map((folder) => ({
+    id: crypto.randomUUID(),
+    name: folder.name,
+    kind: "folder" as const,
+    parentId: null,
+    createdAt,
+    color: normalizeListColor(folder.color),
+  }));
+}
+
+export function normalizeEntityTab(
+  tab: Omit<EntityTab, "defaultFolders"> & {
+    defaultFolders?: EntityTabDefaultFolder[] | unknown;
+  },
+): EntityTab {
   const locked = isEntityOverviewTab(tab);
   const name = typeof tab.name === "string" ? tab.name.trim() : "";
   const kind: EntityTabKind = locked
@@ -913,6 +971,10 @@ export function normalizeEntityTab(tab: EntityTab): EntityTab {
     kind === "entity" && typeof tab.parentLinkFieldId === "string"
       ? tab.parentLinkFieldId.trim() || null
       : null;
+  const defaultFolders =
+    kind === "files"
+      ? normalizeEntityTabDefaultFolders(tab.defaultFolders)
+      : [];
   return {
     id: locked ? ENTITY_OVERVIEW_TAB_ID : tab.id,
     name:
@@ -925,6 +987,7 @@ export function normalizeEntityTab(tab: EntityTab): EntityTab {
     kind,
     linkedEntityId: locked ? null : linkedEntityId,
     parentLinkFieldId: locked ? null : parentLinkFieldId,
+    defaultFolders,
   };
 }
 

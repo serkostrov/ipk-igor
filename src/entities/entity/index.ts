@@ -24,6 +24,7 @@ export type {
   EntityRecordColumns,
   EntityRecordsDisplay,
   EntityTab,
+  EntityTabDefaultFolder,
   EntityTimelineConfig,
   EntityTimeTracking,
   EntityTabFileEntry,
@@ -124,6 +125,8 @@ export {
   isEntityFilesTab,
   isEntityHistoryTab,
   normalizeEntityTabKind,
+  normalizeEntityTabDefaultFolders,
+  buildEntityTabDefaultFileEntries,
   isEntityNameField,
   isEntityOverviewTab,
   getEntityTabLinkFieldIds,
@@ -188,6 +191,7 @@ export {
 } from "./model/list-process";
 export {
   applyEntityFieldDefaults,
+  applyEntityFilesTabDefaults,
   applyEntityFieldValue,
   createEntityDraftRecord,
   formatEntityComputedNumber,
