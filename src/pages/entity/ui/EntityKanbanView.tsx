@@ -205,7 +205,9 @@ function KanbanCardFieldValue({
 }
 
 function parseDragPayload(event: DragEvent): KanbanDragPayload | null {
-  const raw = event.dataTransfer.getData(KANBAN_MIME);
+  const raw =
+    event.dataTransfer.getData(KANBAN_MIME) ||
+    event.dataTransfer.getData("text/plain");
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<KanbanDragPayload>;
@@ -329,13 +331,13 @@ function KanbanCard({
         didDragRef.current = true;
         onDragStart(event);
         event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData(
-          KANBAN_MIME,
-          JSON.stringify({
-            recordId: record.id,
-            fromColumnId: columnId,
-          } satisfies KanbanDragPayload),
-        );
+        const payload = JSON.stringify({
+          recordId: record.id,
+          fromColumnId: columnId,
+        } satisfies KanbanDragPayload);
+        event.dataTransfer.setData(KANBAN_MIME, payload);
+        // Fallback for browsers that only expose text/* on drop.
+        event.dataTransfer.setData("text/plain", payload);
       }}
       onDragEnd={onDragEnd}
       onClick={() => {

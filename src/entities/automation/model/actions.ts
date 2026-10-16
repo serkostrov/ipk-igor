@@ -7,6 +7,7 @@ export const AUTOMATION_ACTION_KINDS = [
   "noop",
   "setField",
   "setFieldPrevious",
+  "viewField",
   "createRecord",
   "createRecordsFromMapping",
   "updateRecords",
@@ -33,6 +34,12 @@ export type AutomationAction =
   | { id: string; kind: "noop" }
   | { id: string; kind: "setField"; fieldId: string; value: string }
   | { id: string; kind: "setFieldPrevious"; fieldId: string }
+  | {
+      id: string;
+      kind: "viewField";
+      /** Show these fields read-only on the task form (context for filling). */
+      fieldIds: string[];
+    }
   | {
       id: string;
       kind: "createRecord";
@@ -123,6 +130,7 @@ export const AUTOMATION_ACTION_KIND_LABELS: Record<
   noop: "Ничего не делать",
   setField: "Установить поле",
   setFieldPrevious: "Вернуть поле",
+  viewField: "Просмотреть поле",
   createRecord: "Создать запись",
   createRecordsFromMapping: "Создать записи по списку",
   updateRecords: "Обновить связанные",
@@ -150,6 +158,8 @@ export function defaultAutomationAction(
       return { id, kind, fieldId: "", value: "" };
     case "setFieldPrevious":
       return { id, kind, fieldId: "" };
+    case "viewField":
+      return { id, kind, fieldIds: [] };
     case "createRecord":
       return { id, kind, entityId: "", mappings: [] };
     case "createRecordsFromMapping":
@@ -311,6 +321,7 @@ export function normalizeAutomationAction(
             : { type: "currentUser" },
       };
     case "requireFields":
+    case "viewField":
       return {
         ...withId,
         fieldIds: Array.isArray(raw.fieldIds)
@@ -358,6 +369,10 @@ export function describeAutomationAction(
       return `Установить «${field(action.fieldId)}»`;
     case "setFieldPrevious":
       return `Вернуть «${field(action.fieldId)}»`;
+    case "viewField":
+      return action.fieldIds.length > 0
+        ? `Показать: ${action.fieldIds.map(field).join(", ")}`
+        : "Показать поля";
     case "createRecord":
       return `Создать запись в «${entity(action.entityId)}»`;
     case "createRecordsFromMapping":

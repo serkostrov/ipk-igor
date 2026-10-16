@@ -4,6 +4,7 @@ import type { AutomationTask } from "@/entities/automation";
 export function getAutomationTaskAskFields(task: AutomationTask) {
   const required = new Set<string>();
   const visible = new Set<string>();
+  const viewOnly = new Set<string>();
   let requireAttachment = false;
 
   for (const outcome of task.config.outcomes) {
@@ -15,11 +16,25 @@ export function getAutomationTaskAskFields(task: AutomationTask) {
       visible.add(fieldId);
     }
     if (outcome.fieldAccess.requireAttachment) requireAttachment = true;
+
+    for (const action of outcome.actions) {
+      if (action.kind !== "viewField") continue;
+      for (const fieldId of action.fieldIds) {
+        if (fieldId.trim()) viewOnly.add(fieldId);
+      }
+    }
+  }
+
+  // Prefer editable form over read-only when the same field appears in both.
+  for (const fieldId of visible) {
+    viewOnly.delete(fieldId);
   }
 
   return {
     requiredFieldIds: [...required],
     visibleFieldIds: [...visible],
+    /** Read-only context from «Просмотреть поле» actions. */
+    viewFieldIds: [...viewOnly],
     requireAttachment,
   };
 }
@@ -29,6 +44,7 @@ export function automationTaskNeedsFillDialog(task: AutomationTask) {
   return (
     ask.visibleFieldIds.length > 0 ||
     ask.requiredFieldIds.length > 0 ||
+    ask.viewFieldIds.length > 0 ||
     ask.requireAttachment
   );
 }

@@ -75,11 +75,14 @@ export function AutomationTasksHost() {
 
         if (!options?.announceNew || fresh.length === 0) return;
 
-        const actionable = fresh.find(
-          (task) =>
-            automationTaskNeedsFillDialog(task) &&
-            !isAutomationTaskFillDialogDismissed(task.id),
-        );
+        const actionable =
+          fresh.find(
+            (task) =>
+              automationTaskNeedsFillDialog(task) &&
+              !isAutomationTaskFillDialogDismissed(task.id),
+          ) ??
+          fresh.find((task) => !isAutomationTaskFillDialogDismissed(task.id)) ??
+          null;
         if (!actionable) return;
 
         if (!getActiveAutomationTaskDialogId()) {
@@ -87,7 +90,9 @@ export function AutomationTasksHost() {
         }
 
         toast(actionable.name || "Новая задача", {
-          description: "Заполните поля, чтобы продолжить процесс",
+          description: automationTaskNeedsFillDialog(actionable)
+            ? "Заполните поля, чтобы продолжить процесс"
+            : "Выберите результат, чтобы продолжить процесс",
           duration: 8_000,
           action: {
             label: "Открыть",

@@ -1113,10 +1113,7 @@ export function getEntityRecordKanbanColumnId(
   value: string | undefined,
 ) {
   if (field.type === "list") {
-    if (field.listMultiple) {
-      return parseEntityListValueIds(value)[0] ?? ENTITY_KANBAN_EMPTY_COLUMN_ID;
-    }
-    return (value ?? "").trim() || ENTITY_KANBAN_EMPTY_COLUMN_ID;
+    return parseEntityListValueIds(value)[0] ?? ENTITY_KANBAN_EMPTY_COLUMN_ID;
   }
   if (field.type === "relation") {
     return parseEntityRelationIds(value)[0] ?? ENTITY_KANBAN_EMPTY_COLUMN_ID;

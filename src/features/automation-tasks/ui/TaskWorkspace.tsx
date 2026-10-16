@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ClipboardPen, Lock } from "lucide-react";
+import { ClipboardPen, Eye, Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
@@ -108,6 +108,11 @@ export function TaskWorkspace({
     <div className="flex flex-col gap-4">
       <div>
         <h2 className="text-lg font-semibold tracking-tight">{task.name}</h2>
+        {task.description.trim() ? (
+          <p className="mt-1.5 whitespace-pre-wrap text-sm text-muted-foreground">
+            {task.description}
+          </p>
+        ) : null}
         <p className="mt-1 text-xs text-muted-foreground">
           {entity?.name ?? task.entityId} · шаг #{task.stepOrder}
           {task.isBlocking ? " · блокирующая" : ""}
@@ -130,8 +135,32 @@ export function TaskWorkspace({
                   ? `Осталось обязательных полей: ${missingRequired.length}`
                   : "Все обязательные поля заполнены — можно завершить шаг"}
               </p>
-              {ask.visibleFieldIds.length > 0 ? (
+              {ask.viewFieldIds.length > 0 || ask.visibleFieldIds.length > 0 ? (
                 <ul className="mt-2 flex flex-col gap-1">
+                  {ask.viewFieldIds.map((fieldId) => {
+                    const field = entity?.fields.find(
+                      (item) => item.id === fieldId,
+                    );
+                    if (!field) return null;
+                    const raw = (record?.values[fieldId] ?? "").trim();
+                    return (
+                      <li
+                        key={`view-${fieldId}`}
+                        className="flex items-center gap-1.5 text-xs"
+                      >
+                        <Eye
+                          className="size-3 shrink-0 text-muted-foreground"
+                          aria-hidden
+                        />
+                        <span className="text-muted-foreground">
+                          {getEntityFieldDisplayName(field)}
+                        </span>
+                        <span className="truncate text-foreground">
+                          {raw || "—"}
+                        </span>
+                      </li>
+                    );
+                  })}
                   {ask.visibleFieldIds.map((fieldId) => {
                     const field = entity?.fields.find(
                       (item) => item.id === fieldId,

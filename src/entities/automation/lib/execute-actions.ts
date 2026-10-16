@@ -152,6 +152,9 @@ export async function executeAutomationActions(
           logs.push({ kind: "setFieldPrevious", fieldId: action.fieldId });
           break;
         }
+        case "viewField":
+          logs.push({ kind: "viewField", fieldIds: action.fieldIds });
+          break;
         case "createRecord": {
           const values = applyMappings(action.mappings, ctx, createdRecordIds);
           const record = addEntityRecord(action.entityId, values);

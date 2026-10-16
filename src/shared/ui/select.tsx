@@ -218,6 +218,7 @@ function SelectItem({
   children,
   trailing,
   label,
+  onMouseDown,
   ...props
 }: SelectPrimitive.Item.Props & {
   /** Right-aligned icon; shifts left when the check indicator is shown. */
@@ -241,6 +242,12 @@ function SelectItem({
         className,
       )}
       {...props}
+      onMouseDown={(event) => {
+        // Keep the popup open when the search field has focus — otherwise
+        // blur closes the menu before the item click is handled.
+        event.preventDefault();
+        onMouseDown?.(event);
+      }}
     >
       <SelectPrimitive.ItemText className="flex flex-1 gap-2 whitespace-nowrap">
         {children}

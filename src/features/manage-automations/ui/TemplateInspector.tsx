@@ -692,6 +692,16 @@ export function TemplateInspector({
               onChange={(nameTemplate) => patch({ nameTemplate })}
             />
 
+            <TemplateFieldInput
+              id="template-description"
+              title="Описание"
+              value={draft.description}
+              placeholder="Что нужно сделать"
+              fields={entity.fields}
+              multiline
+              onChange={(description) => patch({ description })}
+            />
+
             <Field title="Стадия">
               <Select
                 value={draft.triggerOptionId}

@@ -18,6 +18,7 @@ function mapTaskRow(row: Record<string, unknown>): AutomationTask | null {
     scenarioId: String(row.scenario_id ?? ""),
     name: String(row.name ?? ""),
     nameTemplate: "",
+    description: "",
     triggerOptionId: String(row.trigger_option_id ?? ""),
     stepOrder: Number(row.step_order ?? 0),
     isBlocking: row.is_blocking === true,
@@ -47,6 +48,7 @@ function mapTaskRow(row: Record<string, unknown>): AutomationTask | null {
     isBlocking: row.is_blocking === true,
     stepOrder: Number(row.step_order ?? 0),
     name: String(row.name ?? ""),
+    description: String(row.description ?? ""),
     config,
     dueAt: typeof row.due_at === "string" ? row.due_at : null,
     parentTaskId:

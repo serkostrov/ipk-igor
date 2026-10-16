@@ -28,6 +28,7 @@ import {
   normalizeEntityFieldInputValue,
   parseEntityFieldFileValue,
   parseEntityListValueIds,
+  RecordValue,
   resolveEntityListFieldPresentation,
   sanitizeEntityRelationDependencies,
   updateEntityRecord,
@@ -139,6 +140,12 @@ function TaskFillFieldsDialogBody({
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
           .filter((field): field is EntityField => field != null)
           .filter((field) => !isEntityComputedFieldType(field.type));
+  const viewFields =
+    !entity || !ask
+      ? []
+      : ask.viewFieldIds
+          .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+          .filter((field): field is EntityField => field != null);
 
   function setValue(fieldId: string, value: string) {
     if (!entity) return;
@@ -269,69 +276,107 @@ function TaskFillFieldsDialogBody({
         </p>
       ) : (
         <div className="flex flex-col gap-4">
-          {fields.length === 0 ? (
+          {viewFields.length === 0 && fields.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
               Для этой задачи нет полей формы. Можно сразу выбрать результат или
               открыть карточку.
             </p>
           ) : (
-            <div className="flex flex-col gap-3">
-              {fields.map((field) => {
-                const parentField = getEntityListParentField(entity, field);
-                const parentValue = parentField
-                  ? (values[parentField.id] ?? record.values[parentField.id])
-                  : undefined;
-                const listOptions =
-                  field.type === "list"
-                    ? getVisibleListOptions(
-                        field,
-                        parentValue,
-                        parentField,
-                        entities,
-                      )
-                    : field.listOptions;
-                const listPresentation = resolveEntityListFieldPresentation(
-                  field,
-                  entities,
-                );
-                const listDisabled =
-                  field.type === "list" &&
-                  parentField != null &&
-                  parseEntityListValueIds(parentValue).length === 0;
-                const required = requiredIds.has(field.id);
-
-                return (
-                  <div key={field.id} className="relative">
-                    {required ? (
-                      <span className="absolute top-0 right-0 z-10 inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                        <Lock className="size-3" aria-hidden />
-                        обязательно
-                      </span>
-                    ) : null}
-                    <RecordFieldControl
-                      ctx={previewContext}
-                      entity={entity}
-                      field={field}
-                      value={values[field.id] ?? ""}
-                      values={{ ...record.values, ...values }}
-                      onChange={(value) => setValue(field.id, value)}
-                      listOptions={listOptions}
-                      listDisabled={listDisabled}
-                      listDisabledHint={
-                        parentField
-                          ? `Сначала выберите «${getEntityFieldDisplayName(parentField)}»`
-                          : undefined
-                      }
-                      listMultiple={listPresentation.listMultiple}
-                      showColors={listPresentation.listUseColors}
-                      listAllowEmpty={!required}
-                      entities={entities}
-                      recordId={record.id}
-                      required={required}
-                    />
+            <div className="flex flex-col gap-4">
+              {viewFields.length > 0 ? (
+                <div className="flex flex-col gap-2.5 rounded-xl border border-border/70 bg-muted/15 px-3 py-3">
+                  <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                    Для просмотра
+                  </p>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Ориентируйтесь на эти значения, заполняя поля ниже
+                  </p>
+                  <div className="flex flex-col gap-2.5">
+                    {viewFields.map((field) => (
+                      <div
+                        key={field.id}
+                        className="flex flex-col gap-0.5 rounded-lg border border-border/50 bg-background/80 px-2.5 py-2"
+                      >
+                        <span className="text-[11px] font-medium text-muted-foreground">
+                          {getEntityFieldDisplayName(field)}
+                        </span>
+                        <RecordValue
+                          ctx={previewContext}
+                          entity={entity}
+                          record={{
+                            ...record,
+                            values: { ...record.values, ...values },
+                          }}
+                          field={field}
+                          className="text-sm text-foreground"
+                        />
+                      </div>
+                    ))}
                   </div>
-                );
-              })}
+                </div>
+              ) : null}
+
+              {fields.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {fields.map((field) => {
+                    const parentField = getEntityListParentField(entity, field);
+                    const parentValue = parentField
+                      ? (values[parentField.id] ??
+                        record.values[parentField.id])
+                      : undefined;
+                    const listOptions =
+                      field.type === "list"
+                        ? getVisibleListOptions(
+                            field,
+                            parentValue,
+                            parentField,
+                            entities,
+                          )
+                        : field.listOptions;
+                    const listPresentation = resolveEntityListFieldPresentation(
+                      field,
+                      entities,
+                    );
+                    const listDisabled =
+                      field.type === "list" &&
+                      parentField != null &&
+                      parseEntityListValueIds(parentValue).length === 0;
+                    const required = requiredIds.has(field.id);
+
+                    return (
+                      <div key={field.id} className="relative">
+                        {required ? (
+                          <span className="absolute top-0 right-0 z-10 inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                            <Lock className="size-3" aria-hidden />
+                            обязательно
+                          </span>
+                        ) : null}
+                        <RecordFieldControl
+                          ctx={previewContext}
+                          entity={entity}
+                          field={field}
+                          value={values[field.id] ?? ""}
+                          values={{ ...record.values, ...values }}
+                          onChange={(value) => setValue(field.id, value)}
+                          listOptions={listOptions}
+                          listDisabled={listDisabled}
+                          listDisabledHint={
+                            parentField
+                              ? `Сначала выберите «${getEntityFieldDisplayName(parentField)}»`
+                              : undefined
+                          }
+                          listMultiple={listPresentation.listMultiple}
+                          showColors={listPresentation.listUseColors}
+                          listAllowEmpty={!required}
+                          entities={entities}
+                          recordId={record.id}
+                          required={required}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           )}
 

@@ -16,6 +16,7 @@ import {
 } from "@/entities/entity";
 import {
   automationTaskNeedsFillDialog,
+  clearAutomationTaskFillDialogDismissed,
   isAutomationTaskFillDialogDismissed,
   openAutomationTaskFillDialog,
 } from "@/features/automation-tasks";
@@ -55,43 +56,82 @@ function findBlockingTasks(
     (task) =>
       task.isBlocking &&
       task.triggerFieldId === fieldId &&
-      task.triggerOptionId === optionId &&
+      listOptionId(task.triggerOptionId) === optionId &&
       (task.status === "pending" || task.status === "returned"),
   );
 }
 
-function pickAskTask(tasks: AutomationTask[]) {
+function tasksForDestination(
+  tasks: AutomationTask[],
+  fieldId: string,
+  optionId: string,
+) {
+  return tasks.filter((task) => {
+    if (task.triggerFieldId !== fieldId) return false;
+    if (!optionId) return true;
+    return listOptionId(task.triggerOptionId) === optionId;
+  });
+}
+
+/**
+ * Prefer tasks that need the fill form; otherwise any pending task for the
+ * stage (so outcome buttons still appear after a kanban drop).
+ */
+function pickTaskToOpen(
+  tasks: AutomationTask[],
+  options?: { allowDismissed?: boolean },
+) {
+  const eligible = options?.allowDismissed
+    ? tasks
+    : tasks.filter((task) => !isAutomationTaskFillDialogDismissed(task.id));
   return (
-    tasks.find(
-      (task) =>
-        automationTaskNeedsFillDialog(task) &&
-        !isAutomationTaskFillDialogDismissed(task.id),
-    ) ?? null
+    eligible.find((task) => automationTaskNeedsFillDialog(task)) ??
+    eligible[0] ??
+    null
   );
 }
 
-/** After spawn, wait briefly for the new ask-fields task and open its dialog. */
-async function openSpawnedAskFieldDialog(
-  recordId: string,
-  knownTaskIds: Set<string>,
-) {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    if (attempt > 0) await sleep(180 + attempt * 120);
+function openTaskDialog(task: AutomationTask) {
+  clearAutomationTaskFillDialogDismissed(task.id);
+  openAutomationTaskFillDialog(task.id);
+  toast(task.name || "Новая задача", {
+    description: automationTaskNeedsFillDialog(task)
+      ? "Заполните поля, чтобы продолжить процесс"
+      : "Выберите результат, чтобы продолжить процесс",
+    duration: 8_000,
+    action: {
+      label: "Открыть",
+      onClick: () => openAutomationTaskFillDialog(task.id),
+    },
+  });
+}
+
+/**
+ * After a stage change, open the automation dialog for the destination.
+ * Looks up by trigger field + option (not only “fresh” ids) so unique
+ * pending tasks and re-entry still open the window.
+ */
+async function openDialogAfterStageChange(input: {
+  recordId: string;
+  fieldId: string;
+  toOptionId: string;
+  knownTaskIds: Set<string>;
+}) {
+  const { recordId, fieldId, toOptionId, knownTaskIds } = input;
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (attempt > 0) await sleep(120 + attempt * 100);
     const tasks = await fetchPendingTasksForRecord(recordId);
+    const destination = tasksForDestination(tasks, fieldId, toOptionId);
     const fresh = tasks.filter((task) => !knownTaskIds.has(task.id));
-    const ask =
-      pickAskTask(fresh) ??
-      pickAskTask(tasks.filter((task) => !knownTaskIds.has(task.id)));
-    if (ask) {
-      openAutomationTaskFillDialog(ask.id);
-      toast(ask.name || "Новая задача", {
-        description: "Заполните поля, чтобы продолжить процесс",
-        duration: 8_000,
-        action: {
-          label: "Открыть",
-          onClick: () => openAutomationTaskFillDialog(ask.id),
-        },
-      });
+
+    const task =
+      pickTaskToOpen(destination, { allowDismissed: true }) ??
+      pickTaskToOpen(fresh) ??
+      pickTaskToOpen(destination);
+
+    if (task) {
+      openTaskDialog(task);
       return;
     }
   }
@@ -100,7 +140,7 @@ async function openSpawnedAskFieldDialog(
 /**
  * Single entry point for changing a list value from views (table, record, kanban).
  * - Blocks leaving a stage with unfinished blocking automation tasks (opens fill dialog).
- * - After a successful transition, opens the ask-fields dialog for newly spawned tasks.
+ * - After a successful transition, opens the task dialog for the destination stage.
  */
 export function useRecordListChange() {
   const { entities } = useEntityConfig();
@@ -114,8 +154,12 @@ export function useRecordListChange() {
     ): Promise<boolean> => {
       const from = record.values[field.id] ?? "";
       if (from === value) return true;
+      if (listOptionId(from) === listOptionId(value) && listOptionId(value)) {
+        return true;
+      }
 
       const fromOptionId = listOptionId(from);
+      const toOptionId = listOptionId(value);
       const previousValues = { ...record.values };
 
       if (isSupabaseConfigured && fromOptionId) {
@@ -123,7 +167,10 @@ export function useRecordListChange() {
           const pending = await fetchPendingTasksForRecord(record.id);
           const blocking = findBlockingTasks(pending, field.id, fromOptionId);
           if (blocking.length > 0) {
-            const ask = pickAskTask(blocking) ?? blocking[0]!;
+            const ask =
+              pickTaskToOpen(blocking, { allowDismissed: true }) ??
+              blocking[0]!;
+            clearAutomationTaskFillDialogDismissed(ask.id);
             openAutomationTaskFillDialog(ask.id);
             toast.warning("Сначала выполните задачу", {
               description:
@@ -169,10 +216,9 @@ export function useRecordListChange() {
             const pending = await fetchPendingTasksForRecord(record.id);
             const blocking = findBlockingTasks(pending, field.id, fromOptionId);
             const ask =
-              pickAskTask(blocking) ?? blocking[0] ?? pickAskTask(pending);
-            if (ask) {
-              openAutomationTaskFillDialog(ask.id);
-            }
+              pickTaskToOpen(blocking, { allowDismissed: true }) ??
+              pickTaskToOpen(pending, { allowDismissed: true });
+            if (ask) openTaskDialog(ask);
           } catch (fetchError: unknown) {
             console.error(
               "[automation] load blocking tasks failed",
@@ -188,15 +234,15 @@ export function useRecordListChange() {
         return false;
       }
 
-      if (isSupabaseConfigured) {
-        void openSpawnedAskFieldDialog(record.id, knownTaskIds).catch(
-          (error: unknown) => {
-            console.error(
-              "[automation] open spawned task dialog failed",
-              error,
-            );
-          },
-        );
+      if (isSupabaseConfigured && toOptionId) {
+        void openDialogAfterStageChange({
+          recordId: record.id,
+          fieldId: field.id,
+          toOptionId,
+          knownTaskIds,
+        }).catch((error: unknown) => {
+          console.error("[automation] open spawned task dialog failed", error);
+        });
       }
 
       return true;

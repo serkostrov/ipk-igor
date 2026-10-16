@@ -195,6 +195,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       scenarioId: ensured.scenario.id,
       name: "Новая задача",
       nameTemplate: "",
+      description: "",
       triggerOptionId: targetStageId,
       stepOrder: existingOnStage,
       isBlocking: true,

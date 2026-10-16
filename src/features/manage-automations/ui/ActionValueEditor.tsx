@@ -102,10 +102,10 @@ function ModeSelect({
         if (next != null) onChange(String(next));
       }}
     >
-      <SelectTrigger size="sm" className="h-8">
+      <SelectTrigger size="sm" className="h-8 w-full min-w-0">
         <SelectValue>{current}</SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent searchable={false} align="start" className="min-w-[12rem]">
         {options.map((item) => (
           <SelectItem key={item.value} value={item.value}>
             {item.label}

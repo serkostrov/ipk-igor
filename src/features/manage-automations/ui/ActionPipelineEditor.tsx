@@ -275,6 +275,19 @@ function ActionFields({
       <RequireFieldsEditor
         fields={fields}
         selectedIds={action.fieldIds}
+        title="Обязательные поля"
+        onChange={(fieldIds) => onChange({ ...action, fieldIds })}
+      />
+    );
+  }
+
+  if (action.kind === "viewField") {
+    return (
+      <RequireFieldsEditor
+        fields={fields}
+        selectedIds={action.fieldIds}
+        title="Показать в форме задачи"
+        hint="Только просмотр — чтобы заполнять другие поля на их основе"
         onChange={(fieldIds) => onChange({ ...action, fieldIds })}
       />
     );
@@ -367,10 +380,14 @@ function RequireFieldsEditor({
   fields,
   selectedIds,
   onChange,
+  title,
+  hint,
 }: {
   fields: EntityField[];
   selectedIds: string[];
   onChange: (fieldIds: string[]) => void;
+  title: string;
+  hint?: string;
 }) {
   if (fields.length === 0) {
     return <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>;
@@ -378,7 +395,12 @@ function RequireFieldsEditor({
 
   return (
     <div className="mt-2 flex flex-col gap-1">
-      <p className="text-[11px] text-muted-foreground">Обязательные поля</p>
+      <p className="text-[11px] text-muted-foreground">{title}</p>
+      {hint ? (
+        <p className="text-[10px] leading-snug text-muted-foreground/80">
+          {hint}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-1">
         {fields.map((field) => {
           const active = selectedIds.includes(field.id);

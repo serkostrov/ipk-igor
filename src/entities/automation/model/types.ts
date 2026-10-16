@@ -92,16 +92,25 @@ export function normalizeAutomationOutcomeFieldAccess(
     value && typeof value === "object"
       ? (value as Record<string, unknown>)
       : {};
-  const visibleFieldIds = normalizeStringIdList(access.visibleFieldIds);
-  const requiredFieldIds = normalizeStringIdList(access.requiredFieldIds);
-  const commentFieldIds = normalizeStringIdList(access.commentFieldIds);
-  const recordFieldIds = Array.isArray(access.recordFieldIds)
-    ? normalizeStringIdList(access.recordFieldIds)
+  const visibleFieldIds = normalizeStringIdList(
+    access.visibleFieldIds ?? access.visible_field_ids,
+  );
+  const requiredFieldIds = normalizeStringIdList(
+    access.requiredFieldIds ?? access.required_field_ids,
+  );
+  const commentFieldIds = normalizeStringIdList(
+    access.commentFieldIds ?? access.comment_field_ids,
+  );
+  const recordFieldIds = Array.isArray(
+    access.recordFieldIds ?? access.record_field_ids,
+  )
+    ? normalizeStringIdList(access.recordFieldIds ?? access.record_field_ids)
     : visibleFieldIds;
   return {
     requiredFieldIds,
     visibleFieldIds,
-    requireAttachment: access.requireAttachment === true,
+    requireAttachment:
+      access.requireAttachment === true || access.require_attachment === true,
     commentFieldIds,
     recordFieldIds,
   };
@@ -137,6 +146,8 @@ export type AutomationTaskTemplate = {
   name: string;
   /** `{{fieldId}}` placeholders rendered at spawn. */
   nameTemplate: string;
+  /** Task body; `{{fieldId}}` placeholders rendered at spawn. */
+  description: string;
   /** List option id on the process trigger field. */
   triggerOptionId: string;
   stepOrder: number;
@@ -198,6 +209,8 @@ export type AutomationTask = {
   isBlocking: boolean;
   stepOrder: number;
   name: string;
+  /** Rendered description at spawn. */
+  description: string;
   /** Frozen template snapshot at spawn. */
   config: AutomationTaskTemplate;
   dueAt: string | null;
@@ -315,6 +328,7 @@ export function normalizeAutomationTaskTemplate(
       : null;
   const stepOrderRaw = raw.stepOrder ?? raw.step_order;
   const nameTemplateRaw = raw.nameTemplate ?? raw.name_template;
+  const descriptionRaw = raw.description;
   const triggerOptionIdRaw = raw.triggerOptionId ?? raw.trigger_option_id;
   const isBlocking = raw.isBlocking === true || raw.is_blocking === true;
   const kind = raw.kind === "single" ? "single" : "decision";
@@ -326,6 +340,7 @@ export function normalizeAutomationTaskTemplate(
         ? raw.name.trim()
         : "Задача",
     nameTemplate: typeof nameTemplateRaw === "string" ? nameTemplateRaw : "",
+    description: typeof descriptionRaw === "string" ? descriptionRaw : "",
     triggerOptionId:
       typeof triggerOptionIdRaw === "string" ? triggerOptionIdRaw : "",
     stepOrder:

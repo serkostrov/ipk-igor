@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FocusEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type SyntheticEvent,
+} from "react";
 import { Braces } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
@@ -24,6 +33,8 @@ function textInputWidth(text: string, emptyMin = 1) {
   return `${Math.max(emptyMin, text.length + 1)}ch`;
 }
 
+type TextControl = HTMLInputElement | HTMLTextAreaElement;
+
 export function TemplateFieldInput({
   title,
   value,
@@ -31,6 +42,7 @@ export function TemplateFieldInput({
   fields,
   placeholder,
   id,
+  multiline = false,
 }: {
   title: string;
   value: string;
@@ -38,12 +50,13 @@ export function TemplateFieldInput({
   fields: EntityField[];
   placeholder?: string;
   id?: string;
+  multiline?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const parts = ensureTrailingText(parseTemplateParts(value));
   const activeTextIndexRef = useRef(0);
   const caretRef = useRef(0);
-  const inputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
+  const inputRefs = useRef<Map<number, TextControl>>(new Map());
   const focusAfterRenderRef = useRef<{ index: number; caret: number } | null>(
     null,
   );
@@ -123,6 +136,49 @@ export function TemplateFieldInput({
     parts[0]?.kind === "text" &&
     parts[0].text === "";
 
+  function bindTextControl(index: number) {
+    return {
+      ref: (node: TextControl | null) => {
+        if (node) inputRefs.current.set(index, node);
+        else inputRefs.current.delete(index);
+      },
+      id: index === 0 ? id : undefined,
+      value: (parts[index] as { kind: "text"; text: string }).text,
+      onFocus: (event: FocusEvent<TextControl>) => {
+        activeTextIndexRef.current = index;
+        caretRef.current = event.currentTarget.selectionStart ?? 0;
+      },
+      onSelect: (event: SyntheticEvent<TextControl>) => {
+        activeTextIndexRef.current = index;
+        caretRef.current = event.currentTarget.selectionStart ?? 0;
+      },
+      onClick: (event: MouseEvent<TextControl>) => {
+        activeTextIndexRef.current = index;
+        caretRef.current = event.currentTarget.selectionStart ?? 0;
+      },
+      onKeyUp: (event: KeyboardEvent<TextControl>) => {
+        caretRef.current = event.currentTarget.selectionStart ?? 0;
+      },
+      onChange: (
+        event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+      ) => {
+        caretRef.current = event.currentTarget.selectionStart ?? 0;
+        activeTextIndexRef.current = index;
+        updateText(index, event.target.value);
+      },
+      onKeyDown: (event: KeyboardEvent<TextControl>) => {
+        if (event.key !== "Backspace") return;
+        const part = parts[index];
+        if (!part || part.kind !== "text" || part.text !== "") return;
+        if (index === 0) return;
+        const prev = parts[index - 1];
+        if (prev?.kind !== "field") return;
+        event.preventDefault();
+        removeField(index - 1);
+      },
+    };
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <div className="flex h-5 items-center justify-between gap-2">
@@ -178,9 +234,12 @@ export function TemplateFieldInput({
 
       <div
         className={cn(
-          "relative flex min-h-8 w-full min-w-0 flex-wrap items-center gap-x-0.5 gap-y-0.5 rounded-md border border-input bg-transparent px-2 py-1 shadow-xs transition-[color,box-shadow]",
+          "relative flex w-full min-w-0 flex-wrap gap-x-0.5 gap-y-0.5 rounded-md border border-input bg-transparent px-2 shadow-xs transition-[color,box-shadow]",
           "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
           "dark:bg-input/30",
+          multiline
+            ? "min-h-20 items-start py-1.5"
+            : "min-h-8 items-center py-1",
         )}
         onMouseDown={(event) => {
           if (event.target !== event.currentTarget) return;
@@ -195,7 +254,14 @@ export function TemplateFieldInput({
         }}
       >
         {showPlaceholder ? (
-          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+          <span
+            className={cn(
+              "pointer-events-none absolute text-sm text-muted-foreground",
+              multiline
+                ? "left-2.5 top-1.5"
+                : "left-2.5 top-1/2 -translate-y-1/2",
+            )}
+          >
             {placeholder}
           </span>
         ) : null}
@@ -207,21 +273,32 @@ export function TemplateFieldInput({
                 key={`field-${index}-${part.id}`}
                 label={getTemplateFieldLabel(fields, part.id)}
                 onRemove={() => removeField(index)}
+                className={multiline ? "mt-0.5" : undefined}
               />
             );
           }
 
           const isLast = index === parts.length - 1;
+          const control = bindTextControl(index);
+
+          if (multiline) {
+            return (
+              <textarea
+                key={`text-${index}`}
+                {...control}
+                rows={isLast && parts.length === 1 ? 3 : 1}
+                className={cn(
+                  "min-w-[1ch] resize-none border-0 bg-transparent py-0 text-sm leading-5 outline-none",
+                  isLast && "min-w-[3ch] min-h-[3.75rem] flex-1",
+                )}
+              />
+            );
+          }
 
           return (
             <input
               key={`text-${index}`}
-              ref={(node) => {
-                if (node) inputRefs.current.set(index, node);
-                else inputRefs.current.delete(index);
-              }}
-              id={index === 0 ? id : undefined}
-              value={part.text}
+              {...control}
               className={cn(
                 "min-w-[1ch] border-0 bg-transparent py-0 text-sm leading-5 outline-none",
                 isLast && "min-w-[3ch] flex-1",
@@ -229,35 +306,6 @@ export function TemplateFieldInput({
               style={
                 isLast ? undefined : { width: textInputWidth(part.text, 1) }
               }
-              onFocus={(event) => {
-                activeTextIndexRef.current = index;
-                caretRef.current = event.currentTarget.selectionStart ?? 0;
-              }}
-              onSelect={(event) => {
-                activeTextIndexRef.current = index;
-                caretRef.current = event.currentTarget.selectionStart ?? 0;
-              }}
-              onClick={(event) => {
-                activeTextIndexRef.current = index;
-                caretRef.current = event.currentTarget.selectionStart ?? 0;
-              }}
-              onKeyUp={(event) => {
-                caretRef.current = event.currentTarget.selectionStart ?? 0;
-              }}
-              onChange={(event) => {
-                caretRef.current = event.currentTarget.selectionStart ?? 0;
-                activeTextIndexRef.current = index;
-                updateText(index, event.target.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "Backspace") return;
-                if (part.text !== "") return;
-                if (index === 0) return;
-                const prev = parts[index - 1];
-                if (prev?.kind !== "field") return;
-                event.preventDefault();
-                removeField(index - 1);
-              }}
             />
           );
         })}
