@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ClipboardPen, Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
@@ -11,6 +12,11 @@ import {
 } from "@/entities/automation";
 import { getEntityFieldDisplayName, useEntityConfig } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
+import {
+  automationTaskNeedsFillDialog,
+  getAutomationTaskAskFields,
+} from "../lib/task-ask-fields";
+import { openAutomationTaskFillDialog } from "../model/fill-dialog-store";
 
 export function TaskWorkspace({
   task,
@@ -36,6 +42,14 @@ export function TaskWorkspace({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const entity = entities.find((item) => item.id === task.entityId);
   const record = entity?.records.find((item) => item.id === task.recordId);
+  const ask = getAutomationTaskAskFields(task);
+  const needsFill = automationTaskNeedsFillDialog(task);
+  const requiredIds = new Set(ask.requiredFieldIds);
+  const missingRequired = !record
+    ? ask.requiredFieldIds
+    : ask.requiredFieldIds.filter(
+        (fieldId) => !(record.values[fieldId] ?? "").trim(),
+      );
 
   useEffect(() => {
     let cancelled = false;
@@ -73,13 +87,8 @@ export function TaskWorkspace({
         (fieldId) => !(record.values[fieldId] ?? "").trim(),
       );
       if (missing.length > 0) {
-        const labels = missing.map((fieldId) => {
-          const field = entity?.fields.find((item) => item.id === fieldId);
-          return field ? getEntityFieldDisplayName(field) : fieldId;
-        });
-        setError(
-          `Заполните в карточке обязательные поля: ${labels.join(", ")}`,
-        );
+        openAutomationTaskFillDialog(task.id);
+        setError("Заполните обязательные поля в форме задачи");
         return;
       }
     }
@@ -108,7 +117,72 @@ export function TaskWorkspace({
         </p>
       </div>
 
-      {record ? (
+      {needsFill ? (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <ClipboardPen className="size-4" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Заполните данные для шага</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {missingRequired.length > 0
+                  ? `Осталось обязательных полей: ${missingRequired.length}`
+                  : "Все обязательные поля заполнены — можно завершить шаг"}
+              </p>
+              {ask.visibleFieldIds.length > 0 ? (
+                <ul className="mt-2 flex flex-col gap-1">
+                  {ask.visibleFieldIds.map((fieldId) => {
+                    const field = entity?.fields.find(
+                      (item) => item.id === fieldId,
+                    );
+                    if (!field) return null;
+                    const empty = !(record?.values[fieldId] ?? "").trim();
+                    const required = requiredIds.has(fieldId);
+                    return (
+                      <li
+                        key={fieldId}
+                        className="flex items-center gap-1.5 text-xs"
+                      >
+                        {required ? (
+                          <Lock
+                            className="size-3 shrink-0 text-muted-foreground"
+                            aria-hidden
+                          />
+                        ) : (
+                          <span className="size-3 shrink-0" />
+                        )}
+                        <span className="text-muted-foreground">
+                          {getEntityFieldDisplayName(field)}
+                        </span>
+                        <span
+                          className={
+                            empty && required
+                              ? "text-destructive"
+                              : "text-foreground"
+                          }
+                        >
+                          {empty
+                            ? "не заполнено"
+                            : (record?.values[fieldId] ?? "")}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                className="mt-3"
+                onClick={() => openAutomationTaskFillDialog(task.id)}
+              >
+                Открыть форму
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : record ? (
         <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
           <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
             Запись
@@ -120,46 +194,6 @@ export function TaskWorkspace({
           >
             Открыть карточку
           </button>
-          {(() => {
-            const access = task.config.outcomes[0]?.fieldAccess;
-            const visibleIds = access?.visibleFieldIds ?? [];
-            const requiredIds = new Set(access?.requiredFieldIds ?? []);
-            if (visibleIds.length === 0) {
-              return (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Заполните нужные поля в карточке, затем нажмите результат.
-                </p>
-              );
-            }
-            return (
-              <ul className="mt-2 flex flex-col gap-1">
-                {visibleIds.map((fieldId) => {
-                  const field = entity?.fields.find(
-                    (item) => item.id === fieldId,
-                  );
-                  if (!field) return null;
-                  const empty = !(record.values[fieldId] ?? "").trim();
-                  return (
-                    <li key={fieldId} className="text-xs">
-                      <span className="text-muted-foreground">
-                        {getEntityFieldDisplayName(field)}
-                        {requiredIds.has(fieldId) ? " *" : ""}:{" "}
-                      </span>
-                      <span
-                        className={
-                          empty && requiredIds.has(fieldId)
-                            ? "text-destructive"
-                            : undefined
-                        }
-                      >
-                        {record.values[fieldId] || "не заполнено"}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            );
-          })()}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">

@@ -3247,6 +3247,7 @@ export function EntityFieldsEditor({
         required: data.required,
         showInTable: data.showInTable,
         showInFilters: data.showInFilters,
+        showOnCreate: data.showOnCreate,
         includeInTotal: isTabLink ? false : data.includeInTotal,
         relationEntityId: isTabLink
           ? dialog.field.relationEntityId
@@ -3258,6 +3259,7 @@ export function EntityFieldsEditor({
         unitSuffix: isTabLink ? null : data.unitSuffix,
         sumFieldIds: isTabLink ? [] : data.sumFieldIds,
         datetimeWithTime: isTabLink ? false : data.datetimeWithTime,
+        booleanInline: isTabLink ? false : data.booleanInline,
         ...(isTabLink ? {} : data.settings),
       });
       if (pinToHeader) {
@@ -3278,6 +3280,7 @@ export function EntityFieldsEditor({
       required: data.required,
       showInTable: data.showInTable,
       showInFilters: data.showInFilters,
+      showOnCreate: data.showOnCreate,
       includeInTotal: data.includeInTotal,
       relationEntityId: data.relationEntityId,
       relationMultiple: data.relationMultiple,
@@ -3285,6 +3288,7 @@ export function EntityFieldsEditor({
       unitSuffix: data.unitSuffix,
       sumFieldIds: data.sumFieldIds,
       datetimeWithTime: data.datetimeWithTime,
+      booleanInline: data.booleanInline,
       ...data.settings,
       tabId:
         pinToHeader ||

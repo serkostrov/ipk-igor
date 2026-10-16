@@ -18,6 +18,7 @@ import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { Switch } from "@/shared/ui/switch";
 import {
   Select,
   SelectContent,
@@ -67,9 +68,11 @@ import {
   parseEntityFieldFileValue,
   parseEntityListValueIds,
   parseEntityRelationIds,
+  applyEntityFieldValue,
   removeEntityRecord,
   resolveRelationRecordLabel,
   getEntityFileDownloadUrl,
+  updateEntityRecord,
   useEntityConfig,
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
   ENTITY_TABLE_PAGE_SIZES,
@@ -1190,14 +1193,43 @@ export function EntityTableView({
                               field.type === "list" ||
                               field.type === "relation" ||
                               field.type === "file" ||
+                              (field.type === "boolean" &&
+                                field.booleanInline) ||
                               contactHref
                                 ? undefined
                                 : cellTitle
                             }
                           >
-                            {field.type === "list" &&
-                            listPresentation &&
-                            !listPresentation.listFixed ? (
+                            {field.type === "boolean" && field.booleanInline ? (
+                              <div
+                                className="flex items-center"
+                                onClick={(event) => event.stopPropagation()}
+                                onPointerDown={(event) =>
+                                  event.stopPropagation()
+                                }
+                              >
+                                <Switch
+                                  checked={raw === "true"}
+                                  aria-label={getEntityFieldDisplayName(field)}
+                                  onCheckedChange={(checked) => {
+                                    const values = applyEntityFieldValue(
+                                      entity,
+                                      record.values,
+                                      field.id,
+                                      checked ? "true" : "false",
+                                      entities,
+                                    );
+                                    updateEntityRecord(
+                                      entity.id,
+                                      record.id,
+                                      values,
+                                    );
+                                  }}
+                                />
+                              </div>
+                            ) : field.type === "list" &&
+                              listPresentation &&
+                              !listPresentation.listFixed ? (
                               <div
                                 className="w-full min-w-0"
                                 onClick={(event) => event.stopPropagation()}

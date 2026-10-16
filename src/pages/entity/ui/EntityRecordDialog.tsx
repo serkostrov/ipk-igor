@@ -23,6 +23,7 @@ import {
   groupEntityFields,
   isEntityFieldGroupTitleHidden,
   isEntityComputedFieldType,
+  isEntityFieldVisibleOnCreate,
   isEntityFieldVisibleOnRecord,
   isEntityNameField,
   isValidEntityEmail,
@@ -173,8 +174,13 @@ function EntityRecordForm({
     [entity.fields, entity.id, hiddenFieldIds, isEdit, role],
   );
   const visibleFields = useMemo(
-    () => editableFields.filter((field) => isEntityFieldVisibleOnRecord(field)),
-    [editableFields],
+    () =>
+      editableFields.filter((field) => {
+        if (!isEntityFieldVisibleOnRecord(field)) return false;
+        if (isEdit) return true;
+        return isEntityFieldVisibleOnCreate(field);
+      }),
+    [editableFields, isEdit],
   );
   const initialValues = useMemo(
     () =>

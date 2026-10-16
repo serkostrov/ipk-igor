@@ -84,6 +84,8 @@ export type EntityFieldFormData = {
   required: boolean;
   showInTable: boolean;
   showInFilters: boolean;
+  /** When false, hidden in the new-record form (required/title always shown). */
+  showOnCreate: boolean;
   includeInTotal: boolean;
   /** 1-based column index when `showInTable` is true. */
   tablePosition: number;
@@ -96,6 +98,8 @@ export type EntityFieldFormData = {
   sumFieldIds: string[];
   /** When `type === "datetime"` — store and show time. */
   datetimeWithTime: boolean;
+  /** When `type === "boolean"` — interactive switch in the table. */
+  booleanInline: boolean;
   /** Formula, rollup, lookup, default value, relation filter, deadline… */
   settings: EntityFieldTypeSettings;
 };
@@ -1029,6 +1033,7 @@ function buildEntityFieldFormData({
   required,
   showInTable,
   showInFilters,
+  showOnCreate,
   includeInTotal,
   tablePosition,
   tableColumnCount,
@@ -1041,6 +1046,7 @@ function buildEntityFieldFormData({
   sumFieldIds,
   useAsSum,
   datetimeWithTime,
+  booleanInline,
   typeSettings,
   entity,
   relationBindingLocked,
@@ -1055,6 +1061,7 @@ function buildEntityFieldFormData({
   required: boolean;
   showInTable: boolean;
   showInFilters: boolean;
+  showOnCreate: boolean;
   includeInTotal: boolean;
   tablePosition: number;
   tableColumnCount: number;
@@ -1067,6 +1074,7 @@ function buildEntityFieldFormData({
   sumFieldIds: string[];
   useAsSum: boolean;
   datetimeWithTime: boolean;
+  booleanInline: boolean;
   typeSettings: FieldTypeSettingsDraft;
   entity: Entity | null;
   relationBindingLocked: boolean;
@@ -1082,6 +1090,7 @@ function buildEntityFieldFormData({
       required: true,
       showInTable: true,
       showInFilters,
+      showOnCreate: true,
       includeInTotal: false,
       tablePosition: 1,
       relationEntityId: null,
@@ -1090,6 +1099,7 @@ function buildEntityFieldFormData({
       unitSuffix: null,
       sumFieldIds: [],
       datetimeWithTime: false,
+      booleanInline: false,
       settings: {},
     };
   }
@@ -1120,6 +1130,7 @@ function buildEntityFieldFormData({
     required: isEntityComputedFieldType(resolvedType) ? false : required,
     showInTable,
     showInFilters,
+    showOnCreate: required ? true : Boolean(showOnCreate),
     includeInTotal: isEntityNumericFieldType(resolvedType) && includeInTotal,
     tablePosition: Math.min(columnTotal, Math.max(minPosition, tablePosition)),
     relationEntityId: resolvedRelationEntityId,
@@ -1138,6 +1149,7 @@ function buildEntityFieldFormData({
     sumFieldIds: resolvedType === "numberSum" ? sumFieldIds : [],
     datetimeWithTime:
       resolvedType === "datetime" ? Boolean(datetimeWithTime) : false,
+    booleanInline: resolvedType === "boolean" ? Boolean(booleanInline) : false,
     settings: resolveFieldTypeSettings(
       resolvedType,
       typeSettings,
@@ -1266,6 +1278,9 @@ function EntityFieldForm({
   const [showInFilters, setShowInFilters] = useState(
     field?.showInFilters ?? false,
   );
+  const [showOnCreate, setShowOnCreate] = useState(
+    field?.showOnCreate !== false,
+  );
   const [includeInTotal, setIncludeInTotal] = useState(
     field != null &&
       isEntityNumericFieldType(field.type) &&
@@ -1293,6 +1308,9 @@ function EntityFieldForm({
   });
   const [datetimeWithTime, setDatetimeWithTime] = useState(() =>
     field?.type === "datetime" ? field.datetimeWithTime !== false : false,
+  );
+  const [booleanInline, setBooleanInline] = useState(() =>
+    field?.type === "boolean" ? Boolean(field.booleanInline) : false,
   );
   const currentEntity = useMemo(
     () => entities.find((item) => item.id === entityId) ?? null,
@@ -1400,6 +1418,7 @@ function EntityFieldForm({
       required,
       showInTable,
       showInFilters,
+      showOnCreate,
       includeInTotal,
       tablePosition,
       tableColumnCount,
@@ -1412,12 +1431,18 @@ function EntityFieldForm({
       sumFieldIds,
       useAsSum,
       datetimeWithTime,
+      booleanInline,
       typeSettings,
       entity: currentEntity,
       relationBindingLocked,
       systemBindingLocked,
       isNameField,
     });
+  }
+
+  function handleRequiredChange(checked: boolean) {
+    setRequired(checked);
+    if (checked) setShowOnCreate(true);
   }
 
   function handleShowInTableChange(checked: boolean) {
@@ -1453,6 +1478,9 @@ function EntityFieldForm({
     }
     if (resolved !== "datetime") {
       setDatetimeWithTime(false);
+    }
+    if (resolved !== "boolean") {
+      setBooleanInline(false);
     }
     if (resolved === "relation") {
       if (!relationEntityId && entityOptions.length === 1) {
@@ -1768,6 +1796,15 @@ function EntityFieldForm({
                     onChange={(deadline) => patchTypeSettings({ deadline })}
                   />
                 ) : null}
+                {effectiveType === "boolean" ? (
+                  <SettingSwitch
+                    id="entity-field-boolean-inline"
+                    title="Интерактивный тумблер"
+                    description="Переключать прямо в таблице"
+                    checked={booleanInline}
+                    onCheckedChange={setBooleanInline}
+                  />
+                ) : null}
                 {showDefaultValue ? (
                   <DefaultValueSettings
                     type={effectiveType}
@@ -1797,7 +1834,7 @@ function EntityFieldForm({
                   <Switch
                     id="entity-field-required"
                     checked={required}
-                    onCheckedChange={setRequired}
+                    onCheckedChange={handleRequiredChange}
                   />
                 </div>
               )}
@@ -1847,6 +1884,28 @@ function EntityFieldForm({
                     onCheckedChange={setShowInFilters}
                   />
                 </div>
+
+                {isEntityComputedFieldType(effectiveType) ||
+                isNameField ? null : (
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <Label htmlFor="entity-field-show-on-create">
+                        При создании
+                      </Label>
+                      <span className="text-xs text-muted-foreground">
+                        {required
+                          ? "Обязательные поля всегда в форме создания"
+                          : "Показывать в форме новой записи"}
+                      </span>
+                    </div>
+                    <Switch
+                      id="entity-field-show-on-create"
+                      checked={required || showOnCreate}
+                      disabled={required}
+                      onCheckedChange={setShowOnCreate}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </>

@@ -696,6 +696,7 @@ export function addEntityField(
     showInTable: data?.showInTable ?? false,
     showInFilters: data?.showInFilters ?? false,
     showOnRecord: data?.showOnRecord ?? true,
+    showOnCreate: data?.showOnCreate ?? true,
     includeInTotal: Boolean(data?.includeInTotal),
     tableOrder: data?.tableOrder ?? 0,
     relationEntityId:
@@ -740,6 +741,7 @@ export function addEntityField(
     listUseColors: type === "list" ? data?.listUseColors !== false : true,
     datetimeWithTime:
       type === "datetime" ? Boolean(data?.datetimeWithTime) : false,
+    booleanInline: type === "boolean" ? Boolean(data?.booleanInline) : false,
     colSpan: data?.colSpan ?? 1,
     rowSpan: data?.rowSpan ?? 1,
   });
@@ -802,6 +804,9 @@ export function updateEntityField(
         }
         if (patch.showOnRecord !== undefined && !isEntityNameField(field)) {
           layoutOnly.showOnRecord = patch.showOnRecord;
+        }
+        if (patch.showOnCreate !== undefined && !isEntityNameField(field)) {
+          layoutOnly.showOnCreate = patch.showOnCreate;
         }
         if (patch.group !== undefined) layoutOnly.group = patch.group;
         if (patch.colSpan !== undefined) layoutOnly.colSpan = patch.colSpan;
@@ -1082,6 +1087,7 @@ export function addEntityTabWithLinkedEntity(
     showInTable: false,
     showInFilters: false,
     showOnRecord: true,
+    showOnCreate: true,
     includeInTotal: false,
     tableOrder: 0,
     relationEntityId: parentEntityId,
@@ -1096,6 +1102,7 @@ export function addEntityTabWithLinkedEntity(
     listDependsOnFieldId: null,
     listUseColors: true,
     datetimeWithTime: false,
+    booleanInline: false,
     colSpan: 1,
     rowSpan: 1,
   });
@@ -1203,6 +1210,7 @@ export function addEntityTabWithExistingEntity(
       showInTable: false,
       showInFilters: false,
       showOnRecord: true,
+      showOnCreate: true,
       includeInTotal: false,
       tableOrder: 0,
       relationEntityId: parentEntityId,
@@ -1217,6 +1225,7 @@ export function addEntityTabWithExistingEntity(
       listDependsOnFieldId: null,
       listUseColors: true,
       datetimeWithTime: false,
+      booleanInline: false,
       colSpan: 1,
       rowSpan: 1,
     });

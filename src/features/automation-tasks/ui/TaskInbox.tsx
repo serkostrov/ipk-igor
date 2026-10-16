@@ -11,6 +11,8 @@ import {
 } from "@/entities/automation";
 import { useSessionUser } from "@/entities/session";
 import { cn } from "@/shared/lib/cn";
+import { automationTaskNeedsFillDialog } from "../lib/task-ask-fields";
+import { openAutomationTaskFillDialog } from "../model/fill-dialog-store";
 import { TaskWorkspace } from "./TaskWorkspace";
 
 export function TaskInbox({
@@ -104,7 +106,12 @@ export function TaskInbox({
                         ? "border-primary bg-primary/5"
                         : "border-transparent hover:bg-muted/40",
                     )}
-                    onClick={() => setSelectedId(task.id)}
+                    onClick={() => {
+                      setSelectedId(task.id);
+                      if (automationTaskNeedsFillDialog(task)) {
+                        openAutomationTaskFillDialog(task.id);
+                      }
+                    }}
                   >
                     <span className="truncate text-sm font-medium">
                       {task.name}

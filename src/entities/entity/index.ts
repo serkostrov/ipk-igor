@@ -115,6 +115,7 @@ export {
   isEntitySummableFieldType,
   getEntityTabFilesValueKey,
   getEntityTabRecordsValueKey,
+  isEntityFieldVisibleOnCreate,
   isEntityFieldVisibleOnRecord,
   isEntityContentTab,
   isEntityFieldsHostTab,

@@ -1,0 +1,465 @@
+import { useEffect, useState } from "react";
+import { Lock, Paperclip } from "lucide-react";
+import { Button } from "@/shared/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
+import { Input } from "@/shared/ui/input";
+import {
+  addAutomationTaskAttachment,
+  completeAutomationTask,
+  fetchAutomationTask,
+  fetchAutomationTaskAttachments,
+  returnAutomationTaskForRevision,
+  type AutomationTask,
+} from "@/entities/automation";
+import {
+  applyEntityFieldValue,
+  getEntityFieldDisplayName,
+  getEntityListParentField,
+  getEntityPreviewValueContext,
+  getVisibleListOptions,
+  isEntityComputedFieldType,
+  normalizeEntityFieldInputValue,
+  parseEntityFieldFileValue,
+  parseEntityListValueIds,
+  resolveEntityListFieldPresentation,
+  sanitizeEntityRelationDependencies,
+  updateEntityRecord,
+  useEntityConfig,
+  useEntityValueContext,
+  type EntityField,
+} from "@/entities/entity";
+import { useSessionUser } from "@/entities/session";
+import { getAutomationTaskAskFields } from "@/features/automation-tasks";
+import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
+
+type TaskFillFieldsDialogProps = {
+  taskId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCompleted?: () => void;
+  onOpenRecord?: (entityId: string, recordId: string) => void;
+};
+
+function isFieldFilled(field: EntityField, value: string) {
+  if (field.type === "boolean") return true;
+  if (field.type === "file") return parseEntityFieldFileValue(value) != null;
+  return value.trim().length > 0;
+}
+
+function TaskFillFieldsDialogBody({
+  taskId,
+  onOpenChange,
+  onCompleted,
+  onOpenRecord,
+}: {
+  taskId: string;
+  onOpenChange: (open: boolean) => void;
+  onCompleted?: () => void;
+  onOpenRecord?: (entityId: string, recordId: string) => void;
+}) {
+  const sessionUser = useSessionUser();
+  const { entities } = useEntityConfig();
+  const valueContext = useEntityValueContext();
+  const previewContext = getEntityPreviewValueContext(valueContext);
+
+  const [task, setTask] = useState<AutomationTask | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [attachments, setAttachments] = useState<
+    Array<{ id: string; fileName: string }>
+  >([]);
+  const [attachmentName, setAttachmentName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const next = await fetchAutomationTask(taskId);
+        if (cancelled) return;
+        setTask(next);
+        if (!next) {
+          setError("Задача не найдена");
+          return;
+        }
+        const entity = entities.find((item) => item.id === next.entityId);
+        const record = entity?.records.find(
+          (item) => item.id === next.recordId,
+        );
+        const ask = getAutomationTaskAskFields(next);
+        const draft: Record<string, string> = {};
+        for (const fieldId of ask.visibleFieldIds) {
+          const field = entity?.fields.find((item) => item.id === fieldId);
+          const raw = record?.values[fieldId] ?? "";
+          draft[fieldId] = field
+            ? normalizeEntityFieldInputValue(field, raw)
+            : raw;
+        }
+        setValues(
+          entity
+            ? sanitizeEntityRelationDependencies(entity, draft, entities)
+            : draft,
+        );
+        const files = await fetchAutomationTaskAttachments(next.id);
+        if (!cancelled) setAttachments(files);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Не удалось загрузить задачу",
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, entities]);
+
+  const entity = entities.find((item) => item.id === task?.entityId) ?? null;
+  const record =
+    entity?.records.find((item) => item.id === task?.recordId) ?? null;
+  const ask = task ? getAutomationTaskAskFields(task) : null;
+  const requiredIds = new Set(ask?.requiredFieldIds ?? []);
+  const fields =
+    !entity || !ask
+      ? []
+      : ask.visibleFieldIds
+          .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+          .filter((field): field is EntityField => field != null)
+          .filter((field) => !isEntityComputedFieldType(field.type));
+
+  function setValue(fieldId: string, value: string) {
+    if (!entity) return;
+    setValues((current) =>
+      applyEntityFieldValue(entity, current, fieldId, value, entities),
+    );
+  }
+
+  async function persistValues() {
+    if (!task || !entity || !record) return;
+    updateEntityRecord(task.entityId, task.recordId, {
+      ...record.values,
+      ...values,
+    });
+  }
+
+  function validateForOutcome(outcomeId: string) {
+    if (!task || !entity) return "Задача не загружена";
+    const outcome = task.config.outcomes.find((item) => item.id === outcomeId);
+    if (!outcome) return "Не выбран результат";
+
+    if (outcome.fieldAccess.requireAttachment && attachments.length === 0) {
+      return "Добавьте вложение перед завершением";
+    }
+
+    const missing = outcome.fieldAccess.requiredFieldIds.filter((fieldId) => {
+      const field = entity.fields.find((item) => item.id === fieldId);
+      if (!field) return true;
+      return !isFieldFilled(field, values[fieldId] ?? "");
+    });
+    if (missing.length > 0) {
+      const labels = missing.map((fieldId) => {
+        const field = entity.fields.find((item) => item.id === fieldId);
+        return field ? getEntityFieldDisplayName(field) : fieldId;
+      });
+      return `Заполните обязательные поля: ${labels.join(", ")}`;
+    }
+    return null;
+  }
+
+  async function handleComplete(outcomeId: string) {
+    const validationError = validateForOutcome(outcomeId);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await persistValues();
+      await completeAutomationTask(
+        task!.id,
+        outcomeId,
+        sessionUser?.id ?? null,
+      );
+      onOpenChange(false);
+      onCompleted?.();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Ошибка завершения");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReturn() {
+    if (!task) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await persistValues();
+      await returnAutomationTaskForRevision(task.id, sessionUser?.id ?? null);
+      onOpenChange(false);
+      onCompleted?.();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Ошибка возврата");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const nameFieldId = entity?.fields.find((field) => field.locked)?.id ?? "";
+  const recordTitle = record?.values[nameFieldId]?.trim() || record?.id || "";
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="pr-8">
+          {task?.name ?? "Задача автоматизации"}
+        </DialogTitle>
+        <DialogDescription>
+          {entity
+            ? `Заполните поля, чтобы продолжить процесс «${entity.name}».`
+            : "Заполните нужные данные и выберите результат."}
+          {recordTitle ? (
+            <span className="mt-1 block text-foreground/80">
+              Запись: {recordTitle}
+            </span>
+          ) : null}
+        </DialogDescription>
+      </DialogHeader>
+
+      {loading ? (
+        <div className="flex flex-col gap-3">
+          <div className="h-10 animate-pulse rounded-lg bg-muted/50" />
+          <div className="h-10 animate-pulse rounded-lg bg-muted/40" />
+          <div className="h-24 animate-pulse rounded-lg bg-muted/30" />
+        </div>
+      ) : !task || !entity || !record ? (
+        <p className="text-sm text-muted-foreground">
+          {error ??
+            "Запись ещё не загружена. Обновите страницу или откройте карточку."}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {fields.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+              Для этой задачи нет полей формы. Можно сразу выбрать результат или
+              открыть карточку.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {fields.map((field) => {
+                const parentField = getEntityListParentField(entity, field);
+                const parentValue = parentField
+                  ? (values[parentField.id] ?? record.values[parentField.id])
+                  : undefined;
+                const listOptions =
+                  field.type === "list"
+                    ? getVisibleListOptions(
+                        field,
+                        parentValue,
+                        parentField,
+                        entities,
+                      )
+                    : field.listOptions;
+                const listPresentation = resolveEntityListFieldPresentation(
+                  field,
+                  entities,
+                );
+                const listDisabled =
+                  field.type === "list" &&
+                  parentField != null &&
+                  parseEntityListValueIds(parentValue).length === 0;
+                const required = requiredIds.has(field.id);
+
+                return (
+                  <div key={field.id} className="relative">
+                    {required ? (
+                      <span className="absolute top-0 right-0 z-10 inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                        <Lock className="size-3" aria-hidden />
+                        обязательно
+                      </span>
+                    ) : null}
+                    <RecordFieldControl
+                      ctx={previewContext}
+                      entity={entity}
+                      field={field}
+                      value={values[field.id] ?? ""}
+                      values={{ ...record.values, ...values }}
+                      onChange={(value) => setValue(field.id, value)}
+                      listOptions={listOptions}
+                      listDisabled={listDisabled}
+                      listDisabledHint={
+                        parentField
+                          ? `Сначала выберите «${getEntityFieldDisplayName(parentField)}»`
+                          : undefined
+                      }
+                      listMultiple={listPresentation.listMultiple}
+                      showColors={listPresentation.listUseColors}
+                      listAllowEmpty={!required}
+                      entities={entities}
+                      recordId={record.id}
+                      required={required}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {ask?.requireAttachment || attachments.length > 0 ? (
+            <div className="rounded-xl border border-border/70 bg-muted/15 px-3 py-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                <Paperclip className="size-3.5" aria-hidden />
+                Вложения
+                {ask?.requireAttachment ? " · обязательно" : ""}
+              </div>
+              <ul className="mt-2 flex flex-col gap-1">
+                {attachments.map((file) => (
+                  <li key={file.id} className="text-sm">
+                    {file.fileName}
+                  </li>
+                ))}
+                {attachments.length === 0 ? (
+                  <li className="text-xs text-muted-foreground">
+                    Файлы ещё не добавлены
+                  </li>
+                ) : null}
+              </ul>
+              <div className="mt-2 flex gap-2">
+                <Input
+                  className="h-8"
+                  placeholder="Имя файла"
+                  value={attachmentName}
+                  onChange={(event) => setAttachmentName(event.target.value)}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!attachmentName.trim() || busy}
+                  onClick={() => {
+                    void (async () => {
+                      if (!task) return;
+                      setBusy(true);
+                      try {
+                        const id = await addAutomationTaskAttachment({
+                          taskId: task.id,
+                          fileName: attachmentName.trim(),
+                        });
+                        setAttachments((prev) => [
+                          ...prev,
+                          { id, fileName: attachmentName.trim() },
+                        ]);
+                        setAttachmentName("");
+                      } catch (err: unknown) {
+                        setError(
+                          err instanceof Error
+                            ? err.message
+                            : "Не удалось добавить вложение",
+                        );
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  Добавить
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {error ? (
+            <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      <DialogFooter className="flex-col gap-2 sm:flex-col">
+        <div className="flex w-full flex-wrap gap-2">
+          {(task?.config.outcomes ?? []).map((outcome) => (
+            <Button
+              key={outcome.id}
+              type="button"
+              disabled={busy || loading || !task || !record}
+              onClick={() => void handleComplete(outcome.id)}
+            >
+              {outcome.label}
+            </Button>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy || loading || !task}
+            onClick={() => void handleReturn()}
+          >
+            На доработку
+          </Button>
+        </div>
+        <div className="flex w-full flex-wrap gap-2">
+          {task && onOpenRecord ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              disabled={busy}
+              onClick={() => onOpenRecord(task.entityId, task.recordId)}
+            >
+              Открыть карточку
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ml-auto text-muted-foreground"
+            disabled={busy}
+            onClick={() => onOpenChange(false)}
+          >
+            Позже
+          </Button>
+        </div>
+      </DialogFooter>
+    </>
+  );
+}
+
+export function TaskFillFieldsDialog({
+  taskId,
+  open,
+  onOpenChange,
+  onCompleted,
+  onOpenRecord,
+}: TaskFillFieldsDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] w-full min-w-[min(100%,28rem)] max-w-[min(92vw,32rem)] gap-5 overflow-y-auto sm:max-w-[min(92vw,32rem)]">
+        {open && taskId ? (
+          <TaskFillFieldsDialogBody
+            key={taskId}
+            taskId={taskId}
+            onOpenChange={onOpenChange}
+            onCompleted={onCompleted}
+            onOpenRecord={onOpenRecord}
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}

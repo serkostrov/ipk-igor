@@ -150,7 +150,7 @@ type TaskData = {
   template: AutomationTaskTemplate;
   selected: boolean;
 };
-type EmptyData = { stageId: string };
+type EmptyData = { stageId: string; hasTasks: boolean };
 
 function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
   return (
@@ -386,11 +386,22 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
 }
 
 function EmptyNode({ data }: NodeProps<Node<EmptyData, "empty">>) {
+  const label = data.hasTasks ? "Ещё задача" : "Добавить задачу";
   return (
     <button
       type="button"
-      className="nodrag nopan relative flex h-11 w-[220px] items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-card/80 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+      className={cn(
+        "nodrag nopan group relative flex h-11 w-[220px] items-center justify-center gap-1.5 rounded-xl border border-dashed text-[11px] font-medium transition-all",
+        "border-border/80 bg-card/70 text-muted-foreground",
+        "hover:border-primary/45 hover:bg-primary/[0.04] hover:text-foreground",
+      )}
       data-stage-add={data.stageId}
+      aria-label={label}
+      title={
+        data.hasTasks
+          ? "Добавить следующую задачу на эту стадию"
+          : "Добавить первую задачу на эту стадию"
+      }
     >
       <Handle
         type="target"
@@ -416,8 +427,10 @@ function EmptyNode({ data }: NodeProps<Node<EmptyData, "empty">>) {
         id="bottom"
         className={HANDLE_CLASS}
       />
-      <Plus className="size-3.5" />
-      Добавить задачу
+      <span className="flex size-5 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
+        <Plus className="size-3.5" strokeWidth={2.25} />
+      </span>
+      {label}
       <Handle
         type="source"
         position={Position.Top}
@@ -604,56 +617,58 @@ function buildLayout(input: {
     let prevId = triggerId;
     let y = FLOW_Y + TRIGGER_H + ROW_GAP;
 
-    if (stageTasks.length === 0) {
-      const emptyId = `empty:${stage.id}`;
+    for (const template of stageTasks) {
       nodes.push({
-        id: emptyId,
-        type: "empty",
-        position: resolvePosition(emptyId, { x: colX, y }, canvasLayout),
-        data: { stageId: stage.id },
-        draggable: false,
+        id: template.id,
+        type: "task",
+        position: resolvePosition(template.id, { x: colX, y }, canvasLayout),
+        data: {
+          template,
+          selected: selectedTemplateId === template.id,
+        },
       });
       edges.push({
-        id: `e-${prevId}-${emptyId}`,
+        id: `e-${prevId}-${template.id}`,
         source: prevId,
-        target: emptyId,
+        target: template.id,
         type: "floating",
-        style: { stroke: "#e4e4e7", strokeWidth: 1.25, strokeDasharray: "4 4" },
+        style: { stroke: "#a1a1aa", strokeWidth: 1.5 },
       });
-      prevId = emptyId;
-      y += EMPTY_H + ROW_GAP;
-    } else {
-      for (const template of stageTasks) {
-        nodes.push({
-          id: template.id,
-          type: "task",
-          position: resolvePosition(template.id, { x: colX, y }, canvasLayout),
-          data: {
-            template,
-            selected: selectedTemplateId === template.id,
-          },
-        });
-        edges.push({
-          id: `e-${prevId}-${template.id}`,
-          source: prevId,
-          target: template.id,
-          type: "floating",
-          style: { stroke: "#a1a1aa", strokeWidth: 1.5 },
-        });
-        prevId = template.id;
-        y += TASK_H + ROW_GAP;
-      }
+      prevId = template.id;
+      y += TASK_H + ROW_GAP;
     }
+
+    // Always show add affordance so stages can grow beyond one task.
+    const emptyId = `empty:${stage.id}`;
+    const hasTasks = stageTasks.length > 0;
+    nodes.push({
+      id: emptyId,
+      type: "empty",
+      // Keep add slot in the column flow (ignore free-drag layout).
+      position: { x: colX, y },
+      data: { stageId: stage.id, hasTasks },
+      draggable: false,
+    });
+    edges.push({
+      id: `e-${prevId}-${emptyId}`,
+      source: prevId,
+      target: emptyId,
+      type: "floating",
+      style: {
+        stroke: hasTasks ? "#d4d4d8" : "#e4e4e7",
+        strokeWidth: 1.25,
+        strokeDasharray: "4 4",
+      },
+    });
+    prevId = emptyId;
+    y += EMPTY_H + ROW_GAP;
 
     const endId = `end:${stage.id}`;
     nodes.push({
       id: endId,
       type: "end",
-      position: resolvePosition(
-        endId,
-        { x: colX + (COL_W - 140) / 2, y },
-        canvasLayout,
-      ),
+      // End stays under the add slot in column order.
+      position: { x: colX + (COL_W - 140) / 2, y },
       data: { stageId: stage.id },
       selectable: false,
     });

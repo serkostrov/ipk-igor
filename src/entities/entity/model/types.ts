@@ -186,6 +186,12 @@ export type EntityField = {
   showInFilters: boolean;
   /** When false, the field is hidden on the record page/dialog. */
   showOnRecord: boolean;
+  /**
+   * When false, the field is hidden in the «new record» form
+   * (still editable later on the record page). Required and title
+   * fields are always shown on create.
+   */
+  showOnCreate: boolean;
   /** Number / numberSum fields: include column in the table totals row. */
   includeInTotal: boolean;
   /** Lower values appear earlier among non-title table columns. */
@@ -247,6 +253,11 @@ export type EntityField = {
    * When false — date only. Missing value on legacy fields means with time.
    */
   datetimeWithTime: boolean;
+  /**
+   * When `type === "boolean"` and true, the value is an interactive switch
+   * in the table (toggle without opening the record).
+   */
+  booleanInline: boolean;
   colSpan: number;
   rowSpan: number;
 };
@@ -276,6 +287,7 @@ export function createEntityNameField(id: string): EntityField {
     showInTable: true,
     showInFilters: true,
     showOnRecord: true,
+    showOnCreate: true,
     includeInTotal: false,
     tableOrder: 0,
     relationEntityId: null,
@@ -290,6 +302,7 @@ export function createEntityNameField(id: string): EntityField {
     listDependsOnFieldId: null,
     listUseColors: true,
     datetimeWithTime: false,
+    booleanInline: false,
     colSpan: 4,
     rowSpan: 1,
   };
@@ -344,6 +357,7 @@ export function ensureEntityNameField(fields: EntityField[]): EntityField[] {
         : (existing.systemKey ?? null),
     showInTable: true,
     showOnRecord: true,
+    showOnCreate: true,
   };
   const rest = withFlags
     .filter((_, index) => index !== nameIndex)
@@ -357,6 +371,15 @@ export function isEntityFieldVisibleOnRecord(
 ) {
   if (isEntityNameField(field)) return true;
   return field.showOnRecord !== false;
+}
+
+/** Fields shown in the create-record dialog (title + required always). */
+export function isEntityFieldVisibleOnCreate(
+  field: Pick<EntityField, "showOnCreate" | "required" | "locked">,
+) {
+  if (isEntityNameField(field)) return true;
+  if (field.required) return true;
+  return field.showOnCreate !== false;
 }
 
 export type EntityRecord = {

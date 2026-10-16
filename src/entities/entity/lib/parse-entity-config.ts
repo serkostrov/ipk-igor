@@ -374,6 +374,8 @@ export function normalizeEntityField(field: EntityField): EntityField {
         ? field.datetimeWithTime
         : true
       : false;
+  const booleanInline =
+    type === "boolean" ? Boolean(field.booleanInline) : false;
 
   const base: EntityField = {
     id: field.id,
@@ -388,6 +390,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     showInTable: field.showInTable !== false,
     showInFilters: field.showInFilters !== false,
     showOnRecord: field.showOnRecord !== false,
+    showOnCreate: field.showOnCreate !== false,
     includeInTotal:
       (type === "number" ||
         type === "numberSum" ||
@@ -429,6 +432,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
       ? normalizeNumberSignColor(field.numberSignColor)
       : undefined,
     datetimeWithTime,
+    booleanInline,
     colSpan: clampSpan(field.colSpan, 1, 4, 1),
     rowSpan: clampSpan(field.rowSpan, 1, 3, 1),
   };
@@ -446,6 +450,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     systemKey,
     showInTable: true,
     showOnRecord: true,
+    showOnCreate: true,
     includeInTotal: false,
     tableOrder: 0,
     relationEntityId: null,
@@ -469,6 +474,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     numberDisplay: undefined,
     numberSignColor: undefined,
     datetimeWithTime: false,
+    booleanInline: false,
   };
 }
 
@@ -538,6 +544,7 @@ function parseField(value: unknown): EntityField | null {
     showInTable: value.showInTable !== false,
     showInFilters: value.showInFilters !== false,
     showOnRecord: value.showOnRecord !== false,
+    showOnCreate: value.showOnCreate !== false,
     includeInTotal: Boolean(value.includeInTotal),
     tableOrder: clampSpan(value.tableOrder, 0, 9999, 0),
     relationEntityId:
@@ -576,6 +583,7 @@ function parseField(value: unknown): EntityField | null {
       typeof value.datetimeWithTime === "boolean"
         ? value.datetimeWithTime
         : true,
+    booleanInline: Boolean(value.booleanInline),
     colSpan: clampSpan(value.colSpan, 1, 4, 1),
     rowSpan: clampSpan(value.rowSpan, 1, 3, 1),
   });

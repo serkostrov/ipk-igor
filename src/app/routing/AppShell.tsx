@@ -43,7 +43,10 @@ import {
   useAppNavigate,
   type AppLocation,
 } from "@/shared/lib/navigation";
-import { AutomationTasksPage } from "@/pages/automation-tasks";
+import {
+  AutomationTasksHost,
+  AutomationTasksPage,
+} from "@/pages/automation-tasks";
 import { EntityPage } from "@/pages/entity";
 import { HistoryPage } from "@/pages/history";
 import { NotificationsPage } from "@/pages/notifications";
@@ -285,6 +288,7 @@ export function AppShell() {
   return (
     <div className="flex h-svh overflow-hidden bg-background">
       <NotificationsHost />
+      <AutomationTasksHost />
       <Sidebar
         activeId={activeId}
         onNavigate={handleNavigate}
