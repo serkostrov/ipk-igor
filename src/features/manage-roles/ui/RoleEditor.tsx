@@ -20,7 +20,11 @@ import {
   type Role,
   type SettingsTabId,
 } from "@/entities/access";
-import { useEntityConfig, type Entity } from "@/entities/entity";
+import {
+  getEntityFieldDisplayName,
+  useEntityConfig,
+  type Entity,
+} from "@/entities/entity";
 import {
   flattenMenuGroupItems,
   useMenuConfig,
@@ -411,7 +415,11 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                           }}
                         >
                           <SelectTrigger className="h-8 w-[140px]">
-                            <SelectValue />
+                            <SelectValue>
+                              {access.scope === "own"
+                                ? "Только свои"
+                                : "Все записи"}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">Все записи</SelectItem>
@@ -449,7 +457,9 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                 }}
               >
                 <SelectTrigger className="w-[240px]">
-                  <SelectValue placeholder="Сущность" />
+                  <SelectValue placeholder="Сущность">
+                    {fieldsEntity?.name ?? "Сущность"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {entities.map((entity) => (
@@ -509,7 +519,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                           className="border-b border-border last:border-0"
                         >
                           <td className="px-3 py-2 font-medium">
-                            {field.name}
+                            {getEntityFieldDisplayName(field)}
                           </td>
                           <td className="px-3 py-2">
                             <Switch
