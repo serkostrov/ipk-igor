@@ -341,7 +341,13 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
           </p>
           <p className="mt-0.5 text-[10px] text-muted-foreground">
             #{template.stepOrder}
-            {template.kind === "decision" ? " · решение" : ""}
+            {template.kind === "decision"
+              ? " · решение"
+              : template.kind === "autofill"
+                ? " · автозаполнение"
+                : template.kind === "single"
+                  ? " · кнопка"
+                  : ""}
           </p>
         </div>
         {template.isBlocking ? (

@@ -45,7 +45,7 @@ export const AUTOMATION_TRIGGER_KIND_LABELS: Record<
   slaOverdue: "Просрочка SLA",
 };
 
-export type AutomationTaskKind = "decision" | "single";
+export type AutomationTaskKind = "decision" | "single" | "autofill";
 
 export type AutomationTaskStatus =
   "pending" | "completed" | "cancelled" | "returned";
@@ -121,6 +121,12 @@ export type AutomationOutcome = {
   label: string;
   actions: AutomationAction[];
   fieldAccess: AutomationOutcomeFieldAccess;
+  /**
+   * When set, this outcome is eligible only if conditions match.
+   * Empty rules always match (use as «иначе» / default).
+   * Autofill evaluates outcomes in order and applies the first match.
+   */
+  conditions: AutomationConditions;
 };
 
 export type AutomationSla = {
@@ -274,6 +280,7 @@ function normalizeOutcome(
     label,
     actions: normalizeAutomationActions(item.actions),
     fieldAccess: normalizeAutomationOutcomeFieldAccess(item.fieldAccess),
+    conditions: normalizeAutomationConditions(item.conditions),
   };
 }
 
@@ -291,14 +298,39 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
       label: "Да",
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
+      conditions: emptyAutomationConditions(),
     },
     {
       id: createAutomationOutcomeId(),
       label: "Нет",
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
+      conditions: emptyAutomationConditions(),
     },
   ];
+}
+
+/**
+ * Silent branches: first matching `conditions` wins (empty = else).
+ * Apply setField / stage moves without a user button.
+ */
+export function defaultAutofillOutcomes(): AutomationOutcome[] {
+  return [
+    {
+      id: createAutomationOutcomeId(),
+      label: "Иначе",
+      actions: [],
+      fieldAccess: emptyAutomationOutcomeFieldAccess(),
+      conditions: emptyAutomationConditions(),
+    },
+  ];
+}
+
+/** Whether outcome has at least one condition rule (not a bare else). */
+export function automationOutcomeHasConditions(
+  outcome: Pick<AutomationOutcome, "conditions">,
+) {
+  return outcome.conditions.rules.length > 0;
 }
 
 /** Accepts camelCase (client) or snake_case (SQL to_jsonb row snapshot). */
@@ -331,7 +363,12 @@ export function normalizeAutomationTaskTemplate(
   const descriptionRaw = raw.description;
   const triggerOptionIdRaw = raw.triggerOptionId ?? raw.trigger_option_id;
   const isBlocking = raw.isBlocking === true || raw.is_blocking === true;
-  const kind = raw.kind === "single" ? "single" : "decision";
+  const kind: AutomationTaskKind =
+    raw.kind === "single"
+      ? "single"
+      : raw.kind === "autofill"
+        ? "autofill"
+        : "decision";
   return {
     id,
     scenarioId,
@@ -359,16 +396,19 @@ export function normalizeAutomationTaskTemplate(
     outcomes:
       outcomes.length > 0
         ? outcomes
-        : kind === "single"
-          ? [
-              {
-                id: createAutomationOutcomeId(),
-                label: "Готово",
-                actions: [],
-                fieldAccess: emptyAutomationOutcomeFieldAccess(),
-              },
-            ]
-          : defaultDecisionOutcomes(),
+        : kind === "autofill"
+          ? defaultAutofillOutcomes()
+          : kind === "single"
+            ? [
+                {
+                  id: createAutomationOutcomeId(),
+                  label: "Готово",
+                  actions: [],
+                  fieldAccess: emptyAutomationOutcomeFieldAccess(),
+                  conditions: emptyAutomationConditions(),
+                },
+              ]
+            : defaultDecisionOutcomes(),
     sla:
       slaRaw && typeof slaRaw.hours === "number" && slaRaw.hours > 0
         ? {

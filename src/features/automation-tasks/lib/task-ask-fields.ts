@@ -1,10 +1,11 @@
 import type { AutomationTask } from "@/entities/automation";
 
-/** Fields the assignee should see / fill for this task (union across outcomes). */
+/** Fields / tabs the assignee should see / fill for this task (union across outcomes). */
 export function getAutomationTaskAskFields(task: AutomationTask) {
   const required = new Set<string>();
   const visible = new Set<string>();
   const viewOnly = new Set<string>();
+  const viewTabs = new Set<string>();
   let requireAttachment = false;
 
   for (const outcome of task.config.outcomes) {
@@ -18,9 +19,15 @@ export function getAutomationTaskAskFields(task: AutomationTask) {
     if (outcome.fieldAccess.requireAttachment) requireAttachment = true;
 
     for (const action of outcome.actions) {
-      if (action.kind !== "viewField") continue;
-      for (const fieldId of action.fieldIds) {
-        if (fieldId.trim()) viewOnly.add(fieldId);
+      if (action.kind === "viewField") {
+        for (const fieldId of action.fieldIds) {
+          if (fieldId.trim()) viewOnly.add(fieldId);
+        }
+      }
+      if (action.kind === "viewTabs") {
+        for (const tabId of action.tabIds) {
+          if (tabId.trim()) viewTabs.add(tabId);
+        }
       }
     }
   }
@@ -35,6 +42,8 @@ export function getAutomationTaskAskFields(task: AutomationTask) {
     visibleFieldIds: [...visible],
     /** Read-only context from «Просмотреть поле» actions. */
     viewFieldIds: [...viewOnly],
+    /** Read-only tabs from «Просмотреть вкладки» (записи, файлы, …). */
+    viewTabIds: [...viewTabs],
     requireAttachment,
   };
 }
@@ -45,6 +54,7 @@ export function automationTaskNeedsFillDialog(task: AutomationTask) {
     ask.visibleFieldIds.length > 0 ||
     ask.requiredFieldIds.length > 0 ||
     ask.viewFieldIds.length > 0 ||
+    ask.viewTabIds.length > 0 ||
     ask.requireAttachment
   );
 }

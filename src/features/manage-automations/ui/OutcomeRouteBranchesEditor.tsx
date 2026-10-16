@@ -1,0 +1,313 @@
+import { GitBranch, Plus, Trash2 } from "lucide-react";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
+import {
+  createAutomationActionId,
+  createAutomationOutcomeId,
+  emptyAutomationConditions,
+  emptyAutomationOutcomeFieldAccess,
+  type AutomationAction,
+  type AutomationConditions,
+  type AutomationOutcome,
+} from "@/entities/automation";
+import type { Entity } from "@/entities/entity";
+import { cn } from "@/shared/lib/cn";
+import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
+import { OutcomeAutofillEditor } from "./OutcomeAutofillEditor";
+
+type StageOption = { id: string; name: string };
+
+type OutcomeRouteBranchesEditorProps = {
+  outcomes: AutomationOutcome[];
+  onChange: (outcomes: AutomationOutcome[]) => void;
+  entity: Entity;
+  entities: Entity[];
+  /** Process list field — stage moves write here via setField. */
+  triggerFieldId: string;
+  stages: StageOption[];
+};
+
+function stageFromActions(
+  actions: AutomationAction[],
+  triggerFieldId: string,
+): string {
+  if (!triggerFieldId) return "";
+  const hit = actions.find(
+    (action) => action.kind === "setField" && action.fieldId === triggerFieldId,
+  );
+  return hit && hit.kind === "setField" ? hit.value : "";
+}
+
+function otherActions(
+  actions: AutomationAction[],
+  triggerFieldId: string,
+): AutomationAction[] {
+  if (!triggerFieldId) return actions;
+  return actions.filter(
+    (action) =>
+      !(action.kind === "setField" && action.fieldId === triggerFieldId),
+  );
+}
+
+function mergeStageAndOthers(
+  stageId: string,
+  others: AutomationAction[],
+  triggerFieldId: string,
+): AutomationAction[] {
+  if (!triggerFieldId) return others;
+  if (!stageId) return others;
+  return [
+    {
+      id: createAutomationActionId(),
+      kind: "setField" as const,
+      fieldId: triggerFieldId,
+      value: stageId,
+    },
+    ...others,
+  ];
+}
+
+function normalizeBranches(outcomes: AutomationOutcome[]): AutomationOutcome[] {
+  if (outcomes.length === 0) {
+    return [
+      {
+        id: createAutomationOutcomeId(),
+        label: "Иначе",
+        actions: [],
+        fieldAccess: emptyAutomationOutcomeFieldAccess(),
+        conditions: emptyAutomationConditions(),
+      },
+    ];
+  }
+  return outcomes.map((item, index, list) => {
+    const isElse = index === list.length - 1;
+    return {
+      ...item,
+      label: isElse
+        ? "Иначе"
+        : item.label.trim() && item.label !== "Иначе"
+          ? item.label
+          : "Если",
+      conditions: isElse ? emptyAutomationConditions() : item.conditions,
+      fieldAccess: emptyAutomationOutcomeFieldAccess(),
+    };
+  });
+}
+
+/** Ordered if/else stage routes for autofill steps. */
+export function OutcomeRouteBranchesEditor({
+  outcomes,
+  onChange,
+  entity,
+  entities,
+  triggerFieldId,
+  stages,
+}: OutcomeRouteBranchesEditorProps) {
+  const branches = normalizeBranches(outcomes);
+
+  function commit(next: AutomationOutcome[]) {
+    onChange(normalizeBranches(next));
+  }
+
+  function patchBranch(index: number, patch: Partial<AutomationOutcome>) {
+    commit(
+      branches.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    );
+  }
+
+  function addIfBranch() {
+    const next = [...branches];
+    next.splice(Math.max(0, next.length - 1), 0, {
+      id: createAutomationOutcomeId(),
+      label: "Если",
+      actions: triggerFieldId
+        ? [
+            {
+              id: createAutomationActionId(),
+              kind: "setField",
+              fieldId: triggerFieldId,
+              value: stages[0]?.id ?? "",
+            },
+          ]
+        : [],
+      fieldAccess: emptyAutomationOutcomeFieldAccess(),
+      conditions: emptyAutomationConditions(),
+    });
+    commit(next);
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start gap-2.5 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
+        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground shadow-xs">
+          <GitBranch className="size-3.5" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-foreground">
+            Условные переходы
+          </p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            Проверяются сверху вниз. Первая подходящая ветка применится;
+            последняя — «иначе», если ничего не совпало.
+          </p>
+        </div>
+      </div>
+
+      <ul className="flex flex-col gap-2.5">
+        {branches.map((branch, index) => {
+          const isElse = index === branches.length - 1;
+          const hasRules = branch.conditions.rules.length > 0;
+          const stageId = stageFromActions(branch.actions, triggerFieldId);
+          const stageName =
+            stages.find((item) => item.id === stageId)?.name ?? "";
+
+          return (
+            <li
+              key={branch.id}
+              className={cn(
+                "rounded-xl border bg-card p-3 shadow-xs",
+                isElse ? "border-border/80" : "border-border/70",
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      "inline-flex h-6 shrink-0 items-center rounded-md px-2 text-[11px] font-semibold tracking-wide uppercase",
+                      isElse
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-primary/10 text-primary",
+                    )}
+                  >
+                    {isElse ? "Иначе" : `Если ${index + 1}`}
+                  </span>
+                  {!isElse ? (
+                    <Input
+                      value={branch.label === "Если" ? "" : branch.label}
+                      placeholder="Название ветки"
+                      className="h-7 max-w-[10rem] text-xs"
+                      onChange={(event) =>
+                        patchBranch(index, {
+                          label: event.target.value.trim() || "Если",
+                        })
+                      }
+                    />
+                  ) : null}
+                </div>
+                {!isElse ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-7 text-muted-foreground hover:text-destructive"
+                    aria-label="Удалить ветку"
+                    onClick={() =>
+                      commit(branches.filter((_, i) => i !== index))
+                    }
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                ) : null}
+              </div>
+
+              {!isElse ? (
+                <div className="mt-3 flex flex-col gap-1.5">
+                  <Label className="text-xs">Условие</Label>
+                  <ConditionGroupBuilder
+                    entity={entity}
+                    value={branch.conditions}
+                    onChange={(conditions: AutomationConditions) =>
+                      patchBranch(index, { conditions })
+                    }
+                  />
+                  {!hasRules ? (
+                    <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                      Добавьте условие — иначе ветка сработает всегда и
+                      перекроет нижние
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Если ни одна ветка выше не подошла
+                </p>
+              )}
+
+              <div className="mt-3 flex flex-col gap-1.5">
+                <Label className="text-xs">Перейти на стадию</Label>
+                <Select
+                  value={stageId || "__none__"}
+                  onValueChange={(next) => {
+                    if (next == null) return;
+                    const value = String(next);
+                    patchBranch(index, {
+                      actions: mergeStageAndOthers(
+                        value === "__none__" ? "" : value,
+                        otherActions(branch.actions, triggerFieldId),
+                        triggerFieldId,
+                      ),
+                    });
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {stageName ||
+                        (triggerFieldId
+                          ? "Не менять стадию"
+                          : "Нет поля стадии")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Не менять стадию</SelectItem>
+                    {stages.map((stage) => (
+                      <SelectItem key={stage.id} value={stage.id}>
+                        {stage.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="mt-3">
+                <OutcomeAutofillEditor
+                  actions={otherActions(branch.actions, triggerFieldId)}
+                  sourceEntity={entity}
+                  entities={entities}
+                  hint="Дополнительно заполнить поля при этой ветке"
+                  onChange={(actions) =>
+                    patchBranch(index, {
+                      actions: mergeStageAndOthers(
+                        stageId,
+                        actions,
+                        triggerFieldId,
+                      ),
+                    })
+                  }
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-start"
+        onClick={addIfBranch}
+      >
+        <Plus className="size-3.5" />
+        Ветка «если»
+      </Button>
+    </div>
+  );
+}

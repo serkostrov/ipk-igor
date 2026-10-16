@@ -24,6 +24,7 @@ import {
   createAutomationNotificationRuleId,
   createAutomationOutcomeId,
   defaultAssigneeResolver,
+  defaultAutofillOutcomes,
   defaultDecisionOutcomes,
   emptyAutomationConditions,
   emptyAutomationOutcomeFieldAccess,
@@ -34,6 +35,7 @@ import {
   type AutomationNotificationRule,
   type AutomationOutcome,
   type AutomationOutcomeFieldAccess,
+  type AutomationTaskKind,
   type AutomationTaskTemplate,
 } from "@/entities/automation";
 import { AssigneeEditor } from "@/entities/automation/ui/AssigneeEditor";
@@ -49,6 +51,8 @@ import {
 } from "@/shared/lib/drag-selection";
 import { ActionPipelineEditor } from "./ActionPipelineEditor";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
+import { OutcomeAutofillEditor } from "./OutcomeAutofillEditor";
+import { OutcomeRouteBranchesEditor } from "./OutcomeRouteBranchesEditor";
 import { TemplateFieldInput } from "./TemplateFieldInput";
 import { TemplateRichText } from "./TemplateRichText";
 import { cn } from "@/shared/lib/cn";
@@ -190,10 +194,60 @@ function FieldDragHandle({
   );
 }
 
-const KIND_LABELS = {
+const KIND_LABELS: Record<AutomationTaskKind, string> = {
   decision: "Решение",
   single: "Одна кнопка",
-} as const;
+  autofill: "Автозаполнение",
+};
+
+function outcomesForKind(
+  kind: AutomationTaskKind,
+  current: AutomationOutcome[],
+): AutomationOutcome[] {
+  if (kind === "autofill") {
+    if (current.length === 0) return defaultAutofillOutcomes();
+    return current.map((item, index, list) => {
+      const isElse = index === list.length - 1;
+      return {
+        ...item,
+        label: isElse
+          ? "Иначе"
+          : item.label.trim() && item.label !== "Иначе"
+            ? item.label
+            : "Если",
+        fieldAccess: emptyAutomationOutcomeFieldAccess(),
+        conditions: isElse
+          ? emptyAutomationConditions()
+          : (item.conditions ?? emptyAutomationConditions()),
+      };
+    });
+  }
+  if (kind === "single") {
+    return current.length >= 1
+      ? [
+          {
+            ...current[0]!,
+            label: current[0]!.label.trim() || "Готово",
+            conditions: current[0]!.conditions ?? emptyAutomationConditions(),
+          },
+        ]
+      : [
+          {
+            id: createAutomationOutcomeId(),
+            label: "Готово",
+            actions: [],
+            fieldAccess: emptyAutomationOutcomeFieldAccess(),
+            conditions: emptyAutomationConditions(),
+          },
+        ];
+  }
+  return current.length >= 2
+    ? current.map((item) => ({
+        ...item,
+        conditions: item.conditions ?? emptyAutomationConditions(),
+      }))
+    : defaultDecisionOutcomes();
+}
 
 function Field({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -545,6 +599,7 @@ export function TemplateInspector({
   entity,
   entities,
   options,
+  triggerFieldId,
   notificationRules,
   onSave,
   onDelete,
@@ -553,6 +608,8 @@ export function TemplateInspector({
   entity: Entity;
   entities: Entity[];
   options: Array<{ id: string; name: string }>;
+  /** Process trigger list field — used for stage routing in autofill. */
+  triggerFieldId: string;
   notificationRules: AutomationNotificationRule[];
   onSave: (template: AutomationTaskTemplate) => void | Promise<void>;
   onDelete: () => void;
@@ -610,6 +667,7 @@ export function TemplateInspector({
           label: "Результат",
           actions: [],
           fieldAccess: emptyAutomationOutcomeFieldAccess(),
+          conditions: emptyAutomationConditions(),
         },
       ],
     });
@@ -665,7 +723,7 @@ export function TemplateInspector({
             Условия
           </TabsTrigger>
           <TabsTrigger value="outcomes" className="px-0">
-            Результаты
+            {draft.kind === "autofill" ? "Переходы" : "Результаты"}
           </TabsTrigger>
           <TabsTrigger value="more" className="px-0">
             Ещё
@@ -739,23 +797,14 @@ export function TemplateInspector({
                 <Select
                   value={draft.kind}
                   onValueChange={(next) => {
-                    if (next === "decision" || next === "single") {
+                    if (
+                      next === "decision" ||
+                      next === "single" ||
+                      next === "autofill"
+                    ) {
                       patch({
                         kind: next,
-                        outcomes:
-                          next === "single"
-                            ? [
-                                {
-                                  id: createAutomationOutcomeId(),
-                                  label: "Готово",
-                                  actions: [],
-                                  fieldAccess:
-                                    emptyAutomationOutcomeFieldAccess(),
-                                },
-                              ]
-                            : draft.outcomes.length >= 2
-                              ? draft.outcomes
-                              : defaultDecisionOutcomes(),
+                        outcomes: outcomesForKind(next, draft.outcomes),
                       });
                     }
                   }}
@@ -768,6 +817,9 @@ export function TemplateInspector({
                       {KIND_LABELS.decision}
                     </SelectItem>
                     <SelectItem value="single">{KIND_LABELS.single}</SelectItem>
+                    <SelectItem value="autofill">
+                      Переход / автозаполнение
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -807,86 +859,119 @@ export function TemplateInspector({
           </TabsContent>
 
           <TabsContent value="outcomes" className="mt-0 flex flex-col gap-3">
-            {draft.outcomes.map((outcome, index) => (
-              <div
-                key={outcome.id}
-                className="rounded-lg border border-border/70 p-3"
-              >
-                <Field title="Кнопка">
-                  <Input
-                    value={outcome.label}
-                    placeholder="Да / Нет / Готово"
-                    onChange={(event) =>
-                      patchOutcome(index, {
-                        ...outcome,
-                        label: event.target.value,
-                      })
-                    }
-                  />
-                </Field>
-
-                <div className="mt-3 flex flex-col gap-2.5">
-                  <OutcomeAskFieldsEditor
-                    fields={entity.fields}
-                    value={outcome.fieldAccess}
-                    hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
-                    onChange={(fieldAccess) =>
-                      patchOutcome(index, { ...outcome, fieldAccess })
-                    }
-                  />
-                  <div className="rounded-md border border-border/70 bg-background px-2.5 py-2">
-                    <SettingSwitch
-                      id={`outcome-attach-${outcome.id}`}
-                      title="Нужно вложение"
-                      checked={outcome.fieldAccess.requireAttachment}
-                      onCheckedChange={(requireAttachment) =>
-                        patchOutcome(index, {
-                          ...outcome,
-                          fieldAccess: {
-                            ...outcome.fieldAccess,
-                            requireAttachment,
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <ActionPipelineEditor
-                    actions={outcome.actions}
-                    entities={entities}
-                    sourceEntity={entity}
-                    onChange={(actions) =>
-                      patchOutcome(index, { ...outcome, actions })
-                    }
-                  />
-                </div>
-
-                {draft.outcomes.length > 1 ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="mt-2 h-7 text-destructive"
-                    onClick={() =>
-                      patch({
-                        outcomes: draft.outcomes.filter((_, i) => i !== index),
-                      })
-                    }
+            {draft.kind === "autofill" ? (
+              <OutcomeRouteBranchesEditor
+                outcomes={draft.outcomes}
+                entity={entity}
+                entities={entities}
+                triggerFieldId={triggerFieldId}
+                stages={options}
+                onChange={(outcomes) => patch({ outcomes })}
+              />
+            ) : (
+              <>
+                {draft.outcomes.map((outcome, index) => (
+                  <div
+                    key={outcome.id}
+                    className="rounded-lg border border-border/70 p-3"
                   >
-                    Удалить
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={addOutcome}
-            >
-              <Plus className="size-3.5" />
-              Результат
-            </Button>
+                    <Field title="Название кнопки">
+                      <Input
+                        value={outcome.label}
+                        placeholder="Да / Нет / Готово"
+                        onChange={(event) =>
+                          patchOutcome(index, {
+                            ...outcome,
+                            label: event.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+
+                    <div className="mt-3 flex flex-col gap-2.5">
+                      <OutcomeAutofillEditor
+                        actions={outcome.actions}
+                        sourceEntity={entity}
+                        entities={entities}
+                        hint="Заполнятся при нажатии этой кнопки"
+                        onChange={(actions) =>
+                          patchOutcome(index, { ...outcome, actions })
+                        }
+                      />
+
+                      <OutcomeAskFieldsEditor
+                        fields={entity.fields}
+                        value={outcome.fieldAccess}
+                        hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
+                        onChange={(fieldAccess) =>
+                          patchOutcome(index, { ...outcome, fieldAccess })
+                        }
+                      />
+                      <div className="rounded-md border border-border/70 bg-background px-2.5 py-2">
+                        <SettingSwitch
+                          id={`outcome-attach-${outcome.id}`}
+                          title="Нужно вложение"
+                          checked={outcome.fieldAccess.requireAttachment}
+                          onCheckedChange={(requireAttachment) =>
+                            patchOutcome(index, {
+                              ...outcome,
+                              fieldAccess: {
+                                ...outcome.fieldAccess,
+                                requireAttachment,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Другие действия
+                        </p>
+                        <ActionPipelineEditor
+                          actions={outcome.actions}
+                          entities={entities}
+                          sourceEntity={entity}
+                          omitKinds={["setField"]}
+                          addKind="createRecord"
+                          onChange={(actions) =>
+                            patchOutcome(index, { ...outcome, actions })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    {draft.outcomes.length > 1 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 h-7 text-destructive"
+                        onClick={() =>
+                          patch({
+                            outcomes: draft.outcomes.filter(
+                              (_, i) => i !== index,
+                            ),
+                          })
+                        }
+                      >
+                        Удалить
+                      </Button>
+                    ) : null}
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  onClick={addOutcome}
+                >
+                  <Plus className="size-3.5" />
+                  Результат
+                </Button>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="more" className="mt-0 flex flex-col gap-3.5">

@@ -149,6 +149,7 @@ export async function completeAutomationTask(
       action.kind !== "noop" &&
       action.kind !== "requireFields" &&
       action.kind !== "viewField" &&
+      action.kind !== "viewTabs" &&
       action.kind !== "cancelTasks",
   );
 

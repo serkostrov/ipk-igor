@@ -38,6 +38,7 @@ import {
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { getAutomationTaskAskFields } from "@/features/automation-tasks";
+import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 
@@ -282,13 +283,23 @@ function TaskFillFieldsDialogBody({
         </p>
       ) : (
         <div className="flex flex-col gap-4">
-          {viewFields.length === 0 && fields.length === 0 ? (
+          {viewFields.length === 0 &&
+          fields.length === 0 &&
+          (ask?.viewTabIds.length ?? 0) === 0 ? (
             <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
               Для этой задачи нет полей формы. Можно сразу выбрать результат или
               открыть карточку.
             </p>
           ) : (
             <div className="flex flex-col gap-4">
+              {ask && ask.viewTabIds.length > 0 ? (
+                <TaskViewTabsPreview
+                  entity={entity}
+                  record={record}
+                  tabIds={ask.viewTabIds}
+                />
+              ) : null}
+
               {viewFields.length > 0 ? (
                 <div className="flex flex-col gap-2.5 rounded-xl border border-border/70 bg-muted/15 px-3 py-3">
                   <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ClipboardPen, Eye, Lock } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Lock, Paperclip } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
@@ -10,14 +10,63 @@ import {
   stopAutomationTaskTimeSession,
   type AutomationTask,
 } from "@/entities/automation";
-import { getEntityFieldDisplayName, useEntityConfig } from "@/entities/entity";
+import {
+  applyEntityFieldValue,
+  getEntityFieldDisplayName,
+  getEntityListParentField,
+  getEntityPreviewValueContext,
+  getVisibleListOptions,
+  isEntityComputedFieldType,
+  isEntityNameField,
+  normalizeEntityFieldInputValue,
+  parseEntityFieldFileValue,
+  parseEntityListValueIds,
+  RecordValue,
+  resolveEntityListFieldPresentation,
+  sanitizeEntityRelationDependencies,
+  updateEntityRecord,
+  useEntityConfig,
+  useEntityValueContext,
+  type Entity,
+  type EntityField,
+  type EntityRecord,
+} from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
-import {
-  automationTaskNeedsFillDialog,
-  getAutomationTaskAskFields,
-} from "../lib/task-ask-fields";
-import { openAutomationTaskFillDialog } from "../model/fill-dialog-store";
+import { cn } from "@/shared/lib/cn";
+import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
+import { getAutomationTaskAskFields } from "../lib/task-ask-fields";
+import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
+
+function isFieldFilled(field: EntityField, value: string) {
+  if (field.type === "boolean") return true;
+  if (field.type === "file") return parseEntityFieldFileValue(value) != null;
+  return value.trim().length > 0;
+}
+
+function recordTitle(
+  entity: { fields: EntityField[] } | undefined,
+  values: Record<string, string>,
+) {
+  const nameField = entity?.fields.find((field) => isEntityNameField(field));
+  const title = nameField ? (values[nameField.id] ?? "").trim() : "";
+  return title || null;
+}
+
+function buildTaskFormValues(
+  entity: Entity,
+  record: EntityRecord,
+  visibleFieldIds: string[],
+  entities: Entity[],
+) {
+  const draft: Record<string, string> = {};
+  for (const fieldId of visibleFieldIds) {
+    const field = entity.fields.find((item) => item.id === fieldId);
+    const raw = record.values[fieldId] ?? "";
+    draft[fieldId] = field ? normalizeEntityFieldInputValue(field, raw) : raw;
+  }
+  return sanitizeEntityRelationDependencies(entity, draft, entities);
+}
 
 export function TaskWorkspace({
   task,
@@ -28,29 +77,76 @@ export function TaskWorkspace({
 }: {
   task: AutomationTask;
   onOpenRecord?: (entityId: string, recordId: string) => void;
-  onComplete: (outcomeId: string) => Promise<void>;
+  onComplete: (
+    outcomeId: string,
+    formValues?: Record<string, string>,
+  ) => Promise<void>;
+  onReturn: () => Promise<void>;
+  onCompleted: () => void;
+}) {
+  const { entities } = useEntityConfig();
+  const entity = entities.find((item) => item.id === task.entityId);
+  const record = entity?.records.find((item) => item.id === task.recordId);
+
+  return (
+    <TaskWorkspaceBody
+      key={`${task.id}:${record?.id ?? "pending"}`}
+      task={task}
+      entity={entity}
+      record={record}
+      entities={entities}
+      onOpenRecord={onOpenRecord}
+      onComplete={onComplete}
+      onReturn={onReturn}
+      onCompleted={onCompleted}
+    />
+  );
+}
+
+function TaskWorkspaceBody({
+  task,
+  entity,
+  record,
+  entities,
+  onOpenRecord,
+  onComplete,
+  onReturn,
+  onCompleted,
+}: {
+  task: AutomationTask;
+  entity: Entity | undefined;
+  record: EntityRecord | undefined;
+  entities: Entity[];
+  onOpenRecord?: (entityId: string, recordId: string) => void;
+  onComplete: (
+    outcomeId: string,
+    formValues?: Record<string, string>,
+  ) => Promise<void>;
   onReturn: () => Promise<void>;
   onCompleted: () => void;
 }) {
   const sessionUser = useSessionUser();
-  const { entities } = useEntityConfig();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const valueContext = useEntityValueContext();
+  const previewContext = getEntityPreviewValueContext(valueContext);
+
+  const ask = getAutomationTaskAskFields(task);
+  const requiredIds = useMemo(
+    () => new Set(ask.requiredFieldIds),
+    [ask.requiredFieldIds],
+  );
+
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    entity && record
+      ? buildTaskFormValues(entity, record, ask.visibleFieldIds, entities)
+      : {},
+  );
   const [attachments, setAttachments] = useState<
     Array<{ id: string; fileName: string }>
   >([]);
   const [attachmentName, setAttachmentName] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const entity = entities.find((item) => item.id === task.entityId);
-  const record = entity?.records.find((item) => item.id === task.recordId);
-  const ask = getAutomationTaskAskFields(task);
-  const needsFill = automationTaskNeedsFillDialog(task);
-  const requiredIds = new Set(ask.requiredFieldIds);
-  const missingRequired = !record
-    ? ask.requiredFieldIds
-    : ask.requiredFieldIds.filter(
-        (fieldId) => !(record.values[fieldId] ?? "").trim(),
-      );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,26 +173,97 @@ export function TaskWorkspace({
     };
   }, [task.id, sessionUser?.id]);
 
-  async function run(outcomeId: string) {
-    const outcome = task.config.outcomes.find((item) => item.id === outcomeId);
-    if (outcome?.fieldAccess.requireAttachment && attachments.length === 0) {
-      setError("Добавьте вложение перед завершением");
-      return;
+  const fields = !entity
+    ? []
+    : ask.visibleFieldIds
+        .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+        .filter((field): field is EntityField => field != null)
+        .filter((field) => !isEntityComputedFieldType(field.type));
+
+  const viewFields = !entity
+    ? []
+    : ask.viewFieldIds
+        .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+        .filter((field): field is EntityField => field != null);
+
+  const mergedValues = useMemo(
+    () => ({ ...(record?.values ?? {}), ...values }),
+    [record?.values, values],
+  );
+
+  const title = recordTitle(entity, mergedValues);
+  const hasForm =
+    fields.length > 0 ||
+    viewFields.length > 0 ||
+    ask.viewTabIds.length > 0 ||
+    ask.requireAttachment;
+
+  function setValue(fieldId: string, value: string) {
+    if (!entity) return;
+    setValues((current) =>
+      applyEntityFieldValue(entity, current, fieldId, value, entities),
+    );
+  }
+
+  async function persistValues(outcomeId?: string) {
+    if (!entity || !record) return;
+    const outcomes = outcomeId
+      ? task.config.outcomes.filter((item) => item.id === outcomeId)
+      : task.config.outcomes;
+    const fieldIds = new Set(
+      outcomes.flatMap((item) => [
+        ...item.fieldAccess.recordFieldIds,
+        ...item.fieldAccess.requiredFieldIds,
+      ]),
+    );
+    const patch: Record<string, string> = {};
+    for (const fieldId of fieldIds) {
+      if (!entity.fields.some((field) => field.id === fieldId)) continue;
+      if (values[fieldId] === undefined) continue;
+      patch[fieldId] = values[fieldId]!;
     }
-    if (outcome && record) {
-      const missing = outcome.fieldAccess.requiredFieldIds.filter(
-        (fieldId) => !(record.values[fieldId] ?? "").trim(),
-      );
-      if (missing.length > 0) {
-        openAutomationTaskFillDialog(task.id);
-        setError("Заполните обязательные поля в форме задачи");
-        return;
-      }
+    if (Object.keys(patch).length === 0) return;
+    await updateEntityRecord(task.entityId, task.recordId, {
+      ...record.values,
+      ...patch,
+    });
+  }
+
+  function validateForOutcome(outcomeId: string) {
+    if (!entity) return "Задача не загружена";
+    const outcome = task.config.outcomes.find((item) => item.id === outcomeId);
+    if (!outcome) return "Не выбран результат";
+
+    if (outcome.fieldAccess.requireAttachment && attachments.length === 0) {
+      return "Добавьте вложение перед завершением";
+    }
+
+    const missing = outcome.fieldAccess.requiredFieldIds.filter((fieldId) => {
+      const field = entity.fields.find((item) => item.id === fieldId);
+      if (!field) return true;
+      return !isFieldFilled(field, values[fieldId] ?? "");
+    });
+    if (missing.length > 0) {
+      const labels = missing.map((fieldId) => {
+        const field = entity.fields.find((item) => item.id === fieldId);
+        return field ? getEntityFieldDisplayName(field) : fieldId;
+      });
+      return `Заполните: ${labels.join(", ")}`;
+    }
+    return null;
+  }
+
+  async function run(outcomeId: string) {
+    const validationError = validateForOutcome(outcomeId);
+    if (validationError) {
+      setError(validationError);
+      return;
     }
     setBusy(true);
     setError(null);
     try {
-      await onComplete(outcomeId);
+      await persistValues(outcomeId);
+      await onComplete(outcomeId, values);
       onCompleted();
     } catch (err: unknown) {
       setError(getAutomationErrorMessage(err, "Ошибка завершения"));
@@ -106,138 +273,186 @@ export function TaskWorkspace({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">{task.name}</h2>
+    <div className="flex flex-col gap-5">
+      <header className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h2 className="min-w-0 text-lg font-semibold tracking-tight text-balance">
+            {task.name}
+          </h2>
+          {task.isBlocking ? (
+            <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+              Блокирует переход
+            </span>
+          ) : null}
+        </div>
         {task.description.trim() ? (
-          <p className="mt-1.5 whitespace-pre-wrap text-sm text-muted-foreground">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
             {task.description}
           </p>
         ) : null}
-        <p className="mt-1 text-xs text-muted-foreground">
-          {entity?.name ?? task.entityId} · шаг #{task.stepOrder}
-          {task.isBlocking ? " · блокирующая" : ""}
-          {task.dueAt
-            ? ` · SLA до ${new Date(task.dueAt).toLocaleString("ru")}`
-            : ""}
-        </p>
-      </div>
-
-      {needsFill ? (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-3">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <ClipboardPen className="size-4" aria-hidden />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">Заполните данные для шага</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {missingRequired.length > 0
-                  ? `Осталось обязательных полей: ${missingRequired.length}`
-                  : "Все обязательные поля заполнены — можно завершить шаг"}
-              </p>
-              {ask.viewFieldIds.length > 0 || ask.visibleFieldIds.length > 0 ? (
-                <ul className="mt-2 flex flex-col gap-1">
-                  {ask.viewFieldIds.map((fieldId) => {
-                    const field = entity?.fields.find(
-                      (item) => item.id === fieldId,
-                    );
-                    if (!field) return null;
-                    const raw = (record?.values[fieldId] ?? "").trim();
-                    return (
-                      <li
-                        key={`view-${fieldId}`}
-                        className="flex items-center gap-1.5 text-xs"
-                      >
-                        <Eye
-                          className="size-3 shrink-0 text-muted-foreground"
-                          aria-hidden
-                        />
-                        <span className="text-muted-foreground">
-                          {getEntityFieldDisplayName(field)}
-                        </span>
-                        <span className="truncate text-foreground">
-                          {raw || "—"}
-                        </span>
-                      </li>
-                    );
-                  })}
-                  {ask.visibleFieldIds.map((fieldId) => {
-                    const field = entity?.fields.find(
-                      (item) => item.id === fieldId,
-                    );
-                    if (!field) return null;
-                    const empty = !(record?.values[fieldId] ?? "").trim();
-                    const required = requiredIds.has(fieldId);
-                    return (
-                      <li
-                        key={fieldId}
-                        className="flex items-center gap-1.5 text-xs"
-                      >
-                        {required ? (
-                          <Lock
-                            className="size-3 shrink-0 text-muted-foreground"
-                            aria-hidden
-                          />
-                        ) : (
-                          <span className="size-3 shrink-0" />
-                        )}
-                        <span className="text-muted-foreground">
-                          {getEntityFieldDisplayName(field)}
-                        </span>
-                        <span
-                          className={
-                            empty && required
-                              ? "text-destructive"
-                              : "text-foreground"
-                          }
-                        >
-                          {empty
-                            ? "не заполнено"
-                            : (record?.values[fieldId] ?? "")}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-              <Button
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span>{entity?.name ?? "Сущность"}</span>
+          <span className="text-muted-foreground/40" aria-hidden>
+            ·
+          </span>
+          <span>Шаг {task.stepOrder}</span>
+          {task.dueAt ? (
+            <>
+              <span className="text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <span>до {new Date(task.dueAt).toLocaleString("ru")}</span>
+            </>
+          ) : null}
+          {title && onOpenRecord ? (
+            <>
+              <span className="text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <button
                 type="button"
-                size="sm"
-                className="mt-3"
-                onClick={() => openAutomationTaskFillDialog(task.id)}
+                className="truncate font-medium text-foreground underline-offset-2 hover:underline"
+                onClick={() => onOpenRecord(task.entityId, task.recordId)}
               >
-                Открыть форму
-              </Button>
-            </div>
-          </div>
+                {title}
+              </button>
+            </>
+          ) : null}
         </div>
-      ) : record ? (
-        <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
-          <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-            Запись
-          </p>
-          <button
-            type="button"
-            className="mt-1 text-sm font-medium text-primary underline-offset-2 hover:underline"
-            onClick={() => onOpenRecord?.(task.entityId, task.recordId)}
-          >
-            Открыть карточку
-          </button>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Запись не загружена в клиенте (обновите сущности).
+      </header>
+
+      {!entity || !record ? (
+        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          Запись ещё не загружена. Обновите страницу или откройте карточку.
         </p>
+      ) : hasForm ? (
+        <section className="flex flex-col gap-4 rounded-xl border border-border bg-card px-4 py-4 shadow-xs">
+          {ask.viewTabIds.length > 0 ? (
+            <TaskViewTabsPreview
+              entity={entity}
+              record={{ ...record, values: mergedValues }}
+              tabIds={ask.viewTabIds}
+              className="border-border/60 bg-muted/10"
+            />
+          ) : null}
+
+          {viewFields.length > 0 ? (
+            <div className="flex flex-col gap-2.5">
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                Контекст
+              </p>
+              <div className="grid gap-2">
+                {viewFields.map((field) => (
+                  <div
+                    key={field.id}
+                    className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5"
+                  >
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      {getEntityFieldDisplayName(field)}
+                    </p>
+                    <RecordValue
+                      ctx={previewContext}
+                      entity={entity}
+                      record={{ ...record, values: mergedValues }}
+                      field={field}
+                      className="mt-0.5 text-sm text-foreground"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {fields.length > 0 ? (
+            <div className="flex flex-col gap-3.5">
+              {viewFields.length > 0 ? (
+                <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  Заполнить
+                </p>
+              ) : null}
+              {fields.map((field) => {
+                const parentField = getEntityListParentField(entity, field);
+                const parentValue = parentField
+                  ? (values[parentField.id] ?? record.values[parentField.id])
+                  : undefined;
+                const listOptions =
+                  field.type === "list"
+                    ? getVisibleListOptions(
+                        field,
+                        parentValue,
+                        parentField,
+                        entities,
+                      )
+                    : field.listOptions;
+                const listPresentation = resolveEntityListFieldPresentation(
+                  field,
+                  entities,
+                );
+                const listDisabled =
+                  field.type === "list" &&
+                  parentField != null &&
+                  parseEntityListValueIds(parentValue).length === 0;
+                const required = requiredIds.has(field.id);
+
+                return (
+                  <div key={field.id} className="relative">
+                    {required ? (
+                      <span className="absolute top-0 right-0 z-10 inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                        <Lock className="size-3" aria-hidden />
+                        обяз.
+                      </span>
+                    ) : null}
+                    <RecordFieldControl
+                      ctx={previewContext}
+                      entity={entity}
+                      field={field}
+                      value={values[field.id] ?? ""}
+                      values={mergedValues}
+                      onChange={(value) => setValue(field.id, value)}
+                      listOptions={listOptions}
+                      listDisabled={listDisabled}
+                      listDisabledHint={
+                        parentField
+                          ? `Сначала выберите «${getEntityFieldDisplayName(parentField)}»`
+                          : undefined
+                      }
+                      listMultiple={listPresentation.listMultiple}
+                      showColors={listPresentation.listUseColors}
+                      listAllowEmpty={!required}
+                      entities={entities}
+                      recordId={record.id}
+                      required={required}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
+      ) : (
+        <div className="rounded-xl border border-border/70 bg-muted/15 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            Для этого шага нет полей — можно сразу выбрать результат.
+          </p>
+        </div>
       )}
 
-      <div className="rounded-lg border border-border/70 px-3 py-2">
-        <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+      <div
+        className={cn(
+          "rounded-xl border px-3 py-3",
+          ask.requireAttachment
+            ? "border-border bg-muted/15"
+            : "border-border/70",
+        )}
+      >
+        <div className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          <Paperclip className="size-3.5" aria-hidden />
           Вложения
-        </p>
-        <ul className="mt-1 flex flex-col gap-0.5">
+          {ask.requireAttachment ? " · обязательно" : ""}
+        </div>
+        <ul className="mt-2 flex flex-col gap-1">
           {attachments.map((file) => (
-            <li key={file.id} className="text-xs">
+            <li key={file.id} className="text-sm">
               {file.fileName}
             </li>
           ))}
@@ -272,9 +487,10 @@ export function TaskWorkspace({
                   setAttachmentName("");
                 } catch (err: unknown) {
                   setError(
-                    err instanceof Error
-                      ? err.message
-                      : "Не удалось добавить вложение",
+                    getAutomationErrorMessage(
+                      err,
+                      "Не удалось добавить вложение",
+                    ),
                   );
                 } finally {
                   setBusy(false);
@@ -287,71 +503,93 @@ export function TaskWorkspace({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={busy || !sessionUser?.id}
-          onClick={() => {
-            void (async () => {
-              if (!sessionUser?.id) return;
-              setBusy(true);
-              try {
-                if (sessionId) {
-                  await stopAutomationTaskTimeSession(sessionId);
-                  setSessionId(null);
-                } else {
-                  const id = await startAutomationTaskTimeSession({
-                    taskId: task.id,
-                    userId: sessionUser.id,
-                  });
-                  setSessionId(id);
-                }
-              } catch (err: unknown) {
-                setError(err instanceof Error ? err.message : "Ошибка таймера");
-              } finally {
-                setBusy(false);
-              }
-            })();
-          }}
-        >
-          {sessionId ? "Стоп таймер" : "Старт таймер"}
-        </Button>
-      </div>
+      {error ? (
+        <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      <div className="flex flex-wrap gap-2">
-        {task.config.outcomes.map((outcome) => (
+      <footer className="flex flex-col gap-3 border-t border-border/70 pt-4">
+        <div className="flex flex-wrap gap-2">
+          {task.config.outcomes.map((outcome) => (
+            <Button
+              key={outcome.id}
+              type="button"
+              disabled={busy || !record}
+              onClick={() => void run(outcome.id)}
+            >
+              {outcome.label}
+            </Button>
+          ))}
           <Button
-            key={outcome.id}
             type="button"
+            variant="outline"
             disabled={busy}
-            onClick={() => void run(outcome.id)}
+            onClick={() => {
+              setBusy(true);
+              setError(null);
+              void (async () => {
+                try {
+                  await persistValues();
+                  await onReturn();
+                  onCompleted();
+                } catch (err: unknown) {
+                  setError(getAutomationErrorMessage(err, "Ошибка возврата"));
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            }}
           >
-            {outcome.label}
+            На доработку
           </Button>
-        ))}
-        <Button
-          type="button"
-          variant="outline"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            void onReturn()
-              .then(onCompleted)
-              .catch((err: unknown) => {
-                setError(
-                  err instanceof Error ? err.message : "Ошибка возврата",
-                );
-              })
-              .finally(() => setBusy(false));
-          }}
-        >
-          На доработку
-        </Button>
-      </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground"
+            disabled={busy || !sessionUser?.id}
+            onClick={() => {
+              void (async () => {
+                if (!sessionUser?.id) return;
+                setBusy(true);
+                try {
+                  if (sessionId) {
+                    await stopAutomationTaskTimeSession(sessionId);
+                    setSessionId(null);
+                  } else {
+                    const id = await startAutomationTaskTimeSession({
+                      taskId: task.id,
+                      userId: sessionUser.id,
+                    });
+                    setSessionId(id);
+                  }
+                } catch (err: unknown) {
+                  setError(getAutomationErrorMessage(err, "Ошибка таймера"));
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            }}
+          >
+            {sessionId ? "Стоп таймер" : "Таймер"}
+          </Button>
+          {onOpenRecord && record ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground"
+              disabled={busy}
+              onClick={() => onOpenRecord(task.entityId, task.recordId)}
+            >
+              Карточка
+            </Button>
+          ) : null}
+        </div>
+      </footer>
     </div>
   );
 }

@@ -19,12 +19,14 @@ import {
 import {
   getEntityFieldDisplayName,
   isEntityComputedFieldType,
+  isEntityContentTab,
   ListSelect,
   parseEntityListValueIds,
   serializeEntityListValueIds,
   type Entity,
   type EntityField,
   type EntityListOption,
+  type EntityTab,
 } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
 import { ActionValueEditor } from "./ActionValueEditor";
@@ -35,6 +37,10 @@ type ActionPipelineEditorProps = {
   entities: Entity[];
   sourceEntity: Entity | null;
   className?: string;
+  /** Hide kinds managed elsewhere (e.g. setField in OutcomeAutofillEditor). */
+  omitKinds?: readonly AutomationActionKind[];
+  /** Default kind for «+ Действие». */
+  addKind?: AutomationActionKind;
 };
 
 export function ActionPipelineEditor({
@@ -43,16 +49,29 @@ export function ActionPipelineEditor({
   entities,
   sourceEntity,
   className,
+  omitKinds = [],
+  addKind = "setField",
 }: ActionPipelineEditorProps) {
+  const omit = new Set(omitKinds);
+  const kindOptions = AUTOMATION_ACTION_KINDS.filter((kind) => !omit.has(kind));
+  const visible = actions
+    .map((action, index) => ({ action, index }))
+    .filter(({ action }) => !omit.has(action.kind));
+
   function update(index: number, action: AutomationAction) {
     const next = [...actions];
     next[index] = action;
     onChange(next);
   }
 
+  const defaultAdd =
+    addKind && !omit.has(addKind)
+      ? addKind
+      : (kindOptions[0] ?? ("noop" as AutomationActionKind));
+
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      {actions.map((action, index) => (
+      {visible.map(({ action, index }) => (
         <div
           key={action.id}
           className="rounded-md border border-border/70 bg-background p-2.5"
@@ -82,7 +101,7 @@ export function ActionPipelineEditor({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {AUTOMATION_ACTION_KINDS.map((kind) => (
+                {kindOptions.map((kind) => (
                   <SelectItem key={kind} value={kind}>
                     {AUTOMATION_ACTION_KIND_LABELS[kind]}
                   </SelectItem>
@@ -112,8 +131,9 @@ export function ActionPipelineEditor({
         variant="ghost"
         size="sm"
         className="h-7 gap-1 self-start px-2 text-xs"
+        disabled={kindOptions.length === 0}
         onClick={() =>
-          onChange([...actions, defaultAutomationAction("setField")])
+          onChange([...actions, defaultAutomationAction(defaultAdd)])
         }
       >
         <Plus className="size-3.5" />
@@ -298,6 +318,16 @@ function ActionFields({
     );
   }
 
+  if (action.kind === "viewTabs") {
+    return (
+      <ViewTabsEditor
+        tabs={(sourceEntity?.tabs ?? []).filter(isEntityContentTab)}
+        selectedIds={action.tabIds}
+        onChange={(tabIds) => onChange({ ...action, tabIds })}
+      />
+    );
+  }
+
   if (action.kind === "attachToFolder") {
     return (
       <div className="mt-2">
@@ -378,6 +408,76 @@ function FieldSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+const VIEWABLE_TAB_KIND_LABELS: Record<string, string> = {
+  records: "Записи",
+  files: "Файлы",
+  history: "История",
+};
+
+function ViewTabsEditor({
+  tabs,
+  selectedIds,
+  onChange,
+}: {
+  tabs: EntityTab[];
+  selectedIds: string[];
+  onChange: (tabIds: string[]) => void;
+}) {
+  const options = useMemo<EntityListOption[]>(
+    () =>
+      tabs.map((tab) => {
+        const kindLabel = VIEWABLE_TAB_KIND_LABELS[tab.kind] ?? tab.kind;
+        const name = tab.name.trim() || kindLabel;
+        return {
+          id: tab.id,
+          name: name === kindLabel ? name : `${name} · ${kindLabel}`,
+          color: "#94a3b8",
+          parentOptionId: null,
+        };
+      }),
+    [tabs],
+  );
+  const knownIds = useMemo(
+    () => new Set(options.map((option) => option.id)),
+    [options],
+  );
+  const value = serializeEntityListValueIds(
+    selectedIds.filter((id) => knownIds.has(id)),
+  );
+
+  if (tabs.length === 0) {
+    return (
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Нет вкладок «Записи», «Файлы» или «История»
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="text-[11px] font-medium text-muted-foreground">
+          Показать в форме задачи
+        </p>
+        <p className="text-[10px] leading-snug text-muted-foreground/80">
+          Только просмотр — записи, файлы или история карточки
+        </p>
+      </div>
+      <ListSelect
+        options={options}
+        value={value}
+        multiple
+        size="sm"
+        showColors={false}
+        emptyLabel="Выберите вкладки"
+        aria-label="Вкладки для просмотра"
+        className="h-8 rounded-md border-input font-normal shadow-xs"
+        onChange={(next) => onChange(parseEntityListValueIds(next))}
+      />
+    </div>
   );
 }
 

@@ -11,8 +11,6 @@ import {
 } from "@/entities/automation";
 import { useSessionUser } from "@/entities/session";
 import { cn } from "@/shared/lib/cn";
-import { automationTaskNeedsFillDialog } from "../lib/task-ask-fields";
-import { openAutomationTaskFillDialog } from "../model/fill-dialog-store";
 import { TaskWorkspace } from "./TaskWorkspace";
 
 export function TaskInbox({
@@ -106,12 +104,7 @@ export function TaskInbox({
                         ? "border-primary bg-primary/5"
                         : "border-transparent hover:bg-muted/40",
                     )}
-                    onClick={() => {
-                      setSelectedId(task.id);
-                      if (automationTaskNeedsFillDialog(task)) {
-                        openAutomationTaskFillDialog(task.id);
-                      }
-                    }}
+                    onClick={() => setSelectedId(task.id)}
                   >
                     <span className="truncate text-sm font-medium">
                       {task.name}
@@ -122,7 +115,7 @@ export function TaskInbox({
                       ) : (
                         <CheckCircle2 className="size-3" />
                       )}
-                      #{task.stepOrder}
+                      Шаг {task.stepOrder}
                       {task.dueAt
                         ? ` · до ${new Date(task.dueAt).toLocaleString("ru")}`
                         : ""}
@@ -151,11 +144,12 @@ export function TaskInbox({
               );
               reload();
             }}
-            onComplete={async (outcomeId) => {
+            onComplete={async (outcomeId, formValues) => {
               await completeAutomationTask(
                 selected.id,
                 outcomeId,
                 sessionUser?.id ?? null,
+                formValues,
               );
             }}
           />

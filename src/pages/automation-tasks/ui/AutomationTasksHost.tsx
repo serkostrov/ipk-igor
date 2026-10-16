@@ -78,13 +78,18 @@ export function AutomationTasksHost() {
 
         if (!options?.announceNew || fresh.length === 0) return;
 
+        const interactive = fresh.filter(
+          (task) => task.config.kind !== "autofill",
+        );
         const actionable =
-          fresh.find(
+          interactive.find(
             (task) =>
               automationTaskNeedsFillDialog(task) &&
               !isAutomationTaskFillDialogDismissed(task.id),
           ) ??
-          fresh.find((task) => !isAutomationTaskFillDialogDismissed(task.id)) ??
+          interactive.find(
+            (task) => !isAutomationTaskFillDialogDismissed(task.id),
+          ) ??
           null;
         if (!actionable) return;
 

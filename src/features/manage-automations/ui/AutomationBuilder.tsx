@@ -493,6 +493,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   entity={entity}
                   entities={entities}
                   options={stages}
+                  triggerFieldId={resolvedTriggerFieldId}
                   notificationRules={notificationRules.filter(
                     (rule) => rule.templateId === selectedTemplate.id,
                   )}

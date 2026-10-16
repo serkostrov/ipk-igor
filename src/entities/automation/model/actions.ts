@@ -8,6 +8,7 @@ export const AUTOMATION_ACTION_KINDS = [
   "setField",
   "setFieldPrevious",
   "viewField",
+  "viewTabs",
   "createRecord",
   "createRecordsFromMapping",
   "updateRecords",
@@ -39,6 +40,12 @@ export type AutomationAction =
       kind: "viewField";
       /** Show these fields read-only on the task form (context for filling). */
       fieldIds: string[];
+    }
+  | {
+      id: string;
+      kind: "viewTabs";
+      /** Show these entity tabs read-only on the task form (notes, files, …). */
+      tabIds: string[];
     }
   | {
       id: string;
@@ -131,6 +138,7 @@ export const AUTOMATION_ACTION_KIND_LABELS: Record<
   setField: "Установить поле",
   setFieldPrevious: "Вернуть поле",
   viewField: "Просмотреть поле",
+  viewTabs: "Просмотреть вкладки",
   createRecord: "Создать запись",
   createRecordsFromMapping: "Создать записи по списку",
   updateRecords: "Обновить связанные",
@@ -160,6 +168,8 @@ export function defaultAutomationAction(
       return { id, kind, fieldId: "" };
     case "viewField":
       return { id, kind, fieldIds: [] };
+    case "viewTabs":
+      return { id, kind, tabIds: [] };
     case "createRecord":
       return { id, kind, entityId: "", mappings: [] };
     case "createRecordsFromMapping":
@@ -328,6 +338,13 @@ export function normalizeAutomationAction(
           ? raw.fieldIds.filter((id): id is string => typeof id === "string")
           : [],
       };
+    case "viewTabs":
+      return {
+        ...withId,
+        tabIds: Array.isArray(raw.tabIds)
+          ? raw.tabIds.filter((id): id is string => typeof id === "string")
+          : [],
+      };
     case "attachToFolder":
       return {
         ...withId,
@@ -373,6 +390,10 @@ export function describeAutomationAction(
       return action.fieldIds.length > 0
         ? `Показать: ${action.fieldIds.map(field).join(", ")}`
         : "Показать поля";
+    case "viewTabs":
+      return action.tabIds.length > 0
+        ? `Вкладки: ${action.tabIds.length}`
+        : "Показать вкладки";
     case "createRecord":
       return `Создать запись в «${entity(action.entityId)}»`;
     case "createRecordsFromMapping":

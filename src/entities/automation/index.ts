@@ -61,7 +61,9 @@ export {
   createAutomationProcessId,
   createAutomationScenarioId,
   createAutomationTemplateId,
+  automationOutcomeHasConditions,
   createDefaultProcess,
+  defaultAutofillOutcomes,
   defaultDecisionOutcomes,
   emptyAutomationConfig,
   emptyAutomationOutcomeFieldAccess,
@@ -92,6 +94,7 @@ export {
   matchAutomationConditions,
   type AutomationConditionEvalContext,
 } from "./lib/evaluate-conditions";
+export { pickAutomationOutcome } from "./lib/pick-outcome";
 export {
   AUTOMATION_CONDITION_PARITY_CASES,
   runAutomationConditionParityTs,
