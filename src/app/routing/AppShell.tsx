@@ -119,7 +119,9 @@ export function AppShell() {
   const accessStatus = useAccessStatus();
   const didRestoreMenuRef = useRef(false);
   const bootstrapGenRef = useRef(0);
-  const [bootstrapped, setBootstrapped] = useState(!isSupabaseConfigured);
+  // Always start closed: menu/entity stores default to `loading` and must be
+  // initialized (including offline defaults when Supabase env is missing).
+  const [bootstrapped, setBootstrapped] = useState(false);
 
   useEffect(() => {
     if (didRestoreMenuRef.current) return;
@@ -165,9 +167,6 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    // Initial state is already `true` when Supabase is off — no setState here.
-    if (!isSupabaseConfigured) return;
-
     const gen = ++bootstrapGenRef.current;
 
     const withTimeout = (promise: Promise<unknown>, ms: number) =>
@@ -191,11 +190,15 @@ export function AppShell() {
 
     void (async () => {
       try {
+        // Always init — when Supabase is off, stores load local defaults and
+        // leave `loading` (otherwise sidebar/settings stay on skeletons forever).
         await withTimeout(initMenuConfig(), 4_000);
 
         // Non-critical: never block the shell on CORS / missing tables.
-        void initAutomationConfig();
-        void initNotificationConfig();
+        if (isSupabaseConfigured) {
+          void initAutomationConfig();
+          void initNotificationConfig();
+        }
 
         await withTimeout(
           initEntityConfig().catch((error: unknown) => {
@@ -204,7 +207,7 @@ export function AppShell() {
           4_000,
         );
 
-        if (authUserId) {
+        if (isSupabaseConfigured && authUserId) {
           const user = getSessionUser();
           try {
             await withTimeout(

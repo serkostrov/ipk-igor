@@ -122,7 +122,10 @@ async function fetchEntityRecordsPages(
     if (entityId) query = query.eq("entity_id", entityId);
 
     const { data, error } = await withTimeout(
-      Promise.resolve(query),
+      query as unknown as Promise<{
+        data: unknown;
+        error: FetchPageError | null;
+      }>,
       15_000,
       "entity_records page",
     );
