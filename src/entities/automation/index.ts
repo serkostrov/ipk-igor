@@ -9,7 +9,17 @@ export {
   type AutomationAction,
   type AutomationActionKind,
   type AutomationFieldMapping,
+  type DescribeAutomationActionContext,
 } from "./model/actions";
+export {
+  AUTOMATION_VALUE_CURRENT_USER,
+  AUTOMATION_VALUE_NOW,
+  AUTOMATION_VALUE_TIME_NOW,
+  AUTOMATION_VALUE_TODAY,
+  AUTOMATION_VALUE_TOMORROW,
+  describeAutomationActionValue,
+  resolveAutomationActionValue,
+} from "./model/action-values";
 export {
   AUTOMATION_ASSIGNEE_TYPE_LABELS,
   defaultAssigneeResolver,

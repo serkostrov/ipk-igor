@@ -120,12 +120,12 @@ export const AUTOMATION_ACTION_KIND_LABELS: Record<
   AutomationActionKind,
   string
 > = {
-  noop: "Ничего (остаться)",
+  noop: "Ничего не делать",
   setField: "Установить поле",
-  setFieldPrevious: "Вернуть прежнее значение поля",
+  setFieldPrevious: "Вернуть поле",
   createRecord: "Создать запись",
-  createRecordsFromMapping: "Создать записи (fan-out)",
-  updateRecords: "Обновить связанные записи",
+  createRecordsFromMapping: "Создать записи по списку",
+  updateRecords: "Обновить связанные",
   copyFields: "Скопировать поля",
   setRelation: "Установить связь",
   addRelation: "Добавить в связь",
@@ -133,8 +133,8 @@ export const AUTOMATION_ACTION_KIND_LABELS: Record<
   spawnTasks: "Создать задачи",
   cancelTasks: "Отменить задачи",
   notify: "Уведомить",
-  requireFields: "Проверить обязательные поля",
-  attachToFolder: "Сохранить вложение в поле",
+  requireFields: "Обязательные поля",
+  attachToFolder: "Сохранить вложение",
 };
 
 export function createAutomationActionId() {
@@ -337,38 +337,52 @@ export function normalizeAutomationActions(value: unknown): AutomationAction[] {
   return result;
 }
 
-/** Human-readable one-liner for builders. */
-export function describeAutomationAction(action: AutomationAction): string {
+export type DescribeAutomationActionContext = {
+  fieldName?: (fieldId: string) => string;
+  entityName?: (entityId: string) => string;
+};
+
+/** Human-readable one-liner for builders (uses names when context is provided). */
+export function describeAutomationAction(
+  action: AutomationAction,
+  ctx?: DescribeAutomationActionContext,
+): string {
+  const field = (id: string) => (id ? (ctx?.fieldName?.(id) ?? "поле") : "…");
+  const entity = (id: string) =>
+    id ? (ctx?.entityName?.(id) ?? "сущность") : "…";
+
   switch (action.kind) {
     case "noop":
       return "Ничего не делать";
     case "setField":
-      return `Установить поле «${action.fieldId || "…"}»`;
+      return `Установить «${field(action.fieldId)}»`;
     case "setFieldPrevious":
-      return `Вернуть поле «${action.fieldId || "…"}»`;
+      return `Вернуть «${field(action.fieldId)}»`;
     case "createRecord":
-      return `Создать запись в «${action.entityId || "…"}»`;
+      return `Создать запись в «${entity(action.entityId)}»`;
     case "createRecordsFromMapping":
-      return `Создать записи (fan-out) в «${action.entityId || "…"}»`;
+      return `Создать записи в «${entity(action.entityId)}»`;
     case "updateRecords":
-      return `Обновить связанные «${action.entityId || "…"}»`;
+      return `Обновить «${entity(action.entityId)}»`;
     case "copyFields":
       return "Скопировать поля";
     case "setRelation":
-      return `Связь «${action.fieldId || "…"}»`;
+      return `Связь «${field(action.fieldId)}»`;
     case "addRelation":
-      return `Добавить в связь «${action.fieldId || "…"}»`;
+      return `Добавить в «${field(action.fieldId)}»`;
     case "startProcess":
-      return `Запустить процесс «${action.processId || "…"}»`;
+      return "Запустить процесс";
     case "spawnTasks":
       return "Создать задачи";
     case "cancelTasks":
       return "Отменить задачи";
     case "notify":
-      return "Уведомить";
+      return action.message.trim() ? action.message.trim() : "Уведомить";
     case "requireFields":
-      return `Проверить поля (${action.fieldIds.length})`;
+      return action.fieldIds.length > 0
+        ? `Проверить: ${action.fieldIds.map(field).join(", ")}`
+        : "Проверить поля";
     case "attachToFolder":
-      return "Сохранить вложение";
+      return `Вложение → «${field(action.fileFieldId)}»`;
   }
 }

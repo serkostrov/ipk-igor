@@ -4,6 +4,7 @@ import {
   serializeEntityRelationIds,
   updateEntityRecord,
   type Entity,
+  type EntityFieldType,
 } from "@/entities/entity";
 import { createNotification } from "@/entities/notification/api/notifications-api";
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
@@ -11,6 +12,7 @@ import type {
   AutomationAction,
   AutomationFieldMapping,
 } from "../model/actions";
+import { resolveAutomationActionValue } from "../model/action-values";
 import type { AutomationAssigneeResolver } from "../model/assignee";
 import { renderAutomationNameTemplate } from "./render-name-template";
 
@@ -38,16 +40,31 @@ function resolveTemplateValue(
   source: string,
   ctx: AutomationExecutionContext,
   createdRecordIds: string[],
+  fieldType?: EntityFieldType,
+  datetimeWithTime?: boolean,
 ): string {
-  if (source === "{{created}}" || source === "created") {
-    return createdRecordIds[createdRecordIds.length - 1] ?? "";
-  }
-  const match = source.match(/^\{\{([^}]+)\}\}$/);
-  if (match) {
-    const fieldId = match[1]!.trim();
-    return ctx.values[fieldId] ?? "";
-  }
-  return source;
+  return resolveAutomationActionValue(source, ctx.values, {
+    createdRecordIds,
+    actorUserId: ctx.actorUserId,
+    fieldType,
+    datetimeWithTime,
+  });
+}
+
+function fieldMeta(
+  ctx: AutomationExecutionContext,
+  fieldId: string,
+): {
+  fieldType?: EntityFieldType;
+  datetimeWithTime?: boolean;
+} {
+  const entity = ctx.entities.find((item) => item.id === ctx.triggerEntityId);
+  const field = entity?.fields.find((item) => item.id === fieldId);
+  if (!field) return {};
+  return {
+    fieldType: field.type,
+    datetimeWithTime: field.datetimeWithTime !== false,
+  };
 }
 
 function applyMappings(
@@ -111,18 +128,18 @@ export async function executeAutomationActions(
           logs.push({ kind: "noop" });
           break;
         case "setField": {
-          updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
-            [action.fieldId]: resolveTemplateValue(
-              action.value,
-              ctx,
-              createdRecordIds,
-            ),
-          });
-          ctx.values[action.fieldId] = resolveTemplateValue(
+          const meta = fieldMeta(ctx, action.fieldId);
+          const resolved = resolveTemplateValue(
             action.value,
             ctx,
             createdRecordIds,
+            meta.fieldType,
+            meta.datetimeWithTime,
           );
+          updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
+            [action.fieldId]: resolved,
+          });
+          ctx.values[action.fieldId] = resolved;
           logs.push({ kind: "setField", fieldId: action.fieldId });
           break;
         }

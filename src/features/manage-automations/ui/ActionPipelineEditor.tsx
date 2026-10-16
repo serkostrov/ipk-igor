@@ -12,12 +12,17 @@ import {
   AUTOMATION_ACTION_KIND_LABELS,
   AUTOMATION_ACTION_KINDS,
   defaultAutomationAction,
-  describeAutomationAction,
   type AutomationAction,
   type AutomationActionKind,
 } from "@/entities/automation";
-import { getEntityFieldDisplayName, type Entity } from "@/entities/entity";
+import {
+  getEntityFieldDisplayName,
+  isEntityComputedFieldType,
+  type Entity,
+  type EntityField,
+} from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
+import { ActionValueEditor } from "./ActionValueEditor";
 
 type ActionPipelineEditorProps = {
   actions: AutomationAction[];
@@ -45,7 +50,7 @@ export function ActionPipelineEditor({
       {actions.map((action, index) => (
         <div
           key={action.id}
-          className="rounded-md border border-border/70 bg-background p-2"
+          className="rounded-md border border-border/70 bg-background p-2.5"
         >
           <div className="flex items-center gap-1.5">
             <Select
@@ -89,9 +94,6 @@ export function ActionPipelineEditor({
               <Trash2 className="size-3.5" />
             </Button>
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {describeAutomationAction(action)}
-          </p>
           <ActionFields
             action={action}
             entities={entities}
@@ -127,26 +129,43 @@ function ActionFields({
   sourceEntity: Entity | null;
   onChange: (action: AutomationAction) => void;
 }) {
-  const fields = sourceEntity?.fields ?? [];
+  const fields = (sourceEntity?.fields ?? []).filter(
+    (field) => !isEntityComputedFieldType(field.type),
+  );
 
   if (action.kind === "setField" || action.kind === "setFieldPrevious") {
+    const selected =
+      fields.find((field) => field.id === action.fieldId) ?? null;
     return (
-      <div className="mt-2 flex flex-col gap-1.5">
+      <div className="mt-2 flex flex-col gap-2">
         <FieldSelect
-          fields={fields}
+          fields={fields.filter(
+            (field) =>
+              action.kind === "setFieldPrevious" || field.type !== "file",
+          )}
           value={action.fieldId}
-          onChange={(fieldId) => onChange({ ...action, fieldId })}
+          placeholder="Поле"
+          onChange={(fieldId) => {
+            if (action.kind === "setField") {
+              onChange({ ...action, fieldId, value: "" });
+            } else {
+              onChange({ ...action, fieldId });
+            }
+          }}
         />
         {action.kind === "setField" ? (
-          <Input
-            className="h-8"
-            placeholder="Значение или {{fieldId}}"
+          <ActionValueEditor
+            field={selected}
             value={action.value}
-            onChange={(event) =>
-              onChange({ ...action, value: event.target.value })
-            }
+            sourceFields={sourceEntity?.fields ?? []}
+            entities={entities}
+            onChange={(value) => onChange({ ...action, value })}
           />
-        ) : null}
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            Вернёт значение поля до изменения
+          </p>
+        )}
       </div>
     );
   }
@@ -155,72 +174,69 @@ function ActionFields({
     action.kind === "createRecord" ||
     action.kind === "createRecordsFromMapping"
   ) {
+    const target =
+      entities.find((entity) => entity.id === action.entityId) ?? null;
     return (
-      <div className="mt-2 flex flex-col gap-1.5">
-        <Select
+      <div className="mt-2 flex flex-col gap-2">
+        <EntitySelect
+          entities={entities}
           value={action.entityId}
-          onValueChange={(next) => {
-            if (next != null) onChange({ ...action, entityId: String(next) });
-          }}
-        >
-          <SelectTrigger size="sm">
-            <SelectValue>
-              {entities.find((item) => item.id === action.entityId)?.name ||
-                "Сущность"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {entities.map((entity) => (
-              <SelectItem key={entity.id} value={entity.id}>
-                {entity.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          onChange={(entityId) => onChange({ ...action, entityId })}
+        />
         {action.kind === "createRecordsFromMapping" ? (
           <>
             <FieldSelect
-              fields={fields}
+              fields={fields.filter(
+                (field) =>
+                  field.type === "relation" || field.type === "dependencies",
+              )}
               value={action.fanOutFieldId}
-              label="Fan-out поле"
+              placeholder="Поле со списком записей"
               onChange={(fanOutFieldId) =>
                 onChange({ ...action, fanOutFieldId })
               }
             />
-            <Input
-              className="h-8"
-              placeholder="Целевое поле fan-out id"
+            <FieldSelect
+              fields={target?.fields ?? []}
               value={action.fanOutTargetFieldId}
-              onChange={(event) =>
-                onChange({
-                  ...action,
-                  fanOutTargetFieldId: event.target.value,
-                })
+              placeholder="Поле связи в новой записи"
+              onChange={(fanOutTargetFieldId) =>
+                onChange({ ...action, fanOutTargetFieldId })
               }
             />
           </>
         ) : null}
-        <Input
-          className="h-8"
-          placeholder="Маппинг: targetField={{sourceField}} (через ;)"
-          value={action.mappings
-            .map((item) => `${item.targetFieldId}=${item.source}`)
-            .join("; ")}
-          onChange={(event) => {
-            const mappings = event.target.value
-              .split(";")
-              .map((part) => part.trim())
-              .filter(Boolean)
-              .map((part) => {
-                const [targetFieldId, ...rest] = part.split("=");
-                return {
-                  targetFieldId: (targetFieldId ?? "").trim(),
-                  source: rest.join("=").trim(),
-                };
-              })
-              .filter((item) => item.targetFieldId);
-            onChange({ ...action, mappings });
-          }}
+        <MappingsEditor
+          mappings={action.mappings}
+          targetFields={target?.fields ?? []}
+          sourceFields={sourceEntity?.fields ?? []}
+          entities={entities}
+          onChange={(mappings) => onChange({ ...action, mappings })}
+        />
+      </div>
+    );
+  }
+
+  if (action.kind === "setRelation" || action.kind === "addRelation") {
+    const selected =
+      fields.find((field) => field.id === action.fieldId) ?? null;
+    return (
+      <div className="mt-2 flex flex-col gap-2">
+        <FieldSelect
+          fields={fields.filter(
+            (field) =>
+              field.type === "relation" || field.type === "dependencies",
+          )}
+          value={action.fieldId}
+          placeholder="Поле связи"
+          onChange={(fieldId) => onChange({ ...action, fieldId, value: "" })}
+        />
+        <ActionValueEditor
+          field={selected}
+          value={action.value}
+          sourceFields={sourceEntity?.fields ?? []}
+          entities={entities}
+          onChange={(value) => onChange({ ...action, value })}
         />
       </div>
     );
@@ -235,22 +251,6 @@ function ActionFields({
           value={action.processId}
           onChange={(event) =>
             onChange({ ...action, processId: event.target.value })
-          }
-        />
-        <Input
-          className="h-8"
-          placeholder="Поле стадии на цели (enterFieldId)"
-          value={action.enterFieldId ?? ""}
-          onChange={(event) =>
-            onChange({ ...action, enterFieldId: event.target.value })
-          }
-        />
-        <Input
-          className="h-8"
-          placeholder="Значение стадии (enterOptionId)"
-          value={action.enterOptionId ?? ""}
-          onChange={(event) =>
-            onChange({ ...action, enterOptionId: event.target.value })
           }
         />
       </div>
@@ -272,53 +272,84 @@ function ActionFields({
 
   if (action.kind === "requireFields") {
     return (
-      <Input
-        className="mt-2 h-8"
-        placeholder="ID полей через запятую"
-        value={action.fieldIds.join(", ")}
-        onChange={(event) =>
-          onChange({
-            ...action,
-            fieldIds: event.target.value
-              .split(",")
-              .map((item) => item.trim())
-              .filter(Boolean),
-          })
-        }
+      <RequireFieldsEditor
+        fields={fields}
+        selectedIds={action.fieldIds}
+        onChange={(fieldIds) => onChange({ ...action, fieldIds })}
       />
+    );
+  }
+
+  if (action.kind === "attachToFolder") {
+    return (
+      <div className="mt-2">
+        <FieldSelect
+          fields={fields.filter((field) => field.type === "file")}
+          value={action.fileFieldId}
+          placeholder="Поле файла"
+          onChange={(fileFieldId) => onChange({ ...action, fileFieldId })}
+        />
+      </div>
     );
   }
 
   return null;
 }
 
-function FieldSelect({
-  fields,
+function EntitySelect({
+  entities,
   value,
   onChange,
-  label,
 }: {
-  fields: Entity["fields"];
+  entities: Entity[];
   value: string;
-  onChange: (fieldId: string) => void;
-  label?: string;
+  onChange: (entityId: string) => void;
 }) {
   return (
     <Select
-      value={value}
+      value={value || undefined}
       onValueChange={(next) => {
         if (next != null) onChange(String(next));
       }}
     >
-      <SelectTrigger size="sm">
+      <SelectTrigger size="sm" className="h-8">
         <SelectValue>
-          {label && !value
-            ? label
-            : fields.find((field) => field.id === value)
-              ? getEntityFieldDisplayName(
-                  fields.find((field) => field.id === value)!,
-                )
-              : label || "Поле"}
+          {entities.find((item) => item.id === value)?.name || "Сущность"}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {entities.map((entity) => (
+          <SelectItem key={entity.id} value={entity.id}>
+            {entity.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function FieldSelect({
+  fields,
+  value,
+  onChange,
+  placeholder = "Поле",
+}: {
+  fields: EntityField[];
+  value: string;
+  onChange: (fieldId: string) => void;
+  placeholder?: string;
+}) {
+  const selected = fields.find((field) => field.id === value);
+  return (
+    <Select
+      value={value || undefined}
+      onValueChange={(next) => {
+        if (next != null) onChange(String(next));
+      }}
+    >
+      <SelectTrigger size="sm" className="h-8">
+        <SelectValue>
+          {selected ? getEntityFieldDisplayName(selected) : placeholder}
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
@@ -329,5 +360,136 @@ function FieldSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+function RequireFieldsEditor({
+  fields,
+  selectedIds,
+  onChange,
+}: {
+  fields: EntityField[];
+  selectedIds: string[];
+  onChange: (fieldIds: string[]) => void;
+}) {
+  if (fields.length === 0) {
+    return <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>;
+  }
+
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      <p className="text-[11px] text-muted-foreground">Обязательные поля</p>
+      <div className="flex flex-wrap gap-1">
+        {fields.map((field) => {
+          const active = selectedIds.includes(field.id);
+          return (
+            <button
+              key={field.id}
+              type="button"
+              className={cn(
+                "rounded-md border px-2 py-1 text-[11px] transition-colors",
+                active
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-border/70 bg-background text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => {
+                onChange(
+                  active
+                    ? selectedIds.filter((id) => id !== field.id)
+                    : [...selectedIds, field.id],
+                );
+              }}
+            >
+              {getEntityFieldDisplayName(field)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MappingsEditor({
+  mappings,
+  targetFields,
+  sourceFields,
+  entities,
+  onChange,
+}: {
+  mappings: Array<{ targetFieldId: string; source: string }>;
+  targetFields: EntityField[];
+  sourceFields: EntityField[];
+  entities: Entity[];
+  onChange: (
+    mappings: Array<{ targetFieldId: string; source: string }>,
+  ) => void;
+}) {
+  const writable = targetFields.filter(
+    (field) => !isEntityComputedFieldType(field.type) && field.type !== "file",
+  );
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[11px] text-muted-foreground">Заполнить поля</p>
+      {mappings.map((mapping, index) => {
+        const target =
+          writable.find((field) => field.id === mapping.targetFieldId) ?? null;
+        return (
+          <div
+            key={`${mapping.targetFieldId}-${index}`}
+            className="flex flex-col gap-1.5 rounded-md border border-border/50 p-2"
+          >
+            <div className="flex items-center gap-1.5">
+              <FieldSelect
+                fields={writable}
+                value={mapping.targetFieldId}
+                placeholder="Поле новой записи"
+                onChange={(targetFieldId) => {
+                  const next = [...mappings];
+                  next[index] = { targetFieldId, source: "" };
+                  onChange(next);
+                }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Удалить маппинг"
+                onClick={() => onChange(mappings.filter((_, i) => i !== index))}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            </div>
+            <ActionValueEditor
+              field={target}
+              value={mapping.source}
+              sourceFields={sourceFields}
+              entities={entities}
+              onChange={(source) => {
+                const next = [...mappings];
+                next[index] = { ...mapping, source };
+                onChange(next);
+              }}
+            />
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 gap-1 self-start px-2 text-xs"
+        disabled={writable.length === 0}
+        onClick={() =>
+          onChange([
+            ...mappings,
+            { targetFieldId: writable[0]?.id ?? "", source: "" },
+          ])
+        }
+      >
+        <Plus className="size-3.5" />
+        Поле
+      </Button>
+    </div>
   );
 }

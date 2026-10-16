@@ -121,11 +121,7 @@ export function useRecordListChange() {
       if (isSupabaseConfigured && fromOptionId) {
         try {
           const pending = await fetchPendingTasksForRecord(record.id);
-          const blocking = findBlockingTasks(
-            pending,
-            field.id,
-            fromOptionId,
-          );
+          const blocking = findBlockingTasks(pending, field.id, fromOptionId);
           if (blocking.length > 0) {
             const ask = pickAskTask(blocking) ?? blocking[0]!;
             openAutomationTaskFillDialog(ask.id);
@@ -171,12 +167,9 @@ export function useRecordListChange() {
         if (isAutomationBlockedError(error)) {
           try {
             const pending = await fetchPendingTasksForRecord(record.id);
-            const blocking = findBlockingTasks(
-              pending,
-              field.id,
-              fromOptionId,
-            );
-            const ask = pickAskTask(blocking) ?? blocking[0] ?? pickAskTask(pending);
+            const blocking = findBlockingTasks(pending, field.id, fromOptionId);
+            const ask =
+              pickAskTask(blocking) ?? blocking[0] ?? pickAskTask(pending);
             if (ask) {
               openAutomationTaskFillDialog(ask.id);
             }
@@ -187,8 +180,7 @@ export function useRecordListChange() {
             );
           }
           toast.warning("Переход заблокирован", {
-            description:
-              "Сначала выполните блокирующие задачи автоматизации",
+            description: "Сначала выполните блокирующие задачи автоматизации",
             duration: 7_000,
           });
           return false;
@@ -199,7 +191,10 @@ export function useRecordListChange() {
       if (isSupabaseConfigured) {
         void openSpawnedAskFieldDialog(record.id, knownTaskIds).catch(
           (error: unknown) => {
-            console.error("[automation] open spawned task dialog failed", error);
+            console.error(
+              "[automation] open spawned task dialog failed",
+              error,
+            );
           },
         );
       }
