@@ -1,0 +1,91 @@
+export type {
+  DataScope,
+  EntityAccess,
+  EntityAction,
+  FieldAccess,
+  FieldAccessMode,
+  Role,
+  RolePermissions,
+  RolesConfig,
+  SettingsTabId,
+} from "./model/types";
+export {
+  ROLE_ADMIN_ID,
+  ROLE_EMPLOYEE_ID,
+  SETTINGS_TAB_IDS,
+  createAdminRole,
+  createEmptyEntityAccess,
+  createEmployeeRole,
+  createFullEntityAccess,
+  isSettingsTabId,
+} from "./model/types";
+export {
+  allowedSettingsTabs,
+  canAccessAutomationTasks,
+  canAccessHistory,
+  canAccessNotifications,
+  canAccessSettings,
+  canEntity,
+  canField,
+  canInviteUsers,
+  canMenuItem,
+  canSettingsTab,
+  entityScope,
+  getEntityAccess,
+  isAdminRole,
+} from "./model/permissions";
+export {
+  cloneDefaultRolesConfig,
+  ensureSystemRoles,
+  normalizeRole,
+  parseRolesConfig,
+  toRolesDocument,
+} from "./lib/parse-roles-config";
+export {
+  ROLES_DOCUMENT_KEY,
+  fetchRolesConfig,
+  saveRolesConfig,
+} from "./api/roles-config-api";
+export type { AccessStatus } from "./store/access-store";
+export {
+  cloneRole,
+  getAccessError,
+  getAccessStatus,
+  getCurrentRole,
+  getRolesConfig,
+  initAccessConfig,
+  refreshCurrentRole,
+  removeRole,
+  setAccessAuthUserId,
+  setRolesConfig,
+  subscribeAccess,
+  upsertRole,
+} from "./store/access-store";
+export {
+  useAccessError,
+  useAccessStatus,
+  useCanAccessAutomationTasks,
+  useCanAccessHistory,
+  useCanAccessNotifications,
+  useCanAccessSettings,
+  useCanEntity,
+  useCanField,
+  useCanInviteUsers,
+  useCanMenuItem,
+  useCanSettingsTab,
+  useCurrentRole,
+  useEntityScope,
+  useIsAdmin,
+  useRoles,
+} from "./hooks/use-access";
+export {
+  CanAccessAutomationTasks,
+  CanAccessHistory,
+  CanAccessNotifications,
+  CanAccessSettings,
+  CanEntity,
+  CanField,
+  CanInviteUsers,
+  CanMenuItem,
+  CanSettingsTab,
+} from "./ui/Can";
