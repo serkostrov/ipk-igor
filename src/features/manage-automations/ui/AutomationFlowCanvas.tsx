@@ -4,6 +4,7 @@ import {
   BackgroundVariant,
   BaseEdge,
   Controls,
+  EdgeLabelRenderer,
   Handle,
   MiniMap,
   Position,
@@ -24,13 +25,17 @@ import {
   type OnNodeDrag,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Flag, Lock, Plus, Timer, User, Zap } from "lucide-react";
+import { Flag, GitBranch, Lock, Plus, Timer, User, Zap } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import type {
   AutomationCanvasLayout,
+  AutomationStageTransition,
   AutomationTaskTemplate,
 } from "@/entities/automation";
-import { AUTOMATION_ASSIGNEE_TYPE_LABELS } from "@/entities/automation";
+import {
+  AUTOMATION_ASSIGNEE_TYPE_LABELS,
+  stageTransitionIsConfigured,
+} from "@/entities/automation";
 import type { EntityField } from "@/entities/entity";
 import { TemplateRichText } from "./TemplateRichText";
 
@@ -137,8 +142,110 @@ function FloatingEdge({ id, source, target, style, markerEnd }: EdgeProps) {
   );
 }
 
+type StageMapEdgeData = {
+  fromOptionId: string;
+  toOptionId: string;
+  configured: boolean;
+  selected: boolean;
+  onOpen?: () => void;
+};
+
+/** Horizontal map link between stage columns — mid-edge «+» / branch control. */
+function StageMapEdge({
+  id,
+  source,
+  target,
+  style,
+  markerEnd,
+  data,
+}: EdgeProps) {
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const edgeData = (data ?? {}) as StageMapEdgeData;
+
+  if (!sourceNode || !targetNode) return null;
+
+  const { sx, sy, tx, ty, sourcePos, targetPos } = getFloatingEdgeParams(
+    sourceNode,
+    targetNode,
+  );
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX: sx,
+    sourceY: sy,
+    sourcePosition: sourcePos,
+    targetX: tx,
+    targetY: ty,
+    targetPosition: targetPos,
+    borderRadius: 12,
+  });
+
+  const configured = edgeData.configured === true;
+  const selected = edgeData.selected === true;
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          stroke: selected
+            ? "var(--primary)"
+            : configured
+              ? "#94a3b8"
+              : (style?.stroke ?? "#d4d4d8"),
+          strokeWidth: selected || configured ? 2 : 1.5,
+        }}
+      />
+      <EdgeLabelRenderer>
+        <div
+          className="nodrag nopan pointer-events-auto absolute z-20"
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          }}
+        >
+          <button
+            type="button"
+            title={
+              configured
+                ? "Изменить условие перехода"
+                : "Добавить условие перехода"
+            }
+            aria-label={
+              configured
+                ? "Изменить условие перехода"
+                : "Добавить условие перехода"
+            }
+            className={cn(
+              "flex size-7 items-center justify-center rounded-full border bg-card shadow-sm transition-all",
+              "hover:scale-105 hover:border-primary/50 hover:text-primary hover:shadow-md",
+              selected
+                ? "border-primary text-primary ring-2 ring-primary/25"
+                : configured
+                  ? "border-border text-foreground"
+                  : "border-border/80 text-muted-foreground opacity-90 hover:opacity-100",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              edgeData.onOpen?.();
+            }}
+          >
+            {configured ? (
+              <GitBranch className="size-3.5" aria-hidden />
+            ) : (
+              <Plus className="size-3.5" aria-hidden />
+            )}
+          </button>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
 const edgeTypes: EdgeTypes = {
   floating: memo(FloatingEdge),
+  stageMap: memo(StageMapEdge),
 };
 
 type StageOption = { id: string; name: string; color?: string };
@@ -566,18 +673,24 @@ function resolvePosition(
 function buildLayout(input: {
   stages: StageOption[];
   templates: AutomationTaskTemplate[];
+  stageTransitions: AutomationStageTransition[];
   activeStageId: string | null;
   selectedTemplateId: string | null;
+  selectedTransitionKey: string | null;
   canvasLayout: AutomationCanvasLayout;
   fields: EntityField[];
+  onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
 }): { nodes: Node[]; edges: Edge[] } {
   const {
     stages,
     templates,
+    stageTransitions,
     activeStageId,
     selectedTemplateId,
+    selectedTransitionKey,
     canvasLayout,
     fields,
+    onSelectTransition,
   } = input;
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -604,12 +717,23 @@ function buildLayout(input: {
 
     if (index > 0) {
       const prev = stages[index - 1]!;
+      const transition = stageTransitions.find(
+        (item) => item.fromOptionId === prev.id && item.toOptionId === stage.id,
+      );
+      const transitionKey = `${prev.id}\0${stage.id}`;
       edges.push({
         id: `map-${prev.id}-${stage.id}`,
         source: `stage:${prev.id}`,
         target: stageNodeId,
-        type: "floating",
+        type: "stageMap",
         style: { stroke: "#d4d4d8", strokeWidth: 1.5 },
+        data: {
+          fromOptionId: prev.id,
+          toOptionId: stage.id,
+          configured: stageTransitionIsConfigured(transition),
+          selected: selectedTransitionKey === transitionKey,
+          onOpen: () => onSelectTransition(prev.id, stage.id),
+        } satisfies StageMapEdgeData,
       });
     }
 
@@ -710,12 +834,15 @@ function buildLayout(input: {
 function FlowInner({
   stages,
   templates,
+  stageTransitions,
   activeStageId,
   selectedTemplateId,
+  selectedTransitionKey,
   canvasLayout,
   fields,
   onSelectStage,
   onSelectTemplate,
+  onSelectTransition,
   onAdd,
   onMoveTemplate,
   onCanvasLayoutChange,
@@ -723,12 +850,15 @@ function FlowInner({
 }: {
   stages: StageOption[];
   templates: AutomationTaskTemplate[];
+  stageTransitions: AutomationStageTransition[];
   activeStageId: string | null;
   selectedTemplateId: string | null;
+  selectedTransitionKey: string | null;
   canvasLayout: AutomationCanvasLayout;
   fields: EntityField[];
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
+  onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
   onAdd: (stageId: string) => void;
   onMoveTemplate: (
     templateId: string,
@@ -753,10 +883,13 @@ function FlowInner({
     const layout = buildLayout({
       stages,
       templates,
+      stageTransitions,
       activeStageId,
       selectedTemplateId,
+      selectedTransitionKey,
       canvasLayout,
       fields,
+      onSelectTransition,
     });
     setNodes(layout.nodes);
     setEdges(layout.edges);
@@ -764,10 +897,13 @@ function FlowInner({
     fitKey,
     stages,
     templates,
+    stageTransitions,
     activeStageId,
     selectedTemplateId,
+    selectedTransitionKey,
     canvasLayout,
     fields,
+    onSelectTransition,
     setNodes,
     setEdges,
   ]);
@@ -793,6 +929,16 @@ function FlowInner({
       }
     },
     [onSelectStage, onSelectTemplate, onAdd],
+  );
+
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      if (edge.type !== "stageMap") return;
+      const data = edge.data as StageMapEdgeData | undefined;
+      if (!data?.fromOptionId || !data.toOptionId) return;
+      onSelectTransition(data.fromOptionId, data.toOptionId);
+    },
+    [onSelectTransition],
   );
 
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
@@ -847,13 +993,19 @@ function FlowInner({
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onNodeClick={onNodeClick}
+      onEdgeClick={onEdgeClick}
       onNodeDragStart={onNodeDragStart}
       onNodeDragStop={onNodeDragStop}
-      onPaneClick={() => onSelectTemplate(null)}
+      onPaneClick={() => {
+        onSelectTemplate(null);
+        onSelectTransition("", "");
+      }}
       nodesDraggable
       nodesConnectable={false}
       elementsSelectable
       selectNodesOnDrag={false}
+      edgesFocusable
+      edgesUpdatable={false}
       deleteKeyCode={null}
       minZoom={0.15}
       maxZoom={1.25}
@@ -895,24 +1047,30 @@ function FlowInner({
 export function AutomationFlowCanvas({
   stages,
   templates,
+  stageTransitions,
   activeStageId,
   selectedTemplateId,
+  selectedTransitionKey,
   canvasLayout,
   fields,
   onSelectStage,
   onSelectTemplate,
+  onSelectTransition,
   onAdd,
   onMoveTemplate,
   onCanvasLayoutChange,
 }: {
   stages: StageOption[];
   templates: AutomationTaskTemplate[];
+  stageTransitions: AutomationStageTransition[];
   activeStageId: string | null;
   selectedTemplateId: string | null;
+  selectedTransitionKey: string | null;
   canvasLayout: AutomationCanvasLayout;
   fields: EntityField[];
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
+  onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
   onAdd: (stageId: string) => void;
   onMoveTemplate: (
     templateId: string,
@@ -926,6 +1084,13 @@ export function AutomationFlowCanvas({
     templates
       .map((t) => `${t.id}:${t.triggerOptionId}:${t.stepOrder}:${t.name}`)
       .join(","),
+    stageTransitions
+      .map(
+        (t) =>
+          `${t.fromOptionId}:${t.toOptionId}:${t.conditions.rules.length}:${t.elseOptionId}`,
+      )
+      .join(","),
+    selectedTransitionKey ?? "",
   ].join("|");
 
   return (
@@ -934,12 +1099,15 @@ export function AutomationFlowCanvas({
         <FlowInner
           stages={stages}
           templates={templates}
+          stageTransitions={stageTransitions}
           activeStageId={activeStageId}
           selectedTemplateId={selectedTemplateId}
+          selectedTransitionKey={selectedTransitionKey}
           canvasLayout={canvasLayout}
           fields={fields}
           onSelectStage={onSelectStage}
           onSelectTemplate={onSelectTemplate}
+          onSelectTransition={onSelectTransition}
           onAdd={onAdd}
           onMoveTemplate={onMoveTemplate}
           onCanvasLayoutChange={onCanvasLayoutChange}

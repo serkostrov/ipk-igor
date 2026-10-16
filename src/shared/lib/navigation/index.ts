@@ -7,6 +7,7 @@ export {
   menuIdToLocation,
   parsePath,
   recordLocation,
+  taskLocation,
   settingsLocation,
   SETTINGS_PATH_TABS,
   toPath,

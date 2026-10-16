@@ -11,7 +11,8 @@
  * | blocking + sort_order           | isBlocking + stepOrder                    |
  * | yes/no/no_volume                | Outcome defs (decision / single)          |
  * | silent field fill on enter/create | Template.kind=autofill + setField       |
- * | if/else stage route               | autofill outcomes[].conditions + setField |
+ * | if/else stage route               | Scenario.stageTransitions on map edges   |
+ * | autofill field fill               | Template.kind=autofill + setField         |
  * | advance / stay / back           | setField / noop / setFieldPrevious        |
  * | launch_process                  | startProcess                              |
  * | create_request_review (+ sync)  | createRecord + copyFields + setRelation   |

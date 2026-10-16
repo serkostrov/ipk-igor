@@ -12,7 +12,6 @@ import {
   closeAutomationTaskFillDialog,
   getActiveAutomationTaskDialogId,
   isAutomationTaskFillDialogDismissed,
-  openAutomationTaskFillDialog,
   subscribeAutomationTaskDialog,
 } from "@/features/automation-tasks";
 import { useAppNavigate } from "@/shared/lib/navigation";
@@ -27,7 +26,7 @@ function isAssignedToUser(task: AutomationTask, userIds: Set<string>) {
 export function AutomationTasksHost() {
   const sessionUser = useSessionUser();
   const { entities } = useEntityConfig();
-  const { openRecord } = useAppNavigate();
+  const { openRecord, openTask } = useAppNavigate();
   const [activeTaskId, setActiveTaskId] = useState(
     getActiveAutomationTaskDialogId,
   );
@@ -93,11 +92,8 @@ export function AutomationTasksHost() {
           null;
         if (!actionable) return;
 
-        // Defer so list/kanban pickers can finish closing before the dialog mounts.
+        // Defer so list/kanban pickers can finish closing before navigation.
         window.setTimeout(() => {
-          if (!getActiveAutomationTaskDialogId()) {
-            openAutomationTaskFillDialog(actionable.id);
-          }
           toast(actionable.name || "Новая задача", {
             description: automationTaskNeedsFillDialog(actionable)
               ? "Заполните поля, чтобы продолжить процесс"
@@ -105,7 +101,7 @@ export function AutomationTasksHost() {
             duration: 8_000,
             action: {
               label: "Открыть",
-              onClick: () => openAutomationTaskFillDialog(actionable.id),
+              onClick: () => openTask(actionable.id),
             },
           });
         }, 80);
@@ -124,7 +120,7 @@ export function AutomationTasksHost() {
       cancelled = true;
       unsubscribe();
     };
-  }, [sessionUser?.id, profileRecordId]);
+  }, [sessionUser?.id, profileRecordId, openTask]);
 
   return (
     <TaskFillFieldsDialog

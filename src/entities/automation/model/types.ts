@@ -170,6 +170,80 @@ export type AutomationTaskTemplate = {
 /** Free-form flow canvas positions keyed by React Flow node id. */
 export type AutomationCanvasLayout = Record<string, { x: number; y: number }>;
 
+/**
+ * Conditional gateway on the map edge between two stages.
+ * When leaving `fromOptionId` toward `toOptionId`:
+ * - conditions match → allow `toOptionId`
+ * - else → `elseOptionId` if set, otherwise block the move
+ */
+export type AutomationStageTransition = {
+  id: string;
+  fromOptionId: string;
+  toOptionId: string;
+  conditions: AutomationConditions;
+  /** Redirect target when conditions fail; empty = forbid the transition. */
+  elseOptionId: string;
+};
+
+export function createAutomationStageTransitionId() {
+  return `astr-${crypto.randomUUID()}`;
+}
+
+export function normalizeAutomationStageTransition(
+  value: unknown,
+  index = 0,
+): AutomationStageTransition | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const fromOptionId =
+    typeof raw.fromOptionId === "string"
+      ? raw.fromOptionId.trim()
+      : typeof raw.from_option_id === "string"
+        ? raw.from_option_id.trim()
+        : "";
+  const toOptionId =
+    typeof raw.toOptionId === "string"
+      ? raw.toOptionId.trim()
+      : typeof raw.to_option_id === "string"
+        ? raw.to_option_id.trim()
+        : "";
+  if (!fromOptionId || !toOptionId) return null;
+  const id =
+    typeof raw.id === "string" && raw.id.trim()
+      ? raw.id.trim()
+      : `astr-${index}-${fromOptionId}-${toOptionId}`;
+  const elseOptionId =
+    typeof raw.elseOptionId === "string"
+      ? raw.elseOptionId.trim()
+      : typeof raw.else_option_id === "string"
+        ? raw.else_option_id.trim()
+        : "";
+  return {
+    id,
+    fromOptionId,
+    toOptionId,
+    conditions: normalizeAutomationConditions(raw.conditions),
+    elseOptionId,
+  };
+}
+
+export function normalizeAutomationStageTransitions(
+  value: unknown,
+): AutomationStageTransition[] {
+  if (!Array.isArray(value)) return [];
+  const out: AutomationStageTransition[] = [];
+  const seen = new Set<string>();
+  value.forEach((item, index) => {
+    const transition = normalizeAutomationStageTransition(item, index);
+    if (!transition) return;
+    const key = `${transition.fromOptionId}\0${transition.toOptionId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(transition);
+  });
+  return out;
+}
+
 export type AutomationScenario = {
   id: string;
   processId: string;
@@ -178,6 +252,8 @@ export type AutomationScenario = {
   entryConditions: AutomationConditions;
   priority: number;
   canvasLayout: AutomationCanvasLayout;
+  /** Conditional rules on stage→stage edges of the process map. */
+  stageTransitions: AutomationStageTransition[];
 };
 
 export type AutomationProcess = {
@@ -454,14 +530,19 @@ export function normalizeAutomationScenario(
       typeof raw.name === "string" && raw.name.trim()
         ? raw.name.trim()
         : "Сценарий",
-    isDefault: raw.isDefault === true,
-    entryConditions: normalizeAutomationConditions(raw.entryConditions),
+    isDefault: raw.isDefault === true || raw.is_default === true,
+    entryConditions: normalizeAutomationConditions(
+      raw.entryConditions ?? raw.entry_conditions,
+    ),
     priority:
       typeof raw.priority === "number" && Number.isFinite(raw.priority)
         ? Math.round(raw.priority)
         : 0,
     canvasLayout: normalizeAutomationCanvasLayout(
       raw.canvasLayout ?? raw.canvas_layout,
+    ),
+    stageTransitions: normalizeAutomationStageTransitions(
+      raw.stageTransitions ?? raw.stage_transitions,
     ),
   };
 }
@@ -584,6 +665,7 @@ export function createDefaultProcess(input: {
       entryConditions: emptyAutomationConditions(),
       priority: 0,
       canvasLayout: {},
+      stageTransitions: [],
     },
   };
 }

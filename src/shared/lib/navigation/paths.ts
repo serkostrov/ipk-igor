@@ -42,6 +42,7 @@ export type AppLocation =
     }
   | { type: "history" }
   | { type: "tasks" }
+  | { type: "task"; taskId: string }
   | { type: "notifications" }
   | { type: "entity"; entityId: string; view?: EntityBrowsePathView }
   | { type: "record"; entityId: string; recordId: string; tabId?: string };
@@ -68,6 +69,8 @@ export function toPath(location: AppLocation): string {
       return "/history";
     case "tasks":
       return "/tasks";
+    case "task":
+      return `/tasks/${encodeURIComponent(location.taskId)}`;
     case "notifications":
       return "/notifications";
     case "entity": {
@@ -95,6 +98,11 @@ export function parsePath(pathname: string): AppLocation | null {
   if (path === "/history") return { type: "history" };
   if (path === "/tasks") return { type: "tasks" };
   if (path === "/notifications") return { type: "notifications" };
+
+  const taskPath = /^\/tasks\/([^/]+)$/.exec(path);
+  if (taskPath) {
+    return { type: "task", taskId: decodeURIComponent(taskPath[1]!) };
+  }
 
   const settingsEntityTab = /^\/settings\/entities\/([^/]+)\/t\/([^/]+)$/.exec(
     path,
@@ -169,6 +177,7 @@ export function locationToMenuId(location: AppLocation): string {
     case "history":
       return HISTORY_ID;
     case "tasks":
+    case "task":
       return TASKS_ID;
     case "notifications":
       return NOTIFICATIONS_ID;
@@ -230,6 +239,10 @@ export function recordLocation(
     : { type: "record", entityId, recordId };
 }
 
+export function taskLocation(taskId: string): AppLocation {
+  return { type: "task", taskId };
+}
+
 export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
   if (a.type !== b.type) return false;
   switch (a.type) {
@@ -245,6 +258,10 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     case "tasks":
     case "notifications":
       return true;
+    case "task": {
+      const other = b as typeof a;
+      return a.taskId === other.taskId;
+    }
     case "entity": {
       const other = b as typeof a;
       return (

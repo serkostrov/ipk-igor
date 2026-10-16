@@ -2,11 +2,16 @@ import { useCallback, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   fetchAutomationTasks,
+  getAutomationConfig,
+  matchAutomationConditions,
+  resolveStageTransition,
+  type AutomationScenario,
   type AutomationTask,
 } from "@/entities/automation";
 import {
   applyEntityFieldValue,
   parseEntityListValueIds,
+  serializeEntityListValueIds,
   setEntityRecordValuesLocal,
   updateEntityRecord,
   useEntityConfig,
@@ -193,9 +198,29 @@ async function openDialogAfterStageChange(input: {
   return false;
 }
 
+function pickScenarioForTransition(
+  processId: string,
+  values: Record<string, string | undefined>,
+  previousValues: Record<string, string | undefined>,
+): AutomationScenario | null {
+  const { scenarios } = getAutomationConfig();
+  const forProcess = scenarios.filter((item) => item.processId === processId);
+  const matched = forProcess
+    .filter((item) => !item.isDefault && item.entryConditions.rules.length > 0)
+    .filter((item) =>
+      matchAutomationConditions(item.entryConditions, {
+        values,
+        previousValues,
+      }),
+    )
+    .sort((a, b) => b.priority - a.priority)[0];
+  return matched ?? forProcess.find((item) => item.isDefault) ?? null;
+}
+
 /**
  * Single entry point for changing a list value from views (table, record, kanban).
  * - Blocks leaving a stage with unfinished blocking automation tasks (opens fill dialog).
+ * - Applies scenario stage-transition gateways (if / else) from the process map.
  * - After a successful transition, opens the task dialog for the destination stage.
  */
 export function useRecordListChange() {
@@ -215,8 +240,56 @@ export function useRecordListChange() {
       }
 
       const fromOptionId = listOptionId(from);
-      const toOptionId = listOptionId(value);
+      let toOptionId = listOptionId(value);
+      let resolvedValue = value;
       const previousValues = { ...record.values };
+
+      // Map-edge gateways: if → allow target, else → redirect or block.
+      try {
+        const { processes } = getAutomationConfig();
+        const process = processes.find(
+          (item) =>
+            item.enabled &&
+            item.entityId === entity.id &&
+            item.triggerFieldId === field.id,
+        );
+        if (process && fromOptionId && toOptionId) {
+          const scenario = pickScenarioForTransition(
+            process.id,
+            record.values,
+            previousValues,
+          );
+          if (scenario && scenario.stageTransitions.length > 0) {
+            const resolution = resolveStageTransition({
+              transitions: scenario.stageTransitions,
+              fromOptionId,
+              toOptionId,
+              values: record.values,
+              previousValues,
+            });
+            if (resolution.kind === "block") {
+              toast.warning("Переход недоступен", {
+                description: resolution.message,
+                duration: 7_000,
+              });
+              return false;
+            }
+            if (resolution.kind === "redirect") {
+              toOptionId = resolution.optionId;
+              resolvedValue = serializeEntityListValueIds([toOptionId]);
+              const elseName =
+                field.listOptions.find((item) => item.id === toOptionId)
+                  ?.name ?? toOptionId;
+              toast.message("Переход по условию", {
+                description: `Запись направлена на «${elseName}»`,
+                duration: 5_000,
+              });
+            }
+          }
+        }
+      } catch (error: unknown) {
+        console.error("[automation] stage transition check failed", error);
+      }
 
       if (isSupabaseConfigured && fromOptionId) {
         try {
@@ -238,7 +311,7 @@ export function useRecordListChange() {
         entity,
         record.values,
         field.id,
-        value,
+        resolvedValue,
         entities,
       );
 

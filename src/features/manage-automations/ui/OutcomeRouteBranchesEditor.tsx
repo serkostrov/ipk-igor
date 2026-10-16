@@ -75,6 +75,17 @@ function mergeStageAndOthers(
   ];
 }
 
+/** Keep comment flags; autofill has no ask-form (clear visible/required). */
+function branchFieldAccess(
+  access: AutomationOutcome["fieldAccess"] | undefined,
+) {
+  const normalized = normalizeAutomationOutcomeFieldAccess(access);
+  return {
+    ...emptyAutomationOutcomeFieldAccess(),
+    commentFieldIds: normalized.commentFieldIds,
+  };
+}
+
 function normalizeBranches(outcomes: AutomationOutcome[]): AutomationOutcome[] {
   if (outcomes.length === 0) {
     return [
@@ -97,7 +108,7 @@ function normalizeBranches(outcomes: AutomationOutcome[]): AutomationOutcome[] {
           ? item.label
           : "Если",
       conditions: isElse ? emptyAutomationConditions() : item.conditions,
-      fieldAccess: emptyAutomationOutcomeFieldAccess(),
+      fieldAccess: branchFieldAccess(item.fieldAccess),
     };
   });
 }
@@ -279,9 +290,11 @@ export function OutcomeRouteBranchesEditor({
               <div className="mt-3">
                 <OutcomeAutofillEditor
                   actions={otherActions(branch.actions, triggerFieldId)}
+                  fieldAccess={branch.fieldAccess}
                   sourceEntity={entity}
                   entities={entities}
-                  hint="Дополнительно заполнить поля при этой ветке"
+                  hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
+                  hint="Заполнить поля и при необходимости дублировать во «Записи»"
                   onChange={(actions) =>
                     patchBranch(index, {
                       actions: mergeStageAndOthers(
@@ -289,6 +302,11 @@ export function OutcomeRouteBranchesEditor({
                         actions,
                         triggerFieldId,
                       ),
+                    })
+                  }
+                  onFieldAccessChange={(fieldAccess) =>
+                    patchBranch(index, {
+                      fieldAccess: branchFieldAccess(fieldAccess),
                     })
                   }
                 />

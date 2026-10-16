@@ -77,7 +77,9 @@ function isLocationAllowed(
   if (!role) return true;
   if (location.type === "settings") return canAccessSettings(role);
   if (location.type === "history") return canAccessHistory(role);
-  if (location.type === "tasks") return canAccessAutomationTasks(role);
+  if (location.type === "tasks" || location.type === "task") {
+    return canAccessAutomationTasks(role);
+  }
   if (location.type === "notifications") return canAccessNotifications(role);
   if (location.type === "entity" || location.type === "record") {
     return (
@@ -309,8 +311,14 @@ export function AppShell() {
           />
         ) : accessResolved.type === "history" ? (
           <HistoryPage onOpenRecord={handleOpenRecord} />
-        ) : accessResolved.type === "tasks" ? (
-          <AutomationTasksPage onOpenRecord={handleOpenRecord} />
+        ) : accessResolved.type === "tasks" ||
+          accessResolved.type === "task" ? (
+          <AutomationTasksPage
+            taskId={
+              accessResolved.type === "task" ? accessResolved.taskId : null
+            }
+            onOpenRecord={handleOpenRecord}
+          />
         ) : accessResolved.type === "notifications" ? (
           <NotificationsPage
             onOpenRecord={handleOpenRecord}

@@ -16,6 +16,7 @@ import {
   defaultAssigneeResolver,
   defaultDecisionOutcomes,
   emptyAutomationConditions,
+  findStageTransition,
   removeTemplate,
   saveProcess,
   saveScenario,
@@ -25,6 +26,7 @@ import {
   type AutomationCanvasLayout,
   type AutomationProcess,
   type AutomationScenario,
+  type AutomationStageTransition,
   type AutomationTaskTemplate,
 } from "@/entities/automation";
 import {
@@ -34,6 +36,7 @@ import {
 } from "@/entities/entity";
 import { AutomationFlowCanvas } from "./AutomationFlowCanvas";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
+import { StageTransitionInspector } from "./StageTransitionInspector";
 import { TemplateInspector } from "./TemplateInspector";
 
 const controlTriggerClass = "h-9 w-[11.5rem]";
@@ -122,6 +125,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
     null,
   );
+  const [selectedTransitionEdge, setSelectedTransitionEdge] = useState<{
+    fromOptionId: string;
+    toOptionId: string;
+  } | null>(null);
 
   const scenarioTemplates = useMemo(
     () =>
@@ -133,6 +140,30 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
 
   const selectedTemplate =
     scenarioTemplates.find((item) => item.id === selectedTemplateId) ?? null;
+
+  const selectedTransitionStages = useMemo(() => {
+    if (!selectedTransitionEdge) return null;
+    const fromStage =
+      stages.find((item) => item.id === selectedTransitionEdge.fromOptionId) ??
+      null;
+    const toStage =
+      stages.find((item) => item.id === selectedTransitionEdge.toOptionId) ??
+      null;
+    if (!fromStage || !toStage) return null;
+    return { fromStage, toStage };
+  }, [selectedTransitionEdge, stages]);
+
+  const selectedTransitionKey = selectedTransitionEdge
+    ? `${selectedTransitionEdge.fromOptionId}\0${selectedTransitionEdge.toOptionId}`
+    : null;
+
+  const selectedTransition = selectedTransitionEdge
+    ? findStageTransition(
+        scenario?.stageTransitions ?? [],
+        selectedTransitionEdge.fromOptionId,
+        selectedTransitionEdge.toOptionId,
+      )
+    : null;
 
   async function ensureProcess(): Promise<{
     process: AutomationProcess;
@@ -149,6 +180,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         entryConditions: emptyAutomationConditions(),
         priority: 0,
         canvasLayout: {},
+        stageTransitions: [],
       };
       await saveScenario(next);
       setScenarioId(next.id);
@@ -178,6 +210,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       entryConditions: emptyAutomationConditions(),
       priority: 10,
       canvasLayout: {},
+      stageTransitions: [],
     };
     await saveScenario(next);
     setScenarioId(next.id);
@@ -263,6 +296,49 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     await saveScenario({ ...scenario, canvasLayout });
   }
 
+  function selectTransition(fromOptionId: string, toOptionId: string) {
+    if (!fromOptionId || !toOptionId) {
+      setSelectedTransitionEdge(null);
+      return;
+    }
+    setSelectedTemplateId(null);
+    setSelectedTransitionEdge({ fromOptionId, toOptionId });
+  }
+
+  async function saveStageTransition(transition: AutomationStageTransition) {
+    const ensured = await ensureProcess();
+    if (!ensured) return;
+    const current = ensured.scenario.stageTransitions ?? [];
+    const next = [
+      ...current.filter(
+        (item) =>
+          !(
+            item.fromOptionId === transition.fromOptionId &&
+            item.toOptionId === transition.toOptionId
+          ),
+      ),
+      transition,
+    ];
+    await saveScenario({ ...ensured.scenario, stageTransitions: next });
+  }
+
+  async function clearStageTransition(
+    fromOptionId: string,
+    toOptionId: string,
+  ) {
+    if (!scenario) return;
+    await saveScenario({
+      ...scenario,
+      stageTransitions: scenario.stageTransitions.filter(
+        (item) =>
+          !(
+            item.fromOptionId === fromOptionId && item.toOptionId === toOptionId
+          ),
+      ),
+    });
+    setSelectedTransitionEdge(null);
+  }
+
   function selectEntity(nextId: string) {
     setEntityId(nextId);
     const nextEntity = entities.find((item) => item.id === nextId);
@@ -274,6 +350,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setScenarioId(null);
     setStageId(null);
     setSelectedTemplateId(null);
+    setSelectedTransitionEdge(null);
   }
 
   function selectField(nextFieldId: string) {
@@ -281,6 +358,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setScenarioId(null);
     setStageId(null);
     setSelectedTemplateId(null);
+    setSelectedTransitionEdge(null);
   }
 
   const toolbar = (
@@ -462,12 +540,21 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
               <AutomationFlowCanvas
                 stages={stages}
                 templates={scenarioTemplates}
+                stageTransitions={scenario?.stageTransitions ?? []}
                 activeStageId={activeStageId}
                 selectedTemplateId={selectedTemplateId}
+                selectedTransitionKey={selectedTransitionKey}
                 canvasLayout={scenario?.canvasLayout ?? {}}
                 fields={entity?.fields ?? []}
-                onSelectStage={setStageId}
-                onSelectTemplate={setSelectedTemplateId}
+                onSelectStage={(id) => {
+                  setStageId(id);
+                  setSelectedTransitionEdge(null);
+                }}
+                onSelectTemplate={(id) => {
+                  setSelectedTemplateId(id);
+                  if (id) setSelectedTransitionEdge(null);
+                }}
+                onSelectTransition={selectTransition}
                 onAdd={(stageOptionId) => void addTemplate(stageOptionId)}
                 onMoveTemplate={(templateId, stageOptionId, stepOrder) =>
                   void moveTemplate(templateId, stageOptionId, stepOrder)
@@ -481,7 +568,33 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
             )}
           </main>
 
-          {selectedTemplate && entity ? (
+          {selectedTransitionStages && selectedTransitionEdge && entity ? (
+            <aside
+              className="relative z-20 hidden h-full min-h-0 w-[min(34rem,40vw)] min-w-[28rem] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex min-h-0 flex-1 flex-col p-4">
+                <StageTransitionInspector
+                  key={selectedTransitionKey ?? "transition"}
+                  fromStage={selectedTransitionStages.fromStage}
+                  toStage={selectedTransitionStages.toStage}
+                  stages={stages}
+                  entity={entity}
+                  value={selectedTransition}
+                  onSave={async (transition) => {
+                    await saveStageTransition(transition);
+                  }}
+                  onClear={() =>
+                    void clearStageTransition(
+                      selectedTransitionEdge.fromOptionId,
+                      selectedTransitionEdge.toOptionId,
+                    )
+                  }
+                  onClose={() => setSelectedTransitionEdge(null)}
+                />
+              </div>
+            </aside>
+          ) : selectedTemplate && entity ? (
             <aside
               className="relative z-20 hidden h-full min-h-0 w-[min(34rem,40vw)] min-w-[28rem] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex"
               onPointerDown={(event) => event.stopPropagation()}

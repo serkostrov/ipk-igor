@@ -62,6 +62,7 @@ export {
   createAutomationScenarioId,
   createAutomationTemplateId,
   automationOutcomeHasConditions,
+  createAutomationStageTransitionId,
   createDefaultProcess,
   defaultAutofillOutcomes,
   defaultDecisionOutcomes,
@@ -73,6 +74,8 @@ export {
   normalizeAutomationOutcomeFieldAccess,
   normalizeAutomationProcess,
   normalizeAutomationScenario,
+  normalizeAutomationStageTransition,
+  normalizeAutomationStageTransitions,
   normalizeAutomationTaskTemplate,
   type AutomationCanvasLayout,
   type AutomationConfig,
@@ -84,6 +87,7 @@ export {
   type AutomationRun,
   type AutomationScenario,
   type AutomationSla,
+  type AutomationStageTransition,
   type AutomationTask,
   type AutomationTaskKind,
   type AutomationTaskStatus,
@@ -95,6 +99,12 @@ export {
   type AutomationConditionEvalContext,
 } from "./lib/evaluate-conditions";
 export { pickAutomationOutcome } from "./lib/pick-outcome";
+export {
+  findStageTransition,
+  resolveStageTransition,
+  stageTransitionIsConfigured,
+  type StageTransitionResolution,
+} from "./lib/resolve-stage-transition";
 export {
   AUTOMATION_CONDITION_PARITY_CASES,
   runAutomationConditionParityTs,

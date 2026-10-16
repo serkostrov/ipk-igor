@@ -5,6 +5,7 @@ import {
   menuIdToLocation,
   parsePath,
   recordLocation,
+  taskLocation,
   toPath,
   type AppLocation,
   type AppLocationState,
@@ -91,6 +92,16 @@ export function useAppNavigate() {
         }
         return;
       }
+      // Re-clicking tasks while on a task → list.
+      if (
+        (current.type === "task" || current.type === "tasks") &&
+        target.type === "tasks"
+      ) {
+        if (current.type === "task") {
+          replace(target);
+        }
+        return;
+      }
       go(target);
     },
     [current, go, replace],
@@ -108,5 +119,12 @@ export function useAppNavigate() {
     [go],
   );
 
-  return { go, replace, back, goMenu, openRecord, current };
+  const openTask = useCallback(
+    (taskId: string) => {
+      go(taskLocation(taskId));
+    },
+    [go],
+  );
+
+  return { go, replace, back, goMenu, openRecord, openTask, current };
 }

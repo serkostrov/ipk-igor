@@ -1,4 +1,5 @@
 export { TaskInbox } from "./ui/TaskInbox";
+export { TaskTableView } from "./ui/TaskTableView";
 export { TaskWorkspace } from "./ui/TaskWorkspace";
 export {
   automationTaskNeedsFillDialog,
