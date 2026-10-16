@@ -196,18 +196,53 @@ export async function markAutomationNotificationRead(
   if (error) throw error;
 }
 
+type AutomationTasksListener = () => void;
+
+/** One realtime channel, many listeners — avoids re-`.on()` after `subscribe()`. */
+let automationTasksShared: {
+  channel: ReturnType<NonNullable<typeof supabase>["channel"]>;
+  listeners: Set<AutomationTasksListener>;
+} | null = null;
+
 export function subscribeAutomationTasks(onChange: () => void): () => void {
   if (!isSupabaseConfigured || !supabase) return () => {};
-  const channel = supabase
-    .channel("automation-tasks")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "automation_tasks" },
-      () => onChange(),
-    )
-    .subscribe();
+
+  if (!automationTasksShared) {
+    const listeners = new Set<AutomationTasksListener>();
+    const client = supabase;
+    // Unique topic so a late removeChannel cannot collide with a new subscribe.
+    const channel = client
+      .channel(`automation-tasks:${crypto.randomUUID()}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "automation_tasks" },
+        () => {
+          for (const listener of listeners) {
+            try {
+              listener();
+            } catch (error) {
+              console.error("[automation] tasks listener failed", error);
+            }
+          }
+        },
+      )
+      .subscribe((status, err) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("[automation] tasks realtime", status, err);
+        }
+      });
+    automationTasksShared = { channel, listeners };
+  }
+
+  automationTasksShared.listeners.add(onChange);
+
   return () => {
-    void supabase?.removeChannel(channel);
+    const shared = automationTasksShared;
+    if (!shared) return;
+    shared.listeners.delete(onChange);
+    if (shared.listeners.size > 0) return;
+    automationTasksShared = null;
+    void supabase?.removeChannel(shared.channel);
   };
 }
 

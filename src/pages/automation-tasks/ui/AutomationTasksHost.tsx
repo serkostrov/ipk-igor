@@ -42,6 +42,10 @@ export function AutomationTasksHost() {
     };
   }, []);
 
+  const profileRecordId = sessionUser?.id
+    ? (findSystemUserByAuthId(entities, sessionUser.id)?.id ?? null)
+    : null;
+
   useEffect(() => {
     if (!sessionUser?.id) {
       knownTaskIdsRef.current = null;
@@ -49,8 +53,7 @@ export function AutomationTasksHost() {
     }
 
     const ids = new Set<string>([sessionUser.id]);
-    const profile = findSystemUserByAuthId(entities, sessionUser.id);
-    if (profile?.id) ids.add(profile.id);
+    if (profileRecordId) ids.add(profileRecordId);
 
     let cancelled = false;
 
@@ -116,7 +119,7 @@ export function AutomationTasksHost() {
       cancelled = true;
       unsubscribe();
     };
-  }, [sessionUser?.id, entities]);
+  }, [sessionUser?.id, profileRecordId]);
 
   return (
     <TaskFillFieldsDialog
