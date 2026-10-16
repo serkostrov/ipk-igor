@@ -25,7 +25,7 @@ import {
 import {
   addEntityField,
   addEntityTab,
-  addEntityTabFromSource,
+  addEntityMirrorTab,
   addEntityTabWithExistingEntity,
   addEntityTabWithLinkedEntity,
   createEntityFieldGroupName,
@@ -51,10 +51,10 @@ import {
   getEntityTableFields,
   getEntityTabLinkFieldIds,
   groupEntityFields,
-  isEntityContentTab,
   isEntityFieldsHostTab,
   isEntityFilesTab,
   isEntityHistoryTab,
+  isEntityMirrorTab,
   isEntityLocked,
   isEntityInternal,
   isEntityFieldGroupTitleHidden,
@@ -2570,6 +2570,44 @@ function LinkedExistingEntityTabNote({
   );
 }
 
+function MirrorTabNote({
+  hostEntity,
+  tab,
+  entities,
+}: {
+  hostEntity: Entity;
+  tab: EntityTab;
+  entities: Entity[];
+}) {
+  const relation =
+    hostEntity.fields.find((field) => field.id === tab.sourceRelationFieldId) ??
+    null;
+  const targetId = relation ? getEntityRelationTargetId(relation) : null;
+  const sourceEntity = targetId
+    ? (entities.find((item) => item.id === targetId) ?? null)
+    : null;
+  const sourceTab = sourceEntity?.tabs.find(
+    (item) => item.id === tab.sourceTabId,
+  );
+  const relationLabel = relation
+    ? getEntityFieldDisplayName(relation)
+    : "не выбрано";
+  const sourceLabel = sourceEntity
+    ? getEntityDisplayName(sourceEntity)
+    : "сущность";
+  const tabLabel = sourceTab?.name ?? "вкладка";
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-muted/15 px-6 py-12 text-center">
+      <p className="text-sm font-medium text-foreground">Из записи</p>
+      <p className="max-w-md text-sm text-muted-foreground">
+        На карточке здесь покажется вкладка «{tabLabel}» сущности «{sourceLabel}
+        » для записи из поля «{relationLabel}».
+      </p>
+    </div>
+  );
+}
+
 export function EntityFieldsEditor({
   entity,
   nested = false,
@@ -3994,9 +4032,7 @@ export function EntityFieldsEditor({
                     const tabHint =
                       tabDropHint?.tabId === tab.id ? tabDropHint.edge : null;
 
-                    const acceptsFields =
-                      !isEntityTabWithLinkedEntity(tab) &&
-                      !isEntityContentTab(tab);
+                    const acceptsFields = isEntityFieldsHostTab(tab);
 
                     return (
                       <TabsTrigger
@@ -4206,7 +4242,13 @@ export function EntityFieldsEditor({
               </div>
             ) : null}
 
-            {activeTab && isEntityRecordsTab(activeTab) ? (
+            {activeTab && isEntityMirrorTab(activeTab) ? (
+              <MirrorTabNote
+                hostEntity={entity}
+                tab={activeTab}
+                entities={entities}
+              />
+            ) : activeTab && isEntityRecordsTab(activeTab) ? (
               <div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-muted/15 px-6 py-12 text-center">
                 <p className="text-sm font-medium text-foreground">
                   Лента записей
@@ -4472,6 +4514,8 @@ export function EntityFieldsEditor({
         mode={tabDialog.mode === "edit" ? "edit" : "create"}
         initialName={tabDialog.mode === "edit" ? tabDialog.tab.name : ""}
         initialKind={tabDialog.mode === "edit" ? tabDialog.tab.kind : "fields"}
+        hostEntity={entity}
+        entities={entities}
         entityOptions={entities
           .filter((item) => {
             const alreadyUsed = entity.tabs.some(
@@ -4495,28 +4539,6 @@ export function EntityFieldsEditor({
             };
           })
           .sort((a, b) => a.name.localeCompare(b.name, "ru"))}
-        copySourceOptions={entities
-          .map((item) => {
-            const leaf =
-              item.namePlural.trim() || item.name.trim() || "Без названия";
-            const path = getEntityPathLabel(item.id, entities);
-            return {
-              id: item.id,
-              name: path === leaf ? leaf : path,
-              tabs: item.tabs.map((tab) => ({
-                id: tab.id,
-                name: tab.name,
-                kind: tab.kind,
-                locked: tab.locked,
-                linkedEntityId: tab.linkedEntityId,
-              })),
-            };
-          })
-          .sort((a, b) => a.name.localeCompare(b.name, "ru"))}
-        usedLinkedEntityIds={entity.tabs
-          .filter(isEntityTabWithLinkedEntity)
-          .map((tab) => tab.linkedEntityId)
-          .filter((id): id is string => Boolean(id))}
         onOpenChange={(open) => {
           if (!open) setTabDialog({ mode: "closed" });
         }}
@@ -4525,9 +4547,13 @@ export function EntityFieldsEditor({
             updateEntityTab(entity.id, tabDialog.tab.id, { name: data.name });
             return;
           }
-          if (data.kind === "copy" && data.sourceEntityId && data.sourceTabId) {
-            const tab = addEntityTabFromSource(entity.id, {
-              sourceEntityId: data.sourceEntityId,
+          if (
+            data.kind === "mirror" &&
+            data.sourceRelationFieldId &&
+            data.sourceTabId
+          ) {
+            const tab = addEntityMirrorTab(entity.id, {
+              sourceRelationFieldId: data.sourceRelationFieldId,
               sourceTabId: data.sourceTabId,
               name: data.name,
             });
@@ -4554,7 +4580,7 @@ export function EntityFieldsEditor({
             if (tab) setActiveTabId(tab.id);
             return;
           }
-          if (data.kind === "copy") return;
+          if (data.kind === "mirror") return;
           const tab = addEntityTab(entity.id, {
             name: data.name,
             kind: data.kind,

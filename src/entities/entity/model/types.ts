@@ -510,6 +510,7 @@ export const ENTITY_TAB_KINDS = [
   "records",
   "files",
   "history",
+  "mirror",
 ] as const;
 export type EntityTabKind = (typeof ENTITY_TAB_KINDS)[number];
 
@@ -536,6 +537,16 @@ export type EntityTab = {
   linkedEntityId: string | null;
   /** Relation field on the child entity that stores the parent record id. */
   parentLinkFieldId: string | null;
+  /**
+   * For `kind: "mirror"` — relation field on this entity whose value is the
+   * source record to display.
+   */
+  sourceRelationFieldId: string | null;
+  /**
+   * For `kind: "mirror"` — tab id on the related entity to render for that
+   * source record.
+   */
+  sourceTabId: string | null;
   /**
    * For `kind: "files"` — folders created at the root of each new record.
    * Empty for other tab kinds.
@@ -589,6 +600,10 @@ export function isEntityFilesTab(tab: Pick<EntityTab, "kind">) {
 
 export function isEntityHistoryTab(tab: Pick<EntityTab, "kind">) {
   return tab.kind === "history";
+}
+
+export function isEntityMirrorTab(tab: Pick<EntityTab, "kind">) {
+  return tab.kind === "mirror";
 }
 
 /** Tab with built-in content (notes, files, history) instead of fields. */
@@ -777,6 +792,8 @@ export function createEntityOverviewTab(): EntityTab {
     kind: "fields",
     linkedEntityId: null,
     parentLinkFieldId: null,
+    sourceRelationFieldId: null,
+    sourceTabId: null,
     defaultFolders: [],
   };
 }
@@ -834,11 +851,74 @@ export function isEntityTabWithLinkedEntity(
   return tab.kind === "entity" && Boolean(tab.linkedEntityId?.trim());
 }
 
+export function isEntityTabWithMirrorSource(
+  tab: Pick<EntityTab, "kind" | "sourceRelationFieldId" | "sourceTabId">,
+) {
+  return (
+    isEntityMirrorTab(tab) &&
+    Boolean(tab.sourceRelationFieldId?.trim()) &&
+    Boolean(tab.sourceTabId?.trim())
+  );
+}
+
 /** Tabs that can host field layout in entity settings. */
 export function isEntityFieldsHostTab(
   tab: Pick<EntityTab, "kind" | "linkedEntityId">,
 ) {
-  return !isEntityContentTab(tab) && !isEntityTabWithLinkedEntity(tab);
+  return (
+    !isEntityContentTab(tab) &&
+    !isEntityMirrorTab(tab) &&
+    !isEntityTabWithLinkedEntity(tab)
+  );
+}
+
+/** Resolved mirror target for a host record (related record + its tab). */
+export type EntityMirrorTabResolution = {
+  relationField: EntityField;
+  sourceEntity: Entity;
+  sourceTab: EntityTab;
+  sourceRecordId: string | null;
+  sourceRecord: EntityRecord | null;
+};
+
+/**
+ * Resolve which related record/tab a mirror tab should show for `hostRecord`.
+ * Returns `null` when the mirror config itself is invalid.
+ */
+export function resolveEntityMirrorTab(
+  tab: Pick<EntityTab, "kind" | "sourceRelationFieldId" | "sourceTabId">,
+  hostEntity: Pick<Entity, "fields">,
+  hostRecord: Pick<EntityRecord, "values">,
+  entities: Entity[],
+): EntityMirrorTabResolution | null {
+  if (!isEntityTabWithMirrorSource(tab)) return null;
+  const relationField =
+    hostEntity.fields.find(
+      (field) =>
+        field.id === tab.sourceRelationFieldId && field.type === "relation",
+    ) ?? null;
+  if (!relationField) return null;
+  const targetId = getEntityRelationTargetId(relationField);
+  if (!targetId) return null;
+  const sourceEntity =
+    entities.find((entity) => entity.id === targetId) ?? null;
+  if (!sourceEntity) return null;
+  const sourceTab =
+    sourceEntity.tabs.find((item) => item.id === tab.sourceTabId) ?? null;
+  if (!sourceTab || isEntityMirrorTab(sourceTab)) return null;
+  const sourceRecordId =
+    parseEntityRelationIds(hostRecord.values[relationField.id] ?? "")[0] ??
+    null;
+  const sourceRecord = sourceRecordId
+    ? (sourceEntity.records.find((item) => item.id === sourceRecordId) ?? null)
+    : null;
+  return {
+    relationField,
+    sourceEntity,
+    sourceTab,
+    sourceRecordId,
+    sourceRecord,
+  };
 }
 
 /** Real fields-host tab ids from the entity — never invents a missing «Обзор». */
@@ -954,8 +1034,13 @@ export function buildEntityTabDefaultFileEntries(
 }
 
 export function normalizeEntityTab(
-  tab: Omit<EntityTab, "defaultFolders"> & {
+  tab: Omit<
+    EntityTab,
+    "defaultFolders" | "sourceRelationFieldId" | "sourceTabId"
+  > & {
     defaultFolders?: EntityTabDefaultFolder[] | unknown;
+    sourceRelationFieldId?: string | null;
+    sourceTabId?: string | null;
   },
 ): EntityTab {
   const locked = isEntityOverviewTab(tab);
@@ -970,6 +1055,14 @@ export function normalizeEntityTab(
   const parentLinkFieldId =
     kind === "entity" && typeof tab.parentLinkFieldId === "string"
       ? tab.parentLinkFieldId.trim() || null
+      : null;
+  const sourceRelationFieldId =
+    kind === "mirror" && typeof tab.sourceRelationFieldId === "string"
+      ? tab.sourceRelationFieldId.trim() || null
+      : null;
+  const sourceTabId =
+    kind === "mirror" && typeof tab.sourceTabId === "string"
+      ? tab.sourceTabId.trim() || null
       : null;
   const defaultFolders =
     kind === "files"
@@ -987,6 +1080,8 @@ export function normalizeEntityTab(
     kind,
     linkedEntityId: locked ? null : linkedEntityId,
     parentLinkFieldId: locked ? null : parentLinkFieldId,
+    sourceRelationFieldId: locked ? null : sourceRelationFieldId,
+    sourceTabId: locked ? null : sourceTabId,
     defaultFolders,
   };
 }

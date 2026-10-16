@@ -48,6 +48,7 @@ import {
   isEntityFieldVisibleOnRecord,
   isEntityFilesTab,
   isEntityHistoryTab,
+  isEntityMirrorTab,
   isEntityNameField,
   isEntityRecordsTab,
   isEntityFieldGroupTitleHidden,
@@ -83,6 +84,7 @@ import { useRecordTimers } from "./use-record-timers";
 import { RecordTimer } from "./RecordTimer";
 import { RecordFilesTabPanel } from "./RecordFilesTabPanel";
 import { RecordHistoryTabPanel } from "./RecordHistoryTabPanel";
+import { RecordMirrorTabPanel } from "./RecordMirrorTabPanel";
 import { RecordNotesTabPanel } from "./RecordNotesTabPanel";
 import { UserPrimaryProfileCard } from "./UserPrimaryProfileCard";
 
@@ -1234,6 +1236,19 @@ export function EntityRecordPage({
             ) : null}
 
             {entityTabs.map((tab) => {
+              if (isEntityMirrorTab(tab)) {
+                return (
+                  <TabsContent key={tab.id} value={tab.id} className="mt-0">
+                    <RecordMirrorTabPanel
+                      hostEntity={entity}
+                      hostRecord={record}
+                      tab={tab}
+                      onOpenRelation={onOpenRelation}
+                    />
+                  </TabsContent>
+                );
+              }
+
               if (isEntityTabWithLinkedEntity(tab) && tab.linkedEntityId) {
                 const linkedEntity =
                   entities.find((item) => item.id === tab.linkedEntityId) ??

@@ -1037,6 +1037,8 @@ export function addEntityTab(
     kind: normalizeEntityTabKind(data?.kind),
     linkedEntityId: null,
     parentLinkFieldId: null,
+    sourceRelationFieldId: null,
+    sourceTabId: null,
     defaultFolders: data?.defaultFolders ?? [],
   });
 
@@ -1054,61 +1056,53 @@ export function addEntityTab(
 }
 
 /**
- * Create a tab by copying structure from another entity’s tab
- * (kind, name, default folders, or entity link — not record content).
+ * Tab that renders another entity’s tab for the record selected in a relation
+ * field on the host entity.
  */
-export function addEntityTabFromSource(
+export function addEntityMirrorTab(
   entityId: string,
   data: {
-    sourceEntityId: string;
-    sourceTabId: string;
     name?: string;
+    sourceRelationFieldId: string;
+    sourceTabId: string;
   },
 ) {
-  const sourceEntity = config.entities.find(
-    (item) => item.id === data.sourceEntityId,
+  const host = config.entities.find((item) => item.id === entityId);
+  if (!host || isEntityLocked(host)) return null;
+
+  const relationField = host.fields.find(
+    (field) =>
+      field.id === data.sourceRelationFieldId && field.type === "relation",
   );
+  if (!relationField) return null;
+
+  const targetId = getEntityRelationTargetId(relationField);
+  const sourceEntity = targetId
+    ? config.entities.find((item) => item.id === targetId)
+    : null;
   const sourceTab = sourceEntity?.tabs.find(
     (tab) => tab.id === data.sourceTabId,
   );
-  if (!sourceEntity || !sourceTab || isEntityOverviewTab(sourceTab)) {
-    return null;
-  }
+  if (!sourceEntity || !sourceTab || sourceTab.kind === "mirror") return null;
 
-  const name = data.name?.trim() || sourceTab.name;
-
-  if (isEntityTabWithLinkedEntity(sourceTab) && sourceTab.linkedEntityId) {
-    const linked = config.entities.find(
-      (item) => item.id === sourceTab.linkedEntityId,
-    );
-    return addEntityTabWithExistingEntity(entityId, {
-      linkedEntityId: sourceTab.linkedEntityId,
-      name,
-      recordsDisplay: linked
-        ? normalizeEntityRecordsDisplay(linked.recordsDisplay)
-        : undefined,
-      recordColumns: linked
-        ? normalizeEntityRecordColumns(linked.recordColumns)
-        : undefined,
-    });
-  }
-
-  if (sourceTab.kind === "files") {
-    return addEntityTab(entityId, {
-      name,
-      kind: "files",
-      defaultFolders: sourceTab.defaultFolders.map((folder) => ({
-        id: createId("folder"),
-        name: folder.name,
-        color: folder.color,
-      })),
-    });
-  }
-
-  return addEntityTab(entityId, {
-    name,
-    kind: sourceTab.kind,
+  const tab = normalizeEntityTab({
+    id: createId("tab"),
+    name: data.name?.trim() || sourceTab.name,
+    locked: false,
+    kind: "mirror",
+    linkedEntityId: null,
+    parentLinkFieldId: null,
+    sourceRelationFieldId: relationField.id,
+    sourceTabId: sourceTab.id,
+    defaultFolders: [],
   });
+
+  mapEntity(entityId, (entity) => ({
+    ...entity,
+    tabs: [...entity.tabs, tab],
+  }));
+
+  return tab;
 }
 
 /** Tab with its own entity schema and records linked to the parent record. */

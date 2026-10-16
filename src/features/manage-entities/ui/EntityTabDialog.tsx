@@ -18,11 +18,15 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import {
+  getEntityFieldDisplayName,
+  getEntityRelationTargetId,
+  isEntityMirrorTab,
   isEntityOverviewTab,
-  isEntityTabWithLinkedEntity,
   normalizeEntityRecordColumns,
   normalizeEntityRecordsDisplay,
   normalizeEntityTabKind,
+  type Entity,
+  type EntityField,
   type EntityRecordColumns,
   type EntityRecordsDisplay,
   type EntityTab,
@@ -32,15 +36,12 @@ import { EntityRecordsDisplayFields } from "./EntityRecordsDisplayFields";
 
 export type EntityTabEntitySource = "new" | "existing";
 
-/** Create-only wizard kind — materializes into a real `EntityTabKind` on submit. */
-export type EntityTabCreateKind = EntityTabKind | "copy";
-
 export type EntityTabFormPayload = {
   name: string;
-  kind: EntityTabKind | "copy";
+  kind: EntityTabKind;
   entitySource?: EntityTabEntitySource;
   linkedEntityId?: string;
-  sourceEntityId?: string;
+  sourceRelationFieldId?: string;
   sourceTabId?: string;
   recordsDisplay?: EntityRecordsDisplay;
   recordColumns?: EntityRecordColumns;
@@ -53,47 +54,39 @@ export type EntityTabEntityOption = {
   recordColumns?: EntityRecordColumns;
 };
 
-export type EntityTabCopySourceOption = {
-  id: string;
-  name: string;
-  tabs: Array<
-    Pick<EntityTab, "id" | "name" | "kind" | "locked" | "linkedEntityId">
-  >;
-};
-
 type EntityTabDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialName?: string;
   initialKind?: EntityTabKind;
   mode?: "create" | "edit";
+  /** Host entity — needed for mirror relation fields. */
+  hostEntity?: Entity | null;
   entityOptions?: EntityTabEntityOption[];
-  /** Entities whose tabs can be used as a copy source. */
-  copySourceOptions?: EntityTabCopySourceOption[];
-  /** Linked entity ids already used by entity-tabs on the target. */
-  usedLinkedEntityIds?: readonly string[];
+  /** All entities — to list tabs of the relation target. */
+  entities?: Entity[];
   onSubmit: (data: EntityTabFormPayload) => void;
 };
 
 const DEFAULT_RECORDS_DISPLAY: EntityRecordsDisplay = "cards";
 const DEFAULT_RECORD_COLUMNS: EntityRecordColumns = 2;
 
-const TAB_KIND_LABELS: Record<EntityTabCreateKind, string> = {
+const TAB_KIND_LABELS: Record<EntityTabKind, string> = {
   fields: "Поля",
   records: "Записи",
   files: "Файлы",
   history: "История",
   entity: "Сущность",
-  copy: "Копия",
+  mirror: "Из записи",
 };
 
-const TAB_KIND_ORDER: EntityTabCreateKind[] = [
+const TAB_KIND_ORDER: EntityTabKind[] = [
   "fields",
   "records",
   "files",
   "history",
   "entity",
-  "copy",
+  "mirror",
 ];
 
 const SOURCE_TAB_KIND_LABELS: Record<EntityTabKind, string> = {
@@ -102,49 +95,50 @@ const SOURCE_TAB_KIND_LABELS: Record<EntityTabKind, string> = {
   files: "Файлы",
   history: "История",
   entity: "Сущность",
+  mirror: "Из записи",
 };
 
-function isCopyableSourceTab(
-  tab: Pick<EntityTab, "kind" | "locked" | "id" | "linkedEntityId">,
-  usedLinkedEntityIds: Set<string>,
-) {
-  if (isEntityOverviewTab(tab)) return false;
-  if (
-    isEntityTabWithLinkedEntity(tab) &&
-    tab.linkedEntityId &&
-    usedLinkedEntityIds.has(tab.linkedEntityId)
-  ) {
-    return false;
-  }
-  return true;
+function relationFieldsOf(entity: Entity | null | undefined): EntityField[] {
+  if (!entity) return [];
+  return entity.fields.filter(
+    (field) =>
+      field.type === "relation" && Boolean(getEntityRelationTargetId(field)),
+  );
+}
+
+function mirrorableTabsOf(entity: Entity | null | undefined): EntityTab[] {
+  if (!entity) return [];
+  return entity.tabs.filter(
+    (tab) => !isEntityOverviewTab(tab) && !isEntityMirrorTab(tab),
+  );
 }
 
 function EntityTabForm({
   mode,
   initialName,
   initialKind = "fields",
+  hostEntity = null,
   entityOptions = [],
-  copySourceOptions = [],
-  usedLinkedEntityIds = [],
+  entities = [],
   onCancel,
   onSubmit,
 }: {
   mode: "create" | "edit";
   initialName: string;
   initialKind: EntityTabKind;
+  hostEntity: Entity | null;
   entityOptions: EntityTabEntityOption[];
-  copySourceOptions: EntityTabCopySourceOption[];
-  usedLinkedEntityIds: readonly string[];
+  entities: Entity[];
   onCancel: () => void;
   onSubmit: (data: EntityTabFormPayload) => void;
 }) {
-  const usedLinkedSet = useMemo(
-    () => new Set(usedLinkedEntityIds),
-    [usedLinkedEntityIds],
+  const relationFields = useMemo(
+    () => relationFieldsOf(hostEntity),
+    [hostEntity],
   );
 
   const [name, setName] = useState(initialName);
-  const [kind, setKind] = useState<EntityTabCreateKind>(
+  const [kind, setKind] = useState<EntityTabKind>(
     mode === "edit" ? initialKind : "fields",
   );
   const [entitySource, setEntitySource] =
@@ -152,7 +146,9 @@ function EntityTabForm({
   const [linkedEntityId, setLinkedEntityId] = useState(
     entityOptions[0]?.id ?? "",
   );
-  const [sourceEntityId, setSourceEntityId] = useState("");
+  const [sourceRelationFieldId, setSourceRelationFieldId] = useState(
+    relationFields[0]?.id ?? "",
+  );
   const [sourceTabId, setSourceTabId] = useState("");
   const [recordsDisplay, setRecordsDisplay] = useState<EntityRecordsDisplay>(
     DEFAULT_RECORDS_DISPLAY,
@@ -162,7 +158,7 @@ function EntityTabForm({
   );
   const isEdit = mode === "edit";
   const isEntityTab = kind === "entity";
-  const isCopyTab = kind === "copy";
+  const isMirrorTab = kind === "mirror";
   const isExisting = isEntityTab && entitySource === "existing";
 
   const selectedEntity = useMemo(
@@ -170,30 +166,33 @@ function EntityTabForm({
     [entityOptions, linkedEntityId],
   );
 
-  const copyableSources = useMemo(() => {
-    return copySourceOptions
-      .map((source) => ({
-        ...source,
-        tabs: source.tabs.filter((tab) =>
-          isCopyableSourceTab(tab, usedLinkedSet),
-        ),
-      }))
-      .filter((source) => source.tabs.length > 0);
-  }, [copySourceOptions, usedLinkedSet]);
+  const selectedRelationField = useMemo(
+    () =>
+      relationFields.find((field) => field.id === sourceRelationFieldId) ??
+      null,
+    [relationFields, sourceRelationFieldId],
+  );
 
-  const selectedSourceEntity = useMemo(
-    () => copyableSources.find((item) => item.id === sourceEntityId) ?? null,
-    [copyableSources, sourceEntityId],
+  const mirrorTargetEntity = useMemo(() => {
+    const targetId = selectedRelationField
+      ? getEntityRelationTargetId(selectedRelationField)
+      : null;
+    if (!targetId) return null;
+    return entities.find((item) => item.id === targetId) ?? null;
+  }, [entities, selectedRelationField]);
+
+  const mirrorSourceTabs = useMemo(
+    () => mirrorableTabsOf(mirrorTargetEntity),
+    [mirrorTargetEntity],
   );
 
   const selectedSourceTab = useMemo(
-    () =>
-      selectedSourceEntity?.tabs.find((tab) => tab.id === sourceTabId) ?? null,
-    [selectedSourceEntity, sourceTabId],
+    () => mirrorSourceTabs.find((tab) => tab.id === sourceTabId) ?? null,
+    [mirrorSourceTabs, sourceTabId],
   );
 
-  const canSubmit = isCopyTab
-    ? Boolean(sourceEntityId && sourceTabId)
+  const canSubmit = isMirrorTab
+    ? Boolean(sourceRelationFieldId && sourceTabId)
     : isExisting
       ? linkedEntityId.trim().length > 0
       : name.trim().length > 0;
@@ -216,22 +215,36 @@ function EntityTabForm({
     );
   }
 
-  function selectCopySourceEntity(nextId: string) {
-    setSourceEntityId(nextId);
-    const source = copyableSources.find((item) => item.id === nextId);
-    const firstTab = source?.tabs[0];
+  function selectMirrorRelation(fieldId: string) {
+    setSourceRelationFieldId(fieldId);
+    const field = relationFields.find((item) => item.id === fieldId) ?? null;
+    const targetId = field ? getEntityRelationTargetId(field) : null;
+    const target = targetId
+      ? (entities.find((item) => item.id === targetId) ?? null)
+      : null;
+    const tabs = mirrorableTabsOf(target);
+    const firstTab = tabs[0];
     setSourceTabId(firstTab?.id ?? "");
-    if (!name.trim() && firstTab) {
-      setName(firstTab.name);
-    }
+    if (!name.trim() && firstTab) setName(firstTab.name);
   }
 
-  function selectCopySourceTab(nextId: string) {
-    setSourceTabId(nextId);
-    const tab = selectedSourceEntity?.tabs.find((item) => item.id === nextId);
+  function selectMirrorSourceTab(tabId: string) {
+    setSourceTabId(tabId);
+    const tab = mirrorSourceTabs.find((item) => item.id === tabId);
     if (tab && (!name.trim() || name === selectedSourceTab?.name)) {
       setName(tab.name);
     }
+  }
+
+  function activateMirrorKind() {
+    setKind("mirror");
+    const field = relationFields[0];
+    if (!field) {
+      setSourceRelationFieldId("");
+      setSourceTabId("");
+      return;
+    }
+    selectMirrorRelation(field.id);
   }
 
   function submit() {
@@ -242,12 +255,12 @@ function EntityTabForm({
       return;
     }
 
-    if (kind === "copy") {
-      if (!sourceEntityId || !sourceTabId) return;
+    if (kind === "mirror") {
+      if (!sourceRelationFieldId || !sourceTabId) return;
       onSubmit({
         name: name.trim() || selectedSourceTab?.name || "Новая вкладка",
-        kind: "copy",
-        sourceEntityId,
+        kind: "mirror",
+        sourceRelationFieldId,
         sourceTabId,
       });
       onCancel();
@@ -286,7 +299,7 @@ function EntityTabForm({
         <DialogDescription>
           {isEdit
             ? "Измените название вкладки."
-            : "Поля, записи, файлы, связанная сущность или копия вкладки."}
+            : "Поля, записи, файлы, связанная сущность или вкладка записи из связи."}
         </DialogDescription>
       </DialogHeader>
 
@@ -298,18 +311,8 @@ function EntityTabForm({
               <Select
                 value={kind}
                 onValueChange={(value) => {
-                  if (value === "copy") {
-                    setKind("copy");
-                    const first = copyableSources[0];
-                    if (first) {
-                      setSourceEntityId(first.id);
-                      const firstTab = first.tabs[0];
-                      setSourceTabId(firstTab?.id ?? "");
-                      if (!name.trim() && firstTab) setName(firstTab.name);
-                    } else {
-                      setSourceEntityId("");
-                      setSourceTabId("");
-                    }
+                  if (value === "mirror") {
+                    activateMirrorKind();
                     return;
                   }
                   if (value === normalizeEntityTabKind(value)) {
@@ -343,31 +346,33 @@ function EntityTabForm({
             </div>
           ) : null}
 
-          {!isEdit && isCopyTab ? (
+          {!isEdit && isMirrorTab ? (
             <>
               <div className="flex flex-col gap-2">
-                <Label>Сущность</Label>
-                {copyableSources.length === 0 ? (
+                <Label>Поле связи</Label>
+                {relationFields.length === 0 ? (
                   <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
-                    Нет вкладок, которые можно скопировать.
+                    Добавьте поле типа «Связь», чтобы выбрать запись-источник.
                   </p>
                 ) : (
                   <Select
-                    value={sourceEntityId || undefined}
+                    value={sourceRelationFieldId || undefined}
                     onValueChange={(value) => {
                       if (value == null) return;
-                      selectCopySourceEntity(String(value));
+                      selectMirrorRelation(String(value));
                     }}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue>
-                        {selectedSourceEntity?.name ?? "Выберите сущность"}
+                        {selectedRelationField
+                          ? getEntityFieldDisplayName(selectedRelationField)
+                          : "Выберите поле"}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {copyableSources.map((option) => (
-                        <SelectItem key={option.id} value={option.id}>
-                          {option.name}
+                      {relationFields.map((field) => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {getEntityFieldDisplayName(field)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -376,17 +381,21 @@ function EntityTabForm({
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label>Вкладка</Label>
-                {!selectedSourceEntity ? (
+                <Label>Вкладка связанной сущности</Label>
+                {!mirrorTargetEntity ? (
                   <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
-                    Сначала выберите сущность.
+                    Сначала выберите поле связи.
+                  </p>
+                ) : mirrorSourceTabs.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+                    У «{mirrorTargetEntity.name}» нет вкладок для отображения.
                   </p>
                 ) : (
                   <Select
                     value={sourceTabId || undefined}
                     onValueChange={(value) => {
                       if (value == null) return;
-                      selectCopySourceTab(String(value));
+                      selectMirrorSourceTab(String(value));
                     }}
                   >
                     <SelectTrigger className="w-full">
@@ -397,7 +406,7 @@ function EntityTabForm({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {selectedSourceEntity.tabs.map((tab) => (
+                      {mirrorSourceTabs.map((tab) => (
                         <SelectItem key={tab.id} value={tab.id}>
                           {tab.name}
                           <span className="text-muted-foreground">
@@ -488,15 +497,15 @@ function EntityTabForm({
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="entity-tab-name">
-              {isExisting || isCopyTab ? "Название вкладки" : "Название"}
+              {isExisting || isMirrorTab ? "Название вкладки" : "Название"}
             </Label>
             <Input
               id="entity-tab-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder={
-                isCopyTab
-                  ? selectedSourceTab?.name || "Как у исходной вкладки"
+                isMirrorTab
+                  ? selectedSourceTab?.name || "Как у вкладки источника"
                   : isExisting
                     ? selectedEntity?.name || "Например, Контакты"
                     : isEntityTab
@@ -509,17 +518,17 @@ function EntityTabForm({
                             ? "Например, История"
                             : "Например, Детали"
               }
-              autoFocus={!isExisting && !isCopyTab}
+              autoFocus={!isExisting && !isMirrorTab}
               onKeyDown={(event) => {
                 if (event.key !== "Enter") return;
                 event.preventDefault();
                 submit();
               }}
             />
-            {!isEdit && isCopyTab ? (
+            {!isEdit && isMirrorTab ? (
               <p className="text-xs text-muted-foreground">
-                Создаётся такая же вкладка: тип и настройки (папки, связь)
-                копируются. Содержимое записей не переносится.
+                На странице записи здесь покажется выбранная вкладка записи из
+                поля связи — с её данными, а не копией схемы.
               </p>
             ) : null}
             {!isEdit && isEntityTab ? (
@@ -581,9 +590,9 @@ export function EntityTabDialog({
   initialName = "",
   initialKind = "fields",
   mode = "create",
+  hostEntity = null,
   entityOptions = [],
-  copySourceOptions = [],
-  usedLinkedEntityIds = [],
+  entities = [],
   onSubmit,
 }: EntityTabDialogProps) {
   return (
@@ -591,13 +600,13 @@ export function EntityTabDialog({
       <DialogContent className="sm:max-w-md">
         {open ? (
           <EntityTabForm
-            key={`${mode}-${initialName}-${initialKind}-${entityOptions.length}-${copySourceOptions.length}`}
+            key={`${mode}-${initialName}-${initialKind}-${hostEntity?.id ?? ""}-${entityOptions.length}`}
             mode={mode}
             initialName={initialName}
             initialKind={initialKind}
+            hostEntity={hostEntity}
             entityOptions={entityOptions}
-            copySourceOptions={copySourceOptions}
-            usedLinkedEntityIds={usedLinkedEntityIds}
+            entities={entities}
             onCancel={() => onOpenChange(false)}
             onSubmit={onSubmit}
           />

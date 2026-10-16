@@ -611,6 +611,12 @@ function parseTab(value: unknown): EntityTab | null {
       typeof value.parentLinkFieldId === "string"
         ? value.parentLinkFieldId
         : null,
+    sourceRelationFieldId:
+      typeof value.sourceRelationFieldId === "string"
+        ? value.sourceRelationFieldId
+        : null,
+    sourceTabId:
+      typeof value.sourceTabId === "string" ? value.sourceTabId : null,
     defaultFolders: Array.isArray(value.defaultFolders)
       ? value.defaultFolders
       : [],
