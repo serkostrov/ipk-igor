@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  completeAutomationTask,
   fetchAutomationTasks,
+  pickAutomationOutcome,
   subscribeAutomationTasks,
   type AutomationTask,
 } from "@/entities/automation";
@@ -56,6 +58,32 @@ export function AutomationTasksHost() {
 
     let cancelled = false;
 
+    async function completeAutofillTasks(tasks: AutomationTask[]) {
+      const autofill = tasks.filter((task) => task.config.kind === "autofill");
+      for (const task of autofill) {
+        if (cancelled) return;
+        const entity = entities.find((item) => item.id === task.entityId);
+        const record = entity?.records.find(
+          (item) => item.id === task.recordId,
+        );
+        const outcome = pickAutomationOutcome(
+          task.config.outcomes,
+          { values: record?.values ?? {} },
+          task.outcomeId,
+        );
+        if (!outcome) continue;
+        try {
+          await completeAutomationTask(
+            task.id,
+            outcome.id,
+            sessionUser?.id ?? null,
+          );
+        } catch (error: unknown) {
+          console.error("[automation] autofill complete failed", error);
+        }
+      }
+    }
+
     async function syncTasks(options?: { announceNew?: boolean }) {
       try {
         const tasks = await fetchAutomationTasks({
@@ -63,7 +91,15 @@ export function AutomationTasksHost() {
         });
         if (cancelled) return;
 
-        const mine = tasks.filter((task) => isAssignedToUser(task, ids));
+        await completeAutofillTasks(tasks);
+        if (cancelled) return;
+
+        const interactiveTasks = tasks.filter(
+          (task) => task.config.kind !== "autofill",
+        );
+        const mine = interactiveTasks.filter((task) =>
+          isAssignedToUser(task, ids),
+        );
         const known = knownTaskIdsRef.current;
         const nextKnown = new Set(mine.map((task) => task.id));
 
@@ -77,18 +113,13 @@ export function AutomationTasksHost() {
 
         if (!options?.announceNew || fresh.length === 0) return;
 
-        const interactive = fresh.filter(
-          (task) => task.config.kind !== "autofill",
-        );
         const actionable =
-          interactive.find(
+          fresh.find(
             (task) =>
               automationTaskNeedsFillDialog(task) &&
               !isAutomationTaskFillDialogDismissed(task.id),
           ) ??
-          interactive.find(
-            (task) => !isAutomationTaskFillDialogDismissed(task.id),
-          ) ??
+          fresh.find((task) => !isAutomationTaskFillDialogDismissed(task.id)) ??
           null;
         if (!actionable) return;
 
@@ -120,7 +151,7 @@ export function AutomationTasksHost() {
       cancelled = true;
       unsubscribe();
     };
-  }, [sessionUser?.id, profileRecordId, openTask]);
+  }, [sessionUser?.id, profileRecordId, openTask, entities]);
 
   return (
     <TaskFillFieldsDialog

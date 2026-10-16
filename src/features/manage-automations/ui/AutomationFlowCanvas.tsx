@@ -1005,7 +1005,6 @@ function FlowInner({
       elementsSelectable
       selectNodesOnDrag={false}
       edgesFocusable
-      edgesUpdatable={false}
       deleteKeyCode={null}
       minZoom={0.15}
       maxZoom={1.25}

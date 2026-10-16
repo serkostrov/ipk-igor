@@ -889,21 +889,26 @@ export function TemplateInspector({
                     </Field>
 
                     <div className="mt-3 flex flex-col gap-2.5">
-                      <OutcomeAutofillEditor
-                        actions={outcome.actions}
-                        sourceEntity={entity}
-                        entities={entities}
-                        hint="Заполнятся при нажатии этой кнопки"
-                        onChange={(actions) =>
-                          patchOutcome(index, { ...outcome, actions })
-                        }
-                      />
-
                       <OutcomeAskFieldsEditor
                         fields={entity.fields}
                         value={outcome.fieldAccess}
                         hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
                         onChange={(fieldAccess) =>
+                          patchOutcome(index, { ...outcome, fieldAccess })
+                        }
+                      />
+
+                      <OutcomeAutofillEditor
+                        actions={outcome.actions}
+                        fieldAccess={outcome.fieldAccess}
+                        sourceEntity={entity}
+                        entities={entities}
+                        hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
+                        hint="Автоматически выставить значения; «комм.» — дублировать во «Записи»"
+                        onChange={(actions) =>
+                          patchOutcome(index, { ...outcome, actions })
+                        }
+                        onFieldAccessChange={(fieldAccess) =>
                           patchOutcome(index, { ...outcome, fieldAccess })
                         }
                       />

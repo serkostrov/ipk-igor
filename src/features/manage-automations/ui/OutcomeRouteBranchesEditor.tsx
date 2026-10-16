@@ -14,11 +14,12 @@ import {
   createAutomationOutcomeId,
   emptyAutomationConditions,
   emptyAutomationOutcomeFieldAccess,
+  normalizeAutomationOutcomeFieldAccess,
   type AutomationAction,
   type AutomationConditions,
   type AutomationOutcome,
 } from "@/entities/automation";
-import type { Entity } from "@/entities/entity";
+import { isEntityRecordsTab, type Entity } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { OutcomeAutofillEditor } from "./OutcomeAutofillEditor";

@@ -18,6 +18,7 @@ import {
   fetchAutomationTask,
   returnAutomationTaskForRevisionRpc,
 } from "../api/automation-tasks-api";
+import { resolveAutomationActionValue } from "../model/action-values";
 import { executeAutomationActions } from "./execute-actions";
 import type { AutomationOutcomeFieldAccess } from "../model/types";
 
@@ -118,12 +119,32 @@ export async function completeAutomationTask(
     ...(record?.values ?? {}),
   };
 
+  // Include upcoming setField values so «комм.» can duplicate autofill writes.
+  const valuesForComments = { ...valuesForForm };
+  if (entity) {
+    for (const action of outcome.actions) {
+      if (action.kind !== "setField" || !action.fieldId.trim()) continue;
+      const field = entity.fields.find((item) => item.id === action.fieldId);
+      valuesForComments[action.fieldId] = resolveAutomationActionValue(
+        action.value,
+        valuesForForm,
+        {
+          entities,
+          triggerEntityId: entity.id,
+          fieldType: field?.type,
+          datetimeWithTime: field?.datetimeWithTime,
+          actorUserId: actorUserId ?? getCurrentUserRecordId(),
+        },
+      );
+    }
+  }
+
   if (entity && record) {
     await appendOutcomeFieldComments(
       entity,
       record,
       outcome.fieldAccess,
-      valuesForForm,
+      valuesForComments,
     );
   }
 
