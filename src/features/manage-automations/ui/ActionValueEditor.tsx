@@ -5,6 +5,11 @@ import {
   AUTOMATION_VALUE_TIME_NOW,
   AUTOMATION_VALUE_TODAY,
   AUTOMATION_VALUE_TOMORROW,
+  isAutomationEntityPathRef,
+  isAutomationFieldRef,
+  parseAutomationEntityPathRef,
+  toAutomationEntityPathRef,
+  toAutomationFieldRef,
 } from "@/entities/automation";
 import {
   getEntityFieldDisplayName,
@@ -53,19 +58,12 @@ type ValueMode =
   | "true"
   | "false"
   | "currentUser"
-  | "fromField";
-
-function isFieldRef(value: string) {
-  return /^\{\{[^}]+\}\}$/.test(value.trim());
-}
+  | "fromField"
+  | "fromEntity";
 
 function fieldRefId(value: string) {
-  const match = value.trim().match(/^\{\{([^}]+)\}\}$/);
+  const match = value.trim().match(/^\{\{([^.}]+)\}\}$/);
   return match?.[1]?.trim() ?? "";
-}
-
-function toFieldRef(fieldId: string) {
-  return fieldId ? `{{${fieldId}}}` : "";
 }
 
 function detectMode(value: string, field: EntityField | null): ValueMode {
@@ -77,7 +75,8 @@ function detectMode(value: string, field: EntityField | null): ValueMode {
     return "now";
   }
   if (raw === AUTOMATION_VALUE_CURRENT_USER) return "currentUser";
-  if (isFieldRef(raw)) return "fromField";
+  if (isAutomationEntityPathRef(raw)) return "fromEntity";
+  if (isAutomationFieldRef(raw)) return "fromField";
   if (field?.type === "boolean") {
     if (raw === "true") return "true";
     if (raw === "false") return "false";
@@ -122,11 +121,13 @@ function SourceFieldSelect({
   value,
   onChange,
   excludeFieldId,
+  placeholder = "Выберите поле",
 }: {
   fields: EntityField[];
   value: string;
   onChange: (fieldId: string) => void;
   excludeFieldId?: string;
+  placeholder?: string;
 }) {
   const options = fields.filter(
     (field) =>
@@ -144,7 +145,7 @@ function SourceFieldSelect({
     >
       <SelectTrigger size="sm" className="h-8">
         <SelectValue>
-          {selected ? getEntityFieldDisplayName(selected) : "Выберите поле"}
+          {selected ? getEntityFieldDisplayName(selected) : placeholder}
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
@@ -158,10 +159,126 @@ function SourceFieldSelect({
   );
 }
 
+function compatibleNestedFields(
+  target: EntityField,
+  candidates: EntityField[],
+): EntityField[] {
+  return candidates.filter((item) => {
+    if (isEntityComputedFieldType(item.type) || item.type === "file") {
+      return false;
+    }
+    if (target.type === "boolean") return item.type === "boolean";
+    if (target.type === "list") return item.type === "list";
+    if (target.type === "datetime") {
+      return item.type === "datetime" || item.type === "text";
+    }
+    if (target.type === "time") {
+      return item.type === "time" || item.type === "text";
+    }
+    if (target.type === "relation") {
+      if (item.type === "text" || item.type === "dependencies") return true;
+      if (item.type !== "relation") return false;
+      const targetId = getEntityRelationTargetId(target);
+      const itemTarget = getEntityRelationTargetId(item);
+      return !targetId || !itemTarget || targetId === itemTarget;
+    }
+    if (target.type === "number") {
+      return item.type === "number" || item.type === "text";
+    }
+    return true;
+  });
+}
+
+function FromEntitySelects({
+  targetField,
+  sourceFields,
+  entities,
+  value,
+  onChange,
+}: {
+  targetField: EntityField;
+  sourceFields: EntityField[];
+  entities: Entity[];
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const path = parseAutomationEntityPathRef(value);
+  const relationFields = sourceFields.filter(
+    (field) =>
+      field.id !== targetField.id &&
+      field.type === "relation" &&
+      Boolean(getEntityRelationTargetId(field)),
+  );
+  const relationFieldId = path?.relationFieldId ?? "";
+  const nestedFieldId = path?.fieldId ?? "";
+  const relationField =
+    relationFields.find((field) => field.id === relationFieldId) ?? null;
+  const targetEntityId = relationField
+    ? getEntityRelationTargetId(relationField)
+    : null;
+  const targetEntity = targetEntityId
+    ? (entities.find((entity) => entity.id === targetEntityId) ?? null)
+    : null;
+  const nestedFields = targetEntity
+    ? compatibleNestedFields(targetField, targetEntity.fields)
+    : [];
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {relationFields.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          Нет полей связи, из которых можно взять значение.
+        </p>
+      ) : (
+        <SourceFieldSelect
+          fields={relationFields}
+          value={relationFieldId}
+          placeholder="Поле связи"
+          onChange={(nextRelationId) => {
+            const nextRelation = relationFields.find(
+              (field) => field.id === nextRelationId,
+            );
+            const nextTargetId = nextRelation
+              ? getEntityRelationTargetId(nextRelation)
+              : null;
+            const nextEntity = nextTargetId
+              ? (entities.find((entity) => entity.id === nextTargetId) ?? null)
+              : null;
+            const nextNested = nextEntity
+              ? compatibleNestedFields(targetField, nextEntity.fields)
+              : [];
+            const keepNested =
+              nestedFieldId &&
+              nextNested.some((field) => field.id === nestedFieldId)
+                ? nestedFieldId
+                : (nextNested[0]?.id ?? "");
+            onChange(toAutomationEntityPathRef(nextRelationId, keepNested));
+          }}
+        />
+      )}
+      {relationFieldId ? (
+        nestedFields.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            У связанной сущности нет подходящих полей.
+          </p>
+        ) : (
+          <SourceFieldSelect
+            fields={nestedFields}
+            value={nestedFieldId}
+            placeholder="Поле связанной записи"
+            onChange={(nextFieldId) => {
+              onChange(toAutomationEntityPathRef(relationFieldId, nextFieldId));
+            }}
+          />
+        )
+      ) : null}
+    </div>
+  );
+}
+
 /**
- * Mode can be `custom` / `fromField` while the stored value is still empty
- * (user just switched type and has not filled the picker yet).
- * Remount via `key={field.id}` clears pending when the target field changes.
+ * Mode can be `custom` / `fromField` / `fromEntity` while the stored value is
+ * still empty (user just switched type and has not filled the picker yet).
  */
 function useEditorMode(value: string, field: EntityField) {
   const detected = detectMode(value, field);
@@ -174,7 +291,11 @@ function useEditorMode(value: string, field: EntityField) {
       const nextDetected = detectMode(nextValue, field);
       if (nextDetected === next) {
         setPendingMode(null);
-      } else if (next === "custom" || next === "fromField") {
+      } else if (
+        next === "custom" ||
+        next === "fromField" ||
+        next === "fromEntity"
+      ) {
         setPendingMode(next);
       } else {
         setPendingMode(null);
@@ -185,6 +306,20 @@ function useEditorMode(value: string, field: EntityField) {
   );
 
   return { mode, selectMode };
+}
+
+function applyFromEntityMode(
+  value: string,
+  applyMode: (next: ValueMode, nextValue: string) => void,
+) {
+  applyMode("fromEntity", isAutomationEntityPathRef(value) ? value : "");
+}
+
+function applyFromFieldMode(
+  value: string,
+  applyMode: (next: ValueMode, nextValue: string) => void,
+) {
+  applyMode("fromField", isAutomationFieldRef(value) ? value : "");
 }
 
 /** Type-aware value picker for automation `setField` / relation actions. */
@@ -246,6 +381,17 @@ function ActionValueEditorBody({
     onChange(selectMode(next, nextValue));
   };
 
+  const fromEntityPicker =
+    mode === "fromEntity" ? (
+      <FromEntitySelects
+        targetField={field}
+        sourceFields={sourceFields}
+        entities={entities}
+        value={value}
+        onChange={onChange}
+      />
+    ) : null;
+
   if (field.type === "datetime") {
     const withTime = field.datetimeWithTime !== false;
     const { date, time } = splitDatetime(mode === "custom" ? value : "");
@@ -260,6 +406,7 @@ function ActionValueEditorBody({
             ...(withTime ? [{ value: "now", label: "Сейчас" }] : []),
             { value: "custom", label: "Выбрать дату" },
             { value: "fromField", label: "Из другого поля" },
+            { value: "fromEntity", label: "Из другой сущности" },
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
@@ -272,7 +419,9 @@ function ActionValueEditorBody({
             } else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
             } else if (next === "fromField") {
-              applyMode("fromField", isFieldRef(value) ? value : "");
+              applyFromFieldMode(value, applyMode);
+            } else if (next === "fromEntity") {
+              applyFromEntityMode(value, applyMode);
             }
           }}
         />
@@ -308,9 +457,10 @@ function ActionValueEditorBody({
             )}
             value={fieldRefId(value)}
             excludeFieldId={field.id}
-            onChange={(fieldId) => onChange(toFieldRef(fieldId))}
+            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
+        {fromEntityPicker}
       </div>
     );
   }
@@ -325,6 +475,7 @@ function ActionValueEditorBody({
             { value: "now", label: "Сейчас" },
             { value: "custom", label: "Выбрать время" },
             { value: "fromField", label: "Из другого поля" },
+            { value: "fromEntity", label: "Из другой сущности" },
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
@@ -333,7 +484,9 @@ function ActionValueEditorBody({
             } else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
             } else if (next === "fromField") {
-              applyMode("fromField", isFieldRef(value) ? value : "");
+              applyFromFieldMode(value, applyMode);
+            } else if (next === "fromEntity") {
+              applyFromEntityMode(value, applyMode);
             }
           }}
         />
@@ -352,9 +505,10 @@ function ActionValueEditorBody({
             )}
             value={fieldRefId(value)}
             excludeFieldId={field.id}
-            onChange={(fieldId) => onChange(toFieldRef(fieldId))}
+            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
+        {fromEntityPicker}
       </div>
     );
   }
@@ -364,6 +518,7 @@ function ActionValueEditorBody({
       mode === "true" ||
       mode === "false" ||
       mode === "fromField" ||
+      mode === "fromEntity" ||
       mode === "empty"
         ? mode
         : "empty";
@@ -376,14 +531,14 @@ function ActionValueEditorBody({
             { value: "true", label: "Да" },
             { value: "false", label: "Нет" },
             { value: "fromField", label: "Из другого поля" },
+            { value: "fromEntity", label: "Из другой сущности" },
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
             else if (next === "true") applyMode("true", "true");
             else if (next === "false") applyMode("false", "false");
-            else {
-              applyMode("fromField", isFieldRef(value) ? value : "");
-            }
+            else if (next === "fromField") applyFromFieldMode(value, applyMode);
+            else applyFromEntityMode(value, applyMode);
           }}
         />
         {mode === "true" || mode === "false" ? (
@@ -402,9 +557,10 @@ function ActionValueEditorBody({
             fields={sourceFields.filter((item) => item.type === "boolean")}
             value={fieldRefId(value)}
             excludeFieldId={field.id}
-            onChange={(fieldId) => onChange(toFieldRef(fieldId))}
+            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
+        {fromEntityPicker}
       </div>
     );
   }
@@ -413,11 +569,9 @@ function ActionValueEditorBody({
     const listOptions = resolveEntityListFieldOptions(field, entities);
     const presentation = resolveEntityListFieldPresentation(field, entities);
     const listMode =
-      mode === "fromField"
-        ? "fromField"
-        : mode === "empty"
-          ? "empty"
-          : "custom";
+      mode === "fromField" || mode === "fromEntity" || mode === "empty"
+        ? mode
+        : "custom";
     return (
       <div className={cn("flex flex-col gap-1.5", className)}>
         <ModeSelect
@@ -426,13 +580,16 @@ function ActionValueEditorBody({
             { value: "empty", label: "Очистить" },
             { value: "custom", label: "Выбрать вариант" },
             { value: "fromField", label: "Из другого поля" },
+            { value: "fromEntity", label: "Из другой сущности" },
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
             else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
+            } else if (next === "fromField") {
+              applyFromFieldMode(value, applyMode);
             } else {
-              applyMode("fromField", isFieldRef(value) ? value : "");
+              applyFromEntityMode(value, applyMode);
             }
           }}
         />
@@ -455,9 +612,10 @@ function ActionValueEditorBody({
             fields={sourceFields.filter((item) => item.type === "list")}
             value={fieldRefId(value)}
             excludeFieldId={field.id}
-            onChange={(fieldId) => onChange(toFieldRef(fieldId))}
+            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
+        {fromEntityPicker}
       </div>
     );
   }
@@ -467,7 +625,10 @@ function ActionValueEditorBody({
     const target = entities.find((entity) => entity.id === targetId) ?? null;
     const isUsers = targetId === SYSTEM_USERS_ENTITY_ID;
     const relationMode =
-      mode === "currentUser" || mode === "fromField" || mode === "empty"
+      mode === "currentUser" ||
+      mode === "fromField" ||
+      mode === "fromEntity" ||
+      mode === "empty"
         ? mode
         : "custom";
     return (
@@ -481,6 +642,7 @@ function ActionValueEditorBody({
               : []),
             { value: "custom", label: "Выбрать запись" },
             { value: "fromField", label: "Из другого поля" },
+            { value: "fromEntity", label: "Из другой сущности" },
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
@@ -489,10 +651,16 @@ function ActionValueEditorBody({
             } else if (next === "custom") {
               applyMode(
                 "custom",
-                mode === "custom" && !isFieldRef(value) ? value : "",
+                mode === "custom" &&
+                  !isAutomationFieldRef(value) &&
+                  !isAutomationEntityPathRef(value)
+                  ? value
+                  : "",
               );
+            } else if (next === "fromField") {
+              applyFromFieldMode(value, applyMode);
             } else {
-              applyMode("fromField", isFieldRef(value) ? value : "");
+              applyFromEntityMode(value, applyMode);
             }
           }}
         />
@@ -500,7 +668,9 @@ function ActionValueEditorBody({
           <RelationSelect
             options={getRelationRecordOptions(target)}
             value={
-              isFieldRef(value) || value === AUTOMATION_VALUE_CURRENT_USER
+              isAutomationFieldRef(value) ||
+              isAutomationEntityPathRef(value) ||
+              value === AUTOMATION_VALUE_CURRENT_USER
                 ? ""
                 : value
             }
@@ -521,20 +691,19 @@ function ActionValueEditorBody({
             )}
             value={fieldRefId(value)}
             excludeFieldId={field.id}
-            onChange={(fieldId) => onChange(toFieldRef(fieldId))}
+            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
+        {fromEntityPicker}
       </div>
     );
   }
 
   if (field.type === "textarea") {
     const textMode =
-      mode === "fromField"
-        ? "fromField"
-        : mode === "empty"
-          ? "empty"
-          : "custom";
+      mode === "fromField" || mode === "fromEntity" || mode === "empty"
+        ? mode
+        : "custom";
     return (
       <div className={cn("flex flex-col gap-1.5", className)}>
         <ModeSelect
@@ -543,13 +712,16 @@ function ActionValueEditorBody({
             { value: "empty", label: "Очистить" },
             { value: "custom", label: "Текст" },
             { value: "fromField", label: "Из другого поля" },
+            { value: "fromEntity", label: "Из другой сущности" },
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
             else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
+            } else if (next === "fromField") {
+              applyFromFieldMode(value, applyMode);
             } else {
-              applyMode("fromField", isFieldRef(value) ? value : "");
+              applyFromEntityMode(value, applyMode);
             }
           }}
         />
@@ -566,9 +738,10 @@ function ActionValueEditorBody({
             fields={sourceFields}
             value={fieldRefId(value)}
             excludeFieldId={field.id}
-            onChange={(fieldId) => onChange(toFieldRef(fieldId))}
+            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
+        {fromEntityPicker}
       </div>
     );
   }
@@ -583,7 +756,9 @@ function ActionValueEditorBody({
           : undefined;
 
   const textMode =
-    mode === "fromField" ? "fromField" : mode === "empty" ? "empty" : "custom";
+    mode === "fromField" || mode === "fromEntity" || mode === "empty"
+      ? mode
+      : "custom";
 
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
@@ -593,13 +768,16 @@ function ActionValueEditorBody({
           { value: "empty", label: "Очистить" },
           { value: "custom", label: "Значение" },
           { value: "fromField", label: "Из другого поля" },
+          { value: "fromEntity", label: "Из другой сущности" },
         ]}
         onChange={(next) => {
           if (next === "empty") applyMode("empty", "");
           else if (next === "custom") {
             applyMode("custom", mode === "custom" ? value : "");
+          } else if (next === "fromField") {
+            applyFromFieldMode(value, applyMode);
           } else {
-            applyMode("fromField", isFieldRef(value) ? value : "");
+            applyFromEntityMode(value, applyMode);
           }
         }}
       />
@@ -624,9 +802,10 @@ function ActionValueEditorBody({
           fields={sourceFields}
           value={fieldRefId(value)}
           excludeFieldId={field.id}
-          onChange={(fieldId) => onChange(toFieldRef(fieldId))}
+          onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
         />
       ) : null}
+      {fromEntityPicker}
     </div>
   );
 }

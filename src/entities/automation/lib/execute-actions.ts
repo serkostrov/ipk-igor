@@ -48,6 +48,9 @@ function resolveTemplateValue(
     actorUserId: ctx.actorUserId,
     fieldType,
     datetimeWithTime,
+    entities: ctx.entities,
+    triggerEntityId: ctx.triggerEntityId,
+    values: ctx.values,
   });
 }
 

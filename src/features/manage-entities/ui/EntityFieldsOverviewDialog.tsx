@@ -8,7 +8,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import { FilterPill } from "@/shared/ui/filter-pill";
 import { Input } from "@/shared/ui/input";
+import { Switch } from "@/shared/ui/switch";
 import { cn } from "@/shared/lib/cn";
 import {
   DEFAULT_ENTITY_FIELD_GROUP,
@@ -25,6 +27,8 @@ import {
   getEntityPathLabel,
   getEntityRelationTargetId,
   getEntityTabLinkFieldIds,
+  isEntityComputedFieldType,
+  isEntityFieldVisibleOnCreate,
   isEntityFieldsHostTab,
   isEntityNameField,
   isEntityOverviewTab,
@@ -33,6 +37,7 @@ import {
   resolveEntityFieldGroups,
   resolveEntityListFieldSource,
   resolvePrimaryEntityFieldGroups,
+  updateEntityField,
   useEntityConfig,
   type Entity,
   type EntityField,
@@ -54,6 +59,8 @@ type OverviewGroup = {
   fields: EntityField[];
 };
 
+type CreateFilter = "all" | "onCreate" | "hiddenOnCreate";
+
 function fieldMatchesQuery(field: EntityField, needle: string) {
   if (!needle) return true;
   const name = getEntityFieldDisplayName(field).toLocaleLowerCase("ru");
@@ -62,6 +69,19 @@ function fieldMatchesQuery(field: EntityField, needle: string) {
   return (
     name.includes(needle) || type.includes(needle) || group.includes(needle)
   );
+}
+
+function fieldMatchesCreateFilter(field: EntityField, filter: CreateFilter) {
+  if (filter === "all") return true;
+  const onCreate = isEntityFieldVisibleOnCreate(field);
+  return filter === "onCreate" ? onCreate : !onCreate;
+}
+
+/** Fields that can use the «При создании» toggle (not title / computed). */
+function canToggleShowOnCreate(field: EntityField) {
+  if (isEntityNameField(field)) return false;
+  if (isEntityComputedFieldType(field.type)) return false;
+  return true;
 }
 
 function tabLabel(entity: Entity, tabId: string) {
@@ -213,16 +233,20 @@ function OverviewFieldRow({
   showTab,
   canEdit,
   canDelete,
+  showCreateToggle,
   onSelect,
   onDelete,
+  onToggleShowOnCreate,
 }: {
   field: EntityField;
   entity: Entity;
   showTab: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  showCreateToggle: boolean;
   onSelect?: () => void;
   onDelete?: () => void;
+  onToggleShowOnCreate?: (next: boolean) => void;
 }) {
   const name = getEntityFieldDisplayName(field);
   const headerField = getEntityHeaderField(entity);
@@ -230,6 +254,9 @@ function OverviewFieldRow({
   const tabId = getEntityFieldTabId(field);
   const tabName = tabLabel(entity, tabId);
   const isOverview = tabId === ENTITY_OVERVIEW_TAB_ID;
+  const onCreate = isEntityFieldVisibleOnCreate(field);
+  const toggleLocked = field.required || isEntityNameField(field);
+  const toggleEnabled = canToggleShowOnCreate(field);
 
   const meta = (
     <div className="min-w-0 flex-1">
@@ -262,6 +289,36 @@ function OverviewFieldRow({
     </div>
   );
 
+  const createSwitch =
+    showCreateToggle && toggleEnabled ? (
+      <div
+        className="flex shrink-0 items-center gap-1.5 pl-1"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <Switch
+          checked={onCreate}
+          disabled={!canEdit || toggleLocked || !onToggleShowOnCreate}
+          aria-label={
+            toggleLocked
+              ? `${name}: всегда в форме создания`
+              : `${name}: ${onCreate ? "в форме создания" : "скрыть при создании"}`
+          }
+          title={
+            toggleLocked
+              ? "Обязательные и название всегда в форме создания"
+              : "Показывать при создании записи"
+          }
+          onCheckedChange={(checked) => {
+            if (toggleLocked) return;
+            onToggleShowOnCreate?.(checked);
+          }}
+        />
+      </div>
+    ) : showCreateToggle && !toggleEnabled ? (
+      <div className="w-9 shrink-0" aria-hidden />
+    ) : null;
+
   const deleteButton = canDelete ? (
     <Button
       type="button"
@@ -290,6 +347,7 @@ function OverviewFieldRow({
         >
           {meta}
         </button>
+        {createSwitch}
         {deleteButton}
       </div>
     );
@@ -298,6 +356,7 @@ function OverviewFieldRow({
   return (
     <div className="group/row flex items-center gap-1 px-3 py-2.5 pr-1.5">
       {meta}
+      {createSwitch}
       {deleteButton}
     </div>
   );
@@ -319,21 +378,31 @@ function EntityFieldsOverviewBody({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [createFilter, setCreateFilter] = useState<CreateFilter>("all");
   const needle = query.trim().toLocaleLowerCase("ru");
   const showTabHints = entity.tabs.filter(isEntityFieldsHostTab).length > 1;
 
+  const onCreateCount = useMemo(
+    () =>
+      entity.fields.filter((field) => isEntityFieldVisibleOnCreate(field))
+        .length,
+    [entity.fields],
+  );
+  const hiddenOnCreateCount = entity.fields.length - onCreateCount;
+
   const groups = useMemo(() => {
     const all = buildOverviewGroups(entity);
-    if (!needle) return all;
     return all
       .map((group) => ({
         ...group,
-        fields: group.fields.filter((field) =>
-          fieldMatchesQuery(field, needle),
+        fields: group.fields.filter(
+          (field) =>
+            fieldMatchesQuery(field, needle) &&
+            fieldMatchesCreateFilter(field, createFilter),
         ),
       }))
       .filter((group) => group.fields.length > 0);
-  }, [entity, needle]);
+  }, [entity, needle, createFilter]);
 
   const totalVisible = groups.reduce(
     (sum, group) => sum + group.fields.length,
@@ -342,6 +411,7 @@ function EntityFieldsOverviewBody({
   const totalFields = entity.fields.length;
   const canEdit = !readOnly && onEditField != null;
   const canDeleteAny = !readOnly && onDeleteField != null;
+  const showCreateToggle = !readOnly;
 
   return (
     <>
@@ -360,18 +430,46 @@ function EntityFieldsOverviewBody({
       </DialogHeader>
 
       {totalFields > 0 ? (
-        <div className="relative shrink-0">
-          <Search
-            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Поиск по названию, типу или группе"
-            aria-label="Поиск полей"
-            className="h-9 pl-8"
-          />
+        <div className="flex shrink-0 flex-col gap-2.5">
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Поиск по названию, типу или группе"
+              aria-label="Поиск полей"
+              className="h-9 pl-8"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1">
+            <FilterPill
+              label="Все"
+              count={totalFields}
+              active={createFilter === "all"}
+              onClick={() => setCreateFilter("all")}
+            />
+            <FilterPill
+              label="При создании"
+              count={onCreateCount}
+              active={createFilter === "onCreate"}
+              onClick={() => setCreateFilter("onCreate")}
+            />
+            <FilterPill
+              label="Скрыты"
+              count={hiddenOnCreateCount}
+              active={createFilter === "hiddenOnCreate"}
+              onClick={() => setCreateFilter("hiddenOnCreate")}
+            />
+            {showCreateToggle ? (
+              <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">
+                Тумблер — в форме создания
+              </span>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -382,7 +480,9 @@ function EntityFieldsOverviewBody({
               Ничего не найдено
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Попробуйте другой запрос
+              {createFilter !== "all"
+                ? "Смените фильтр или поисковый запрос"
+                : "Попробуйте другой запрос"}
             </p>
           </div>
         ) : (
@@ -413,6 +513,7 @@ function EntityFieldsOverviewBody({
                         showTab={showTabHints}
                         canEdit={canEdit}
                         canDelete={canDeleteAny && !locked}
+                        showCreateToggle={showCreateToggle}
                         onSelect={
                           canEdit
                             ? () => {
@@ -424,6 +525,15 @@ function EntityFieldsOverviewBody({
                         onDelete={
                           canDeleteAny && !locked
                             ? () => onDeleteField?.(field)
+                            : undefined
+                        }
+                        onToggleShowOnCreate={
+                          showCreateToggle
+                            ? (next) => {
+                                updateEntityField(entity.id, field.id, {
+                                  showOnCreate: next,
+                                });
+                              }
                             : undefined
                         }
                       />
@@ -439,6 +549,11 @@ function EntityFieldsOverviewBody({
       {totalFields > 0 ? (
         <p className="shrink-0 text-[11px] text-muted-foreground">
           Показано {totalVisible} из {totalFields}
+          {createFilter === "onCreate"
+            ? " · в форме создания"
+            : createFilter === "hiddenOnCreate"
+              ? " · скрыты при создании"
+              : ""}
         </p>
       ) : null}
     </>

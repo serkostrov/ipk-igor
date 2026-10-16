@@ -18,7 +18,13 @@ export {
   AUTOMATION_VALUE_TODAY,
   AUTOMATION_VALUE_TOMORROW,
   describeAutomationActionValue,
+  isAutomationEntityPathRef,
+  isAutomationFieldRef,
+  parseAutomationEntityPathRef,
+  parseAutomationFieldRef,
   resolveAutomationActionValue,
+  toAutomationEntityPathRef,
+  toAutomationFieldRef,
 } from "./model/action-values";
 export {
   AUTOMATION_ASSIGNEE_TYPE_LABELS,

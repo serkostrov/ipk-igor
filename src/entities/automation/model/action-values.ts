@@ -1,5 +1,8 @@
 import {
   getCurrentUserRecordId,
+  getEntityRelationTargetId,
+  parseEntityRelationIds,
+  type Entity,
   type EntityField,
   type EntityFieldType,
 } from "@/entities/entity";
@@ -16,14 +19,97 @@ export const AUTOMATION_VALUE_NOW = "__now__";
 export const AUTOMATION_VALUE_TIME_NOW = "__timeNow__";
 export const AUTOMATION_VALUE_CURRENT_USER = "__currentUser__";
 
+/** `{{fieldId}}` — value from a field on the same record. */
+export function isAutomationFieldRef(value: string) {
+  return /^\{\{[^.}]+\}\}$/.test(value.trim());
+}
+
+/** `{{relationFieldId.nestedFieldId}}` — value from a related record. */
+export function isAutomationEntityPathRef(value: string) {
+  return /^\{\{[^.}]+\.[^}]+\}\}$/.test(value.trim());
+}
+
+export function parseAutomationFieldRef(value: string): string | null {
+  const match = value.trim().match(/^\{\{([^.}]+)\}\}$/);
+  return match?.[1]?.trim() || null;
+}
+
+export function parseAutomationEntityPathRef(
+  value: string,
+): { relationFieldId: string; fieldId: string } | null {
+  const match = value.trim().match(/^\{\{([^.}]+)\.([^}]+)\}\}$/);
+  if (!match) return null;
+  const relationFieldId = match[1]?.trim() ?? "";
+  const fieldId = match[2]?.trim() ?? "";
+  if (!relationFieldId || !fieldId) return null;
+  return { relationFieldId, fieldId };
+}
+
+export function toAutomationFieldRef(fieldId: string) {
+  return fieldId ? `{{${fieldId}}}` : "";
+}
+
+export function toAutomationEntityPathRef(
+  relationFieldId: string,
+  fieldId: string,
+) {
+  return relationFieldId && fieldId ? `{{${relationFieldId}.${fieldId}}}` : "";
+}
+
 export type ResolveAutomationActionValueOptions = {
   createdRecordIds?: string[];
   actorUserId?: string | null;
   fieldType?: EntityFieldType;
   datetimeWithTime?: boolean;
+  /**
+   * Resolve `{{relationFieldId.nestedFieldId}}` using the current record’s
+   * relation value and the related entity’s records.
+   */
+  getRelatedFieldValue?: (
+    relationFieldId: string,
+    nestedFieldId: string,
+  ) => string;
+  entities?: Entity[];
+  triggerEntityId?: string;
+  values?: Record<string, string>;
 };
 
-/** Resolve literal / `{{fieldId}}` / dynamic tokens for action values. */
+function resolveRelatedFieldValue(
+  relationFieldId: string,
+  nestedFieldId: string,
+  options: ResolveAutomationActionValueOptions,
+): string {
+  if (options.getRelatedFieldValue) {
+    return options.getRelatedFieldValue(relationFieldId, nestedFieldId);
+  }
+  const values = options.values;
+  const entities = options.entities;
+  const triggerEntityId = options.triggerEntityId;
+  if (!values || !entities || !triggerEntityId) return "";
+
+  const trigger = entities.find((entity) => entity.id === triggerEntityId);
+  const relationField = trigger?.fields.find(
+    (field) => field.id === relationFieldId && field.type === "relation",
+  );
+  if (!relationField) return "";
+
+  const relatedId = parseEntityRelationIds(values[relationFieldId])[0];
+  if (!relatedId) return "";
+
+  const targetId = getEntityRelationTargetId(relationField);
+  const relatedEntity =
+    (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
+    entities.find((entity) =>
+      entity.records.some((record) => record.id === relatedId),
+    );
+  if (!relatedEntity) return "";
+  const relatedRecord = relatedEntity.records.find(
+    (record) => record.id === relatedId,
+  );
+  return relatedRecord?.values[nestedFieldId] ?? "";
+}
+
+/** Resolve literal / `{{fieldId}}` / `{{rel.field}}` / dynamic tokens. */
 export function resolveAutomationActionValue(
   source: string,
   values: Record<string, string>,
@@ -59,14 +145,22 @@ export function resolveAutomationActionValue(
     return ids[ids.length - 1] ?? "";
   }
 
+  const path = parseAutomationEntityPathRef(raw);
+  if (path) {
+    return resolveRelatedFieldValue(path.relationFieldId, path.fieldId, {
+      ...options,
+      values: options.values ?? values,
+    });
+  }
+
   const match = raw.match(/^\{\{([^}]+)\}\}$/);
   if (match) {
     return values[match[1]!.trim()] ?? "";
   }
 
-  // Partial templates: replace every {{fieldId}} occurrence.
+  // Partial templates: replace every {{fieldId}} occurrence (not dotted paths).
   if (raw.includes("{{")) {
-    return raw.replace(/\{\{([^}]+)\}\}/g, (_, fieldId: string) => {
+    return raw.replace(/\{\{([^.}]+)\}\}/g, (_, fieldId: string) => {
       const key = fieldId.trim();
       if (key === "created") {
         const ids = options.createdRecordIds ?? [];
@@ -96,6 +190,14 @@ export function describeAutomationActionValue(
   if (raw === AUTOMATION_VALUE_CURRENT_USER) return "Текущий пользователь";
   if (raw === "true") return "Да";
   if (raw === "false") return "Нет";
+
+  const path = parseAutomationEntityPathRef(raw);
+  if (path) {
+    const relationName =
+      fieldNameById?.(path.relationFieldId) ?? path.relationFieldId;
+    const nestedName = fieldNameById?.(path.fieldId) ?? path.fieldId;
+    return `Из «${relationName}» · «${nestedName}»`;
+  }
 
   const match = raw.match(/^\{\{([^}]+)\}\}$/);
   if (match) {
