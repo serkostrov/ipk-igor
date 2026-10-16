@@ -31,6 +31,8 @@ import type {
   AutomationTaskTemplate,
 } from "@/entities/automation";
 import { AUTOMATION_ASSIGNEE_TYPE_LABELS } from "@/entities/automation";
+import type { EntityField } from "@/entities/entity";
+import { TemplateRichText } from "./TemplateRichText";
 
 const COL_W = 220;
 const COL_GAP = 36;
@@ -149,6 +151,7 @@ type StageData = {
 type TaskData = {
   template: AutomationTaskTemplate;
   selected: boolean;
+  fields: EntityField[];
 };
 type EmptyData = { stageId: string; hasTasks: boolean };
 
@@ -293,7 +296,7 @@ function TriggerNode() {
 }
 
 function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
-  const { template, selected } = data;
+  const { template, selected, fields } = data;
   return (
     <div
       className={cn(
@@ -328,8 +331,14 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
         className={HANDLE_CLASS}
       />
       <div className="flex items-start justify-between gap-1.5">
-        <div className="min-w-0">
-          <p className="truncate text-xs font-semibold">{template.name}</p>
+        <div className="min-w-0 overflow-hidden">
+          <p className="truncate text-xs font-semibold leading-snug">
+            {template.name.trim() ? (
+              <TemplateRichText value={template.name} fields={fields} />
+            ) : (
+              "Без названия"
+            )}
+          </p>
           <p className="mt-0.5 text-[10px] text-muted-foreground">
             #{template.stepOrder}
             {template.kind === "decision" ? " · решение" : ""}
@@ -554,9 +563,16 @@ function buildLayout(input: {
   activeStageId: string | null;
   selectedTemplateId: string | null;
   canvasLayout: AutomationCanvasLayout;
+  fields: EntityField[];
 }): { nodes: Node[]; edges: Edge[] } {
-  const { stages, templates, activeStageId, selectedTemplateId, canvasLayout } =
-    input;
+  const {
+    stages,
+    templates,
+    activeStageId,
+    selectedTemplateId,
+    canvasLayout,
+    fields,
+  } = input;
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
@@ -625,6 +641,7 @@ function buildLayout(input: {
         data: {
           template,
           selected: selectedTemplateId === template.id,
+          fields,
         },
       });
       edges.push({
@@ -690,6 +707,7 @@ function FlowInner({
   activeStageId,
   selectedTemplateId,
   canvasLayout,
+  fields,
   onSelectStage,
   onSelectTemplate,
   onAdd,
@@ -702,6 +720,7 @@ function FlowInner({
   activeStageId: string | null;
   selectedTemplateId: string | null;
   canvasLayout: AutomationCanvasLayout;
+  fields: EntityField[];
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
   onAdd: (stageId: string) => void;
@@ -731,6 +750,7 @@ function FlowInner({
       activeStageId,
       selectedTemplateId,
       canvasLayout,
+      fields,
     });
     setNodes(layout.nodes);
     setEdges(layout.edges);
@@ -741,6 +761,7 @@ function FlowInner({
     activeStageId,
     selectedTemplateId,
     canvasLayout,
+    fields,
     setNodes,
     setEdges,
   ]);
@@ -871,6 +892,7 @@ export function AutomationFlowCanvas({
   activeStageId,
   selectedTemplateId,
   canvasLayout,
+  fields,
   onSelectStage,
   onSelectTemplate,
   onAdd,
@@ -882,6 +904,7 @@ export function AutomationFlowCanvas({
   activeStageId: string | null;
   selectedTemplateId: string | null;
   canvasLayout: AutomationCanvasLayout;
+  fields: EntityField[];
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
   onAdd: (stageId: string) => void;
@@ -895,7 +918,7 @@ export function AutomationFlowCanvas({
   const fitKey = [
     stages.map((s) => s.id).join(","),
     templates
-      .map((t) => `${t.id}:${t.triggerOptionId}:${t.stepOrder}`)
+      .map((t) => `${t.id}:${t.triggerOptionId}:${t.stepOrder}:${t.name}`)
       .join(","),
   ].join("|");
 
@@ -908,6 +931,7 @@ export function AutomationFlowCanvas({
           activeStageId={activeStageId}
           selectedTemplateId={selectedTemplateId}
           canvasLayout={canvasLayout}
+          fields={fields}
           onSelectStage={onSelectStage}
           onSelectTemplate={onSelectTemplate}
           onAdd={onAdd}

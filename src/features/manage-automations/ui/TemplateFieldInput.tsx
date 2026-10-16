@@ -1,46 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import { Braces, X } from "lucide-react";
+import { Braces } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { getEntityFieldDisplayName, type EntityField } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
+import {
+  getTemplateFieldLabel,
+  parseTemplateParts,
+  serializeTemplateParts,
+  type TemplatePart,
+} from "../lib/template-text";
+import { TemplateFieldToken } from "./TemplateRichText";
 
-type Part = { kind: "text"; text: string } | { kind: "field"; id: string };
-
-function fieldToken(fieldId: string) {
-  return `{{${fieldId}}}`;
-}
-
-function parseParts(value: string): Part[] {
-  const parts: Part[] = [];
-  const re = /\{\{([^}]+)\}\}/g;
-  let lastIndex = 0;
-  for (const match of value.matchAll(re)) {
-    const index = match.index ?? 0;
-    if (index > lastIndex) {
-      parts.push({ kind: "text", text: value.slice(lastIndex, index) });
-    }
-    const id = match[1]?.trim() ?? "";
-    if (id) parts.push({ kind: "field", id });
-    lastIndex = index + match[0].length;
-  }
-  if (lastIndex < value.length) {
-    parts.push({ kind: "text", text: value.slice(lastIndex) });
-  }
+function ensureTrailingText(parts: TemplatePart[]): TemplatePart[] {
   if (parts.length === 0 || parts[parts.length - 1]?.kind === "field") {
-    parts.push({ kind: "text", text: "" });
+    return [...parts, { kind: "text", text: "" }];
   }
   return parts;
 }
 
-function serializeParts(parts: Part[]) {
-  return parts
-    .map((part) => (part.kind === "field" ? fieldToken(part.id) : part.text))
-    .join("");
-}
-
-function textInputWidth(text: string, emptyMin = 2) {
+function textInputWidth(text: string, emptyMin = 1) {
   return `${Math.max(emptyMin, text.length + 1)}ch`;
 }
 
@@ -60,7 +40,7 @@ export function TemplateFieldInput({
   id?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const parts = parseParts(value);
+  const parts = ensureTrailingText(parseTemplateParts(value));
   const activeTextIndexRef = useRef(0);
   const caretRef = useRef(0);
   const inputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
@@ -78,8 +58,14 @@ export function TemplateFieldInput({
     node.setSelectionRange(pending.caret, pending.caret);
   }, [value]);
 
-  function commit(nextParts: Part[]) {
-    onChange(serializeParts(parseParts(serializeParts(nextParts))));
+  function commit(nextParts: TemplatePart[]) {
+    onChange(
+      serializeTemplateParts(
+        ensureTrailingText(
+          parseTemplateParts(serializeTemplateParts(nextParts)),
+        ),
+      ),
+    );
   }
 
   function updateText(index: number, text: string) {
@@ -192,7 +178,7 @@ export function TemplateFieldInput({
 
       <div
         className={cn(
-          "relative flex min-h-9 w-full min-w-0 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1 shadow-xs transition-[color,box-shadow]",
+          "relative flex min-h-8 w-full min-w-0 flex-wrap items-center gap-x-0.5 gap-y-0.5 rounded-md border border-input bg-transparent px-2 py-1 shadow-xs transition-[color,box-shadow]",
           "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
           "dark:bg-input/30",
         )}
@@ -216,23 +202,12 @@ export function TemplateFieldInput({
 
         {parts.map((part, index) => {
           if (part.kind === "field") {
-            const field = fields.find((item) => item.id === part.id);
-            const label = field ? getEntityFieldDisplayName(field) : part.id;
             return (
-              <span
+              <TemplateFieldToken
                 key={`field-${index}-${part.id}`}
-                className="inline-flex h-6 max-w-full items-center gap-0.5 rounded-md bg-primary/8 px-1.5 text-[11px] font-medium text-primary ring-1 ring-primary/20"
-              >
-                <span className="truncate">{label}</span>
-                <button
-                  type="button"
-                  className="shrink-0 rounded p-0.5 text-primary/70 transition-colors hover:bg-primary/10 hover:text-primary"
-                  aria-label={`Убрать ${label}`}
-                  onClick={() => removeField(index)}
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
+                label={getTemplateFieldLabel(fields, part.id)}
+                onRemove={() => removeField(index)}
+              />
             );
           }
 
@@ -248,11 +223,11 @@ export function TemplateFieldInput({
               id={index === 0 ? id : undefined}
               value={part.text}
               className={cn(
-                "min-w-[1ch] border-0 bg-transparent py-0.5 text-base outline-none md:text-sm",
-                isLast && "min-w-[4ch] flex-1",
+                "min-w-[1ch] border-0 bg-transparent py-0 text-sm leading-5 outline-none",
+                isLast && "min-w-[3ch] flex-1",
               )}
               style={
-                isLast ? undefined : { width: textInputWidth(part.text, 2) }
+                isLast ? undefined : { width: textInputWidth(part.text, 1) }
               }
               onFocus={(event) => {
                 activeTextIndexRef.current = index;

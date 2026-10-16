@@ -1,0 +1,57 @@
+import { getEntityFieldDisplayName, type EntityField } from "@/entities/entity";
+
+export type TemplatePart =
+  { kind: "text"; text: string } | { kind: "field"; id: string };
+
+export function fieldTemplateToken(fieldId: string) {
+  return `{{${fieldId}}}`;
+}
+
+/** Split `Hello {{fieldId}}_rest` into text / field parts. */
+export function parseTemplateParts(value: string): TemplatePart[] {
+  const parts: TemplatePart[] = [];
+  const re = /\{\{([^}]+)\}\}/g;
+  let lastIndex = 0;
+  for (const match of value.matchAll(re)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      parts.push({ kind: "text", text: value.slice(lastIndex, index) });
+    }
+    const id = match[1]?.trim() ?? "";
+    if (id) parts.push({ kind: "field", id });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < value.length) {
+    parts.push({ kind: "text", text: value.slice(lastIndex) });
+  }
+  return parts;
+}
+
+export function serializeTemplateParts(parts: TemplatePart[]) {
+  return parts
+    .map((part) =>
+      part.kind === "field" ? fieldTemplateToken(part.id) : part.text,
+    )
+    .join("");
+}
+
+export function resolveTemplateField(
+  fields: readonly EntityField[],
+  token: string,
+): EntityField | null {
+  const id = token.trim();
+  if (!id) return null;
+  return (
+    fields.find((field) => field.id === id) ??
+    fields.find((field) => field.systemKey === id) ??
+    null
+  );
+}
+
+export function getTemplateFieldLabel(
+  fields: readonly EntityField[],
+  token: string,
+): string {
+  const field = resolveTemplateField(fields, token);
+  return field ? getEntityFieldDisplayName(field) : token;
+}

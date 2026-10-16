@@ -418,6 +418,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 activeStageId={activeStageId}
                 selectedTemplateId={selectedTemplateId}
                 canvasLayout={scenario?.canvasLayout ?? {}}
+                fields={entity?.fields ?? []}
                 onSelectStage={setStageId}
                 onSelectTemplate={setSelectedTemplateId}
                 onAdd={(stageOptionId) => void addTemplate(stageOptionId)}

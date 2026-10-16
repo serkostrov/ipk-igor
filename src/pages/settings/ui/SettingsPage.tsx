@@ -11,12 +11,20 @@ import {
   useCanSettingsTab,
   type SettingsTabId,
 } from "@/entities/access";
+import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import {
   settingsLocation,
   useAppLocation,
   useAppNavigate,
   type SettingsPathTab,
 } from "@/shared/lib/navigation";
+
+const SETTINGS_ENTITY_ID_KEY = "settings.entities.selectedEntityId";
+const SETTINGS_ENTITY_TAB_ID_KEY = "settings.entities.selectedEntityTabId";
+
+function parseStoredId(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 function SettingsTabsList({ tabs }: { tabs: SettingsTabId[] }) {
   return (
@@ -61,6 +69,16 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
   const canAutomations = useCanSettingsTab("automations");
   const canNotifications = useCanSettingsTab("notifications");
   const canRoles = useCanSettingsTab("roles");
+  const [storedEntityId, setStoredEntityId] = useLocalStorageState(
+    SETTINGS_ENTITY_ID_KEY,
+    parseStoredId,
+    null,
+  );
+  const [storedEntityTabId, setStoredEntityTabId] = useLocalStorageState(
+    SETTINGS_ENTITY_TAB_ID_KEY,
+    parseStoredId,
+    null,
+  );
 
   const tabs = useMemo(() => {
     return SETTINGS_TAB_IDS.filter((tab) => {
@@ -81,12 +99,46 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
       : null;
   const activeTab = locationTab ?? tabs[0] ?? null;
 
+  const urlEntityId =
+    location.type === "settings" && location.tab === "entities"
+      ? (location.entityId ?? null)
+      : null;
+  const urlEntityTabId =
+    location.type === "settings" && location.tab === "entities"
+      ? (location.entityTabId ?? null)
+      : null;
+  /** Keep selection across tabs / navigation — URL when present, else storage. */
+  const selectedEntityId = urlEntityId ?? storedEntityId;
+  const selectedEntityTabId =
+    urlEntityId && urlEntityId === selectedEntityId
+      ? (urlEntityTabId ?? storedEntityTabId)
+      : selectedEntityId === storedEntityId
+        ? storedEntityTabId
+        : null;
+
   useEffect(() => {
     if (location.type !== "settings" || !activeTab) return;
     if (location.tab === activeTab) return;
     if (location.tab && tabs.includes(location.tab as SettingsTabId)) return;
-    replace(settingsLocation({ tab: activeTab as SettingsPathTab }));
-  }, [location, activeTab, tabs, replace]);
+    replace(
+      settingsLocation({
+        tab: activeTab as SettingsPathTab,
+        entityId:
+          activeTab === "entities" ? (storedEntityId ?? undefined) : undefined,
+        entityTabId:
+          activeTab === "entities"
+            ? (storedEntityTabId ?? undefined)
+            : undefined,
+      }),
+    );
+  }, [location, activeTab, tabs, replace, storedEntityId, storedEntityTabId]);
+
+  // Remember URL selection for restore after leaving settings.
+  useEffect(() => {
+    if (location.type !== "settings" || location.tab !== "entities") return;
+    if (location.entityId) setStoredEntityId(location.entityId);
+    if (location.entityTabId) setStoredEntityTabId(location.entityTabId);
+  }, [location, setStoredEntityId, setStoredEntityTabId]);
 
   if (!canAccess || tabs.length === 0 || !activeTab) {
     return (
@@ -104,13 +156,9 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
       settingsLocation({
         tab: tab as SettingsPathTab,
         entityId:
-          tab === "entities" && location.type === "settings"
-            ? location.entityId
-            : undefined,
+          tab === "entities" ? (selectedEntityId ?? undefined) : undefined,
         entityTabId:
-          tab === "entities" && location.type === "settings"
-            ? location.entityTabId
-            : undefined,
+          tab === "entities" ? (selectedEntityTabId ?? undefined) : undefined,
       }),
     );
   }
@@ -153,19 +201,13 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
               <EntitySettings
                 leading={<SettingsTabsList tabs={tabs} />}
                 onOpenEntity={onOpenEntity}
-                selectedEntityId={
-                  location.type === "settings" && location.tab === "entities"
-                    ? location.entityId
-                    : undefined
-                }
-                selectedEntityTabId={
-                  location.type === "settings" && location.tab === "entities"
-                    ? location.entityTabId
-                    : undefined
-                }
+                selectedEntityId={selectedEntityId}
+                selectedEntityTabId={selectedEntityTabId}
                 onSelectedEntityIdChange={(entityId) => {
-                  // Only sync while «Сущности» is active — otherwise a still-
-                  // mounted panel bounces the URL back from Меню/…
+                  setStoredEntityId(entityId);
+                  setStoredEntityTabId(null);
+                  // Only sync URL while «Сущности» is active — otherwise a
+                  // still-mounted panel bounces navigation from Меню/…
                   if (
                     location.type !== "settings" ||
                     location.tab !== "entities"
@@ -183,6 +225,8 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
                   }
                 }}
                 onSelectedEntityTabIdChange={(entityId, entityTabId) => {
+                  setStoredEntityId(entityId);
+                  setStoredEntityTabId(entityTabId);
                   if (
                     location.type !== "settings" ||
                     location.tab !== "entities"

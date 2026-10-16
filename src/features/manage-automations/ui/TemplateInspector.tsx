@@ -50,6 +50,7 @@ import {
 import { ActionPipelineEditor } from "./ActionPipelineEditor";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { TemplateFieldInput } from "./TemplateFieldInput";
+import { TemplateRichText } from "./TemplateRichText";
 import { cn } from "@/shared/lib/cn";
 
 const OUTCOME_FIELD_MIME = "application/x-ipk-outcome-field";
@@ -622,8 +623,12 @@ export function TemplateInspector({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border pb-3">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold">
-            {draft.name.trim() || "Новая задача"}
+          <h3 className="truncate text-sm font-semibold leading-snug">
+            {draft.name.trim() ? (
+              <TemplateRichText value={draft.name} fields={entity.fields} />
+            ) : (
+              "Новая задача"
+            )}
           </h3>
           <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
             {stageName} · {KIND_LABELS[draft.kind]}
