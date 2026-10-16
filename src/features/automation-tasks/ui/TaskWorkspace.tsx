@@ -68,6 +68,21 @@ export function TaskWorkspace({
       setError("Добавьте вложение перед завершением");
       return;
     }
+    if (outcome && record) {
+      const missing = outcome.fieldAccess.requiredFieldIds.filter(
+        (fieldId) => !(record.values[fieldId] ?? "").trim(),
+      );
+      if (missing.length > 0) {
+        const labels = missing.map((fieldId) => {
+          const field = entity?.fields.find((item) => item.id === fieldId);
+          return field ? getEntityFieldDisplayName(field) : fieldId;
+        });
+        setError(
+          `Заполните в карточке обязательные поля: ${labels.join(", ")}`,
+        );
+        return;
+      }
+    }
     setBusy(true);
     setError(null);
     try {
@@ -105,24 +120,46 @@ export function TaskWorkspace({
           >
             Открыть карточку
           </button>
-          <ul className="mt-2 flex flex-col gap-1">
-            {task.config.outcomes[0]?.fieldAccess.visibleFieldIds.map(
-              (fieldId) => {
-                const field = entity?.fields.find(
-                  (item) => item.id === fieldId,
-                );
-                if (!field) return null;
-                return (
-                  <li key={fieldId} className="text-xs">
-                    <span className="text-muted-foreground">
-                      {getEntityFieldDisplayName(field)}:{" "}
-                    </span>
-                    <span>{record.values[fieldId] || "—"}</span>
-                  </li>
-                );
-              },
-            )}
-          </ul>
+          {(() => {
+            const access = task.config.outcomes[0]?.fieldAccess;
+            const visibleIds = access?.visibleFieldIds ?? [];
+            const requiredIds = new Set(access?.requiredFieldIds ?? []);
+            if (visibleIds.length === 0) {
+              return (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Заполните нужные поля в карточке, затем нажмите результат.
+                </p>
+              );
+            }
+            return (
+              <ul className="mt-2 flex flex-col gap-1">
+                {visibleIds.map((fieldId) => {
+                  const field = entity?.fields.find(
+                    (item) => item.id === fieldId,
+                  );
+                  if (!field) return null;
+                  const empty = !(record.values[fieldId] ?? "").trim();
+                  return (
+                    <li key={fieldId} className="text-xs">
+                      <span className="text-muted-foreground">
+                        {getEntityFieldDisplayName(field)}
+                        {requiredIds.has(fieldId) ? " *" : ""}:{" "}
+                      </span>
+                      <span
+                        className={
+                          empty && requiredIds.has(fieldId)
+                            ? "text-destructive"
+                            : undefined
+                        }
+                      >
+                        {record.values[fieldId] || "не заполнено"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            );
+          })()}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">

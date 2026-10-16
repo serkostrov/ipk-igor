@@ -1,4 +1,4 @@
-import { getEntityConfig } from "@/entities/entity";
+import { getEntityConfig, getEntityFieldDisplayName } from "@/entities/entity";
 import {
   completeAutomationTaskRpc,
   fetchAutomationTask,
@@ -20,26 +20,31 @@ export async function completeAutomationTask(
     task.config.outcomes[0];
   if (!outcome) throw new Error("Не выбран результат");
 
-  // Client-side requireFields before RPC.
-  const requireAction = outcome.actions.find(
-    (action) => action.kind === "requireFields",
-  );
-  if (requireAction && requireAction.kind === "requireFields") {
-    const { entities } = getEntityConfig();
-    const entity = entities.find((item) => item.id === task.entityId);
-    const record = entity?.records.find((item) => item.id === task.recordId);
-    const values = record?.values ?? {};
-    const missing = requireAction.fieldIds.filter(
-      (fieldId) => !(values[fieldId] ?? "").trim(),
-    );
-    if (missing.length > 0) {
-      throw new Error(`Не заполнены обязательные поля: ${missing.join(", ")}`);
-    }
-  }
-
   const { entities } = getEntityConfig();
   const entity = entities.find((item) => item.id === task.entityId);
   const record = entity?.records.find((item) => item.id === task.recordId);
+  const valuesBefore = record?.values ?? {};
+
+  // Required fields from outcome form + optional requireFields action.
+  const requireAction = outcome.actions.find(
+    (action) => action.kind === "requireFields",
+  );
+  const requiredIds = [
+    ...outcome.fieldAccess.requiredFieldIds,
+    ...(requireAction && requireAction.kind === "requireFields"
+      ? requireAction.fieldIds
+      : []),
+  ];
+  const missingRequired = [...new Set(requiredIds)].filter(
+    (fieldId) => !(valuesBefore[fieldId] ?? "").trim(),
+  );
+  if (missingRequired.length > 0) {
+    const labels = missingRequired.map((fieldId) => {
+      const field = entity?.fields.find((item) => item.id === fieldId);
+      return field ? getEntityFieldDisplayName(field) : fieldId;
+    });
+    throw new Error(`Не заполнены обязательные поля: ${labels.join(", ")}`);
+  }
   const previousValues: Record<string, string> = {
     ...(record?.values ?? {}),
   };

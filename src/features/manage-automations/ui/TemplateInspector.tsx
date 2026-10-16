@@ -23,12 +23,18 @@ import {
   type AutomationNotificationEvent,
   type AutomationNotificationRule,
   type AutomationOutcome,
+  type AutomationOutcomeFieldAccess,
   type AutomationTaskTemplate,
 } from "@/entities/automation";
 import { AssigneeEditor } from "@/entities/automation/ui/AssigneeEditor";
-import { type Entity } from "@/entities/entity";
+import {
+  getEntityFieldDisplayName,
+  type Entity,
+  type EntityField,
+} from "@/entities/entity";
 import { ActionPipelineEditor } from "./ActionPipelineEditor";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
+import { cn } from "@/shared/lib/cn";
 
 const KIND_LABELS = {
   decision: "Решение (Да / Нет)",
@@ -55,6 +61,109 @@ function Field({
         ) : null}
       </div>
       {children}
+    </div>
+  );
+}
+
+function toggleId(ids: string[], id: string, on: boolean) {
+  if (on) return ids.includes(id) ? ids : [...ids, id];
+  return ids.filter((item) => item !== id);
+}
+
+/** Which record fields appear on the task and must be filled before the button. */
+function OutcomeFieldAccessEditor({
+  fields,
+  value,
+  onChange,
+}: {
+  fields: EntityField[];
+  value: AutomationOutcomeFieldAccess;
+  onChange: (next: AutomationOutcomeFieldAccess) => void;
+}) {
+  if (fields.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        У сущности пока нет полей
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        Отметьте поля, которые нужно заполнить при этой кнопке. Исполнитель
+        увидит их в задаче и откроет карточку для ввода. «Установить поле» ниже
+        — это автозапись значения, а не форма.
+      </p>
+      <ul className="max-h-48 overflow-auto rounded-md border border-border/60 divide-y divide-border/50">
+        {fields.map((field) => {
+          const id = field.id;
+          const visible = value.visibleFieldIds.includes(id);
+          const required = value.requiredFieldIds.includes(id);
+          return (
+            <li
+              key={id}
+              className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                {getEntityFieldDisplayName(field)}
+              </span>
+              <label
+                className={cn(
+                  "flex shrink-0 cursor-pointer items-center gap-1 text-muted-foreground",
+                  visible && "text-foreground",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-primary"
+                  checked={visible}
+                  onChange={(event) => {
+                    const nextVisible = toggleId(
+                      value.visibleFieldIds,
+                      id,
+                      event.target.checked,
+                    );
+                    onChange({
+                      ...value,
+                      visibleFieldIds: nextVisible,
+                      requiredFieldIds: event.target.checked
+                        ? value.requiredFieldIds
+                        : value.requiredFieldIds.filter((item) => item !== id),
+                    });
+                  }}
+                />
+                Показать
+              </label>
+              <label
+                className={cn(
+                  "flex shrink-0 cursor-pointer items-center gap-1 text-muted-foreground",
+                  required && "text-foreground",
+                  !visible && "opacity-40",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-primary"
+                  checked={required}
+                  disabled={!visible}
+                  onChange={(event) =>
+                    onChange({
+                      ...value,
+                      requiredFieldIds: toggleId(
+                        value.requiredFieldIds,
+                        id,
+                        event.target.checked,
+                      ),
+                    })
+                  }
+                />
+                Обязательно
+              </label>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -310,7 +419,8 @@ export function TemplateInspector({
 
           <TabsContent value="outcomes" className="mt-0 flex flex-col gap-3">
             <p className="text-[11px] leading-snug text-muted-foreground">
-              Кнопки завершения задачи и что происходит после нажатия
+              Кнопки завершения: какие поля заполнить и что сделать после
+              нажатия
             </p>
             {draft.outcomes.map((outcome, index) => (
               <div
@@ -329,6 +439,18 @@ export function TemplateInspector({
                     }
                   />
                 </Field>
+                <div className="mt-3">
+                  <p className="mb-1.5 text-xs font-medium">
+                    Поля на заполнение
+                  </p>
+                  <OutcomeFieldAccessEditor
+                    fields={entity.fields}
+                    value={outcome.fieldAccess}
+                    onChange={(fieldAccess) =>
+                      patchOutcome(index, { ...outcome, fieldAccess })
+                    }
+                  />
+                </div>
                 <div className="mt-3 rounded-md border border-border/50 bg-muted/10 px-2.5 py-2">
                   <SettingSwitch
                     id={`outcome-attach-${outcome.id}`}
@@ -348,6 +470,10 @@ export function TemplateInspector({
                 </div>
                 <div className="mt-3">
                   <p className="mb-1.5 text-xs font-medium">Действия после</p>
+                  <p className="mb-1.5 text-[11px] leading-snug text-muted-foreground">
+                    Автоматика после нажатия (смена стадии, создание записей и
+                    т.д.). Не заменяет заполнение полей выше.
+                  </p>
                   <ActionPipelineEditor
                     actions={outcome.actions}
                     entities={entities}
