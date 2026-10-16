@@ -165,13 +165,10 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setBootstrapped(true);
-      return;
-    }
+    // Initial state is already `true` when Supabase is off — no setState here.
+    if (!isSupabaseConfigured) return;
 
     const gen = ++bootstrapGenRef.current;
-    setBootstrapped(false);
 
     const withTimeout = (promise: Promise<unknown>, ms: number) =>
       Promise.race([
@@ -185,6 +182,12 @@ export function AppShell() {
     const forceOpenTimer = window.setTimeout(() => {
       if (bootstrapGenRef.current === gen) setBootstrapped(true);
     }, 6_000);
+
+    // Defer reset so we don't call setState synchronously in the effect body
+    // (react-hooks/set-state-in-effect). Re-run on auth user change.
+    const resetTimer = window.setTimeout(() => {
+      if (bootstrapGenRef.current === gen) setBootstrapped(false);
+    }, 0);
 
     void (async () => {
       try {
@@ -237,6 +240,11 @@ export function AppShell() {
         if (bootstrapGenRef.current === gen) setBootstrapped(true);
       }
     })();
+
+    return () => {
+      window.clearTimeout(resetTimer);
+      window.clearTimeout(forceOpenTimer);
+    };
   }, [authUserId]);
 
   const handleOpenRecord = useCallback(

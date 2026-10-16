@@ -9,7 +9,8 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# Skip lifecycle scripts (prepare = format+lint) — build only what we need.
+RUN npm ci --ignore-scripts
 
 COPY . .
 
