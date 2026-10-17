@@ -44,10 +44,7 @@ import type {
   AutomationStageTransition,
   AutomationTaskTemplate,
 } from "@/entities/automation";
-import {
-  AUTOMATION_ASSIGNEE_TYPE_LABELS,
-  stageTransitionIsConfigured,
-} from "@/entities/automation";
+import { AUTOMATION_ASSIGNEE_TYPE_LABELS } from "@/entities/automation";
 import type { EntityField } from "@/entities/entity";
 import { TemplateRichText } from "./TemplateRichText";
 
@@ -879,17 +876,22 @@ function buildLayout(input: {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   const stageIds = new Set(stages.map((stage) => stage.id));
-  const mapEdgeKeys = new Set<string>();
+  /** Stages that already have a saved «тогда» — no default next-neighbour link. */
+  const stagesWithOutgoing = new Set(
+    stageTransitions
+      .filter(
+        (item) =>
+          stageIds.has(item.fromOptionId) && stageIds.has(item.toOptionId),
+      )
+      .map((item) => item.fromOptionId),
+  );
 
   stages.forEach((stage, index) => {
     const colX = ORIGIN_X + index * (COL_W + COL_GAP);
     const stageNodeId = `stage:${stage.id}`;
     const stageTasks = templatesForStage(templates, stage.id);
     const collapsed = collapsedStageIds.has(stage.id);
-    const hasTransitionRule = stageTransitions.some(
-      (item) =>
-        item.fromOptionId === stage.id && stageTransitionIsConfigured(item),
-    );
+    const hasTransitionRule = stagesWithOutgoing.has(stage.id);
 
     nodes.push({
       id: stageNodeId,
@@ -909,17 +911,10 @@ function buildLayout(input: {
       } satisfies StageData,
     });
 
+    // Placeholder link to the next list option only when nothing is configured yet.
     const nextStage = stages[index + 1];
-    if (nextStage) {
-      const transition = stageTransitions.find(
-        (item) =>
-          item.fromOptionId === stage.id && item.toOptionId === nextStage.id,
-      );
+    if (nextStage && !stagesWithOutgoing.has(stage.id)) {
       const transitionKey = `${stage.id}\0${nextStage.id}`;
-      const elseStage = transition?.elseOptionId
-        ? stages.find((item) => item.id === transition.elseOptionId)
-        : null;
-      mapEdgeKeys.add(transitionKey);
       edges.push({
         id: `map-${stage.id}-${nextStage.id}`,
         source: stageNodeId,
@@ -929,9 +924,8 @@ function buildLayout(input: {
         data: {
           fromOptionId: stage.id,
           toOptionId: nextStage.id,
-          configured: stageTransitionIsConfigured(transition),
+          configured: false,
           selected: selectedTransitionKey === transitionKey,
-          elseLabel: elseStage?.name,
           onOpen: () => onSelectTransition(stage.id, nextStage.id),
         } satisfies StageMapEdgeData,
       });
@@ -1040,37 +1034,33 @@ function buildLayout(input: {
     connect(endId, "onEnter", onEnterTasks.length, "#a1a1aa", 1.5);
   });
 
-  // Non-adjacent «тогда» links + «иначе» redirects.
+  // Only the configured «тогда» / «иначе» targets — never a second neighbour link.
   for (const transition of stageTransitions) {
     if (!stageIds.has(transition.fromOptionId)) continue;
     if (!stageIds.has(transition.toOptionId)) continue;
     const transitionKey = `${transition.fromOptionId}\0${transition.toOptionId}`;
-    const configured = stageTransitionIsConfigured(transition);
     const elseId = transition.elseOptionId.trim();
     const elseStage =
       elseId && stageIds.has(elseId)
         ? stages.find((stage) => stage.id === elseId)
         : null;
 
-    if (!mapEdgeKeys.has(transitionKey) && configured) {
-      mapEdgeKeys.add(transitionKey);
-      edges.push({
-        id: `map-${transition.fromOptionId}-${transition.toOptionId}`,
-        source: `stage:${transition.fromOptionId}`,
-        target: `stage:${transition.toOptionId}`,
-        type: "stageMap",
-        style: { stroke: "#94a3b8", strokeWidth: 2 },
-        data: {
-          fromOptionId: transition.fromOptionId,
-          toOptionId: transition.toOptionId,
-          configured: true,
-          selected: selectedTransitionKey === transitionKey,
-          elseLabel: elseStage?.name,
-          onOpen: () =>
-            onSelectTransition(transition.fromOptionId, transition.toOptionId),
-        } satisfies StageMapEdgeData,
-      });
-    }
+    edges.push({
+      id: `map-${transition.fromOptionId}-${transition.toOptionId}`,
+      source: `stage:${transition.fromOptionId}`,
+      target: `stage:${transition.toOptionId}`,
+      type: "stageMap",
+      style: { stroke: "#94a3b8", strokeWidth: 2 },
+      data: {
+        fromOptionId: transition.fromOptionId,
+        toOptionId: transition.toOptionId,
+        configured: true,
+        selected: selectedTransitionKey === transitionKey,
+        elseLabel: elseStage?.name,
+        onOpen: () =>
+          onSelectTransition(transition.fromOptionId, transition.toOptionId),
+      } satisfies StageMapEdgeData,
+    });
 
     if (!elseStage || elseId === transition.toOptionId) continue;
     edges.push({

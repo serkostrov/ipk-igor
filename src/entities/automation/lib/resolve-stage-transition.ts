@@ -75,9 +75,6 @@ export function findStageTransition(
 export function stageTransitionIsConfigured(
   transition: AutomationStageTransition | null | undefined,
 ) {
-  if (!transition) return false;
-  return (
-    transition.conditions.rules.length > 0 ||
-    transition.elseOptionId.trim().length > 0
-  );
+  // Any saved transition is active — including unconditional («без условий»).
+  return Boolean(transition);
 }

@@ -116,12 +116,18 @@ export function StageTransitionInspector({
     if (!draft.toOptionId || draft.toOptionId === fromStage.id) return;
     setSaving(true);
     try {
+      const hasConditions = draft.conditions.rules.length > 0;
       await onSave({
         ...draft,
         fromOptionId: fromStage.id,
         toOptionId: draft.toOptionId,
+        conditions: hasConditions
+          ? draft.conditions
+          : emptyAutomationConditions(draft.conditions.match),
         elseOptionId:
-          draft.elseOptionId === draft.toOptionId ? "" : draft.elseOptionId,
+          !hasConditions || draft.elseOptionId === draft.toOptionId
+            ? ""
+            : draft.elseOptionId,
       });
     } finally {
       setSaving(false);
@@ -174,9 +180,9 @@ export function StageTransitionInspector({
       <div className="min-h-0 flex-1 space-y-1 overflow-auto pt-4">
         <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2.5">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            При переходе с «{fromStage.name}» на «{thenStage.name}» проверяются
-            условия. Если выполнены — запись идёт на выбранную стадию; иначе —
-            на другую стадию или переход запрещается.
+            {hasRules
+              ? `При переходе с «${fromStage.name}» на «${thenStage.name}» проверяются условия. Если выполнены — запись идёт дальше; иначе — на другую стадию или переход запрещается.`
+              : `Переход с «${fromStage.name}» на «${thenStage.name}» без проверки условий — всегда разрешён.`}
           </p>
         </div>
 
@@ -184,16 +190,27 @@ export function StageTransitionInspector({
           <Label className="text-xs font-medium">Если выполняется</Label>
           <ConditionGroupBuilder
             entity={entity}
+            allowNone
             value={draft.conditions}
             onChange={(conditions) =>
-              setDraft((prev) => ({ ...prev, conditions }))
+              setDraft((prev) => ({
+                ...prev,
+                conditions,
+                elseOptionId:
+                  conditions.rules.length === 0 ? "" : prev.elseOptionId,
+              }))
             }
           />
         </div>
 
-        <BranchFork className="mt-1" />
+        {hasRules ? <BranchFork className="mt-1" /> : null}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div
+          className={cn(
+            "gap-3",
+            hasRules ? "grid grid-cols-2" : "flex flex-col pt-3",
+          )}
+        >
           <div className="flex min-w-0 flex-col gap-1.5">
             <div className="flex items-center gap-1.5">
               <span
@@ -219,7 +236,10 @@ export function StageTransitionInspector({
             >
               <SelectTrigger className="w-full">
                 <SelectValue>
-                  <StageSelectValue stage={thenStage} fallback="Выберите стадию" />
+                  <StageSelectValue
+                    stage={thenStage}
+                    fallback="Выберите стадию"
+                  />
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -231,65 +251,63 @@ export function StageTransitionInspector({
               </SelectContent>
             </Select>
             <p className="text-[10px] leading-snug text-muted-foreground">
-              Куда перейдёт запись при выполнении условий
+              {hasRules
+                ? "Куда перейдёт запись при выполнении условий"
+                : "Куда перейдёт запись"}
             </p>
           </div>
 
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <div className="flex items-center gap-1.5">
-              <span
-                className="size-1.5 rounded-full bg-amber-500"
-                aria-hidden
-              />
-              <Label className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                Иначе
-              </Label>
+          {hasRules ? (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="size-1.5 rounded-full bg-amber-500"
+                  aria-hidden
+                />
+                <Label className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                  Иначе
+                </Label>
+              </div>
+              <Select
+                value={draft.elseOptionId || "__block__"}
+                onValueChange={(next) => {
+                  if (next == null) return;
+                  const value = String(next);
+                  setDraft((prev) => ({
+                    ...prev,
+                    elseOptionId: value === "__block__" ? "" : value,
+                  }));
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {draft.elseOptionId ? (
+                      <StageSelectValue
+                        stage={elseStage}
+                        fallback="Другая стадия"
+                      />
+                    ) : (
+                      "Запретить переход"
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__block__">Запретить переход</SelectItem>
+                  {elseStages.map((stage) => (
+                    <SelectItem key={stage.id} value={stage.id}>
+                      <StageSelectValue stage={stage} fallback={stage.name} />
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                {draft.elseOptionId
+                  ? "Запись будет перенаправлена на выбранную стадию"
+                  : "Пользователь останется на текущей стадии"}
+              </p>
             </div>
-            <Select
-              value={draft.elseOptionId || "__block__"}
-              onValueChange={(next) => {
-                if (next == null) return;
-                const value = String(next);
-                setDraft((prev) => ({
-                  ...prev,
-                  elseOptionId: value === "__block__" ? "" : value,
-                }));
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {draft.elseOptionId ? (
-                    <StageSelectValue
-                      stage={elseStage}
-                      fallback="Другая стадия"
-                    />
-                  ) : (
-                    "Запретить переход"
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__block__">Запретить переход</SelectItem>
-                {elseStages.map((stage) => (
-                  <SelectItem key={stage.id} value={stage.id}>
-                    <StageSelectValue stage={stage} fallback={stage.name} />
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-[10px] leading-snug text-muted-foreground">
-              {draft.elseOptionId
-                ? "Запись будет перенаправлена на выбранную стадию"
-                : "Пользователь останется на текущей стадии"}
-            </p>
-          </div>
+          ) : null}
         </div>
-
-        {!hasRules ? (
-          <p className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
-            Добавьте хотя бы одно условие — иначе переход всегда разрешён
-          </p>
-        ) : null}
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border pt-3">
@@ -311,7 +329,7 @@ export function StageTransitionInspector({
             onClick={() => void handleClear()}
           >
             <Trash2 className="size-3.5" />
-            Убрать условие
+            Убрать правило
           </Button>
         ) : null}
       </div>

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Folder, Plus, X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -38,6 +39,8 @@ type ConditionGroupBuilderProps = {
   value: AutomationConditions;
   onChange: (value: AutomationConditions) => void;
   className?: string;
+  /** Offer «Без условий» in the match select (empty rules = always match). */
+  allowNone?: boolean;
 };
 
 function isRule(
@@ -104,14 +107,26 @@ export function ConditionGroupBuilder({
   value,
   onChange,
   className,
+  allowNone = false,
 }: ConditionGroupBuilderProps) {
   const sources = buildSources(entity);
+  const [noneMode, setNoneMode] = useState(
+    () => allowNone && value.rules.length === 0,
+  );
+  const noneSelected = allowNone && noneMode && value.rules.length === 0;
+  const matchSelectValue = noneSelected ? "none" : value.match;
+
+  useEffect(() => {
+    if (value.rules.length > 0 && noneMode) setNoneMode(false);
+  }, [value.rules.length, noneMode]);
 
   function updateRules(rules: AutomationConditionNode[]) {
+    if (rules.length > 0) setNoneMode(false);
     onChange({ ...value, rules });
   }
 
   function addRule() {
+    setNoneMode(false);
     const source = sources[0] ?? null;
     const fieldId = source ? sourceId(source) : "";
     const operators = operatorsForSource(source);
@@ -148,24 +163,43 @@ export function ConditionGroupBuilder({
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground">Совпадение</span>
         <Select
-          value={value.match}
+          value={matchSelectValue}
           onValueChange={(next) => {
+            if (next === "none" && allowNone) {
+              setNoneMode(true);
+              onChange(emptyAutomationConditions(value.match));
+              return;
+            }
             if (next === "all" || next === "any") {
+              setNoneMode(false);
               onChange({ ...value, match: next });
             }
           }}
         >
           <SelectTrigger size="sm" className="w-40">
             <SelectValue>
-              {value.match === "any" ? "Любое условие" : "Все условия"}
+              {noneSelected
+                ? "Без условий"
+                : value.match === "any"
+                  ? "Любое условие"
+                  : "Все условия"}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
+            {allowNone ? (
+              <SelectItem value="none">Без условий</SelectItem>
+            ) : null}
             <SelectItem value="all">Все условия</SelectItem>
             <SelectItem value="any">Любое условие</SelectItem>
           </SelectContent>
         </Select>
       </div>
+
+      {noneSelected ? (
+        <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          Условия не проверяются — переход всегда идёт в «Тогда».
+        </p>
+      ) : null}
 
       {value.rules.map((node, index) => {
         if (isRule(node)) {
@@ -243,40 +277,45 @@ export function ConditionGroupBuilder({
         );
       })}
 
-      <div className="flex flex-wrap gap-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 px-2 text-xs"
-          disabled={sources.length === 0}
-          onClick={addRule}
-        >
-          <Plus className="size-3.5" />
-          Условие
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 px-2 text-xs"
-          onClick={addGroup}
-        >
-          <Plus className="size-3.5" />
-          Группа
-        </Button>
-        {value.rules.length > 0 ? (
+      {noneSelected ? null : (
+        <div className="flex flex-wrap gap-1">
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={() => onChange(emptyAutomationConditions(value.match))}
+            className="h-7 gap-1 px-2 text-xs"
+            disabled={sources.length === 0}
+            onClick={addRule}
           >
-            Очистить
+            <Plus className="size-3.5" />
+            Условие
           </Button>
-        ) : null}
-      </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={addGroup}
+          >
+            <Plus className="size-3.5" />
+            Группа
+          </Button>
+          {value.rules.length > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => {
+                if (allowNone) setNoneMode(true);
+                onChange(emptyAutomationConditions(value.match));
+              }}
+            >
+              Очистить
+            </Button>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
