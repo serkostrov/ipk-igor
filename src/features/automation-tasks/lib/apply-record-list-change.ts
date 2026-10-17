@@ -9,7 +9,9 @@ import {
 } from "@/entities/automation";
 import {
   applyEntityFieldValue,
+  getCurrentUserRecordId,
   getEntityConfig,
+  getSystemUserName,
   parseEntityListValueIds,
   serializeEntityListValueIds,
   setEntityRecordValuesLocal,
@@ -18,6 +20,7 @@ import {
   type EntityField,
   type EntityRecord,
 } from "@/entities/entity";
+import { getSessionUser } from "@/entities/session";
 import { isSupabaseConfigured } from "@/shared/api/supabase";
 import { automationTaskNeedsFillDialog } from "./task-ask-fields";
 import {
@@ -30,6 +33,22 @@ import {
   queuePendingRecordListChange,
   registerPendingRecordListChangeApplier,
 } from "../model/pending-list-change";
+
+/** Auth id + users-entity record id of the signed-in account. */
+function currentUserAssigneeIds() {
+  const ids = new Set<string>();
+  const session = getSessionUser();
+  if (session?.id) ids.add(session.id);
+  const profileId = getCurrentUserRecordId();
+  if (profileId) ids.add(profileId);
+  return ids;
+}
+
+/** Task is for the current user (or unassigned). */
+function isTaskForCurrentUser(task: AutomationTask) {
+  if (!task.assigneeUserId) return true;
+  return currentUserAssigneeIds().has(task.assigneeUserId);
+}
 
 function listOptionId(value: string) {
   const ids = parseEntityListValueIds(value);
@@ -93,11 +112,14 @@ function tasksForDestination(
 
 function pickTaskToOpen(
   tasks: AutomationTask[],
-  options?: { allowDismissed?: boolean },
+  options?: { allowDismissed?: boolean; onlyMine?: boolean },
 ) {
-  const eligible = options?.allowDismissed
+  let eligible = options?.allowDismissed
     ? tasks
     : tasks.filter((task) => !isAutomationTaskFillDialogDismissed(task.id));
+  if (options?.onlyMine !== false) {
+    eligible = eligible.filter(isTaskForCurrentUser);
+  }
   if (eligible.length === 0) return null;
   return (
     eligible.find((task) => automationTaskNeedsFillDialog(task)) ??
@@ -105,6 +127,34 @@ function pickTaskToOpen(
     eligible[0] ??
     null
   );
+}
+
+function assigneeLabel(task: AutomationTask) {
+  if (!task.assigneeUserId) return null;
+  const { entities } = getEntityConfig();
+  return getSystemUserName(entities, task.assigneeUserId);
+}
+
+/**
+ * Open a blocking task only when it belongs to the current user.
+ * Otherwise explain who must complete it — do not hijack their form.
+ */
+function openBlockingTaskOrNotify(tasks: AutomationTask[]) {
+  const mine =
+    pickTaskToOpen(tasks, { allowDismissed: true, onlyMine: true }) ?? null;
+  if (mine) {
+    openTaskDialog(mine, { toast: "blocked" });
+    return;
+  }
+  const other = tasks[0];
+  if (!other) return;
+  const who = assigneeLabel(other);
+  toast.warning("Сначала выполните задачу", {
+    description: who
+      ? `«${other.name || "Задача"}» назначена на ${who}`
+      : other.name || "Есть незавершённые блокирующие задачи на текущем статусе",
+    duration: 7_000,
+  });
 }
 
 function openTaskDialog(
@@ -165,12 +215,22 @@ function pickTaskAfterStageChange(input: {
     (task) => !fieldId || task.triggerFieldId === fieldId,
   );
 
+  const pick = (list: AutomationTask[], onlyMine: boolean) =>
+    pickTaskToOpen(list, { allowDismissed: true, onlyMine });
+
+  // Prefer tasks assigned to the current user; otherwise any fresh destination
+  // task (caller notifies without opening someone else's form).
   return (
-    pickTaskToOpen(freshDestination, { allowDismissed: true }) ??
-    pickTaskToOpen(destination, { allowDismissed: true }) ??
-    pickTaskToOpen(fresh, { allowDismissed: true }) ??
-    pickTaskToOpen(fieldTasks, { allowDismissed: true }) ??
-    pickTaskToOpen(postArrival, { allowDismissed: true })
+    pick(freshDestination, true) ??
+    pick(destination, true) ??
+    pick(fresh, true) ??
+    pick(fieldTasks, true) ??
+    pick(postArrival, true) ??
+    pick(freshDestination, false) ??
+    pick(destination, false) ??
+    pick(fresh, false) ??
+    pick(fieldTasks, false) ??
+    pick(postArrival, false)
   );
 }
 
@@ -192,6 +252,16 @@ async function openDialogAfterStageChange(input: {
       knownTaskIds,
     });
     if (task) {
+      if (!isTaskForCurrentUser(task)) {
+        const who = assigneeLabel(task);
+        toast.message(task.name || "Задача назначена", {
+          description: who
+            ? `Исполнитель: ${who}. Задача появится у него в списке.`
+            : "Задача назначена другому исполнителю.",
+          duration: 6_000,
+        });
+        return true;
+      }
       openTaskDialog(task);
       return true;
     }
@@ -307,9 +377,7 @@ export async function applyRecordListChange(
           fieldId: field.id,
           value: resolvedValue,
         });
-        const ask =
-          pickTaskToOpen(blocking, { allowDismissed: true }) ?? blocking[0]!;
-        openTaskDialog(ask, { toast: "blocked" });
+        openBlockingTaskOrNotify(blocking);
         return false;
       }
     } catch (error: unknown) {
@@ -349,17 +417,16 @@ export async function applyRecordListChange(
       try {
         const pending = await fetchPendingTasksForRecord(record.id);
         const blocking = findBlockingTasks(pending, field.id, fromOptionId);
-        const ask =
-          pickTaskToOpen(blocking, { allowDismissed: true }) ??
-          pickTaskToOpen(pending, { allowDismissed: true });
-        if (ask) openTaskDialog(ask, { toast: "blocked" });
+        openBlockingTaskOrNotify(
+          blocking.length > 0 ? blocking : pending,
+        );
       } catch (fetchError: unknown) {
         console.error("[automation] load blocking tasks failed", fetchError);
+        toast.warning("Переход заблокирован", {
+          description: "Сначала выполните блокирующие задачи автоматизации",
+          duration: 7_000,
+        });
       }
-      toast.warning("Переход заблокирован", {
-        description: "Сначала выполните блокирующие задачи автоматизации",
-        duration: 7_000,
-      });
       return false;
     }
     return false;
