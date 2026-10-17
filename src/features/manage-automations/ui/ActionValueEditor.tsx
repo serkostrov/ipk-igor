@@ -148,9 +148,13 @@ function SourceFieldSelect({
           {selected ? getEntityFieldDisplayName(selected) : placeholder}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="max-h-64">
         {options.map((field) => (
-          <SelectItem key={field.id} value={field.id}>
+          <SelectItem
+            key={field.id}
+            value={field.id}
+            label={getEntityFieldDisplayName(field)}
+          >
             {getEntityFieldDisplayName(field)}
           </SelectItem>
         ))}

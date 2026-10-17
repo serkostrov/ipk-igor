@@ -66,14 +66,6 @@ function DropdownMenuContent({
   const [query, setQuery] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => {
-    if (!searchable) return;
-    const frame = window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [searchable]);
-
   const searchValue = React.useMemo(
     () => ({ query, setQuery, searchable }),
     [query, searchable],

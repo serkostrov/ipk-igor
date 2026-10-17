@@ -1,4 +1,10 @@
-import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -392,6 +398,26 @@ function OutcomeAskFieldsEditor({
     }
   }
 
+  useEffect(() => {
+    function onWindowDragEnd() {
+      allowDragRef.current = false;
+      setDraggingId(null);
+      setDropHint(null);
+      if (dragLockedRef.current) {
+        unlockDragSelection();
+        dragLockedRef.current = false;
+      }
+    }
+    window.addEventListener("dragend", onWindowDragEnd);
+    return () => {
+      window.removeEventListener("dragend", onWindowDragEnd);
+      if (dragLockedRef.current) {
+        unlockDragSelection();
+        dragLockedRef.current = false;
+      }
+    };
+  }, []);
+
   function applyReorder(beforeFieldId: string | null) {
     if (!draggingId) return;
     const nextIds = reorderFieldIds(
@@ -642,13 +668,34 @@ export function TemplateInspector({
   const [draft, setDraft] = useState(template);
   const [tab, setTab] = useState("general");
   const [saving, setSaving] = useState(false);
+  const onSaveRef = useRef(onSave);
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
+
+  /** Update local draft and push into the builder so toolbar Save enables. */
+  function commitDraft(
+    updater: (prev: AutomationTaskTemplate) => AutomationTaskTemplate,
+  ) {
+    setDraft((prev) => {
+      const next = updater(prev);
+      queueMicrotask(() => {
+        void Promise.resolve(onSaveRef.current(next)).catch(
+          (error: unknown) => {
+            console.error("[automation] apply template failed", error);
+          },
+        );
+      });
+      return next;
+    });
+  }
 
   function patch(partial: Partial<AutomationTaskTemplate>) {
-    setDraft((prev) => ({ ...prev, ...partial }));
+    commitDraft((prev) => ({ ...prev, ...partial }));
   }
 
   function patchOutcome(index: number, outcome: AutomationOutcome) {
-    setDraft((prev) => {
+    commitDraft((prev) => {
       const outcomes = [...prev.outcomes];
       outcomes[index] = outcome;
       return { ...prev, outcomes };

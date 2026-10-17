@@ -10,7 +10,16 @@ import {
   SearchIcon,
 } from "lucide-react";
 
-const Select = SelectPrimitive.Root;
+/**
+ * `modal={false}` by default: nested side panels (e.g. automation inspector)
+ * must stay interactive if a popup glitches, and page scroll must not lock.
+ */
+function Select<Value = string, Multiple extends boolean | undefined = false>({
+  modal = false,
+  ...props
+}: SelectPrimitive.Root.Props<Value, Multiple>) {
+  return <SelectPrimitive.Root data-slot="select" modal={modal} {...props} />;
+}
 
 type SelectSearchContextValue = {
   query: string;
@@ -120,13 +129,9 @@ function SelectContent({
   const [query, setQuery] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => {
-    if (!searchable) return;
-    const frame = window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [searchable]);
+  // Do not autofocus search — it steals focus from the trigger and, combined
+  // with item mousedown preventDefault, can leave the popup open while the
+  // inspector underneath stops receiving clicks (feels «frozen»).
 
   const searchValue = React.useMemo(
     () => ({ query, setQuery, searchable }),
@@ -243,9 +248,15 @@ function SelectItem({
       )}
       {...props}
       onMouseDown={(event) => {
-        // Keep the popup open when the search field has focus — otherwise
-        // blur closes the menu before the item click is handled.
-        event.preventDefault();
+        // Only when the user is typing in search: keep focus there so the
+        // popup does not close before the item click commits.
+        if (
+          search?.searchable &&
+          document.activeElement instanceof HTMLElement &&
+          document.activeElement.closest("[data-slot=select-search]")
+        ) {
+          event.preventDefault();
+        }
         onMouseDown?.(event);
       }}
     >
