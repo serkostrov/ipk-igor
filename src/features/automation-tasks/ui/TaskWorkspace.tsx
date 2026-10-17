@@ -8,6 +8,7 @@ import {
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
 import {
   applyEntityFieldValue,
+  getEntityConfig,
   getEntityFieldDisplayName,
   getEntityListParentField,
   getEntityPreviewValueContext,
@@ -217,8 +218,11 @@ function TaskWorkspaceBody({
       patch[fieldId] = values[fieldId]!;
     }
     if (Object.keys(patch).length === 0) return;
+    const latestRecord = getEntityConfig()
+      .entities.find((item) => item.id === task.entityId)
+      ?.records.find((item) => item.id === task.recordId);
     await updateEntityRecord(task.entityId, task.recordId, {
-      ...record.values,
+      ...(latestRecord?.values ?? record.values),
       ...patch,
     });
   }

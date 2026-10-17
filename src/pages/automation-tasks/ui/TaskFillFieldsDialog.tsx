@@ -18,6 +18,7 @@ import {
 } from "@/entities/automation";
 import {
   applyEntityFieldValue,
+  getEntityConfig,
   getEntityFieldDisplayName,
   getEntityListParentField,
   getEntityPreviewValueContext,
@@ -180,6 +181,8 @@ function TaskFillFieldsDialogBody({
   /**
    * Persist form values that should land on the record before complete/return.
    * Includes «запись» and required fields so setField / spawn see them.
+   * Merges onto the latest store values so a stale dialog snapshot cannot
+   * rewrite the list/stage field and re-trigger spawn.
    */
   async function persistValues(outcomeId?: string) {
     if (!task || !entity || !record) return;
@@ -199,8 +202,11 @@ function TaskFillFieldsDialogBody({
       patch[fieldId] = values[fieldId]!;
     }
     if (Object.keys(patch).length === 0) return;
+    const latestRecord = getEntityConfig()
+      .entities.find((item) => item.id === task.entityId)
+      ?.records.find((item) => item.id === task.recordId);
     await updateEntityRecord(task.entityId, task.recordId, {
-      ...record.values,
+      ...(latestRecord?.values ?? record.values),
       ...patch,
     });
   }

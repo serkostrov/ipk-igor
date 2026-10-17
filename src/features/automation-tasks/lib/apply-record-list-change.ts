@@ -142,6 +142,10 @@ function openTaskDialog(
   }, 80);
 }
 
+function isBeforeEnterTask(task: AutomationTask) {
+  return (task.config.launchPhase ?? "onEnter") === "beforeEnter";
+}
+
 function pickTaskAfterStageChange(input: {
   tasks: AutomationTask[];
   fieldId: string;
@@ -149,12 +153,15 @@ function pickTaskAfterStageChange(input: {
   knownTaskIds: Set<string>;
 }) {
   const { tasks, fieldId, toOptionId, knownTaskIds } = input;
-  const fresh = tasks.filter((task) => !knownTaskIds.has(task.id));
-  const destination = tasksForDestination(tasks, fieldId, toOptionId);
+  // Prep (beforeEnter) belongs on the previous stage. After a successful land
+  // only auto-open onEnter / post-arrival tasks — never the same prep again.
+  const postArrival = tasks.filter((task) => !isBeforeEnterTask(task));
+  const fresh = postArrival.filter((task) => !knownTaskIds.has(task.id));
+  const destination = tasksForDestination(postArrival, fieldId, toOptionId);
   const freshDestination = fresh.filter((task) =>
     destination.some((item) => item.id === task.id),
   );
-  const fieldTasks = tasks.filter(
+  const fieldTasks = postArrival.filter(
     (task) => !fieldId || task.triggerFieldId === fieldId,
   );
 
@@ -163,7 +170,7 @@ function pickTaskAfterStageChange(input: {
     pickTaskToOpen(destination, { allowDismissed: true }) ??
     pickTaskToOpen(fresh, { allowDismissed: true }) ??
     pickTaskToOpen(fieldTasks, { allowDismissed: true }) ??
-    pickTaskToOpen(tasks, { allowDismissed: true })
+    pickTaskToOpen(postArrival, { allowDismissed: true })
   );
 }
 
