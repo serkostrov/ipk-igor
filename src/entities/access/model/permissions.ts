@@ -117,6 +117,15 @@ export function canAccessAutomationTasks(
   return role.permissions.canAccessAutomationTasks;
 }
 
+export function canDeleteAutomationTasks(
+  role: Role | null | undefined,
+): boolean {
+  if (!role) return false;
+  if (isAdminRole(role)) return true;
+  if (!role.permissions.canAccessAutomationTasks) return false;
+  return role.permissions.canDeleteAutomationTasks === true;
+}
+
 export function canAccessNotifications(role: Role | null | undefined): boolean {
   if (!role) return false;
   if (isAdminRole(role)) return true;

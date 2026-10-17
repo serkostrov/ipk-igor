@@ -137,6 +137,7 @@ export {
   addAutomationTaskAttachment,
   addAutomationTaskTimeSession,
   countAutomationTasksForRecord,
+  deleteAutomationTask,
   deleteAutomationTasksForRecord,
   fetchAutomationTask,
   fetchAutomationTaskAttachments,
@@ -149,6 +150,7 @@ export {
   startAutomationTaskTimeSession,
   stopAutomationTaskTimeSession,
   subscribeAutomationTasks,
+  notifyAutomationTasksChanged,
   completeAutomationTaskRpc,
   type AutomationTaskTimeSession,
 } from "./api/automation-tasks-api";

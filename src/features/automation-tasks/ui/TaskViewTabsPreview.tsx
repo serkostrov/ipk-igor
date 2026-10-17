@@ -297,45 +297,37 @@ export function TaskViewTabsPreview({
   const hasFill = fillSlot != null;
   const defaultTab = hasFill ? FILL_TAB_ID : (viewTabs[0]?.id ?? FILL_TAB_ID);
   const [tab, setTab] = useState(defaultTab);
+  const [hadFill, setHadFill] = useState(hasFill);
+
+  // When «Заполнить» appears after choosing an outcome, open it.
+  if (hasFill !== hadFill) {
+    setHadFill(hasFill);
+    if (hasFill) setTab(FILL_TAB_ID);
+  }
 
   // Only fill, no view tabs — render form as-is.
   if (viewTabs.length === 0) {
-    return fillSlot ? <>{fillSlot}</> : null;
-  }
-
-  // Single view tab and no fill — still use a clean panel (no lonely tab chrome).
-  if (!hasFill && viewTabs.length === 1) {
-    const only = viewTabs[0]!;
-    return (
+    return fillSlot ? (
       <div
         className={cn(
-          "flex min-h-0 flex-col gap-3 rounded-xl border border-border/70 bg-card",
+          "rounded-xl border border-border/70 bg-card px-3 py-3 shadow-xs",
           className,
         )}
       >
-        <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2.5">
-          <span className="text-muted-foreground">
-            <TabKindIcon tab={only} />
-          </span>
-          <p className="truncate text-sm font-medium">
-            {only.name.trim() || "Вкладка"}
-          </p>
-          <span className="ml-auto text-[10px] tracking-wide text-muted-foreground uppercase">
-            просмотр
-          </span>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          <TabPreviewBody entity={entity} record={record} tab={only} />
-        </div>
+        {fillSlot}
       </div>
-    );
+    ) : null;
   }
 
-  const active = viewTabs.some((item) => item.id === tab)
-    ? tab
-    : hasFill
-      ? FILL_TAB_ID
-      : (viewTabs[0]?.id ?? FILL_TAB_ID);
+  const active =
+    (hasFill && tab === FILL_TAB_ID) || viewTabs.some((item) => item.id === tab)
+      ? tab
+      : hasFill
+        ? FILL_TAB_ID
+        : (viewTabs[0]?.id ?? FILL_TAB_ID);
+
+  const triggerClass =
+    "!h-auto min-h-0 flex-none gap-1.5 self-stretch rounded-md px-3 text-sm font-medium transition-colors data-active:shadow-sm";
 
   return (
     <Tabs
@@ -343,33 +335,25 @@ export function TaskViewTabsPreview({
       onValueChange={(next) => {
         if (typeof next === "string" && next) setTab(next);
       }}
-      className={cn(
-        "flex min-h-0 flex-col gap-0 rounded-xl border border-border/70 bg-card",
-        className,
-      )}
+      className={cn("flex min-h-0 flex-col gap-4", className)}
     >
-      <div className="shrink-0 border-b border-border/70 px-2 pt-2">
-        <TabsList
-          variant="line"
-          className="h-9 w-full justify-start gap-3 overflow-x-auto"
-        >
+      <div className="flex h-9 w-full shrink-0 items-stretch overflow-x-auto rounded-lg bg-muted p-1">
+        <TabsList className="!h-auto min-h-0 w-auto flex-none items-stretch justify-start gap-0.5 self-stretch bg-transparent p-0">
           {hasFill ? (
-            <TabsTrigger
-              value={FILL_TAB_ID}
-              className="gap-1.5 px-0 text-xs data-active:text-foreground"
-            >
-              <ClipboardPen className="size-3.5" aria-hidden />
-              Заполнить
+            <TabsTrigger value={FILL_TAB_ID} className={triggerClass}>
+              <ClipboardPen
+                className="size-3.5 shrink-0 opacity-70"
+                aria-hidden
+              />
+              <span className="truncate">Заполнить</span>
               {fillBadge}
             </TabsTrigger>
           ) : null}
           {viewTabs.map((item) => (
-            <TabsTrigger
-              key={item.id}
-              value={item.id}
-              className="gap-1.5 px-0 text-xs data-active:text-foreground"
-            >
-              <TabKindIcon tab={item} />
+            <TabsTrigger key={item.id} value={item.id} className={triggerClass}>
+              <span className="shrink-0 opacity-70">
+                <TabKindIcon tab={item} />
+              </span>
               <span className="max-w-[10rem] truncate">
                 {item.name.trim() || "Вкладка"}
               </span>
@@ -381,7 +365,7 @@ export function TaskViewTabsPreview({
       {hasFill ? (
         <TabsContent
           value={FILL_TAB_ID}
-          className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3"
+          className="mt-0 min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/70 bg-card px-3 py-3 shadow-xs"
         >
           {fillSlot}
         </TabsContent>
@@ -391,13 +375,8 @@ export function TaskViewTabsPreview({
         <TabsContent
           key={item.id}
           value={item.id}
-          className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3"
+          className="mt-0 min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/70 bg-card px-3 py-3 shadow-xs"
         >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-[11px] text-muted-foreground">
-              Контекст с карточки — только просмотр
-            </p>
-          </div>
           <TabPreviewBody entity={entity} record={record} tab={item} />
         </TabsContent>
       ))}

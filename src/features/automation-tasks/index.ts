@@ -18,3 +18,13 @@ export {
   openAutomationTaskFillDialog,
   subscribeAutomationTaskDialog,
 } from "./model/fill-dialog-store";
+export {
+  clearPendingRecordListChange,
+  getPendingRecordListChange,
+  queuePendingRecordListChange,
+  registerPendingRecordListChangeApplier,
+  resumePendingRecordListChange,
+  type PendingRecordListChange,
+} from "./model/pending-list-change";
+import "./lib/apply-record-list-change";
+export { applyRecordListChange } from "./lib/apply-record-list-change";

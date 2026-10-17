@@ -31,6 +31,8 @@ type StageTransitionInspectorProps = {
   onClose: () => void;
   /** Hide the map link between stages (line stays restorable on canvas). */
   onHideLink?: () => void;
+  /** Label for applying changes to the parent draft. */
+  commitLabel?: string;
 };
 
 function StageChip({
@@ -93,6 +95,7 @@ export function StageTransitionInspector({
   onClear,
   onClose,
   onHideLink,
+  commitLabel = "Применить",
 }: StageTransitionInspectorProps) {
   const [draft, setDraft] = useState<AutomationStageTransition>(
     () =>
@@ -280,7 +283,7 @@ export function StageTransitionInspector({
           disabled={saving}
           onClick={() => void handleSave()}
         >
-          Сохранить
+          {commitLabel}
         </Button>
         {onHideLink ? (
           <Button

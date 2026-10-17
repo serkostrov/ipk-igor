@@ -161,11 +161,15 @@ export function TaskTimeSessionsPanel({
 
   return (
     <section
+      aria-label="Сессии фактического времени"
       className={cn(
-        "flex flex-col gap-3 rounded-xl border bg-muted/15 p-4",
+        "flex flex-col gap-3 rounded-xl border p-4 shadow-xs",
         required
-          ? "border-destructive/45 bg-destructive/[0.03]"
-          : "border-border/80",
+          ? cn(
+              "border-destructive bg-destructive/[0.04] ring-2 ring-destructive/20",
+              needsTime && "ring-destructive/35",
+            )
+          : "border-border/80 bg-muted/15",
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -175,7 +179,7 @@ export function TaskTimeSessionsPanel({
               className={cn(
                 "flex size-7 shrink-0 items-center justify-center rounded-lg",
                 required
-                  ? "bg-destructive/12 text-destructive"
+                  ? "bg-destructive/15 text-destructive"
                   : "bg-muted text-muted-foreground",
               )}
             >
@@ -185,16 +189,24 @@ export function TaskTimeSessionsPanel({
               Сессии фактического времени
             </h3>
             {required ? (
-              <span className="rounded-full border border-destructive/35 bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-destructive uppercase">
-                Обязательный учёт времени
+              <span className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-destructive uppercase">
+                обязательно
               </span>
             ) : null}
           </div>
           <p className="text-xs text-muted-foreground">
-            Итого:{" "}
-            <span className="font-medium text-foreground tabular-nums">
-              {formatElapsed(totalMs)}
-            </span>
+            {needsTime ? (
+              <span className="font-medium text-destructive">
+                Добавьте время, чтобы завершить задачу
+              </span>
+            ) : (
+              <>
+                Итого:{" "}
+                <span className="font-medium text-foreground tabular-nums">
+                  {formatElapsed(totalMs)}
+                </span>
+              </>
+            )}
           </p>
         </div>
 

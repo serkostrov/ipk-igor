@@ -270,6 +270,23 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
               onChange(
                 patchPermissions(role, {
                   canAccessAutomationTasks: checked,
+                  ...(!checked ? { canDeleteAutomationTasks: false } : {}),
+                }),
+              )
+            }
+          />
+          <ToggleRow
+            label="Удалять задачи автоматизаций"
+            description="Корзина в списке и на странице задачи"
+            checked={
+              role.permissions.canAccessAutomationTasks &&
+              role.permissions.canDeleteAutomationTasks
+            }
+            disabled={!role.permissions.canAccessAutomationTasks}
+            onCheckedChange={(checked) =>
+              onChange(
+                patchPermissions(role, {
+                  canDeleteAutomationTasks: checked,
                 }),
               )
             }

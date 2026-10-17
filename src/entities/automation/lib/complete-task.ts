@@ -16,6 +16,7 @@ import {
 import {
   completeAutomationTaskRpc,
   fetchAutomationTask,
+  notifyAutomationTasksChanged,
   returnAutomationTaskForRevisionRpc,
 } from "../api/automation-tasks-api";
 import { resolveAutomationActionValue } from "../model/action-values";
@@ -105,9 +106,12 @@ export async function completeAutomationTask(
       ? requireAction.fieldIds
       : []),
   ];
-  const missingRequired = [...new Set(requiredIds)].filter(
-    (fieldId) => !(valuesForForm[fieldId] ?? "").trim(),
-  );
+  const missingRequired = [...new Set(requiredIds)].filter((fieldId) => {
+    const field = entity?.fields.find((item) => item.id === fieldId);
+    const raw = valuesForForm[fieldId] ?? "";
+    if (field?.type === "boolean") return false;
+    return !raw.trim();
+  });
   if (missingRequired.length > 0) {
     const labels = missingRequired.map((fieldId) => {
       const field = entity?.fields.find((item) => item.id === fieldId);
@@ -153,6 +157,7 @@ export async function completeAutomationTask(
     outcome.id,
     actorUserId,
   );
+  notifyAutomationTasksChanged();
 
   // Refresh after SQL setField side-effects.
   const { entities: nextEntities } = getEntityConfig();
@@ -196,5 +201,7 @@ export async function returnAutomationTaskForRevision(
   taskId: string,
   actorUserId?: string | null,
 ) {
-  return returnAutomationTaskForRevisionRpc(taskId, actorUserId);
+  const runId = await returnAutomationTaskForRevisionRpc(taskId, actorUserId);
+  notifyAutomationTasksChanged();
+  return runId;
 }

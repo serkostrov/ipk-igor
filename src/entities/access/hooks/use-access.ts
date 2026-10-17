@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import {
   canAccessAutomationTasks,
+  canDeleteAutomationTasks,
   canAccessHistory,
   canAccessNotifications,
   canAccessSettings,
@@ -120,6 +121,10 @@ export function useCanAccessHistory() {
 
 export function useCanAccessAutomationTasks() {
   return canAccessAutomationTasks(useCurrentRole());
+}
+
+export function useCanDeleteAutomationTasks() {
+  return canDeleteAutomationTasks(useCurrentRole());
 }
 
 export function useCanAccessNotifications() {

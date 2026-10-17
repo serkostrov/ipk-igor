@@ -96,6 +96,7 @@ function parsePermissions(value: unknown): RolePermissions {
     canInviteUsers: value.canInviteUsers === true,
     canAccessHistory: value.canAccessHistory === true,
     canAccessAutomationTasks: value.canAccessAutomationTasks === true,
+    canDeleteAutomationTasks: value.canDeleteAutomationTasks === true,
     canAccessNotifications: value.canAccessNotifications !== false,
     entities: parseEntities(value.entities),
   };

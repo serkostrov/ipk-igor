@@ -13,7 +13,9 @@ import {
   RotateCcw,
   Search,
   Table2,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
@@ -31,13 +33,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { useCanDeleteAutomationTasks } from "@/entities/access";
 import {
+  deleteAutomationTask,
   fetchAutomationTasks,
   registerOverdueAutomationTasksRpc,
   subscribeAutomationTasks,
   type AutomationTask,
   type AutomationTaskStatus,
 } from "@/entities/automation";
+import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import {
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
   ENTITY_TABLE_PAGE_SIZES,
@@ -276,9 +282,14 @@ export function TaskTableView({
   onOpenRecord?: (entityId: string, recordId: string) => void;
 }) {
   const { entities } = useEntityConfig();
+  const canDelete = useCanDeleteAutomationTasks();
   const [tasks, setTasks] = useState<AutomationTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<AutomationTask | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
@@ -509,18 +520,31 @@ export function TaskTableView({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="grid shrink-0 grid-cols-2 items-center gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-        <div className="relative col-span-2 h-8">
-          <Search
-            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Поиск задач"
-            aria-label="Поиск задач"
-            className={cn(filterSearchClass, "absolute inset-0 pl-8")}
-          />
+        <div className="col-span-2 flex h-8 items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            className="size-8 shrink-0"
+            aria-label="Обновить"
+            title="Обновить"
+            onClick={reload}
+          >
+            <RotateCcw className="size-3.5" aria-hidden />
+          </Button>
+          <div className="relative h-8 min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Поиск задач"
+              aria-label="Поиск задач"
+              className={cn(filterSearchClass, "absolute inset-0 pl-8")}
+            />
+          </div>
         </div>
 
         <Select
@@ -622,17 +646,6 @@ export function TaskTableView({
             ))}
           </SelectContent>
         </Select>
-
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5"
-          onClick={reload}
-        >
-          <RotateCcw className="size-3.5" aria-hidden />
-          Обновить
-        </Button>
       </div>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs">
@@ -674,6 +687,7 @@ export function TaskTableView({
                   <col className="w-20" />
                   <col className="w-32" />
                   <col className="w-40" />
+                  {canDelete ? <col className="w-12" /> : null}
                 </colgroup>
                 <TableHeader className="sticky top-0 z-10">
                   <TableRow className="border-0 hover:bg-transparent">
@@ -684,6 +698,11 @@ export function TaskTableView({
                     <TableHead className={headClass}>Шаг</TableHead>
                     <TableHead className={headClass}>Статус</TableHead>
                     <TableHead className={headClass}>Срок</TableHead>
+                    {canDelete ? (
+                      <TableHead className={cn(headClass, "w-12 px-1")}>
+                        <span className="sr-only">Действия</span>
+                      </TableHead>
+                    ) : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody className="[&_tr:last-child]:border-b">
@@ -764,6 +783,26 @@ export function TaskTableView({
                             ? formatTimestampDisplay(task.dueAt)
                             : "—"}
                         </TableCell>
+                        {canDelete ? (
+                          <TableCell className="px-1 py-2.5">
+                            <div
+                              className="flex justify-end"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="size-7 text-muted-foreground hover:text-destructive"
+                                aria-label="Удалить задачу"
+                                title="Удалить задачу"
+                                onClick={() => setPendingDelete(task)}
+                              >
+                                <Trash2 className="size-3.5" aria-hidden />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        ) : null}
                       </TableRow>
                     );
                   })}
@@ -781,6 +820,40 @@ export function TaskTableView({
           </>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete != null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setPendingDelete(null);
+        }}
+        title="Удалить задачу?"
+        description={
+          pendingDelete
+            ? `Задача «${pendingDelete.name}» будет удалена без возможности восстановления.`
+            : "Задача будет удалена без возможности восстановления."
+        }
+        confirmLabel={deleting ? "Удаление…" : "Удалить"}
+        confirmDisabled={deleting}
+        onConfirm={async () => {
+          if (!pendingDelete || deleting) return;
+          setDeleting(true);
+          try {
+            await deleteAutomationTask(pendingDelete.id);
+            setTasks((current) =>
+              current.filter((item) => item.id !== pendingDelete.id),
+            );
+            setPendingDelete(null);
+            toast.success("Задача удалена");
+          } catch (err: unknown) {
+            toast.error(
+              getAutomationErrorMessage(err, "Не удалось удалить задачу"),
+            );
+            throw err;
+          } finally {
+            setDeleting(false);
+          }
+        }}
+      />
     </div>
   );
 }

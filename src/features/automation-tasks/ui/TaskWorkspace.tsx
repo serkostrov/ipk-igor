@@ -37,6 +37,7 @@ import {
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
 } from "../lib/task-ask-fields";
+import { resumePendingRecordListChange } from "../model/pending-list-change";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
 function isFieldFilled(field: EntityField, value: string) {
@@ -179,9 +180,10 @@ function TaskWorkspaceBody({
   );
 
   const title = recordTitle(entity, mergedValues);
-  const hasOutcomeForm =
-    ask != null &&
-    (fields.length > 0 || viewFields.length > 0 || ask.viewTabIds.length > 0);
+  /** View tabs from any outcome — shown before a result is chosen. */
+  const earlyViewTabIds = taskAsk.viewTabIds;
+  const hasFillForm =
+    ask != null && (fields.length > 0 || viewFields.length > 0);
   const missingRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {
         const field = entity?.fields.find((item) => item.id === fieldId);
@@ -258,6 +260,7 @@ function TaskWorkspaceBody({
     try {
       await persistValues(outcomeId);
       await onComplete(outcomeId, values);
+      void resumePendingRecordListChange(task.recordId);
       onCompleted();
     } catch (err: unknown) {
       setError(getAutomationErrorMessage(err, "Ошибка завершения"));
@@ -326,32 +329,35 @@ function TaskWorkspaceBody({
         </div>
       </header>
 
+      {requireTime ? (
+        <TaskTimeSessionsPanel
+          taskId={task.id}
+          userId={sessionUser?.id}
+          required
+          disabled={busy}
+          onTotalSecondsChange={onTotalSecondsChange}
+          onError={(message) => setError(message)}
+        />
+      ) : null}
+
       {!entity || !record ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           Запись ещё не загружена. Обновите страницу.
         </p>
-      ) : !selectedOutcome ? (
-        <div className="rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-3">
-          <p className="text-sm text-muted-foreground">
-            Выберите результат — поля формы появятся, если они заданы для этого
-            варианта.
-          </p>
-        </div>
-      ) : hasOutcomeForm ? (
+      ) : earlyViewTabIds.length > 0 || hasFillForm ? (
         <TaskViewTabsPreview
           entity={entity}
           record={{ ...record, values: mergedValues }}
-          tabIds={ask.viewTabIds}
-          className="shadow-xs"
+          tabIds={earlyViewTabIds}
           fillBadge={
-            missingRequiredCount > 0 ? (
+            hasFillForm && missingRequiredCount > 0 ? (
               <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">
                 {missingRequiredCount}
               </span>
             ) : null
           }
           fillSlot={
-            fields.length > 0 || viewFields.length > 0 ? (
+            hasFillForm ? (
               <div className="flex flex-col gap-4">
                 {viewFields.length > 0 ? (
                   <div className="flex flex-col gap-2.5">
@@ -452,15 +458,6 @@ function TaskWorkspaceBody({
           }
         />
       ) : null}
-
-      <TaskTimeSessionsPanel
-        taskId={task.id}
-        userId={sessionUser?.id}
-        required={requireTime}
-        disabled={busy}
-        onTotalSecondsChange={onTotalSecondsChange}
-        onError={(message) => setError(message)}
-      />
 
       {error ? (
         <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

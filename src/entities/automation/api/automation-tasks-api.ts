@@ -135,6 +135,15 @@ export async function deleteAutomationTasksForRecord(
   return data?.length ?? 0;
 }
 
+export async function deleteAutomationTask(taskId: string): Promise<void> {
+  const client = requireClient();
+  const { error } = await client
+    .from("automation_tasks")
+    .delete()
+    .eq("id", taskId);
+  if (error) throw error;
+}
+
 export async function completeAutomationTaskRpc(
   taskId: string,
   outcomeId: string,
@@ -239,6 +248,23 @@ let automationTasksShared: {
   listeners: Set<AutomationTasksListener>;
 } | null = null;
 
+function notifyAutomationTasksListeners() {
+  const shared = automationTasksShared;
+  if (!shared) return;
+  for (const listener of shared.listeners) {
+    try {
+      listener();
+    } catch (error) {
+      console.error("[automation] tasks listener failed", error);
+    }
+  }
+}
+
+/** Immediate local refresh (realtime may lag after RPC complete/return). */
+export function notifyAutomationTasksChanged() {
+  notifyAutomationTasksListeners();
+}
+
 export function subscribeAutomationTasks(onChange: () => void): () => void {
   if (!isSupabaseConfigured || !supabase) return () => {};
 
@@ -252,13 +278,7 @@ export function subscribeAutomationTasks(onChange: () => void): () => void {
         "postgres_changes",
         { event: "*", schema: "public", table: "automation_tasks" },
         () => {
-          for (const listener of listeners) {
-            try {
-              listener();
-            } catch (error) {
-              console.error("[automation] tasks listener failed", error);
-            }
-          }
+          notifyAutomationTasksListeners();
         },
       )
       .subscribe((status, err) => {

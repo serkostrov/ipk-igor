@@ -25,6 +25,8 @@ export type RolePermissions = {
   canInviteUsers: boolean;
   canAccessHistory: boolean;
   canAccessAutomationTasks: boolean;
+  /** Delete automation task instances from the tasks list / page. */
+  canDeleteAutomationTasks: boolean;
   canAccessNotifications: boolean;
   entities: EntityAccess[] | "*";
 };
@@ -72,6 +74,7 @@ export function createAdminRole(): Role {
       canInviteUsers: true,
       canAccessHistory: true,
       canAccessAutomationTasks: true,
+      canDeleteAutomationTasks: true,
       canAccessNotifications: true,
       entities: "*",
     },
@@ -90,6 +93,7 @@ export function createEmployeeRole(): Role {
       canInviteUsers: false,
       canAccessHistory: true,
       canAccessAutomationTasks: true,
+      canDeleteAutomationTasks: false,
       canAccessNotifications: true,
       entities: "*",
     },

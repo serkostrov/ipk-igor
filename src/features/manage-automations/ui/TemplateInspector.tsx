@@ -619,6 +619,8 @@ export function TemplateInspector({
   notificationRules,
   onSave,
   onDelete,
+  commitLabel = "Сохранить",
+  commitSuccessMessage = "Шаг сохранён",
 }: {
   template: AutomationTaskTemplate;
   entity: Entity;
@@ -629,6 +631,9 @@ export function TemplateInspector({
   notificationRules: AutomationNotificationRule[];
   onSave: (template: AutomationTaskTemplate) => void | Promise<void>;
   onDelete: () => void;
+  /** Label for the inspector commit button (applies to parent draft). */
+  commitLabel?: string;
+  commitSuccessMessage?: string;
 }) {
   const [draft, setDraft] = useState(template);
   const [tab, setTab] = useState("general");
@@ -651,7 +656,7 @@ export function TemplateInspector({
     setSaving(true);
     try {
       await onSave(draft);
-      toast.success("Шаг сохранён");
+      toast.success(commitSuccessMessage);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Не удалось сохранить шаг";
@@ -1097,7 +1102,7 @@ export function TemplateInspector({
           disabled={saving}
           onClick={() => void handleSave()}
         >
-          {saving ? "Сохранение…" : "Сохранить"}
+          {saving ? "Сохранение…" : commitLabel}
         </Button>
       </div>
     </div>

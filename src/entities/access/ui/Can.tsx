@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
   canAccessAutomationTasks,
+  canDeleteAutomationTasks,
   canAccessHistory,
   canAccessNotifications,
   canAccessSettings,
@@ -52,6 +53,14 @@ export function CanAccessAutomationTasks({
 }: CanProps) {
   const role = useCurrentRole();
   return canAccessAutomationTasks(role) ? <>{children}</> : <>{fallback}</>;
+}
+
+export function CanDeleteAutomationTasks({
+  children,
+  fallback = null,
+}: CanProps) {
+  const role = useCurrentRole();
+  return canDeleteAutomationTasks(role) ? <>{children}</> : <>{fallback}</>;
 }
 
 export function CanAccessNotifications({

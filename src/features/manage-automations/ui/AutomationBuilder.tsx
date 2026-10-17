@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Filter, GitBranch, Plus } from "lucide-react";
+import { Filter, GitBranch, Plus, RotateCcw, Save, Undo2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import {
   Select,
@@ -18,7 +19,6 @@ import {
   emptyAutomationCanvasLayout,
   emptyAutomationConditions,
   findStageTransition,
-  getAutomationConfig,
   removeTemplate,
   saveProcess,
   saveScenario,
@@ -46,6 +46,12 @@ import { TemplateInspector } from "./TemplateInspector";
 
 const controlTriggerClass = "h-9 w-[11.5rem]";
 const EMPTY_CANVAS_LAYOUT = emptyAutomationCanvasLayout();
+const UNDO_LIMIT = 40;
+
+type AutomationEditSnapshot = {
+  scenario: AutomationScenario;
+  templates: AutomationTaskTemplate[];
+};
 
 function canvasPositionsEqual(
   a: AutomationCanvasNodePositions,
@@ -66,6 +72,39 @@ function canvasPositionsEqual(
 function idListEqual(a: string[], b: string[]) {
   if (a.length !== b.length) return false;
   return a.every((id, index) => id === b[index]);
+}
+
+function cloneSnap(snap: AutomationEditSnapshot): AutomationEditSnapshot {
+  return {
+    scenario: structuredClone(snap.scenario),
+    templates: structuredClone(snap.templates),
+  };
+}
+
+function snapsEqual(
+  a: AutomationEditSnapshot,
+  b: AutomationEditSnapshot,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function makeSnap(
+  scenario: AutomationScenario,
+  allTemplates: AutomationTaskTemplate[],
+): AutomationEditSnapshot {
+  return {
+    scenario: structuredClone(scenario),
+    templates: structuredClone(
+      allTemplates.filter((item) => item.scenarioId === scenario.id),
+    ),
+  };
+}
+
+function templatesChanged(
+  prev: AutomationTaskTemplate | undefined,
+  next: AutomationTaskTemplate,
+): boolean {
+  return !prev || JSON.stringify(prev) !== JSON.stringify(next);
 }
 
 export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
@@ -131,11 +170,43 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   );
 
   const [scenarioId, setScenarioId] = useState<string | null>(null);
-  const scenario =
+  const storeScenario =
     processScenarios.find((item) => item.id === scenarioId) ??
     processScenarios.find((item) => item.isDefault) ??
     processScenarios[0] ??
     null;
+
+  const [draft, setDraft] = useState<AutomationEditSnapshot | null>(null);
+  const [saved, setSaved] = useState<AutomationEditSnapshot | null>(null);
+  const [undoStack, setUndoStack] = useState<AutomationEditSnapshot[]>([]);
+  const [persisting, setPersisting] = useState(false);
+  /** Remount inspectors after undo/revert so their local drafts match. */
+  const [editorEpoch, setEditorEpoch] = useState(0);
+  const [seededScenarioId, setSeededScenarioId] = useState<string | null>(null);
+
+  const storeScenarioId = storeScenario?.id ?? null;
+  if (storeScenarioId !== seededScenarioId) {
+    setSeededScenarioId(storeScenarioId);
+    if (!storeScenario) {
+      setDraft(null);
+      setSaved(null);
+      setUndoStack([]);
+    } else if (draft?.scenario.id !== storeScenario.id) {
+      // Keep a draft already prepared by ensureProcess / scenario switch.
+      const snap = makeSnap(storeScenario, templates);
+      setDraft(snap);
+      setSaved(cloneSnap(snap));
+      setUndoStack([]);
+    }
+  }
+
+  const scenario =
+    draft && storeScenario && draft.scenario.id === storeScenario.id
+      ? draft.scenario
+      : null;
+  const dirty = Boolean(draft && saved && !snapsEqual(draft, saved));
+  const canUndo = undoStack.length > 0;
+  const showEditActions = dirty || canUndo;
 
   const stages = useMemo(() => {
     if (!entity || !resolvedTriggerFieldId) return [];
@@ -166,37 +237,107 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     [canvasLayout.hiddenStageLinkKeys],
   );
 
-  function latestScenario(): AutomationScenario | null {
-    if (!scenario) return null;
-    return (
-      getAutomationConfig().scenarios.find((item) => item.id === scenario.id) ??
-      scenario
+  function confirmDiscardIfDirty(): boolean {
+    if (!dirty) return true;
+    return window.confirm(
+      "Есть несохранённые изменения. Сбросить их и продолжить?",
     );
   }
 
-  async function patchCanvasLayout(
-    patch: Partial<AutomationCanvasLayout>,
-  ): Promise<void> {
-    const current = latestScenario();
-    if (!current) return;
-    const prev = current.canvasLayout;
-    const next: AutomationCanvasLayout = {
-      positions: patch.positions ?? prev.positions,
-      collapsedStageIds: patch.collapsedStageIds ?? prev.collapsedStageIds,
-      hiddenStageLinkKeys:
-        patch.hiddenStageLinkKeys ?? prev.hiddenStageLinkKeys,
-    };
-    const same =
-      canvasPositionsEqual(prev.positions, next.positions) &&
-      idListEqual(prev.collapsedStageIds, next.collapsedStageIds) &&
-      idListEqual(prev.hiddenStageLinkKeys, next.hiddenStageLinkKeys);
-    if (same) return;
-    await saveScenario({ ...current, canvasLayout: next });
+  function updateDraft(
+    updater: (prev: AutomationEditSnapshot) => AutomationEditSnapshot,
+  ) {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const next = updater(prev);
+      if (snapsEqual(prev, next)) return prev;
+      setUndoStack((stack) => [...stack, cloneSnap(prev)].slice(-UNDO_LIMIT));
+      return next;
+    });
+  }
+
+  function undoEdit() {
+    setUndoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const previous = stack[stack.length - 1]!;
+      setDraft(cloneSnap(previous));
+      setEditorEpoch((epoch) => epoch + 1);
+      return stack.slice(0, -1);
+    });
+  }
+
+  function revertAll() {
+    if (!saved) return;
+    setDraft(cloneSnap(saved));
+    setUndoStack([]);
+    setEditorEpoch((epoch) => epoch + 1);
+  }
+
+  async function persistDraft() {
+    if (!draft || !saved || !dirty || persisting) return;
+    setPersisting(true);
+    try {
+      await saveScenario(draft.scenario);
+
+      const savedById = new Map(
+        saved.templates.map((item) => [item.id, item] as const),
+      );
+      const draftIds = new Set(draft.templates.map((item) => item.id));
+
+      for (const template of draft.templates) {
+        if (templatesChanged(savedById.get(template.id), template)) {
+          await saveTemplate(template);
+        }
+      }
+
+      for (const id of savedById.keys()) {
+        if (!draftIds.has(id)) {
+          await removeTemplate(id);
+        }
+      }
+
+      const next = cloneSnap(draft);
+      setSaved(next);
+      setDraft(next);
+      setUndoStack([]);
+      toast.success("Изменения сохранены");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Не удалось сохранить";
+      console.error("[automation] persist draft failed", error);
+      toast.error(message);
+    } finally {
+      setPersisting(false);
+    }
+  }
+
+  function patchCanvasLayout(patch: Partial<AutomationCanvasLayout>) {
+    updateDraft((prev) => {
+      const current = prev.scenario.canvasLayout;
+      const nextLayout: AutomationCanvasLayout = {
+        positions: patch.positions ?? current.positions,
+        collapsedStageIds: patch.collapsedStageIds ?? current.collapsedStageIds,
+        hiddenStageLinkKeys:
+          patch.hiddenStageLinkKeys ?? current.hiddenStageLinkKeys,
+      };
+      const same =
+        canvasPositionsEqual(current.positions, nextLayout.positions) &&
+        idListEqual(current.collapsedStageIds, nextLayout.collapsedStageIds) &&
+        idListEqual(
+          current.hiddenStageLinkKeys,
+          nextLayout.hiddenStageLinkKeys,
+        );
+      if (same) return prev;
+      return {
+        ...prev,
+        scenario: { ...prev.scenario, canvasLayout: nextLayout },
+      };
+    });
   }
 
   function hideStageLink(key: string) {
     if (hiddenStageLinkKeys.has(key)) return;
-    void patchCanvasLayout({
+    patchCanvasLayout({
       hiddenStageLinkKeys: [...hiddenStageLinkKeys, key],
     });
     setSelectedTransitionEdge((edge) => {
@@ -212,27 +353,30 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
 
   function showStageLink(key: string) {
     if (!hiddenStageLinkKeys.has(key)) return;
-    void patchCanvasLayout({
+    patchCanvasLayout({
       hiddenStageLinkKeys: canvasLayout.hiddenStageLinkKeys.filter(
         (item) => item !== key,
       ),
     });
   }
 
-  function toggleStageCollapse(stageId: string) {
+  function toggleStageCollapse(stageOptionId: string) {
     const next = new Set(collapsedStageIds);
-    if (next.has(stageId)) next.delete(stageId);
-    else next.add(stageId);
-    void patchCanvasLayout({ collapsedStageIds: [...next] });
+    if (next.has(stageOptionId)) next.delete(stageOptionId);
+    else next.add(stageOptionId);
+    patchCanvasLayout({ collapsedStageIds: [...next] });
   }
 
-  const scenarioTemplates = useMemo(
-    () =>
-      scenario
-        ? templates.filter((item) => item.scenarioId === scenario.id)
-        : [],
-    [templates, scenario],
-  );
+  function selectTransition(fromOptionId: string, toOptionId: string) {
+    if (!fromOptionId || !toOptionId) {
+      setSelectedTransitionEdge(null);
+      return;
+    }
+    setSelectedTemplateId(null);
+    setSelectedTransitionEdge({ fromOptionId, toOptionId });
+  }
+
+  const scenarioTemplates = draft?.templates ?? [];
 
   const selectedTemplate =
     scenarioTemplates.find((item) => item.id === selectedTemplateId) ?? null;
@@ -280,6 +424,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       };
       await saveScenario(next);
       setScenarioId(next.id);
+      const snap = makeSnap(next, []);
+      setDraft(snap);
+      setSaved(cloneSnap(snap));
+      setUndoStack([]);
       return { process, scenario: next };
     }
     const created = createDefaultProcess({
@@ -292,10 +440,15 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setEntityId(resolvedEntityId);
     setTriggerFieldId(resolvedTriggerFieldId);
     setScenarioId(created.scenario.id);
+    const snap = makeSnap(created.scenario, []);
+    setDraft(snap);
+    setSaved(cloneSnap(snap));
+    setUndoStack([]);
     return created;
   }
 
   async function addScenario() {
+    if (!confirmDiscardIfDirty()) return;
     const ensured = await ensureProcess();
     if (!ensured) return;
     const next: AutomationScenario = {
@@ -310,6 +463,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     };
     await saveScenario(next);
     setScenarioId(next.id);
+    const snap = makeSnap(next, []);
+    setDraft(snap);
+    setSaved(cloneSnap(snap));
+    setUndoStack([]);
   }
 
   async function addTemplate(
@@ -321,165 +478,181 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     if (!targetStageId) return;
     const ensured = await ensureProcess();
     if (!ensured) return;
-    const phaseList = scenarioTemplates
-      .filter(
-        (item) =>
-          item.triggerOptionId === targetStageId &&
-          (item.launchPhase ?? "onEnter") === launchPhase,
-      )
-      .slice()
-      .sort(
-        (a, b) =>
-          a.stepOrder - b.stepOrder || a.name.localeCompare(b.name, "ru"),
+
+    const templateId = createAutomationTemplateId();
+    updateDraft((prev) => {
+      const base =
+        prev.scenario.id === ensured.scenario.id
+          ? prev
+          : makeSnap(ensured.scenario, []);
+      const phaseList = base.templates
+        .filter(
+          (item) =>
+            item.triggerOptionId === targetStageId &&
+            (item.launchPhase ?? "onEnter") === launchPhase,
+        )
+        .slice()
+        .sort(
+          (a, b) =>
+            a.stepOrder - b.stepOrder || a.name.localeCompare(b.name, "ru"),
+        );
+      const at = Math.max(
+        0,
+        Math.min(insertAt ?? phaseList.length, phaseList.length),
       );
-    const at = Math.max(
-      0,
-      Math.min(insertAt ?? phaseList.length, phaseList.length),
-    );
-    const template: AutomationTaskTemplate = {
-      id: createAutomationTemplateId(),
-      scenarioId: ensured.scenario.id,
-      name: "Новая задача",
-      nameTemplate: "",
-      description: "",
-      triggerOptionId: targetStageId,
-      stepOrder: at,
-      isBlocking: true,
-      kind: "decision",
-      launchPhase,
-      launchConditions: emptyAutomationConditions(),
-      assignee: defaultAssigneeResolver(),
-      watchers: defaultAssigneeResolver(),
-      outcomes: defaultDecisionOutcomes(),
-      sla: null,
-      materials: [],
-    };
-    phaseList.splice(at, 0, template);
-    for (const [index, item] of phaseList.entries()) {
-      const next = { ...item, stepOrder: index, launchPhase };
-      if (item.id === template.id || item.stepOrder !== index) {
-        await saveTemplate(next);
-      }
-    }
+      const template: AutomationTaskTemplate = {
+        id: templateId,
+        scenarioId: ensured.scenario.id,
+        name: "Новая задача",
+        nameTemplate: "",
+        description: "",
+        triggerOptionId: targetStageId,
+        stepOrder: at,
+        isBlocking: true,
+        kind: "decision",
+        launchPhase,
+        launchConditions: emptyAutomationConditions(),
+        assignee: defaultAssigneeResolver(),
+        watchers: defaultAssigneeResolver(),
+        outcomes: defaultDecisionOutcomes(),
+        sla: null,
+        materials: [],
+      };
+      phaseList.splice(at, 0, template);
+      const reorderedIds = new Set(phaseList.map((item) => item.id));
+      const others = base.templates.filter(
+        (item) => !reorderedIds.has(item.id),
+      );
+      const reordered = phaseList.map((item, index) => ({
+        ...item,
+        stepOrder: index,
+        launchPhase,
+      }));
+      return {
+        scenario: base.scenario,
+        templates: [...others, ...reordered],
+      };
+    });
+
     setStageId(targetStageId);
-    setSelectedTemplateId(template.id);
+    setSelectedTemplateId(templateId);
   }
 
-  async function moveTemplate(
+  function moveTemplate(
     templateId: string,
     targetStageId: string,
     stepOrder: number,
     launchPhase: AutomationLaunchPhase = "onEnter",
   ) {
-    const moving = scenarioTemplates.find((item) => item.id === templateId);
-    if (!moving) return;
+    updateDraft((prev) => {
+      const moving = prev.templates.find((item) => item.id === templateId);
+      if (!moving) return prev;
 
-    const without = scenarioTemplates.filter((item) => item.id !== templateId);
-    const sourcePhase = moving.launchPhase ?? "onEnter";
-    const sourceStageId = moving.triggerOptionId;
+      const without = prev.templates.filter((item) => item.id !== templateId);
+      const sourcePhase = moving.launchPhase ?? "onEnter";
+      const sourceStageId = moving.triggerOptionId;
 
-    const targetList = without
-      .filter(
-        (item) =>
-          item.triggerOptionId === targetStageId &&
-          (item.launchPhase ?? "onEnter") === launchPhase,
-      )
-      .slice()
-      .sort((a, b) => a.stepOrder - b.stepOrder);
-    const insertAt = Math.max(0, Math.min(stepOrder, targetList.length));
-    targetList.splice(insertAt, 0, {
-      ...moving,
-      triggerOptionId: targetStageId,
-      launchPhase,
-    });
-
-    const updates: AutomationTaskTemplate[] = targetList.map((item, index) => ({
-      ...item,
-      triggerOptionId: targetStageId,
-      launchPhase,
-      stepOrder: index,
-    }));
-
-    if (sourceStageId !== targetStageId || sourcePhase !== launchPhase) {
-      const sourceList = without
+      const targetList = without
         .filter(
           (item) =>
-            item.triggerOptionId === sourceStageId &&
-            (item.launchPhase ?? "onEnter") === sourcePhase,
+            item.triggerOptionId === targetStageId &&
+            (item.launchPhase ?? "onEnter") === launchPhase,
         )
         .slice()
         .sort((a, b) => a.stepOrder - b.stepOrder);
-      sourceList.forEach((item, index) => {
-        updates.push({ ...item, stepOrder: index });
+      const insertAt = Math.max(0, Math.min(stepOrder, targetList.length));
+      targetList.splice(insertAt, 0, {
+        ...moving,
+        triggerOptionId: targetStageId,
+        launchPhase,
       });
-    }
 
-    for (const item of updates) {
-      const prev = scenarioTemplates.find((t) => t.id === item.id);
-      if (
-        !prev ||
-        prev.triggerOptionId !== item.triggerOptionId ||
-        prev.stepOrder !== item.stepOrder ||
-        (prev.launchPhase ?? "onEnter") !== (item.launchPhase ?? "onEnter")
-      ) {
-        await saveTemplate(item);
+      const updates = new Map<string, AutomationTaskTemplate>();
+      targetList.forEach((item, index) => {
+        updates.set(item.id, {
+          ...item,
+          triggerOptionId: targetStageId,
+          launchPhase,
+          stepOrder: index,
+        });
+      });
+
+      if (sourceStageId !== targetStageId || sourcePhase !== launchPhase) {
+        const sourceList = without
+          .filter(
+            (item) =>
+              item.triggerOptionId === sourceStageId &&
+              (item.launchPhase ?? "onEnter") === sourcePhase,
+          )
+          .slice()
+          .sort((a, b) => a.stepOrder - b.stepOrder);
+        sourceList.forEach((item, index) => {
+          updates.set(item.id, { ...item, stepOrder: index });
+        });
       }
-    }
-  }
 
-  async function saveCanvasPositions(positions: AutomationCanvasNodePositions) {
-    await patchCanvasLayout({ positions });
-  }
-
-  function selectTransition(fromOptionId: string, toOptionId: string) {
-    if (!fromOptionId || !toOptionId) {
-      setSelectedTransitionEdge(null);
-      return;
-    }
-    setSelectedTemplateId(null);
-    setSelectedTransitionEdge({ fromOptionId, toOptionId });
-  }
-
-  async function saveStageTransition(transition: AutomationStageTransition) {
-    const ensured = await ensureProcess();
-    if (!ensured) return;
-    const currentScenario =
-      getAutomationConfig().scenarios.find(
-        (item) => item.id === ensured.scenario.id,
-      ) ?? ensured.scenario;
-    const current = currentScenario.stageTransitions ?? [];
-    const next = [
-      ...current.filter(
-        (item) =>
-          !(
-            item.fromOptionId === transition.fromOptionId &&
-            item.toOptionId === transition.toOptionId
-          ),
-      ),
-      transition,
-    ];
-    await saveScenario({ ...currentScenario, stageTransitions: next });
-  }
-
-  async function clearStageTransition(
-    fromOptionId: string,
-    toOptionId: string,
-  ) {
-    const current = latestScenario();
-    if (!current) return;
-    await saveScenario({
-      ...current,
-      stageTransitions: current.stageTransitions.filter(
-        (item) =>
-          !(
-            item.fromOptionId === fromOptionId && item.toOptionId === toOptionId
-          ),
-      ),
+      return {
+        ...prev,
+        templates: prev.templates.map((item) => updates.get(item.id) ?? item),
+      };
     });
-    setSelectedTransitionEdge(null);
+  }
+
+  function applyTemplate(next: AutomationTaskTemplate) {
+    updateDraft((prev) => ({
+      ...prev,
+      templates: prev.templates.map((item) =>
+        item.id === next.id ? next : item,
+      ),
+    }));
+  }
+
+  function deleteTemplate(templateId: string) {
+    updateDraft((prev) => ({
+      ...prev,
+      templates: prev.templates.filter((item) => item.id !== templateId),
+    }));
+    setSelectedTemplateId(null);
+  }
+
+  function applyStageTransition(transition: AutomationStageTransition) {
+    updateDraft((prev) => {
+      const current = prev.scenario.stageTransitions ?? [];
+      const next = [
+        ...current.filter(
+          (item) =>
+            !(
+              item.fromOptionId === transition.fromOptionId &&
+              item.toOptionId === transition.toOptionId
+            ),
+        ),
+        transition,
+      ];
+      return {
+        ...prev,
+        scenario: { ...prev.scenario, stageTransitions: next },
+      };
+    });
+  }
+
+  function clearStageTransition(fromOptionId: string, toOptionId: string) {
+    updateDraft((prev) => ({
+      ...prev,
+      scenario: {
+        ...prev.scenario,
+        stageTransitions: prev.scenario.stageTransitions.filter(
+          (item) =>
+            !(
+              item.fromOptionId === fromOptionId &&
+              item.toOptionId === toOptionId
+            ),
+        ),
+      },
+    }));
   }
 
   function selectEntity(nextId: string) {
+    if (!confirmDiscardIfDirty()) return;
     setEntityId(nextId);
     const nextEntity = entities.find((item) => item.id === nextId);
     const nextLists =
@@ -491,18 +664,66 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setStageId(null);
     setSelectedTemplateId(null);
     setSelectedTransitionEdge(null);
+    setDraft(null);
+    setSaved(null);
+    setUndoStack([]);
   }
 
   function selectField(nextFieldId: string) {
+    if (!confirmDiscardIfDirty()) return;
     setTriggerFieldId(nextFieldId);
     setScenarioId(null);
     setStageId(null);
     setSelectedTemplateId(null);
     setSelectedTransitionEdge(null);
+    setDraft(null);
+    setSaved(null);
+    setUndoStack([]);
   }
+
+  const editActions = showEditActions ? (
+    <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-1">
+      <Button
+        type="button"
+        size="sm"
+        className="h-8 gap-1.5 px-2.5"
+        disabled={!dirty || persisting}
+        onClick={() => void persistDraft()}
+      >
+        <Save className="size-3.5" aria-hidden />
+        {persisting ? "Сохранение…" : "Сохранить"}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 gap-1.5 px-2.5"
+        disabled={!canUndo || persisting}
+        title="Отменить последнее изменение"
+        onClick={undoEdit}
+      >
+        <Undo2 className="size-3.5" aria-hidden />
+        Отменить
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 gap-1.5 px-2.5 text-muted-foreground"
+        disabled={!dirty || persisting}
+        title="Откатить все несохранённые изменения"
+        onClick={revertAll}
+      >
+        <RotateCcw className="size-3.5" aria-hidden />
+        Откатить
+      </Button>
+    </div>
+  ) : null;
 
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
+      {editActions}
+
       <Select
         value={resolvedEntityId || undefined}
         onValueChange={(next) => {
@@ -556,9 +777,21 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       <Select
         value={scenario?.id}
         onValueChange={(next) => {
-          if (next != null) {
-            setScenarioId(String(next));
-            setSelectedTemplateId(null);
+          if (next == null) return;
+          if (!confirmDiscardIfDirty()) return;
+          const nextId = String(next);
+          const nextScenario = processScenarios.find(
+            (item) => item.id === nextId,
+          );
+          setScenarioId(nextId);
+          setSelectedTemplateId(null);
+          setSelectedTransitionEdge(null);
+          if (nextScenario) {
+            const snap = makeSnap(nextScenario, templates);
+            setDraft(snap);
+            setSaved(cloneSnap(snap));
+            setUndoStack([]);
+            setEditorEpoch((epoch) => epoch + 1);
           }
         }}
         disabled={!scenario}
@@ -633,11 +866,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
               entity={entity}
               value={scenario.entryConditions}
               onChange={(entryConditions) =>
-                void (() => {
-                  const current = latestScenario();
-                  if (!current) return;
-                  return saveScenario({ ...current, entryConditions });
-                })()
+                updateDraft((prev) => ({
+                  ...prev,
+                  scenario: { ...prev.scenario, entryConditions },
+                }))
               }
             />
           </PopoverContent>
@@ -709,7 +941,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   stepOrder,
                   launchPhase,
                 ) =>
-                  void moveTemplate(
+                  moveTemplate(
                     templateId,
                     stageOptionId,
                     stepOrder,
@@ -717,7 +949,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   )
                 }
                 onCanvasPositionsChange={(positions) =>
-                  void saveCanvasPositions(positions)
+                  patchCanvasLayout({ positions })
                 }
                 onToggleStageCollapse={toggleStageCollapse}
                 hiddenStageLinkKeys={hiddenStageLinkKeys}
@@ -738,17 +970,17 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
             >
               <div className="flex min-h-0 flex-1 flex-col p-4">
                 <StageTransitionInspector
-                  key={selectedTransitionKey ?? "transition"}
+                  key={`${selectedTransitionKey ?? "transition"}:${editorEpoch}`}
                   fromStage={selectedTransitionStages.fromStage}
                   toStage={selectedTransitionStages.toStage}
                   stages={stages}
                   entity={entity}
                   value={selectedTransition}
                   onSave={async (transition) => {
-                    await saveStageTransition(transition);
+                    applyStageTransition(transition);
                   }}
                   onClear={() =>
-                    void clearStageTransition(
+                    clearStageTransition(
                       selectedTransitionEdge.fromOptionId,
                       selectedTransitionEdge.toOptionId,
                     )
@@ -773,7 +1005,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
             >
               <div className="flex min-h-0 flex-1 flex-col p-4">
                 <TemplateInspector
-                  key={selectedTemplate.id}
+                  key={`${selectedTemplate.id}:${editorEpoch}`}
                   template={selectedTemplate}
                   entity={entity}
                   entities={entities}
@@ -782,11 +1014,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   notificationRules={notificationRules.filter(
                     (rule) => rule.templateId === selectedTemplate.id,
                   )}
-                  onSave={(next) => saveTemplate(next)}
-                  onDelete={() => {
-                    void removeTemplate(selectedTemplate.id);
-                    setSelectedTemplateId(null);
-                  }}
+                  commitLabel="Применить"
+                  commitSuccessMessage="Изменения применены"
+                  onSave={(next) => applyTemplate(next)}
+                  onDelete={() => deleteTemplate(selectedTemplate.id)}
                 />
               </div>
             </aside>

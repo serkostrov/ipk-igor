@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { useCanDeleteAutomationTasks } from "@/entities/access";
 import {
   completeAutomationTask,
+  deleteAutomationTask,
   fetchAutomationTask,
   returnAutomationTaskForRevision,
   type AutomationTask,
@@ -21,9 +25,12 @@ export function AutomationTaskPage({
   onOpenRecord?: (entityId: string, recordId: string) => void;
 }) {
   const sessionUser = useSessionUser();
+  const canDelete = useCanDeleteAutomationTasks();
   const [task, setTask] = useState<AutomationTask | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +59,7 @@ export function AutomationTaskPage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6 md:p-8">
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center justify-between gap-2">
         <Button
           type="button"
           variant="ghost"
@@ -62,6 +69,19 @@ export function AutomationTaskPage({
         >
           <ArrowLeft className="size-4" aria-hidden />К задачам
         </Button>
+        {canDelete && task ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-muted-foreground hover:border-destructive/40 hover:text-destructive"
+            disabled={deleting}
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            Удалить
+          </Button>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card p-5 shadow-xs md:p-6">
@@ -102,6 +122,37 @@ export function AutomationTaskPage({
           />
         )}
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteOpen(false);
+        }}
+        title="Удалить задачу?"
+        description={
+          task
+            ? `Задача «${task.name}» будет удалена без возможности восстановления.`
+            : "Задача будет удалена без возможности восстановления."
+        }
+        confirmLabel={deleting ? "Удаление…" : "Удалить"}
+        confirmDisabled={deleting}
+        onConfirm={async () => {
+          if (!task || deleting) return;
+          setDeleting(true);
+          try {
+            await deleteAutomationTask(task.id);
+            toast.success("Задача удалена");
+            onBack();
+          } catch (err: unknown) {
+            toast.error(
+              getAutomationErrorMessage(err, "Не удалось удалить задачу"),
+            );
+            throw err;
+          } finally {
+            setDeleting(false);
+          }
+        }}
+      />
     </div>
   );
 }

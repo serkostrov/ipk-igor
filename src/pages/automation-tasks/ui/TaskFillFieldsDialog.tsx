@@ -51,7 +51,7 @@ type TaskFillFieldsDialogProps = {
   taskId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCompleted?: () => void;
+  onCompleted?: (task: AutomationTask) => void;
   onOpenRecord?: (entityId: string, recordId: string) => void;
 };
 
@@ -69,7 +69,7 @@ function TaskFillFieldsDialogBody({
 }: {
   taskId: string;
   onOpenChange: (open: boolean) => void;
-  onCompleted?: () => void;
+  onCompleted?: (task: AutomationTask) => void;
   onOpenRecord?: (entityId: string, recordId: string) => void;
 }) {
   const sessionUser = useSessionUser();
@@ -235,14 +235,15 @@ function TaskFillFieldsDialogBody({
     setError(null);
     try {
       await persistValues(outcomeId);
+      const completed = task!;
       await completeAutomationTask(
-        task!.id,
+        completed.id,
         outcomeId,
         sessionUser?.id ?? null,
         values,
       );
       onOpenChange(false);
-      onCompleted?.();
+      onCompleted?.(completed);
     } catch (err: unknown) {
       setError(getAutomationErrorMessage(err, "Ошибка завершения"));
     } finally {
@@ -267,7 +268,6 @@ function TaskFillFieldsDialogBody({
       await persistValues();
       await returnAutomationTaskForRevision(task.id, sessionUser?.id ?? null);
       onOpenChange(false);
-      onCompleted?.();
     } catch (err: unknown) {
       setError(getAutomationErrorMessage(err, "Ошибка возврата"));
     } finally {
