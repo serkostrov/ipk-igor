@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import {
+  ensureAutomationBeforeEnterPrep,
   fetchAutomationTasks,
   getAutomationConfig,
   matchAutomationConditions,
@@ -94,6 +95,37 @@ function findBlockingTasks(
       optionIdsMatch(task.triggerOptionId, optionId) &&
       (task.status === "pending" || task.status === "returned"),
   );
+}
+
+/**
+ * Prep tasks that must finish before leaving `from` toward `to`.
+ * beforeEnter is stored on the previous stage (from) but targets `to`.
+ */
+function findPrepTasksForMove(
+  tasks: AutomationTask[],
+  fieldId: string,
+  fromOptionId: string,
+  toOptionId: string,
+) {
+  return tasks.filter((task) => {
+    if (task.status !== "pending" && task.status !== "returned") return false;
+    if (fieldId && task.triggerFieldId && task.triggerFieldId !== fieldId) {
+      return false;
+    }
+    if (!task.isBlocking && !isBeforeEnterTask(task)) return false;
+    if (fromOptionId && optionIdsMatch(task.triggerOptionId, fromOptionId)) {
+      return true;
+    }
+    // Rare: prep stored against the destination stage id.
+    if (
+      toOptionId &&
+      isBeforeEnterTask(task) &&
+      optionIdsMatch(task.triggerOptionId, toOptionId)
+    ) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function tasksForDestination(
@@ -321,6 +353,53 @@ export async function applyRecordListChange(
   let resolvedValue = value;
   const previousValues = { ...record.values };
 
+  // Prep / blocking tasks first — otherwise a stage-gateway toast fires and
+  // the fill-fields dialog never opens (beforeEnter lives on the current stage).
+  if (isSupabaseConfigured && fromOptionId) {
+    try {
+      let pending = await fetchPendingTasksForRecord(record.id);
+      let prep = findPrepTasksForMove(
+        pending,
+        field.id,
+        fromOptionId,
+        toOptionId,
+      );
+      if (prep.length === 0 && toOptionId) {
+        // Record may have entered the stage before prep templates existed.
+        pending = await ensureAutomationBeforeEnterPrep(record.id, toOptionId);
+        prep = findPrepTasksForMove(
+          pending,
+          field.id,
+          fromOptionId,
+          toOptionId,
+        );
+        if (prep.length === 0) {
+          prep = pending.filter(
+            (task) =>
+              (task.status === "pending" || task.status === "returned") &&
+              (isBeforeEnterTask(task) || task.isBlocking),
+          );
+        }
+      }
+      const blocking =
+        prep.length > 0
+          ? prep
+          : findBlockingTasks(pending, field.id, fromOptionId);
+      if (blocking.length > 0) {
+        queuePendingRecordListChange({
+          entityId: entity.id,
+          recordId: record.id,
+          fieldId: field.id,
+          value: resolvedValue,
+        });
+        openBlockingTaskOrNotify(blocking);
+        return false;
+      }
+    } catch (error: unknown) {
+      console.error("[automation] blocking check failed", error);
+    }
+  }
+
   try {
     const { processes } = getAutomationConfig();
     const process = processes.find(
@@ -344,6 +423,46 @@ export async function applyRecordListChange(
           previousValues,
         });
         if (resolution.kind === "block") {
+          // Conditions often depend on fields filled by beforeEnter — ensure
+          // prep exists and open it instead of only a dead-end toast.
+          if (isSupabaseConfigured) {
+            try {
+              const pending = await ensureAutomationBeforeEnterPrep(
+                record.id,
+                toOptionId,
+              );
+              const prep = findPrepTasksForMove(
+                pending,
+                field.id,
+                fromOptionId,
+                toOptionId,
+              );
+              const openable =
+                prep.length > 0
+                  ? prep
+                  : pending.filter(
+                      (task) =>
+                        (task.status === "pending" ||
+                          task.status === "returned") &&
+                        (isBeforeEnterTask(task) || task.isBlocking),
+                    );
+              if (openable.length > 0) {
+                queuePendingRecordListChange({
+                  entityId: entity.id,
+                  recordId: record.id,
+                  fieldId: field.id,
+                  value: resolvedValue,
+                });
+                openBlockingTaskOrNotify(openable);
+                return false;
+              }
+            } catch (error: unknown) {
+              console.error(
+                "[automation] prep tasks after gateway block failed",
+                error,
+              );
+            }
+          }
           toast.warning("Переход недоступен", {
             description: resolution.message,
             duration: 7_000,
@@ -365,25 +484,6 @@ export async function applyRecordListChange(
     }
   } catch (error: unknown) {
     console.error("[automation] stage transition check failed", error);
-  }
-
-  if (isSupabaseConfigured && fromOptionId) {
-    try {
-      const pending = await fetchPendingTasksForRecord(record.id);
-      const blocking = findBlockingTasks(pending, field.id, fromOptionId);
-      if (blocking.length > 0) {
-        queuePendingRecordListChange({
-          entityId: entity.id,
-          recordId: record.id,
-          fieldId: field.id,
-          value: resolvedValue,
-        });
-        openBlockingTaskOrNotify(blocking);
-        return false;
-      }
-    } catch (error: unknown) {
-      console.error("[automation] blocking check failed", error);
-    }
   }
 
   const nextValues = applyEntityFieldValue(

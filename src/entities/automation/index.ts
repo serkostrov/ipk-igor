@@ -152,6 +152,7 @@ export {
   fetchAutomationTask,
   fetchAutomationTaskAttachments,
   fetchAutomationTaskTimeSessions,
+  ensureAutomationBeforeEnterPrep,
   fetchAutomationTasks,
   fetchAutomationNotifications,
   fetchOpenAutomationTaskTimeSession,

@@ -91,6 +91,41 @@ export async function fetchAutomationTasks(options?: {
     .filter((item): item is AutomationTask => item != null);
 }
 
+/**
+ * Spawn missing beforeEnter prep tasks for a move toward `toOptionId`,
+ * and return pending prep / destination tasks for the record.
+ */
+export async function ensureAutomationBeforeEnterPrep(
+  recordId: string,
+  toOptionId: string,
+): Promise<AutomationTask[]> {
+  if (!isSupabaseConfigured || !supabase) return [];
+  const { data, error } = await supabase.rpc(
+    "automation_ensure_before_enter_prep",
+    {
+      p_record_id: recordId,
+      p_to_option_id: toOptionId,
+    },
+  );
+  if (error) {
+    // Pre-migration / missing RPC — fall back to a plain pending fetch.
+    if (
+      error.code === "PGRST202" ||
+      /could not find the function|does not exist/i.test(error.message ?? "")
+    ) {
+      return fetchAutomationTasks({
+        recordId,
+        status: ["pending", "returned"],
+      });
+    }
+    throw error;
+  }
+  const rows = (data ?? []) as Record<string, unknown>[];
+  return rows
+    .map((row) => mapTaskRow(row))
+    .filter((item): item is AutomationTask => item != null);
+}
+
 export async function fetchAutomationTask(
   taskId: string,
 ): Promise<AutomationTask | null> {
