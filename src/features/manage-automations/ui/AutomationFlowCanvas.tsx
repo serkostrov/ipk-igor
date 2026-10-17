@@ -11,6 +11,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   getSmoothStepPath,
+  getStraightPath,
   useEdgesState,
   useInternalNode,
   useNodesState,
@@ -25,10 +26,20 @@ import {
   type OnNodeDrag,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Flag, GitBranch, Lock, Plus, Timer, User, Zap } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  Flag,
+  GitBranch,
+  Lock,
+  Plus,
+  Timer,
+  User,
+  Zap,
+} from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import type {
-  AutomationCanvasLayout,
+  AutomationCanvasNodePositions,
   AutomationLaunchPhase,
   AutomationStageTransition,
   AutomationTaskTemplate,
@@ -38,6 +49,10 @@ import {
   stageTransitionIsConfigured,
 } from "@/entities/automation";
 import type { EntityField } from "@/entities/entity";
+import {
+  automationStageMapLinkKey,
+  stageElseLinkKey,
+} from "../lib/stage-link-keys";
 import { TemplateRichText } from "./TemplateRichText";
 
 const COL_W = 220;
@@ -45,101 +60,159 @@ const COL_GAP = 36;
 const ORIGIN_X = 32;
 const STAGE_Y = 28;
 const FLOW_Y = 130;
-const ROW_GAP = 16;
+const ROW_GAP = 40;
 const TASK_H = 92;
 const TRIGGER_H = 72;
-const INSERT_H = 28;
 
 const HANDLE_CLASS =
   "!size-2 !border-2 !border-background !bg-muted-foreground/35 !opacity-0";
 
-function nodeCenter(node: InternalNode) {
+type InsertData = {
+  stageId: string;
+  launchPhase: AutomationLaunchPhase;
+  insertAt: number;
+};
+
+function nodeBounds(node: InternalNode) {
   const { width = COL_W, height = TASK_H } = node.measured ?? {};
   const { x, y } = node.internals.positionAbsolute;
-  return { x: x + width / 2, y: y + height / 2 };
-}
-
-/** Intersection of center→center line with the node's border rectangle. */
-function getNodeIntersection(
-  intersectionNode: InternalNode,
-  targetNode: InternalNode,
-) {
-  const { width = COL_W, height = TASK_H } = intersectionNode.measured ?? {};
-  const intersectionNodePosition = intersectionNode.internals.positionAbsolute;
-  const targetCenter = nodeCenter(targetNode);
-
-  const w = width / 2;
-  const h = height / 2;
-  const x2 = intersectionNodePosition.x + w;
-  const y2 = intersectionNodePosition.y + h;
-  const x1 = targetCenter.x;
-  const y1 = targetCenter.y;
-
-  const xx1 = (x1 - x2) / (2 * w) - (y1 - y2) / (2 * h);
-  const yy1 = (x1 - x2) / (2 * w) + (y1 - y2) / (2 * h);
-  const a = 1 / (Math.abs(xx1) + Math.abs(yy1) || 1);
-  const xx3 = a * xx1;
-  const yy3 = a * yy1;
-
   return {
-    x: w * (xx3 + yy3) + x2,
-    y: h * (-xx3 + yy3) + y2,
+    x,
+    y,
+    width,
+    height,
+    cx: x + width / 2,
+    cy: y + height / 2,
   };
 }
 
-function getEdgeSide(
-  node: InternalNode,
-  intersectionPoint: { x: number; y: number },
-): Position {
-  const { width = COL_W, height = TASK_H } = node.measured ?? {};
-  const { x, y } = node.internals.positionAbsolute;
-  const px = Math.round(intersectionPoint.x);
-  const py = Math.round(intersectionPoint.y);
-  const nx = Math.round(x);
-  const ny = Math.round(y);
+/**
+ * Axis-aligned ports (column = top/bottom, row = left/right).
+ * Avoids diamond-intersection attaching to the sides of wide insert strips.
+ */
+function getAlignedEdgeParams(source: InternalNode, target: InternalNode) {
+  const s = nodeBounds(source);
+  const t = nodeBounds(target);
+  const dx = t.cx - s.cx;
+  const dy = t.cy - s.cy;
 
-  if (px <= nx + 1) return Position.Left;
-  if (px >= nx + width - 1) return Position.Right;
-  if (py <= ny + 1) return Position.Top;
-  if (py >= ny + height - 1) return Position.Bottom;
-  return Position.Top;
-}
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    if (dy >= 0) {
+      return {
+        sx: s.cx,
+        sy: s.y + s.height,
+        tx: t.cx,
+        ty: t.y,
+        sourcePos: Position.Bottom,
+        targetPos: Position.Top,
+        vertical: true as const,
+      };
+    }
+    return {
+      sx: s.cx,
+      sy: s.y,
+      tx: t.cx,
+      ty: t.y + t.height,
+      sourcePos: Position.Top,
+      targetPos: Position.Bottom,
+      vertical: true as const,
+    };
+  }
 
-function getFloatingEdgeParams(source: InternalNode, target: InternalNode) {
-  const sourcePoint = getNodeIntersection(source, target);
-  const targetPoint = getNodeIntersection(target, source);
+  if (dx >= 0) {
+    return {
+      sx: s.x + s.width,
+      sy: s.cy,
+      tx: t.x,
+      ty: t.cy,
+      sourcePos: Position.Right,
+      targetPos: Position.Left,
+      vertical: false as const,
+    };
+  }
   return {
-    sx: sourcePoint.x,
-    sy: sourcePoint.y,
-    tx: targetPoint.x,
-    ty: targetPoint.y,
-    sourcePos: getEdgeSide(source, sourcePoint),
-    targetPos: getEdgeSide(target, targetPoint),
+    sx: s.x,
+    sy: s.cy,
+    tx: t.x + t.width,
+    ty: t.cy,
+    sourcePos: Position.Left,
+    targetPos: Position.Right,
+    vertical: false as const,
   };
 }
 
-function FloatingEdge({ id, source, target, style, markerEnd }: EdgeProps) {
+type FloatingEdgeData = {
+  insert?: InsertData;
+  onAdd?: () => void;
+};
+
+function FloatingEdge({
+  id,
+  source,
+  target,
+  style,
+  markerEnd,
+  data,
+}: EdgeProps) {
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
+  const edgeData = (data ?? {}) as FloatingEdgeData;
 
   if (!sourceNode || !targetNode) return null;
 
-  const { sx, sy, tx, ty, sourcePos, targetPos } = getFloatingEdgeParams(
-    sourceNode,
-    targetNode,
-  );
-  const [edgePath] = getSmoothStepPath({
-    sourceX: sx,
-    sourceY: sy,
-    sourcePosition: sourcePos,
-    targetX: tx,
-    targetY: ty,
-    targetPosition: targetPos,
-    borderRadius: 12,
-  });
+  const { sx, sy, tx, ty, sourcePos, targetPos, vertical } =
+    getAlignedEdgeParams(sourceNode, targetNode);
+
+  const aligned = vertical ? Math.abs(sx - tx) < 1.5 : Math.abs(sy - ty) < 1.5;
+
+  const [edgePath, labelX, labelY] = aligned
+    ? getStraightPath({ sourceX: sx, sourceY: sy, targetX: tx, targetY: ty })
+    : getSmoothStepPath({
+        sourceX: sx,
+        sourceY: sy,
+        sourcePosition: sourcePos,
+        targetX: tx,
+        targetY: ty,
+        targetPosition: targetPos,
+        borderRadius: 10,
+      });
+
+  const insert = edgeData.insert;
+  const addLabel =
+    insert?.launchPhase === "beforeEnter"
+      ? "Добавить задачу до старта"
+      : "Добавить задачу";
 
   return (
-    <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+    <>
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      {insert ? (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan pointer-events-auto absolute z-20"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+          >
+            <button
+              type="button"
+              title={addLabel}
+              aria-label={addLabel}
+              className={cn(
+                "group flex size-6 items-center justify-center rounded-full border border-border/90 bg-card text-muted-foreground shadow-sm transition-all",
+                "hover:scale-110 hover:border-primary/50 hover:bg-primary/[0.06] hover:text-primary",
+              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                edgeData.onAdd?.();
+              }}
+            >
+              <Plus className="size-3.5" strokeWidth={2.25} aria-hidden />
+            </button>
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
   );
 }
 
@@ -148,19 +221,25 @@ type StageMapEdgeData = {
   toOptionId: string;
   configured: boolean;
   selected: boolean;
+  hidden: boolean;
   /** Optional «иначе» target stage name for the mid badge. */
   elseLabel?: string;
   onOpen?: () => void;
+  onHide?: () => void;
+  onShow?: () => void;
 };
 
 type StageElseEdgeData = {
   fromOptionId: string;
   toOptionId: string;
   selected: boolean;
+  hidden: boolean;
   onOpen?: () => void;
+  onHide?: () => void;
+  onShow?: () => void;
 };
 
-/** Horizontal map link between stage columns — mid-edge «+» / branch control. */
+/** Horizontal map link between stage columns — mid-gap menu. */
 function StageMapEdge({
   id,
   source,
@@ -175,40 +254,49 @@ function StageMapEdge({
 
   if (!sourceNode || !targetNode) return null;
 
-  const { sx, sy, tx, ty, sourcePos, targetPos } = getFloatingEdgeParams(
-    sourceNode,
-    targetNode,
-  );
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
-    sourceX: sx,
-    sourceY: sy,
-    sourcePosition: sourcePos,
-    targetX: tx,
-    targetY: ty,
-    targetPosition: targetPos,
-    borderRadius: 12,
-  });
+  const { sx, sy, tx, ty, sourcePos, targetPos, vertical } =
+    getAlignedEdgeParams(sourceNode, targetNode);
+  const aligned = vertical ? Math.abs(sx - tx) < 1.5 : Math.abs(sy - ty) < 1.5;
+
+  const [edgePath] = aligned
+    ? getStraightPath({ sourceX: sx, sourceY: sy, targetX: tx, targetY: ty })
+    : getSmoothStepPath({
+        sourceX: sx,
+        sourceY: sy,
+        sourcePosition: sourcePos,
+        targetX: tx,
+        targetY: ty,
+        targetPosition: targetPos,
+        borderRadius: 10,
+      });
+
+  // Always center the control in the geometric gap — not on a bent path midpoint.
+  const labelX = (sx + tx) / 2;
+  const labelY = (sy + ty) / 2;
 
   const configured = edgeData.configured === true;
   const selected = edgeData.selected === true;
+  const hidden = edgeData.hidden === true;
   const elseLabel = edgeData.elseLabel?.trim() ?? "";
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        markerEnd={markerEnd}
-        style={{
-          ...style,
-          stroke: selected
-            ? "var(--primary)"
-            : configured
-              ? "#94a3b8"
-              : (style?.stroke ?? "#d4d4d8"),
-          strokeWidth: selected || configured ? 2 : 1.5,
-        }}
-      />
+      {!hidden ? (
+        <BaseEdge
+          id={id}
+          path={edgePath}
+          markerEnd={markerEnd}
+          style={{
+            ...style,
+            stroke: selected
+              ? "var(--primary)"
+              : configured
+                ? "#94a3b8"
+                : (style?.stroke ?? "#d4d4d8"),
+            strokeWidth: selected || configured ? 2 : 1.5,
+          }}
+        />
+      ) : null}
       <EdgeLabelRenderer>
         <div
           className="nodrag nopan pointer-events-auto absolute z-20 flex flex-col items-center gap-1"
@@ -216,39 +304,71 @@ function StageMapEdge({
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
         >
-          <button
-            type="button"
-            title={
-              configured
-                ? "Изменить условие перехода"
-                : "Добавить условие перехода"
-            }
-            aria-label={
-              configured
-                ? "Изменить условие перехода"
-                : "Добавить условие перехода"
-            }
-            className={cn(
-              "flex size-7 items-center justify-center rounded-full border bg-card shadow-sm transition-all",
-              "hover:scale-105 hover:border-primary/50 hover:text-primary hover:shadow-md",
-              selected
-                ? "border-primary text-primary ring-2 ring-primary/25"
-                : configured
-                  ? "border-border text-foreground"
-                  : "border-border/80 text-muted-foreground opacity-90 hover:opacity-100",
-            )}
-            onClick={(event) => {
-              event.stopPropagation();
-              edgeData.onOpen?.();
-            }}
-          >
-            {configured ? (
-              <GitBranch className="size-3.5" aria-hidden />
-            ) : (
-              <Plus className="size-3.5" aria-hidden />
-            )}
-          </button>
-          {configured ? (
+          {hidden ? (
+            <button
+              type="button"
+              title="Показать связь"
+              aria-label="Показать связь"
+              className={cn(
+                "flex size-5 items-center justify-center rounded-full border border-dashed border-border/50 bg-card/80 text-muted-foreground/50 transition-all",
+                "hover:border-border hover:text-muted-foreground",
+              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                edgeData.onShow?.();
+              }}
+            >
+              <EyeOff className="size-2.5" strokeWidth={1.75} aria-hidden />
+            </button>
+          ) : (
+            <div className="group/link flex items-center gap-0.5">
+              <button
+                type="button"
+                title={
+                  configured ? "Условие перехода" : "Добавить условие перехода"
+                }
+                aria-label={
+                  configured ? "Условие перехода" : "Добавить условие перехода"
+                }
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-full border border-border/80 bg-card shadow-sm transition-all",
+                  "hover:scale-105 hover:border-primary/50 hover:text-primary hover:shadow-md",
+                  selected
+                    ? "border-primary text-primary ring-2 ring-primary/25"
+                    : configured
+                      ? "text-foreground"
+                      : "text-muted-foreground opacity-90 hover:opacity-100",
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  edgeData.onOpen?.();
+                }}
+              >
+                {configured ? (
+                  <GitBranch className="size-3.5" aria-hidden />
+                ) : (
+                  <Plus className="size-3.5" aria-hidden />
+                )}
+              </button>
+              <button
+                type="button"
+                title="Скрыть связь"
+                aria-label="Скрыть связь"
+                className={cn(
+                  "flex size-4 items-center justify-center rounded-full text-muted-foreground/35 transition-all",
+                  "opacity-0 group-hover/link:opacity-100 focus-visible:opacity-100",
+                  "hover:bg-muted/80 hover:text-muted-foreground",
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  edgeData.onHide?.();
+                }}
+              >
+                <EyeOff className="size-2.5" strokeWidth={1.75} aria-hidden />
+              </button>
+            </div>
+          )}
+          {!hidden && configured ? (
             <span
               className={cn(
                 "rounded-md border bg-card px-1.5 py-0.5 text-[9px] font-medium tracking-wide uppercase shadow-xs",
@@ -275,7 +395,7 @@ function StageElseEdge({ id, source, target, markerEnd, data }: EdgeProps) {
 
   if (!sourceNode || !targetNode) return null;
 
-  const { sx, sy, tx, ty, sourcePos, targetPos } = getFloatingEdgeParams(
+  const { sx, sy, tx, ty, sourcePos, targetPos } = getAlignedEdgeParams(
     sourceNode,
     targetNode,
   );
@@ -291,44 +411,80 @@ function StageElseEdge({ id, source, target, markerEnd, data }: EdgeProps) {
   });
 
   const selected = edgeData.selected === true;
+  const hidden = edgeData.hidden === true;
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        markerEnd={markerEnd}
-        style={{
-          stroke: selected ? "#d97706" : "#f59e0b",
-          strokeWidth: selected ? 2 : 1.75,
-          strokeDasharray: "6 4",
-        }}
-      />
+      {!hidden ? (
+        <BaseEdge
+          id={id}
+          path={edgePath}
+          markerEnd={markerEnd}
+          style={{
+            stroke: selected ? "#d97706" : "#f59e0b",
+            strokeWidth: selected ? 2 : 1.75,
+            strokeDasharray: "6 4",
+          }}
+        />
+      ) : null}
       <EdgeLabelRenderer>
         <div
-          className="nodrag nopan pointer-events-auto absolute z-20"
+          className="nodrag nopan pointer-events-auto absolute z-20 flex items-center gap-1"
           style={{
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
         >
-          <button
-            type="button"
-            title="Ветка «иначе» — открыть условие перехода"
-            aria-label="Ветка иначе"
-            className={cn(
-              "rounded-md border bg-card px-2 py-0.5 text-[9px] font-semibold tracking-wide uppercase shadow-sm transition-all",
-              "hover:border-amber-500/50 hover:text-amber-700",
-              selected
-                ? "border-amber-500 text-amber-700 ring-2 ring-amber-500/20"
-                : "border-amber-500/35 text-amber-700/90",
-            )}
-            onClick={(event) => {
-              event.stopPropagation();
-              edgeData.onOpen?.();
-            }}
-          >
-            иначе
-          </button>
+          {hidden ? (
+            <button
+              type="button"
+              title="Показать ветку «иначе»"
+              aria-label="Показать ветку иначе"
+              className="rounded-md border border-dashed border-border/50 bg-card/80 px-1.5 py-0.5 text-[8px] font-medium tracking-wide text-muted-foreground/50 uppercase transition-all hover:border-border hover:text-muted-foreground"
+              onClick={(event) => {
+                event.stopPropagation();
+                edgeData.onShow?.();
+              }}
+            >
+              скрыто
+            </button>
+          ) : (
+            <div className="group/else flex items-center gap-0.5">
+              <button
+                type="button"
+                title="Ветка «иначе» — открыть условие"
+                aria-label="Ветка иначе"
+                className={cn(
+                  "rounded-md border bg-card px-2 py-0.5 text-[9px] font-semibold tracking-wide uppercase shadow-sm transition-all",
+                  "hover:border-amber-500/50 hover:text-amber-700",
+                  selected
+                    ? "border-amber-500 text-amber-700 ring-2 ring-amber-500/20"
+                    : "border-amber-500/35 text-amber-700/90",
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  edgeData.onOpen?.();
+                }}
+              >
+                иначе
+              </button>
+              <button
+                type="button"
+                title="Скрыть ветку «иначе»"
+                aria-label="Скрыть ветку иначе"
+                className={cn(
+                  "flex size-4 items-center justify-center rounded-full text-muted-foreground/35 transition-all",
+                  "opacity-0 group-hover/else:opacity-100 focus-visible:opacity-100",
+                  "hover:bg-muted/80 hover:text-muted-foreground",
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  edgeData.onHide?.();
+                }}
+              >
+                <EyeOff className="size-2.5" strokeWidth={1.75} aria-hidden />
+              </button>
+            </div>
+          )}
         </div>
       </EdgeLabelRenderer>
     </>
@@ -347,24 +503,28 @@ type StageData = {
   stage: StageOption;
   taskCount: number;
   active: boolean;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 };
 type TaskData = {
   template: AutomationTaskTemplate;
   selected: boolean;
   fields: EntityField[];
 };
-type InsertData = {
-  stageId: string;
-  launchPhase: AutomationLaunchPhase;
-  insertAt: number;
-};
-
 function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
+  const taskLabel =
+    data.taskCount === 0
+      ? "Нет задач"
+      : data.taskCount === 1
+        ? "1 задача"
+        : `${data.taskCount} задач`;
+
   return (
     <div
       className={cn(
-        "relative flex h-[56px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 shadow-sm active:cursor-grabbing",
+        "relative flex h-[56px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 pr-9 shadow-sm active:cursor-grabbing",
         data.active ? "border-primary ring-2 ring-primary/20" : "border-border",
+        data.collapsed && "border-dashed bg-muted/30",
       )}
     >
       <Handle
@@ -399,14 +559,40 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold">{data.stage.name}</p>
           <p className="text-[10px] text-muted-foreground">
-            {data.taskCount === 0
-              ? "Нет задач"
-              : data.taskCount === 1
-                ? "1 задача"
-                : `${data.taskCount} задач`}
+            {data.collapsed ? `${taskLabel} · скрыто` : taskLabel}
           </p>
         </div>
       </div>
+      <button
+        type="button"
+        className={cn(
+          "nodrag nopan absolute top-1/2 right-1.5 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors",
+          "hover:bg-muted hover:text-foreground",
+          data.collapsed && "text-foreground",
+        )}
+        aria-pressed={data.collapsed}
+        aria-label={
+          data.collapsed
+            ? "Показать содержимое стадии"
+            : "Скрыть содержимое стадии"
+        }
+        title={
+          data.collapsed
+            ? "Показать задачи, старт и «Готово»"
+            : "Скрыть задачи, старт и «Готово»"
+        }
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          data.onToggleCollapse();
+        }}
+      >
+        {data.collapsed ? (
+          <EyeOff className="size-3.5" strokeWidth={2} />
+        ) : (
+          <Eye className="size-3.5" strokeWidth={2} />
+        )}
+      </button>
       <Handle
         type="source"
         position={Position.Top}
@@ -607,80 +793,6 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
   );
 }
 
-function InsertNode({ data }: NodeProps<Node<InsertData, "insert">>) {
-  const label =
-    data.launchPhase === "beforeEnter"
-      ? "Добавить задачу до старта"
-      : "Добавить задачу";
-  return (
-    <button
-      type="button"
-      className="nodrag nopan group relative flex h-7 w-[220px] items-center justify-center"
-      data-stage-add={data.stageId}
-      data-launch-phase={data.launchPhase}
-      data-insert-at={data.insertAt}
-      aria-label={label}
-      title={label}
-    >
-      <Handle
-        type="target"
-        position={Position.Top}
-        id="top"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="left"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="target"
-        position={Position.Right}
-        id="right"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="target"
-        position={Position.Bottom}
-        id="bottom"
-        className={HANDLE_CLASS}
-      />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-12 top-1/2 h-px -translate-y-1/2 bg-border/80 transition-colors group-hover:bg-primary/35"
-      />
-      <span className="relative z-10 flex size-6 items-center justify-center rounded-full border border-border/90 bg-card text-muted-foreground shadow-sm transition-all group-hover:scale-110 group-hover:border-primary/50 group-hover:bg-primary/[0.06] group-hover:text-primary">
-        <Plus className="size-3.5" strokeWidth={2.25} />
-      </span>
-      <Handle
-        type="source"
-        position={Position.Top}
-        id="out-top"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="source"
-        position={Position.Left}
-        id="out-left"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="out-right"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="out-bottom"
-        className={HANDLE_CLASS}
-      />
-    </button>
-  );
-}
-
 function EndNode() {
   return (
     <div className="relative flex h-10 w-[140px] cursor-grab items-center justify-center rounded-xl border border-emerald-500/30 bg-card text-[11px] font-semibold text-emerald-700 shadow-sm active:cursor-grabbing dark:text-emerald-400">
@@ -717,7 +829,6 @@ const nodeTypes: NodeTypes = {
   stage: memo(StageNode),
   trigger: memo(TriggerNode),
   task: memo(TaskNode),
-  insert: memo(InsertNode),
   end: memo(EndNode),
 };
 
@@ -757,12 +868,9 @@ function columnIndexFromX(x: number, stageCount: number) {
   return Math.max(0, Math.min(stageCount - 1, index));
 }
 
-/** Default Y of the trigger node for a column (after beforeEnter block). */
+/** Default Y of the trigger node for a column (after beforeEnter tasks). */
 function triggerYForStage(beforeCount: number) {
-  const slots = beforeCount + 1; // insert before each + trailing insert
-  return (
-    FLOW_Y + slots * (INSERT_H + ROW_GAP) + beforeCount * (TASK_H + ROW_GAP)
-  );
+  return FLOW_Y + beforeCount * (TASK_H + ROW_GAP);
 }
 
 function phaseFromY(y: number, beforeCount: number): AutomationLaunchPhase {
@@ -776,22 +884,20 @@ function stepOrderFromY(
   beforeCount: number,
 ) {
   if (phase === "beforeEnter") {
-    const start = FLOW_Y + INSERT_H + ROW_GAP;
-    if (y <= start) return 0;
-    return Math.max(0, Math.round((y - start) / (TASK_H + INSERT_H + ROW_GAP)));
+    if (y <= FLOW_Y) return 0;
+    return Math.max(0, Math.round((y - FLOW_Y) / (TASK_H + ROW_GAP)));
   }
-  const start =
-    triggerYForStage(beforeCount) + TRIGGER_H + ROW_GAP + INSERT_H + ROW_GAP;
+  const start = triggerYForStage(beforeCount) + TRIGGER_H + ROW_GAP;
   if (y <= start) return 0;
-  return Math.max(0, Math.round((y - start) / (TASK_H + INSERT_H + ROW_GAP)));
+  return Math.max(0, Math.round((y - start) / (TASK_H + ROW_GAP)));
 }
 
 function resolvePosition(
   nodeId: string,
   fallback: { x: number; y: number },
-  layout: AutomationCanvasLayout,
+  positions: AutomationCanvasNodePositions,
 ) {
-  const saved = layout[nodeId];
+  const saved = positions[nodeId];
   if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
     return { x: saved.x, y: saved.y };
   }
@@ -805,9 +911,19 @@ function buildLayout(input: {
   activeStageId: string | null;
   selectedTemplateId: string | null;
   selectedTransitionKey: string | null;
-  canvasLayout: AutomationCanvasLayout;
+  collapsedStageIds: ReadonlySet<string>;
+  hiddenStageLinkKeys: ReadonlySet<string>;
+  canvasPositions: AutomationCanvasNodePositions;
   fields: EntityField[];
   onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
+  onToggleStageCollapse: (stageId: string) => void;
+  onHideStageLink: (key: string) => void;
+  onShowStageLink: (key: string) => void;
+  onAdd: (
+    stageId: string,
+    launchPhase: AutomationLaunchPhase,
+    insertAt: number,
+  ) => void;
 }): { nodes: Node[]; edges: Edge[] } {
   const {
     stages,
@@ -816,9 +932,15 @@ function buildLayout(input: {
     activeStageId,
     selectedTemplateId,
     selectedTransitionKey,
-    canvasLayout,
+    collapsedStageIds,
+    hiddenStageLinkKeys,
+    canvasPositions,
     fields,
     onSelectTransition,
+    onToggleStageCollapse,
+    onHideStageLink,
+    onShowStageLink,
+    onAdd,
   } = input;
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -827,6 +949,7 @@ function buildLayout(input: {
     const colX = ORIGIN_X + index * (COL_W + COL_GAP);
     const stageNodeId = `stage:${stage.id}`;
     const stageTasks = templatesForStage(templates, stage.id);
+    const collapsed = collapsedStageIds.has(stage.id);
 
     nodes.push({
       id: stageNodeId,
@@ -834,13 +957,15 @@ function buildLayout(input: {
       position: resolvePosition(
         stageNodeId,
         { x: colX, y: STAGE_Y },
-        canvasLayout,
+        canvasPositions,
       ),
       data: {
         stage,
         taskCount: stageTasks.length,
         active: stage.id === activeStageId,
-      },
+        collapsed,
+        onToggleCollapse: () => onToggleStageCollapse(stage.id),
+      } satisfies StageData,
     });
 
     if (index > 0) {
@@ -852,6 +977,7 @@ function buildLayout(input: {
       const elseStage = transition?.elseOptionId
         ? stages.find((item) => item.id === transition.elseOptionId)
         : null;
+      const mapKey = automationStageMapLinkKey(prev.id, stage.id);
       edges.push({
         id: `map-${prev.id}-${stage.id}`,
         source: `stage:${prev.id}`,
@@ -863,10 +989,20 @@ function buildLayout(input: {
           toOptionId: stage.id,
           configured: stageTransitionIsConfigured(transition),
           selected: selectedTransitionKey === transitionKey,
+          hidden: hiddenStageLinkKeys.has(mapKey),
           elseLabel: elseStage?.name,
           onOpen: () => onSelectTransition(prev.id, stage.id),
+          onHide: () => onHideStageLink(mapKey),
+          onShow: () => onShowStageLink(mapKey),
         } satisfies StageMapEdgeData,
       });
+    }
+
+    const endId = `end:${stage.id}`;
+
+    if (collapsed) {
+      // Compact column: only the stage header (no Старт / задачи / Готово).
+      return;
     }
 
     const beforeTasks = templatesForStage(templates, stage.id, "beforeEnter");
@@ -877,101 +1013,92 @@ function buildLayout(input: {
     const flowStroke = stage.id === activeStageId ? "#f59e0b" : "#cbd5e1";
     const flowWidth = stage.id === activeStageId ? 2 : 1.5;
 
-    const pushInsert = (phase: AutomationLaunchPhase, insertAt: number) => {
-      const insertId = `insert:${stage.id}:${phase}:${insertAt}`;
-      nodes.push({
-        id: insertId,
-        type: "insert",
-        position: { x: colX, y },
-        data: {
-          stageId: stage.id,
-          launchPhase: phase,
-          insertAt,
-        } satisfies InsertData,
-        draggable: false,
-      });
+    const connect = (
+      targetId: string,
+      phase: AutomationLaunchPhase,
+      insertAt: number,
+      stroke: string,
+      width: number,
+    ) => {
+      const insert: InsertData = {
+        stageId: stage.id,
+        launchPhase: phase,
+        insertAt,
+      };
       edges.push({
-        id: `e-${prevId}-${insertId}`,
+        id: `e-${prevId}-${targetId}:${phase}:${insertAt}`,
         source: prevId,
-        target: insertId,
+        target: targetId,
         type: "floating",
-        style: { stroke: flowStroke, strokeWidth: flowWidth },
+        style: { stroke, strokeWidth: width },
+        data: {
+          insert,
+          onAdd: () =>
+            onAdd(insert.stageId, insert.launchPhase, insert.insertAt),
+        } satisfies FloatingEdgeData,
       });
-      prevId = insertId;
-      y += INSERT_H + ROW_GAP;
+      prevId = targetId;
     };
 
-    const pushTask = (template: AutomationTaskTemplate) => {
+    // Before Start: tasks with mid-edge «+» slots.
+    beforeTasks.forEach((template, taskIndex) => {
       nodes.push({
         id: template.id,
         type: "task",
-        position: resolvePosition(template.id, { x: colX, y }, canvasLayout),
+        position: resolvePosition(template.id, { x: colX, y }, canvasPositions),
         data: {
           template,
           selected: selectedTemplateId === template.id,
           fields,
         },
       });
-      edges.push({
-        id: `e-${prevId}-${template.id}`,
-        source: prevId,
-        target: template.id,
-        type: "floating",
-        style: { stroke: "#a1a1aa", strokeWidth: 1.5 },
-      });
-      prevId = template.id;
+      connect(template.id, "beforeEnter", taskIndex, "#a1a1aa", 1.5);
       y += TASK_H + ROW_GAP;
-    };
-
-    // Before Start: insert + tasks (prep before list change).
-    pushInsert("beforeEnter", 0);
-    beforeTasks.forEach((template, index) => {
-      pushTask(template);
-      pushInsert("beforeEnter", index + 1);
     });
 
     const triggerId = `trigger:${stage.id}`;
     nodes.push({
       id: triggerId,
       type: "trigger",
-      position: resolvePosition(triggerId, { x: colX, y }, canvasLayout),
+      position: resolvePosition(triggerId, { x: colX, y }, canvasPositions),
       data: { stageId: stage.id },
     });
-    edges.push({
-      id: `down-${stage.id}`,
-      source: prevId,
-      target: triggerId,
-      type: "floating",
-      style: { stroke: flowStroke, strokeWidth: flowWidth },
-    });
-    prevId = triggerId;
+    connect(
+      triggerId,
+      "beforeEnter",
+      beforeTasks.length,
+      flowStroke,
+      flowWidth,
+    );
     y += TRIGGER_H + ROW_GAP;
 
-    // After Start: insert + tasks.
-    pushInsert("onEnter", 0);
-    onEnterTasks.forEach((template, index) => {
-      pushTask(template);
-      pushInsert("onEnter", index + 1);
+    // After Start: tasks with mid-edge «+» slots.
+    onEnterTasks.forEach((template, taskIndex) => {
+      nodes.push({
+        id: template.id,
+        type: "task",
+        position: resolvePosition(template.id, { x: colX, y }, canvasPositions),
+        data: {
+          template,
+          selected: selectedTemplateId === template.id,
+          fields,
+        },
+      });
+      connect(template.id, "onEnter", taskIndex, "#a1a1aa", 1.5);
+      y += TASK_H + ROW_GAP;
     });
 
-    const endId = `end:${stage.id}`;
     nodes.push({
       id: endId,
       type: "end",
       position: resolvePosition(
         endId,
         { x: colX + (COL_W - 140) / 2, y },
-        canvasLayout,
+        canvasPositions,
       ),
       data: { stageId: stage.id },
     });
-    edges.push({
-      id: `e-${prevId}-${endId}`,
-      source: prevId,
-      target: endId,
-      type: "floating",
-      style: { stroke: "#a1a1aa", strokeWidth: 1.5 },
-    });
+    connect(endId, "onEnter", onEnterTasks.length, "#a1a1aa", 1.5);
   });
 
   // «Иначе» redirects: line from source stage to the configured else stage.
@@ -985,6 +1112,11 @@ function buildLayout(input: {
     if (elseId === transition.toOptionId) continue;
 
     const transitionKey = `${transition.fromOptionId}\0${transition.toOptionId}`;
+    const elseKey = stageElseLinkKey(
+      transition.fromOptionId,
+      elseId,
+      transition.toOptionId,
+    );
     edges.push({
       id: `else-${transition.fromOptionId}-${elseId}-${transition.toOptionId}`,
       source: `stage:${transition.fromOptionId}`,
@@ -994,8 +1126,11 @@ function buildLayout(input: {
         fromOptionId: transition.fromOptionId,
         toOptionId: transition.toOptionId,
         selected: selectedTransitionKey === transitionKey,
+        hidden: hiddenStageLinkKeys.has(elseKey),
         onOpen: () =>
           onSelectTransition(transition.fromOptionId, transition.toOptionId),
+        onHide: () => onHideStageLink(elseKey),
+        onShow: () => onShowStageLink(elseKey),
       } satisfies StageElseEdgeData,
     });
   }
@@ -1010,14 +1145,19 @@ function FlowInner({
   activeStageId,
   selectedTemplateId,
   selectedTransitionKey,
-  canvasLayout,
+  canvasPositions,
+  collapsedStageIds,
   fields,
   onSelectStage,
   onSelectTemplate,
   onSelectTransition,
   onAdd,
   onMoveTemplate,
-  onCanvasLayoutChange,
+  onCanvasPositionsChange,
+  onToggleStageCollapse,
+  hiddenStageLinkKeys,
+  onHideStageLink,
+  onShowStageLink,
   fitKey,
 }: {
   stages: StageOption[];
@@ -1026,7 +1166,8 @@ function FlowInner({
   activeStageId: string | null;
   selectedTemplateId: string | null;
   selectedTransitionKey: string | null;
-  canvasLayout: AutomationCanvasLayout;
+  canvasPositions: AutomationCanvasNodePositions;
+  collapsedStageIds: ReadonlySet<string>;
   fields: EntityField[];
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
@@ -1042,26 +1183,31 @@ function FlowInner({
     stepOrder: number,
     launchPhase: AutomationLaunchPhase,
   ) => void;
-  onCanvasLayoutChange: (layout: AutomationCanvasLayout) => void;
+  onCanvasPositionsChange: (positions: AutomationCanvasNodePositions) => void;
+  onToggleStageCollapse: (stageId: string) => void;
+  hiddenStageLinkKeys: ReadonlySet<string>;
+  onHideStageLink: (key: string) => void;
+  onShowStageLink: (key: string) => void;
   fitKey: string;
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const collapsedStageIdsRef = useRef(collapsedStageIds);
   const dragStartRef = useRef<{ id: string; x: number; y: number } | null>(
     null,
   );
   const draggingRef = useRef(false);
-  const canvasLayoutRef = useRef(canvasLayout);
+  const canvasPositionsRef = useRef(canvasPositions);
   /** Local positions applied immediately on drop (before async scenario save). */
-  const pendingLayoutRef = useRef<AutomationCanvasLayout>({});
+  const pendingPositionsRef = useRef<AutomationCanvasNodePositions>({});
 
   useEffect(() => {
-    canvasLayoutRef.current = canvasLayout;
+    canvasPositionsRef.current = canvasPositions;
     // Drop pending keys once the saved layout matches them.
-    const pending = pendingLayoutRef.current;
-    const nextPending: AutomationCanvasLayout = {};
+    const pending = pendingPositionsRef.current;
+    const nextPending: AutomationCanvasNodePositions = {};
     for (const [id, pos] of Object.entries(pending)) {
-      const saved = canvasLayout[id];
+      const saved = canvasPositions[id];
       if (
         !saved ||
         Math.abs(saved.x - pos.x) > 0.5 ||
@@ -1070,15 +1216,15 @@ function FlowInner({
         nextPending[id] = pos;
       }
     }
-    pendingLayoutRef.current = nextPending;
-  }, [canvasLayout]);
+    pendingPositionsRef.current = nextPending;
+  }, [canvasPositions]);
 
   useEffect(() => {
     if (draggingRef.current) return;
 
-    const mergedLayout: AutomationCanvasLayout = {
-      ...canvasLayout,
-      ...pendingLayoutRef.current,
+    const mergedPositions: AutomationCanvasNodePositions = {
+      ...canvasPositions,
+      ...pendingPositionsRef.current,
     };
     const layout = buildLayout({
       stages,
@@ -1087,16 +1233,37 @@ function FlowInner({
       activeStageId,
       selectedTemplateId,
       selectedTransitionKey,
-      canvasLayout: mergedLayout,
+      collapsedStageIds,
+      hiddenStageLinkKeys,
+      canvasPositions: mergedPositions,
       fields,
       onSelectTransition,
+      onToggleStageCollapse,
+      onHideStageLink,
+      onShowStageLink,
+      onAdd: (stageId, launchPhase, insertAt) => {
+        onSelectStage(stageId);
+        onSelectTemplate(null);
+        onAdd(stageId, launchPhase, insertAt);
+      },
     });
 
+    const previouslyCollapsed = collapsedStageIdsRef.current;
     setNodes((current) => {
       const livePos = new Map(
         current.map((node) => [node.id, node.position] as const),
       );
       return layout.nodes.map((node) => {
+        // Compact / just-expanded «Готово» uses layout Y, not a stale drag pos.
+        if (node.type === "end") {
+          const stageId = (node.data as { stageId?: string }).stageId;
+          if (
+            stageId &&
+            (collapsedStageIds.has(stageId) || previouslyCollapsed.has(stageId))
+          ) {
+            return node;
+          }
+        }
         const live = livePos.get(node.id);
         // Keep in-canvas positions for existing nodes so selection/data
         // updates do not snap a just-dragged block back.
@@ -1112,6 +1279,7 @@ function FlowInner({
         return node;
       });
     });
+    collapsedStageIdsRef.current = collapsedStageIds;
     setEdges(layout.edges);
   }, [
     fitKey,
@@ -1121,9 +1289,17 @@ function FlowInner({
     activeStageId,
     selectedTemplateId,
     selectedTransitionKey,
-    canvasLayout,
+    collapsedStageIds,
+    hiddenStageLinkKeys,
+    canvasPositions,
     fields,
     onSelectTransition,
+    onToggleStageCollapse,
+    onHideStageLink,
+    onShowStageLink,
+    onAdd,
+    onSelectStage,
+    onSelectTemplate,
     setNodes,
     setEdges,
   ]);
@@ -1139,16 +1315,9 @@ function FlowInner({
         const template = (node.data as TaskData).template;
         onSelectStage(template.triggerOptionId);
         onSelectTemplate(template.id);
-        return;
-      }
-      if (node.type === "insert") {
-        const data = node.data as InsertData;
-        onSelectStage(data.stageId);
-        onSelectTemplate(null);
-        onAdd(data.stageId, data.launchPhase, data.insertAt);
       }
     },
-    [onSelectStage, onSelectTemplate, onAdd],
+    [onSelectStage, onSelectTemplate],
   );
 
   const onEdgeClick = useCallback(
@@ -1177,20 +1346,19 @@ function FlowInner({
       const start = dragStartRef.current;
       dragStartRef.current = null;
       if (!start || start.id !== node.id) return;
-      if (node.type === "insert") return;
 
       const movedFar =
         Math.hypot(node.position.x - start.x, node.position.y - start.y) > 8;
       if (!movedFar) return;
 
       const nextPos = { x: node.position.x, y: node.position.y };
-      pendingLayoutRef.current = {
-        ...pendingLayoutRef.current,
+      pendingPositionsRef.current = {
+        ...pendingPositionsRef.current,
         [node.id]: nextPos,
       };
-      onCanvasLayoutChange({
-        ...canvasLayoutRef.current,
-        ...pendingLayoutRef.current,
+      onCanvasPositionsChange({
+        ...canvasPositionsRef.current,
+        ...pendingPositionsRef.current,
         [node.id]: nextPos,
       });
 
@@ -1220,7 +1388,7 @@ function FlowInner({
       onMoveTemplate,
       onSelectStage,
       onSelectTemplate,
-      onCanvasLayoutChange,
+      onCanvasPositionsChange,
     ],
   );
 
@@ -1273,9 +1441,7 @@ function FlowInner({
               ? "#f59e0b"
               : node.type === "end"
                 ? "#10b981"
-                : node.type === "insert"
-                  ? "#e4e4e7"
-                  : "#94a3b8"
+                : "#94a3b8"
         }
       />
     </ReactFlow>
@@ -1289,14 +1455,19 @@ export function AutomationFlowCanvas({
   activeStageId,
   selectedTemplateId,
   selectedTransitionKey,
-  canvasLayout,
+  canvasPositions,
+  collapsedStageIds,
   fields,
   onSelectStage,
   onSelectTemplate,
   onSelectTransition,
   onAdd,
   onMoveTemplate,
-  onCanvasLayoutChange,
+  onCanvasPositionsChange,
+  onToggleStageCollapse,
+  hiddenStageLinkKeys,
+  onHideStageLink,
+  onShowStageLink,
 }: {
   stages: StageOption[];
   templates: AutomationTaskTemplate[];
@@ -1304,7 +1475,8 @@ export function AutomationFlowCanvas({
   activeStageId: string | null;
   selectedTemplateId: string | null;
   selectedTransitionKey: string | null;
-  canvasLayout: AutomationCanvasLayout;
+  canvasPositions: AutomationCanvasNodePositions;
+  collapsedStageIds: ReadonlySet<string>;
   fields: EntityField[];
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
@@ -1320,7 +1492,11 @@ export function AutomationFlowCanvas({
     stepOrder: number,
     launchPhase: AutomationLaunchPhase,
   ) => void;
-  onCanvasLayoutChange: (layout: AutomationCanvasLayout) => void;
+  onCanvasPositionsChange: (positions: AutomationCanvasNodePositions) => void;
+  onToggleStageCollapse: (stageId: string) => void;
+  hiddenStageLinkKeys: ReadonlySet<string>;
+  onHideStageLink: (key: string) => void;
+  onShowStageLink: (key: string) => void;
 }) {
   // Structural fit only — ignore rename/reorder so drag does not re-fit.
   const fitKey = [
@@ -1339,14 +1515,19 @@ export function AutomationFlowCanvas({
           activeStageId={activeStageId}
           selectedTemplateId={selectedTemplateId}
           selectedTransitionKey={selectedTransitionKey}
-          canvasLayout={canvasLayout}
+          canvasPositions={canvasPositions}
+          collapsedStageIds={collapsedStageIds}
           fields={fields}
           onSelectStage={onSelectStage}
           onSelectTemplate={onSelectTemplate}
           onSelectTransition={onSelectTransition}
           onAdd={onAdd}
           onMoveTemplate={onMoveTemplate}
-          onCanvasLayoutChange={onCanvasLayoutChange}
+          onCanvasPositionsChange={onCanvasPositionsChange}
+          onToggleStageCollapse={onToggleStageCollapse}
+          hiddenStageLinkKeys={hiddenStageLinkKeys}
+          onHideStageLink={onHideStageLink}
+          onShowStageLink={onShowStageLink}
           fitKey={fitKey}
         />
       </div>

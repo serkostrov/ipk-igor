@@ -269,7 +269,7 @@ function TabPreviewBody({
   }
   return (
     <p className="py-6 text-center text-sm text-muted-foreground">
-      Этот тип вкладки откройте на карточке
+      Этот тип вкладки недоступен в задаче
     </p>
   );
 }

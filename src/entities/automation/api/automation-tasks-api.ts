@@ -318,6 +318,43 @@ export async function fetchAutomationTaskAttachments(
   });
 }
 
+export type AutomationTaskTimeSession = {
+  id: string;
+  taskId: string;
+  userId: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  seconds: number;
+};
+
+function mapTimeSessionRow(
+  row: Record<string, unknown>,
+): AutomationTaskTimeSession {
+  return {
+    id: String(row.id),
+    taskId: String(row.task_id ?? ""),
+    userId: typeof row.user_id === "string" ? row.user_id : null,
+    startedAt: String(row.started_at ?? new Date().toISOString()),
+    endedAt: typeof row.ended_at === "string" ? row.ended_at : null,
+    seconds: Number(row.seconds ?? 0) || 0,
+  };
+}
+
+export async function fetchAutomationTaskTimeSessions(
+  taskId: string,
+): Promise<AutomationTaskTimeSession[]> {
+  if (!isSupabaseConfigured || !supabase) return [];
+  const { data, error } = await supabase
+    .from("automation_task_time_sessions")
+    .select("*")
+    .eq("task_id", taskId)
+    .order("started_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row) =>
+    mapTimeSessionRow(row as Record<string, unknown>),
+  );
+}
+
 export async function startAutomationTaskTimeSession(input: {
   taskId: string;
   userId: string;
@@ -338,12 +375,56 @@ export async function stopAutomationTaskTimeSession(
   sessionId: string,
 ): Promise<void> {
   const client = requireClient();
+  const { data, error: loadError } = await client
+    .from("automation_task_time_sessions")
+    .select("started_at")
+    .eq("id", sessionId)
+    .is("ended_at", null)
+    .maybeSingle();
+  if (loadError) throw loadError;
+  if (!data) return;
+
+  const startedAt = new Date(
+    String((data as { started_at: string }).started_at),
+  );
+  const endedAt = new Date();
+  const seconds = Number.isFinite(startedAt.getTime())
+    ? Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000))
+    : 0;
+
   const { error } = await client
     .from("automation_task_time_sessions")
-    .update({ ended_at: new Date().toISOString() })
+    .update({
+      ended_at: endedAt.toISOString(),
+      seconds,
+    })
     .eq("id", sessionId)
     .is("ended_at", null);
   if (error) throw error;
+}
+
+/** Closed manual session (already finished). */
+export async function addAutomationTaskTimeSession(input: {
+  taskId: string;
+  userId: string;
+  seconds: number;
+}): Promise<string> {
+  const client = requireClient();
+  const seconds = Math.max(0, Math.round(input.seconds));
+  if (seconds <= 0) throw new Error("Укажите длительность больше нуля");
+  const id = `ats-${crypto.randomUUID()}`;
+  const endedAt = new Date();
+  const startedAt = new Date(endedAt.getTime() - seconds * 1000);
+  const { error } = await client.from("automation_task_time_sessions").insert({
+    id,
+    task_id: input.taskId,
+    user_id: input.userId,
+    started_at: startedAt.toISOString(),
+    ended_at: endedAt.toISOString(),
+    seconds,
+  });
+  if (error) throw error;
+  return id;
 }
 
 export async function fetchOpenAutomationTaskTimeSession(

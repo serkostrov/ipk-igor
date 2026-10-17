@@ -15,8 +15,10 @@ import {
   createDefaultProcess,
   defaultAssigneeResolver,
   defaultDecisionOutcomes,
+  emptyAutomationCanvasLayout,
   emptyAutomationConditions,
   findStageTransition,
+  getAutomationConfig,
   removeTemplate,
   saveProcess,
   saveScenario,
@@ -24,6 +26,7 @@ import {
   useAutomationConfig,
   useAutomationStatus,
   type AutomationCanvasLayout,
+  type AutomationCanvasNodePositions,
   type AutomationLaunchPhase,
   type AutomationProcess,
   type AutomationScenario,
@@ -35,12 +38,35 @@ import {
   resolveEntityListFieldOptions,
   useEntityConfig,
 } from "@/entities/entity";
+import { automationStageMapLinkKey } from "../lib/stage-link-keys";
 import { AutomationFlowCanvas } from "./AutomationFlowCanvas";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { StageTransitionInspector } from "./StageTransitionInspector";
 import { TemplateInspector } from "./TemplateInspector";
 
 const controlTriggerClass = "h-9 w-[11.5rem]";
+const EMPTY_CANVAS_LAYOUT = emptyAutomationCanvasLayout();
+
+function canvasPositionsEqual(
+  a: AutomationCanvasNodePositions,
+  b: AutomationCanvasNodePositions,
+) {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((id) => {
+    const left = a[id];
+    const right = b[id];
+    return (
+      left != null && right != null && left.x === right.x && left.y === right.y
+    );
+  });
+}
+
+function idListEqual(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  return a.every((id, index) => id === b[index]);
+}
 
 export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   const { entities } = useEntityConfig();
@@ -130,6 +156,75 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     fromOptionId: string;
     toOptionId: string;
   } | null>(null);
+  const canvasLayout = scenario?.canvasLayout ?? EMPTY_CANVAS_LAYOUT;
+  const collapsedStageIds = useMemo(
+    () => new Set(canvasLayout.collapsedStageIds),
+    [canvasLayout.collapsedStageIds],
+  );
+  const hiddenStageLinkKeys = useMemo(
+    () => new Set(canvasLayout.hiddenStageLinkKeys),
+    [canvasLayout.hiddenStageLinkKeys],
+  );
+
+  function latestScenario(): AutomationScenario | null {
+    if (!scenario) return null;
+    return (
+      getAutomationConfig().scenarios.find((item) => item.id === scenario.id) ??
+      scenario
+    );
+  }
+
+  async function patchCanvasLayout(
+    patch: Partial<AutomationCanvasLayout>,
+  ): Promise<void> {
+    const current = latestScenario();
+    if (!current) return;
+    const prev = current.canvasLayout;
+    const next: AutomationCanvasLayout = {
+      positions: patch.positions ?? prev.positions,
+      collapsedStageIds: patch.collapsedStageIds ?? prev.collapsedStageIds,
+      hiddenStageLinkKeys:
+        patch.hiddenStageLinkKeys ?? prev.hiddenStageLinkKeys,
+    };
+    const same =
+      canvasPositionsEqual(prev.positions, next.positions) &&
+      idListEqual(prev.collapsedStageIds, next.collapsedStageIds) &&
+      idListEqual(prev.hiddenStageLinkKeys, next.hiddenStageLinkKeys);
+    if (same) return;
+    await saveScenario({ ...current, canvasLayout: next });
+  }
+
+  function hideStageLink(key: string) {
+    if (hiddenStageLinkKeys.has(key)) return;
+    void patchCanvasLayout({
+      hiddenStageLinkKeys: [...hiddenStageLinkKeys, key],
+    });
+    setSelectedTransitionEdge((edge) => {
+      if (!edge) return null;
+      if (
+        automationStageMapLinkKey(edge.fromOptionId, edge.toOptionId) === key
+      ) {
+        return null;
+      }
+      return edge;
+    });
+  }
+
+  function showStageLink(key: string) {
+    if (!hiddenStageLinkKeys.has(key)) return;
+    void patchCanvasLayout({
+      hiddenStageLinkKeys: canvasLayout.hiddenStageLinkKeys.filter(
+        (item) => item !== key,
+      ),
+    });
+  }
+
+  function toggleStageCollapse(stageId: string) {
+    const next = new Set(collapsedStageIds);
+    if (next.has(stageId)) next.delete(stageId);
+    else next.add(stageId);
+    void patchCanvasLayout({ collapsedStageIds: [...next] });
+  }
 
   const scenarioTemplates = useMemo(
     () =>
@@ -180,7 +275,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         isDefault: true,
         entryConditions: emptyAutomationConditions(),
         priority: 0,
-        canvasLayout: {},
+        canvasLayout: emptyAutomationCanvasLayout(),
         stageTransitions: [],
       };
       await saveScenario(next);
@@ -210,7 +305,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       isDefault: false,
       entryConditions: emptyAutomationConditions(),
       priority: 10,
-      canvasLayout: {},
+      canvasLayout: emptyAutomationCanvasLayout(),
       stageTransitions: [],
     };
     await saveScenario(next);
@@ -332,17 +427,8 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     }
   }
 
-  async function saveCanvasLayout(canvasLayout: AutomationCanvasLayout) {
-    if (!scenario) return;
-    const prev = scenario.canvasLayout;
-    const same =
-      Object.keys(canvasLayout).length === Object.keys(prev).length &&
-      Object.entries(canvasLayout).every(([id, pos]) => {
-        const was = prev[id];
-        return was != null && was.x === pos.x && was.y === pos.y;
-      });
-    if (same) return;
-    await saveScenario({ ...scenario, canvasLayout });
+  async function saveCanvasPositions(positions: AutomationCanvasNodePositions) {
+    await patchCanvasLayout({ positions });
   }
 
   function selectTransition(fromOptionId: string, toOptionId: string) {
@@ -357,7 +443,11 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   async function saveStageTransition(transition: AutomationStageTransition) {
     const ensured = await ensureProcess();
     if (!ensured) return;
-    const current = ensured.scenario.stageTransitions ?? [];
+    const currentScenario =
+      getAutomationConfig().scenarios.find(
+        (item) => item.id === ensured.scenario.id,
+      ) ?? ensured.scenario;
+    const current = currentScenario.stageTransitions ?? [];
     const next = [
       ...current.filter(
         (item) =>
@@ -368,17 +458,18 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       ),
       transition,
     ];
-    await saveScenario({ ...ensured.scenario, stageTransitions: next });
+    await saveScenario({ ...currentScenario, stageTransitions: next });
   }
 
   async function clearStageTransition(
     fromOptionId: string,
     toOptionId: string,
   ) {
-    if (!scenario) return;
+    const current = latestScenario();
+    if (!current) return;
     await saveScenario({
-      ...scenario,
-      stageTransitions: scenario.stageTransitions.filter(
+      ...current,
+      stageTransitions: current.stageTransitions.filter(
         (item) =>
           !(
             item.fromOptionId === fromOptionId && item.toOptionId === toOptionId
@@ -542,7 +633,11 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
               entity={entity}
               value={scenario.entryConditions}
               onChange={(entryConditions) =>
-                void saveScenario({ ...scenario, entryConditions })
+                void (() => {
+                  const current = latestScenario();
+                  if (!current) return;
+                  return saveScenario({ ...current, entryConditions });
+                })()
               }
             />
           </PopoverContent>
@@ -593,7 +688,8 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 activeStageId={activeStageId}
                 selectedTemplateId={selectedTemplateId}
                 selectedTransitionKey={selectedTransitionKey}
-                canvasLayout={scenario?.canvasLayout ?? {}}
+                canvasPositions={canvasLayout.positions}
+                collapsedStageIds={collapsedStageIds}
                 fields={entity?.fields ?? []}
                 onSelectStage={(id) => {
                   setStageId(id);
@@ -620,7 +716,13 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                     launchPhase,
                   )
                 }
-                onCanvasLayoutChange={(layout) => void saveCanvasLayout(layout)}
+                onCanvasPositionsChange={(positions) =>
+                  void saveCanvasPositions(positions)
+                }
+                onToggleStageCollapse={toggleStageCollapse}
+                hiddenStageLinkKeys={hiddenStageLinkKeys}
+                onHideStageLink={hideStageLink}
+                onShowStageLink={showStageLink}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -652,6 +754,15 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                     )
                   }
                   onClose={() => setSelectedTransitionEdge(null)}
+                  onHideLink={() => {
+                    hideStageLink(
+                      automationStageMapLinkKey(
+                        selectedTransitionEdge.fromOptionId,
+                        selectedTransitionEdge.toOptionId,
+                      ),
+                    );
+                    setSelectedTransitionEdge(null);
+                  }}
                 />
               </div>
             </aside>

@@ -1,5 +1,7 @@
 import {
+  SYSTEM_USERS_FIELD_ROLE_ID,
   addEntityRecord,
+  getSystemUsersEntity,
   parseEntityRelationIds,
   serializeEntityRelationIds,
   updateEntityRecord,
@@ -94,9 +96,23 @@ function resolveUserIds(
   switch (resolver.type) {
     case "fixedUsers":
       return resolver.userIds;
-    case "field":
+    case "field": {
+      const ids = parseEntityRelationIds(ctx.values[resolver.fieldId]);
+      return ids[0] ? [ids[0]] : [];
+    }
     case "relationFieldFanOut":
       return parseEntityRelationIds(ctx.values[resolver.fieldId]);
+    case "role": {
+      const users = getSystemUsersEntity(ctx.entities);
+      if (!users) return [];
+      return users.records
+        .filter(
+          (record) =>
+            (record.values[SYSTEM_USERS_FIELD_ROLE_ID] ?? "").trim() ===
+            resolver.roleId,
+        )
+        .map((record) => record.id);
+    }
     case "recordCreator":
       return ctx.actorUserId ? [ctx.actorUserId] : [];
     case "currentUser":

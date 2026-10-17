@@ -177,7 +177,60 @@ export type AutomationTaskTemplate = {
 };
 
 /** Free-form flow canvas positions keyed by React Flow node id. */
-export type AutomationCanvasLayout = Record<string, { x: number; y: number }>;
+export type AutomationCanvasNodePositions = Record<
+  string,
+  { x: number; y: number }
+>;
+
+/**
+ * Persisted canvas state for a scenario (stored in `canvas_layout` jsonb).
+ * Legacy flat `{ [nodeId]: { x, y } }` is accepted by the normalizer.
+ */
+export type AutomationCanvasLayout = {
+  positions: AutomationCanvasNodePositions;
+  /** Stage option ids whose column (start + tasks) is collapsed. */
+  collapsedStageIds: string[];
+  /** Stage-map / else edge keys that are visually hidden. */
+  hiddenStageLinkKeys: string[];
+};
+
+export function emptyAutomationCanvasLayout(): AutomationCanvasLayout {
+  return {
+    positions: {},
+    collapsedStageIds: [],
+    hiddenStageLinkKeys: [],
+  };
+}
+
+function normalizeCanvasPositions(
+  value: unknown,
+): AutomationCanvasNodePositions {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: AutomationCanvasNodePositions = {};
+  for (const [key, pos] of Object.entries(value as Record<string, unknown>)) {
+    const id = key.trim();
+    if (!id || !pos || typeof pos !== "object" || Array.isArray(pos)) continue;
+    const point = pos as Record<string, unknown>;
+    if (typeof point.x !== "number" || typeof point.y !== "number") continue;
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+    out[id] = { x: point.x, y: point.y };
+  }
+  return out;
+}
+
+function normalizeCanvasIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const id = item.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
 
 /**
  * Conditional gateway on the map edge between two stages.
@@ -514,17 +567,35 @@ export function normalizeAutomationTaskTemplate(
 export function normalizeAutomationCanvasLayout(
   value: unknown,
 ): AutomationCanvasLayout {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const out: AutomationCanvasLayout = {};
-  for (const [key, pos] of Object.entries(value as Record<string, unknown>)) {
-    const id = key.trim();
-    if (!id || !pos || typeof pos !== "object" || Array.isArray(pos)) continue;
-    const point = pos as Record<string, unknown>;
-    if (typeof point.x !== "number" || typeof point.y !== "number") continue;
-    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
-    out[id] = { x: point.x, y: point.y };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return emptyAutomationCanvasLayout();
   }
-  return out;
+  const raw = value as Record<string, unknown>;
+  const isStructured =
+    "positions" in raw ||
+    "collapsedStageIds" in raw ||
+    "collapsed_stage_ids" in raw ||
+    "hiddenStageLinkKeys" in raw ||
+    "hidden_stage_link_keys" in raw;
+
+  if (isStructured) {
+    return {
+      positions: normalizeCanvasPositions(raw.positions),
+      collapsedStageIds: normalizeCanvasIdList(
+        raw.collapsedStageIds ?? raw.collapsed_stage_ids,
+      ),
+      hiddenStageLinkKeys: normalizeCanvasIdList(
+        raw.hiddenStageLinkKeys ?? raw.hidden_stage_link_keys,
+      ),
+    };
+  }
+
+  // Legacy flat map: nodeId → { x, y }
+  return {
+    positions: normalizeCanvasPositions(raw),
+    collapsedStageIds: [],
+    hiddenStageLinkKeys: [],
+  };
 }
 
 export function normalizeAutomationScenario(
@@ -677,7 +748,7 @@ export function createDefaultProcess(input: {
       isDefault: true,
       entryConditions: emptyAutomationConditions(),
       priority: 0,
-      canvasLayout: {},
+      canvasLayout: emptyAutomationCanvasLayout(),
       stageTransitions: [],
     },
   };

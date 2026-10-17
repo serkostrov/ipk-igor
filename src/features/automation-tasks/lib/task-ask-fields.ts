@@ -109,4 +109,17 @@ export function automationTaskNeedsFillDialog(task: AutomationTask) {
   return task.config.outcomes.some(automationOutcomeNeedsInput);
 }
 
+/** «Одна кнопка» — форма сразу; «Решение» — поля после выбора результата. */
+export function automationTaskShowsFormUpfront(task: AutomationTask) {
+  return task.config.kind === "single";
+}
+
+/** Preselect the sole outcome for single-button tasks. */
+export function getDefaultSelectedOutcomeId(
+  task: AutomationTask,
+): string | null {
+  if (task.config.kind !== "single") return null;
+  return task.config.outcomes[0]?.id ?? null;
+}
+
 export { EMPTY_ASK_FIELDS };

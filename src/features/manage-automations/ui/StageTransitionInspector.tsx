@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, GitBranch, Trash2 } from "lucide-react";
+import { ArrowRight, EyeOff, GitBranch, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
 import {
@@ -29,6 +29,8 @@ type StageTransitionInspectorProps = {
   onSave: (transition: AutomationStageTransition) => void | Promise<void>;
   onClear: () => void | Promise<void>;
   onClose: () => void;
+  /** Hide the map link between stages (line stays restorable on canvas). */
+  onHideLink?: () => void;
 };
 
 function StageChip({
@@ -90,6 +92,7 @@ export function StageTransitionInspector({
   onSave,
   onClear,
   onClose,
+  onHideLink,
 }: StageTransitionInspectorProps) {
   const [draft, setDraft] = useState<AutomationStageTransition>(
     () =>
@@ -279,6 +282,18 @@ export function StageTransitionInspector({
         >
           Сохранить
         </Button>
+        {onHideLink ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={saving}
+            onClick={onHideLink}
+          >
+            <EyeOff className="size-3.5" />
+            Скрыть связь
+          </Button>
+        ) : null}
         {value ? (
           <Button
             type="button"

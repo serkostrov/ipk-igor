@@ -37,8 +37,10 @@ import {
 import { useSessionUser } from "@/entities/session";
 import {
   automationOutcomeNeedsInput,
+  automationTaskShowsFormUpfront,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
+  getDefaultSelectedOutcomeId,
   type AutomationAskFields,
 } from "@/features/automation-tasks";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
@@ -92,11 +94,12 @@ function TaskFillFieldsDialogBody({
         const next = await fetchAutomationTask(taskId);
         if (cancelled) return;
         setTask(next);
-        setSelectedOutcomeId(null);
         if (!next) {
+          setSelectedOutcomeId(null);
           setError("Задача не найдена");
           return;
         }
+        setSelectedOutcomeId(getDefaultSelectedOutcomeId(next));
         const entity = entities.find((item) => item.id === next.entityId);
         const record = entity?.records.find(
           (item) => item.id === next.recordId,
@@ -134,6 +137,7 @@ function TaskFillFieldsDialogBody({
   const entity = entities.find((item) => item.id === task?.entityId) ?? null;
   const record =
     entity?.records.find((item) => item.id === task?.recordId) ?? null;
+  const formUpfront = task != null && automationTaskShowsFormUpfront(task);
   const selectedOutcome: AutomationOutcome | null =
     task?.config.outcomes.find((item) => item.id === selectedOutcomeId) ?? null;
   const ask: AutomationAskFields | null = selectedOutcome
@@ -281,11 +285,15 @@ function TaskFillFieldsDialogBody({
           {task?.name ?? "Задача автоматизации"}
         </DialogTitle>
         <DialogDescription>
-          {selectedOutcome
-            ? `Заполните поля для результата «${selectedOutcome.label}».`
-            : entity
-              ? `Выберите результат, чтобы продолжить процесс «${entity.name}».`
-              : "Выберите результат и при необходимости заполните поля."}
+          {formUpfront && selectedOutcome
+            ? hasOutcomeForm
+              ? "Заполните поля и подтвердите выполнение."
+              : `Нажмите «${selectedOutcome.label}», чтобы завершить.`
+            : selectedOutcome
+              ? `Заполните поля для результата «${selectedOutcome.label}».`
+              : entity
+                ? `Выберите результат, чтобы продолжить процесс «${entity.name}».`
+                : "Выберите результат и при необходимости заполните поля."}
           {recordTitle ? (
             <span className="mt-1 block text-foreground/80">
               Запись: {recordTitle}
@@ -310,7 +318,7 @@ function TaskFillFieldsDialogBody({
           {!selectedOutcome ? (
             <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
               Нажмите кнопку результата — поля формы появятся, если они заданы
-              для этого результата.
+              для этого варианта.
             </p>
           ) : hasOutcomeForm ? (
             <TaskViewTabsPreview
@@ -443,17 +451,19 @@ function TaskFillFieldsDialogBody({
             >
               {selectedOutcome.label}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy || loading}
-              onClick={() => {
-                setSelectedOutcomeId(null);
-                setError(null);
-              }}
-            >
-              Назад
-            </Button>
+            {!formUpfront ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || loading}
+                onClick={() => {
+                  setSelectedOutcomeId(null);
+                  setError(null);
+                }}
+              >
+                Назад
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"

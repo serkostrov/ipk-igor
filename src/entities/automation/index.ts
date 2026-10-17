@@ -27,6 +27,7 @@ export {
   toAutomationFieldRef,
 } from "./model/action-values";
 export {
+  AUTOMATION_ASSIGNEE_TYPE_HINTS,
   AUTOMATION_ASSIGNEE_TYPE_LABELS,
   defaultAssigneeResolver,
   normalizeAssigneeResolver,
@@ -66,6 +67,7 @@ export {
   createDefaultProcess,
   defaultAutofillOutcomes,
   defaultDecisionOutcomes,
+  emptyAutomationCanvasLayout,
   emptyAutomationConfig,
   emptyAutomationOutcomeFieldAccess,
   normalizeAutomationCanvasLayout,
@@ -78,6 +80,7 @@ export {
   normalizeAutomationStageTransitions,
   normalizeAutomationTaskTemplate,
   type AutomationCanvasLayout,
+  type AutomationCanvasNodePositions,
   type AutomationConfig,
   type AutomationNotificationEvent,
   type AutomationNotificationRule,
@@ -99,6 +102,11 @@ export {
   matchAutomationConditions,
   type AutomationConditionEvalContext,
 } from "./lib/evaluate-conditions";
+export {
+  AUTOMATION_REQUIRE_TIME_TRACKING,
+  automationRequiresTimeTracking,
+  setAutomationRequireTimeTracking,
+} from "./lib/require-time-tracking";
 export { pickAutomationOutcome } from "./lib/pick-outcome";
 export {
   findStageTransition,
@@ -127,10 +135,12 @@ export {
 } from "./api/automation-config-api";
 export {
   addAutomationTaskAttachment,
+  addAutomationTaskTimeSession,
   countAutomationTasksForRecord,
   deleteAutomationTasksForRecord,
   fetchAutomationTask,
   fetchAutomationTaskAttachments,
+  fetchAutomationTaskTimeSessions,
   fetchAutomationTasks,
   fetchAutomationNotifications,
   fetchOpenAutomationTaskTimeSession,
@@ -140,6 +150,7 @@ export {
   stopAutomationTaskTimeSession,
   subscribeAutomationTasks,
   completeAutomationTaskRpc,
+  type AutomationTaskTimeSession,
 } from "./api/automation-tasks-api";
 export {
   initAutomationConfig,

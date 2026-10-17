@@ -4,8 +4,10 @@ export { TaskWorkspace } from "./ui/TaskWorkspace";
 export {
   automationOutcomeNeedsInput,
   automationTaskNeedsFillDialog,
+  automationTaskShowsFormUpfront,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
+  getDefaultSelectedOutcomeId,
   type AutomationAskFields,
 } from "./lib/task-ask-fields";
 export {

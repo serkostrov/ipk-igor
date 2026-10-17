@@ -31,6 +31,8 @@ import {
   normalizeAutomationOutcomeFieldAccess,
   removeNotificationRule,
   saveNotificationRule,
+  automationRequiresTimeTracking,
+  setAutomationRequireTimeTracking,
   type AutomationLaunchPhase,
   type AutomationNotificationEvent,
   type AutomationNotificationRule,
@@ -250,10 +252,23 @@ function outcomesForKind(
     : defaultDecisionOutcomes();
 }
 
-function Field({ title, children }: { title: string; children: ReactNode }) {
+function Field({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <Label className="text-xs font-medium text-foreground">{title}</Label>
+      {description ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {description}
+        </p>
+      ) : null}
       {children}
     </div>
   );
@@ -868,12 +883,25 @@ export function TemplateInspector({
             </div>
           </TabsContent>
 
-          <TabsContent value="assignee" className="mt-0 flex flex-col gap-3.5">
-            <Field title="Исполнитель">
+          <TabsContent value="assignee" className="mt-0 flex flex-col gap-4">
+            <Field
+              title="Исполнитель"
+              description="Кто получит задачу: человек из поля на записи, все с ролью или выбранные пользователи."
+            >
               <AssigneeEditor
                 value={draft.assignee}
                 fields={entity.fields}
                 onChange={(assignee) => patch({ assignee })}
+              />
+            </Field>
+            <Field
+              title="Наблюдатели"
+              description="Опционально. Те же правила, что у исполнителя — получат уведомления, но не обязаны выполнять задачу."
+            >
+              <AssigneeEditor
+                value={draft.watchers}
+                fields={entity.fields}
+                onChange={(watchers) => patch({ watchers })}
               />
             </Field>
           </TabsContent>
@@ -1013,6 +1041,23 @@ export function TemplateInspector({
               />
             </Field>
 
+            <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2">
+              <SettingSwitch
+                id="template-require-time"
+                title="Обязательный учёт времени"
+                description="Без сессии времени задание нельзя завершить"
+                checked={automationRequiresTimeTracking(draft.materials)}
+                onCheckedChange={(required) =>
+                  patch({
+                    materials: setAutomationRequireTimeTracking(
+                      draft.materials,
+                      required,
+                    ),
+                  })
+                }
+              />
+            </div>
+
             <div className="flex h-8 items-center justify-between gap-2">
               <p className="text-xs font-medium">Уведомления</p>
               <Button
@@ -1128,6 +1173,7 @@ function NotificationRuleEditor({
         }
       />
       <AssigneeEditor
+        compact
         value={draft.recipients}
         fields={entity.fields}
         onChange={(recipients) => setDraft((prev) => ({ ...prev, recipients }))}

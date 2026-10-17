@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
-  fetchOpenAutomationTaskTimeSession,
-  startAutomationTaskTimeSession,
-  stopAutomationTaskTimeSession,
+  automationRequiresTimeTracking,
   type AutomationTask,
 } from "@/entities/automation";
+import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
 import {
   applyEntityFieldValue,
   getEntityFieldDisplayName,
@@ -33,8 +32,10 @@ import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 import {
   automationOutcomeNeedsInput,
+  automationTaskShowsFormUpfront,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
+  getDefaultSelectedOutcomeId,
 } from "../lib/task-ask-fields";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
@@ -130,8 +131,9 @@ function TaskWorkspaceBody({
   const previewContext = getEntityPreviewValueContext(valueContext);
 
   const taskAsk = getAutomationTaskAskFields(task);
+  const formUpfront = automationTaskShowsFormUpfront(task);
   const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(
-    null,
+    () => getDefaultSelectedOutcomeId(task),
   );
   const selectedOutcome =
     task.config.outcomes.find((item) => item.id === selectedOutcomeId) ?? null;
@@ -148,29 +150,13 @@ function TaskWorkspaceBody({
       ? buildTaskFormValues(entity, record, taskAsk.visibleFieldIds, entities)
       : {},
   );
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        if (sessionUser?.id) {
-          const open = await fetchOpenAutomationTaskTimeSession(
-            task.id,
-            sessionUser.id,
-          );
-          if (!cancelled) setSessionId(open);
-        }
-      } catch {
-        if (!cancelled) setSessionId(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [task.id, sessionUser?.id]);
+  const [loggedSeconds, setLoggedSeconds] = useState(0);
+  const requireTime = automationRequiresTimeTracking(task.config.materials);
+  const onTotalSecondsChange = useCallback((seconds: number) => {
+    setLoggedSeconds(seconds);
+  }, []);
 
   const fields =
     !entity || !ask
@@ -261,6 +247,12 @@ function TaskWorkspaceBody({
       setError(validationError);
       return;
     }
+    if (requireTime && loggedSeconds <= 0) {
+      setError(
+        "Чтобы завершить задание, добавьте время вручную или запустите и остановите таймер.",
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -336,13 +328,13 @@ function TaskWorkspaceBody({
 
       {!entity || !record ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-          Запись ещё не загружена. Обновите страницу или откройте карточку.
+          Запись ещё не загружена. Обновите страницу.
         </p>
       ) : !selectedOutcome ? (
         <div className="rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-3">
           <p className="text-sm text-muted-foreground">
             Выберите результат — поля формы появятся, если они заданы для этого
-            результата.
+            варианта.
           </p>
         </div>
       ) : hasOutcomeForm ? (
@@ -461,6 +453,15 @@ function TaskWorkspaceBody({
         />
       ) : null}
 
+      <TaskTimeSessionsPanel
+        taskId={task.id}
+        userId={sessionUser?.id}
+        required={requireTime}
+        disabled={busy}
+        onTotalSecondsChange={onTotalSecondsChange}
+        onError={(message) => setError(message)}
+      />
+
       {error ? (
         <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {error}
@@ -478,17 +479,19 @@ function TaskWorkspaceBody({
               >
                 {selectedOutcome.label}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
-                  setSelectedOutcomeId(null);
-                  setError(null);
-                }}
-              >
-                Назад
-              </Button>
+              {!formUpfront ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => {
+                    setSelectedOutcomeId(null);
+                    setError(null);
+                  }}
+                >
+                  Назад
+                </Button>
+              ) : null}
             </>
           ) : (
             task.config.outcomes.map((outcome) => (
@@ -524,51 +527,6 @@ function TaskWorkspaceBody({
           >
             На доработку
           </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="text-muted-foreground"
-            disabled={busy || !sessionUser?.id}
-            onClick={() => {
-              void (async () => {
-                if (!sessionUser?.id) return;
-                setBusy(true);
-                try {
-                  if (sessionId) {
-                    await stopAutomationTaskTimeSession(sessionId);
-                    setSessionId(null);
-                  } else {
-                    const id = await startAutomationTaskTimeSession({
-                      taskId: task.id,
-                      userId: sessionUser.id,
-                    });
-                    setSessionId(id);
-                  }
-                } catch (err: unknown) {
-                  setError(getAutomationErrorMessage(err, "Ошибка таймера"));
-                } finally {
-                  setBusy(false);
-                }
-              })();
-            }}
-          >
-            {sessionId ? "Стоп таймер" : "Таймер"}
-          </Button>
-          {onOpenRecord && record ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground"
-              disabled={busy}
-              onClick={() => onOpenRecord(task.entityId, task.recordId)}
-            >
-              Карточка
-            </Button>
-          ) : null}
         </div>
       </footer>
     </div>
