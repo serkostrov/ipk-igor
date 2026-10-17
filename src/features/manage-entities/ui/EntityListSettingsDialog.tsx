@@ -1141,6 +1141,8 @@ export function EntityListSettingsDialog({
       ? field.listAllowOther
       : false;
   const listUseColors = field.type === "list" ? field.listUseColors : true;
+  const listShowEmptyValue =
+    field.type === "list" ? field.listShowEmptyValue !== false : true;
   const fieldLabel = field.name.trim() || "Список";
   const parentField = isRoleCatalog
     ? null
@@ -1704,6 +1706,29 @@ export function EntityListSettingsDialog({
                   />
                 </div>
               ) : null}
+
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-3 py-2.5">
+                <div className="min-w-0">
+                  <Label
+                    htmlFor="list-show-empty-value"
+                    className="text-sm font-medium"
+                  >
+                    Без значения
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Колонка на доске для записей без выбранного варианта
+                  </p>
+                </div>
+                <Switch
+                  id="list-show-empty-value"
+                  checked={listShowEmptyValue}
+                  onCheckedChange={(checked) => {
+                    updateEntityField(entity.id, field.id, {
+                      listShowEmptyValue: checked,
+                    });
+                  }}
+                />
+              </div>
             </div>
           </section>
         </LayoutGroup>

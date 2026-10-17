@@ -742,6 +742,8 @@ export function addEntityField(
         ? data?.listDependsOnFieldId?.trim() || null
         : null,
     listUseColors: type === "list" ? data?.listUseColors !== false : true,
+    listShowEmptyValue:
+      type === "list" ? data?.listShowEmptyValue !== false : true,
     datetimeWithTime:
       type === "datetime" ? Boolean(data?.datetimeWithTime) : false,
     booleanInline: type === "boolean" ? Boolean(data?.booleanInline) : false,
@@ -821,6 +823,9 @@ export function updateEntityField(
           if (patch.listUseColors !== undefined) {
             layoutOnly.listUseColors = patch.listUseColors;
           }
+          if (patch.listShowEmptyValue !== undefined) {
+            layoutOnly.listShowEmptyValue = patch.listShowEmptyValue;
+          }
           if (patch.listFixed !== undefined) {
             layoutOnly.listFixed = patch.listFixed;
             layoutOnly.listMultiple = patch.listFixed
@@ -865,6 +870,7 @@ export function updateEntityField(
           listAllowOther: false,
           listDependsOnFieldId: null,
           listUseColors: true,
+          listShowEmptyValue: true,
         });
       }
       if (merged.type === "list" && !merged.listFixed && merged.listMultiple) {
@@ -1157,6 +1163,7 @@ export function addEntityTabWithLinkedEntity(
     listAllowOther: false,
     listDependsOnFieldId: null,
     listUseColors: true,
+    listShowEmptyValue: true,
     datetimeWithTime: false,
     booleanInline: false,
     colSpan: 1,
@@ -1280,6 +1287,7 @@ export function addEntityTabWithExistingEntity(
       listAllowOther: false,
       listDependsOnFieldId: null,
       listUseColors: true,
+      listShowEmptyValue: true,
       datetimeWithTime: false,
       booleanInline: false,
       colSpan: 1,

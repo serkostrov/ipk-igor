@@ -234,6 +234,11 @@ export type EntityField = {
   listDependsOnFieldId: string | null;
   /** When true, this list field shows color swatches. */
   listUseColors: boolean;
+  /**
+   * When true, the kanban board shows a «Без значения» column for records
+   * without a selected option. Nested under list settings.
+   */
+  listShowEmptyValue: boolean;
   formula?: EntityFormulaConfig;
   rollup?: EntityRollupConfig;
   lookup?: EntityLookupConfig;
@@ -301,6 +306,7 @@ export function createEntityNameField(id: string): EntityField {
     listAllowOther: false,
     listDependsOnFieldId: null,
     listUseColors: true,
+    listShowEmptyValue: true,
     datetimeWithTime: false,
     booleanInline: false,
     colSpan: 4,
@@ -1234,18 +1240,20 @@ export function getEntityKanbanColumns(
 
   if (field.type === "list") {
     const options = resolveEntityListFieldOptions(field, entities);
-    const { listUseColors } = resolveEntityListFieldPresentation(
-      field,
-      entities,
-    );
-    return [
-      { id: ENTITY_KANBAN_EMPTY_COLUMN_ID, label: "Без значения" },
-      ...options.map((option) => ({
-        id: option.id,
-        label: option.name,
-        color: listUseColors ? option.color : undefined,
-      })),
-    ];
+    const { listUseColors, listShowEmptyValue } =
+      resolveEntityListFieldPresentation(field, entities);
+    const columns: EntityKanbanColumn[] = options.map((option) => ({
+      id: option.id,
+      label: option.name,
+      color: listUseColors ? option.color : undefined,
+    }));
+    if (listShowEmptyValue) {
+      columns.unshift({
+        id: ENTITY_KANBAN_EMPTY_COLUMN_ID,
+        label: "Без значения",
+      });
+    }
+    return columns;
   }
 
   if (field.type === "relation") {
@@ -1421,22 +1429,32 @@ export function resolveEntityListFieldPresentation(
     | "type"
     | "listSourceFieldId"
     | "listUseColors"
+    | "listShowEmptyValue"
     | "listFixed"
     | "listMultiple"
   >,
   entities: ReadonlyArray<Pick<Entity, "id" | "fields">> = [],
 ): {
   listUseColors: boolean;
+  listShowEmptyValue: boolean;
   listFixed: boolean;
   listMultiple: boolean;
 } {
   if (field.type !== "list") {
-    return { listUseColors: false, listFixed: false, listMultiple: false };
+    return {
+      listUseColors: false,
+      listShowEmptyValue: true,
+      listFixed: false,
+      listMultiple: false,
+    };
   }
   const source = resolveEntityListFieldSource(field, entities)?.field;
   const listFixed = source ? source.listFixed : field.listFixed;
   return {
     listUseColors: source ? source.listUseColors : field.listUseColors,
+    listShowEmptyValue: source
+      ? source.listShowEmptyValue
+      : field.listShowEmptyValue,
     listFixed,
     listMultiple: listFixed ? field.listMultiple : false,
   };

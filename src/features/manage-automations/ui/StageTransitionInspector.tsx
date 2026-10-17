@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, EyeOff, GitBranch, Trash2 } from "lucide-react";
+import { ArrowRight, GitBranch, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
 import {
@@ -29,8 +29,6 @@ type StageTransitionInspectorProps = {
   onSave: (transition: AutomationStageTransition) => void | Promise<void>;
   onClear: () => void | Promise<void>;
   onClose: () => void;
-  /** Hide the map link between stages (line stays restorable on canvas). */
-  onHideLink?: () => void;
   /** Label for applying changes to the parent draft. */
   commitLabel?: string;
 };
@@ -94,7 +92,6 @@ export function StageTransitionInspector({
   onSave,
   onClear,
   onClose,
-  onHideLink,
   commitLabel = "Применить",
 }: StageTransitionInspectorProps) {
   const [draft, setDraft] = useState<AutomationStageTransition>(
@@ -148,7 +145,7 @@ export function StageTransitionInspector({
               <GitBranch className="size-4" aria-hidden />
             </span>
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold">Условие перехода</h3>
+              <h3 className="text-sm font-semibold">Переход дальше</h3>
               <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
                 <span className="truncate font-medium text-foreground/80">
                   {fromStage.name}
@@ -285,18 +282,6 @@ export function StageTransitionInspector({
         >
           {commitLabel}
         </Button>
-        {onHideLink ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={saving}
-            onClick={onHideLink}
-          >
-            <EyeOff className="size-3.5" />
-            Скрыть связь
-          </Button>
-        ) : null}
         {value ? (
           <Button
             type="button"

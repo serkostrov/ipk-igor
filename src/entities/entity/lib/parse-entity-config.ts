@@ -368,6 +368,8 @@ export function normalizeEntityField(field: EntityField): EntityField {
       ? field.listDependsOnFieldId.trim()
       : null;
   const listUseColors = type === "list" ? field.listUseColors !== false : true;
+  const listShowEmptyValue =
+    type === "list" ? field.listShowEmptyValue !== false : true;
   const datetimeWithTime =
     type === "datetime"
       ? typeof field.datetimeWithTime === "boolean"
@@ -409,6 +411,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     listAllowOther,
     listDependsOnFieldId,
     listUseColors,
+    listShowEmptyValue,
     formula:
       type === "formula" ? normalizeFormulaConfig(field.formula) : undefined,
     rollup: type === "rollup" ? normalizeRollupConfig(field.rollup) : undefined,
@@ -464,6 +467,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     listAllowOther: false,
     listDependsOnFieldId: null,
     listUseColors: true,
+    listShowEmptyValue: true,
     formula: undefined,
     rollup: undefined,
     lookup: undefined,
@@ -567,6 +571,7 @@ function parseField(value: unknown): EntityField | null {
         ? value.listDependsOnFieldId
         : null,
     listUseColors: value.listUseColors !== false,
+    listShowEmptyValue: value.listShowEmptyValue !== false,
     formula: normalizeFormulaConfig(value.formula),
     rollup: normalizeRollupConfig(value.rollup),
     lookup: normalizeLookupConfig(value.lookup),

@@ -38,7 +38,6 @@ import {
   resolveEntityListFieldOptions,
   useEntityConfig,
 } from "@/entities/entity";
-import { automationStageMapLinkKey } from "../lib/stage-link-keys";
 import { AutomationFlowCanvas } from "./AutomationFlowCanvas";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { StageTransitionInspector } from "./StageTransitionInspector";
@@ -223,18 +222,11 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
     null,
   );
-  const [selectedTransitionEdge, setSelectedTransitionEdge] = useState<{
-    fromOptionId: string;
-    toOptionId: string;
-  } | null>(null);
+  const [inspectStageId, setInspectStageId] = useState<string | null>(null);
   const canvasLayout = scenario?.canvasLayout ?? EMPTY_CANVAS_LAYOUT;
   const collapsedStageIds = useMemo(
     () => new Set(canvasLayout.collapsedStageIds),
     [canvasLayout.collapsedStageIds],
-  );
-  const hiddenStageLinkKeys = useMemo(
-    () => new Set(canvasLayout.hiddenStageLinkKeys),
-    [canvasLayout.hiddenStageLinkKeys],
   );
 
   function confirmDiscardIfDirty(): boolean {
@@ -335,31 +327,6 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     });
   }
 
-  function hideStageLink(key: string) {
-    if (hiddenStageLinkKeys.has(key)) return;
-    patchCanvasLayout({
-      hiddenStageLinkKeys: [...hiddenStageLinkKeys, key],
-    });
-    setSelectedTransitionEdge((edge) => {
-      if (!edge) return null;
-      if (
-        automationStageMapLinkKey(edge.fromOptionId, edge.toOptionId) === key
-      ) {
-        return null;
-      }
-      return edge;
-    });
-  }
-
-  function showStageLink(key: string) {
-    if (!hiddenStageLinkKeys.has(key)) return;
-    patchCanvasLayout({
-      hiddenStageLinkKeys: canvasLayout.hiddenStageLinkKeys.filter(
-        (item) => item !== key,
-      ),
-    });
-  }
-
   function toggleStageCollapse(stageOptionId: string) {
     const next = new Set(collapsedStageIds);
     if (next.has(stageOptionId)) next.delete(stageOptionId);
@@ -367,43 +334,31 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     patchCanvasLayout({ collapsedStageIds: [...next] });
   }
 
-  function selectTransition(fromOptionId: string, toOptionId: string) {
-    if (!fromOptionId || !toOptionId) {
-      setSelectedTransitionEdge(null);
-      return;
-    }
-    setSelectedTemplateId(null);
-    setSelectedTransitionEdge({ fromOptionId, toOptionId });
-  }
-
   const scenarioTemplates = draft?.templates ?? [];
 
   const selectedTemplate =
     scenarioTemplates.find((item) => item.id === selectedTemplateId) ?? null;
 
-  const selectedTransitionStages = useMemo(() => {
-    if (!selectedTransitionEdge) return null;
-    const fromStage =
-      stages.find((item) => item.id === selectedTransitionEdge.fromOptionId) ??
-      null;
-    const toStage =
-      stages.find((item) => item.id === selectedTransitionEdge.toOptionId) ??
-      null;
-    if (!fromStage || !toStage) return null;
-    return { fromStage, toStage };
-  }, [selectedTransitionEdge, stages]);
+  const inspectFromStage = useMemo(() => {
+    if (!inspectStageId) return null;
+    return stages.find((item) => item.id === inspectStageId) ?? null;
+  }, [inspectStageId, stages]);
 
-  const selectedTransitionKey = selectedTransitionEdge
-    ? `${selectedTransitionEdge.fromOptionId}\0${selectedTransitionEdge.toOptionId}`
-    : null;
+  const inspectToStage = useMemo(() => {
+    if (!inspectFromStage) return null;
+    const index = stages.findIndex((item) => item.id === inspectFromStage.id);
+    if (index < 0) return null;
+    return stages[index + 1] ?? null;
+  }, [inspectFromStage, stages]);
 
-  const selectedTransition = selectedTransitionEdge
-    ? findStageTransition(
-        scenario?.stageTransitions ?? [],
-        selectedTransitionEdge.fromOptionId,
-        selectedTransitionEdge.toOptionId,
-      )
-    : null;
+  const inspectTransition =
+    inspectFromStage && inspectToStage
+      ? findStageTransition(
+          scenario?.stageTransitions ?? [],
+          inspectFromStage.id,
+          inspectToStage.id,
+        )
+      : null;
 
   async function ensureProcess(): Promise<{
     process: AutomationProcess;
@@ -536,6 +491,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
 
     setStageId(targetStageId);
     setSelectedTemplateId(templateId);
+    setInspectStageId(null);
   }
 
   function moveTemplate(
@@ -663,7 +619,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setScenarioId(null);
     setStageId(null);
     setSelectedTemplateId(null);
-    setSelectedTransitionEdge(null);
+    setInspectStageId(null);
     setDraft(null);
     setSaved(null);
     setUndoStack([]);
@@ -675,55 +631,58 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setScenarioId(null);
     setStageId(null);
     setSelectedTemplateId(null);
-    setSelectedTransitionEdge(null);
+    setInspectStageId(null);
     setDraft(null);
     setSaved(null);
     setUndoStack([]);
   }
 
-  const editActions = showEditActions ? (
-    <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-1">
-      <Button
-        type="button"
-        size="sm"
-        className="h-8 gap-1.5 px-2.5"
-        disabled={!dirty || persisting}
-        onClick={() => void persistDraft()}
-      >
-        <Save className="size-3.5" aria-hidden />
-        {persisting ? "Сохранение…" : "Сохранить"}
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-8 gap-1.5 px-2.5"
-        disabled={!canUndo || persisting}
-        title="Отменить последнее изменение"
-        onClick={undoEdit}
-      >
-        <Undo2 className="size-3.5" aria-hidden />
-        Отменить
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-8 gap-1.5 px-2.5 text-muted-foreground"
-        disabled={!dirty || persisting}
-        title="Откатить все несохранённые изменения"
-        onClick={revertAll}
-      >
-        <RotateCcw className="size-3.5" aria-hidden />
-        Откатить
-      </Button>
+  const editActionsOverlay = showEditActions ? (
+    <div
+      className="pointer-events-none absolute top-3 left-3 z-30"
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-border/80 bg-card/95 p-1 shadow-sm backdrop-blur-sm">
+        <Button
+          type="button"
+          size="sm"
+          className="h-8 gap-1.5 px-2.5"
+          disabled={!dirty || persisting}
+          onClick={() => void persistDraft()}
+        >
+          <Save className="size-3.5" aria-hidden />
+          {persisting ? "Сохранение…" : "Сохранить"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 px-2.5"
+          disabled={!canUndo || persisting}
+          title="Отменить последнее изменение"
+          onClick={undoEdit}
+        >
+          <Undo2 className="size-3.5" aria-hidden />
+          Отменить
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 px-2.5 text-muted-foreground"
+          disabled={!dirty || persisting}
+          title="Откатить все несохранённые изменения"
+          onClick={revertAll}
+        >
+          <RotateCcw className="size-3.5" aria-hidden />
+          Откатить
+        </Button>
+      </div>
     </div>
   ) : null;
 
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
-      {editActions}
-
       <Select
         value={resolvedEntityId || undefined}
         onValueChange={(next) => {
@@ -785,7 +744,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
           );
           setScenarioId(nextId);
           setSelectedTemplateId(null);
-          setSelectedTransitionEdge(null);
+          setInspectStageId(null);
           if (nextScenario) {
             const snap = makeSnap(nextScenario, templates);
             setDraft(snap);
@@ -919,19 +878,21 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 stageTransitions={scenario?.stageTransitions ?? []}
                 activeStageId={activeStageId}
                 selectedTemplateId={selectedTemplateId}
-                selectedTransitionKey={selectedTransitionKey}
                 canvasPositions={canvasLayout.positions}
                 collapsedStageIds={collapsedStageIds}
                 fields={entity?.fields ?? []}
                 onSelectStage={(id) => {
+                  if (!id) {
+                    setInspectStageId(null);
+                    return;
+                  }
                   setStageId(id);
-                  setSelectedTransitionEdge(null);
+                  setInspectStageId(id);
                 }}
                 onSelectTemplate={(id) => {
                   setSelectedTemplateId(id);
-                  if (id) setSelectedTransitionEdge(null);
+                  if (id) setInspectStageId(null);
                 }}
-                onSelectTransition={selectTransition}
                 onAdd={(stageOptionId, launchPhase, insertAt) =>
                   void addTemplate(stageOptionId, launchPhase, insertAt)
                 }
@@ -952,50 +913,75 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   patchCanvasLayout({ positions })
                 }
                 onToggleStageCollapse={toggleStageCollapse}
-                hiddenStageLinkKeys={hiddenStageLinkKeys}
-                onHideStageLink={hideStageLink}
-                onShowStageLink={showStageLink}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 У поля стадии нет вариантов
               </div>
             )}
+            {editActionsOverlay}
           </main>
 
-          {selectedTransitionStages && selectedTransitionEdge && entity ? (
+          {inspectFromStage && !selectedTemplate && entity ? (
             <aside
               className="relative z-20 hidden h-full min-h-0 w-[min(34rem,40vw)] min-w-[28rem] shrink-0 flex-col overflow-hidden border-l border-border bg-card xl:flex"
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="flex min-h-0 flex-1 flex-col p-4">
-                <StageTransitionInspector
-                  key={`${selectedTransitionKey ?? "transition"}:${editorEpoch}`}
-                  fromStage={selectedTransitionStages.fromStage}
-                  toStage={selectedTransitionStages.toStage}
-                  stages={stages}
-                  entity={entity}
-                  value={selectedTransition}
-                  onSave={async (transition) => {
-                    applyStageTransition(transition);
-                  }}
-                  onClear={() =>
-                    clearStageTransition(
-                      selectedTransitionEdge.fromOptionId,
-                      selectedTransitionEdge.toOptionId,
-                    )
-                  }
-                  onClose={() => setSelectedTransitionEdge(null)}
-                  onHideLink={() => {
-                    hideStageLink(
-                      automationStageMapLinkKey(
-                        selectedTransitionEdge.fromOptionId,
-                        selectedTransitionEdge.toOptionId,
-                      ),
-                    );
-                    setSelectedTransitionEdge(null);
-                  }}
-                />
+                {inspectToStage ? (
+                  <StageTransitionInspector
+                    key={`${inspectFromStage.id}\0${inspectToStage.id}:${editorEpoch}`}
+                    fromStage={inspectFromStage}
+                    toStage={inspectToStage}
+                    stages={stages}
+                    entity={entity}
+                    value={inspectTransition}
+                    onSave={async (transition) => {
+                      applyStageTransition(transition);
+                    }}
+                    onClear={() =>
+                      clearStageTransition(
+                        inspectFromStage.id,
+                        inspectToStage.id,
+                      )
+                    }
+                    onClose={() => setInspectStageId(null)}
+                  />
+                ) : (
+                  <div className="flex h-full min-h-0 flex-col">
+                    <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border pb-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                            <GitBranch className="size-4" aria-hidden />
+                          </span>
+                          <div className="min-w-0">
+                            <h3 className="text-sm font-semibold">
+                              Последняя стадия
+                            </h3>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {inspectFromStage.name}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => setInspectStageId(null)}
+                      >
+                        Закрыть
+                      </Button>
+                    </div>
+                    <div className="flex flex-1 items-center justify-center px-2 py-8 text-center">
+                      <p className="text-sm text-muted-foreground">
+                        Нет исходящего перехода — это последняя стадия в списке.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </aside>
           ) : selectedTemplate && entity ? (
