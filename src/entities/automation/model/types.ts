@@ -233,14 +233,15 @@ function normalizeCanvasIdList(value: unknown): string[] {
 }
 
 /**
- * Conditional gateway on the map edge between two stages.
- * When leaving `fromOptionId` toward `toOptionId`:
+ * Conditional gateway when leaving `fromOptionId` toward `toOptionId` («тогда»).
+ * `toOptionId` may be any other stage, not only the next list option.
  * - conditions match → allow `toOptionId`
  * - else → `elseOptionId` if set, otherwise block the move
  */
 export type AutomationStageTransition = {
   id: string;
   fromOptionId: string;
+  /** Success target («тогда») — any stage except `fromOptionId`. */
   toOptionId: string;
   conditions: AutomationConditions;
   /** Redirect target when conditions fail; empty = forbid the transition. */

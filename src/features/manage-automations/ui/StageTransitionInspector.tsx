@@ -22,6 +22,7 @@ type StageOption = { id: string; name: string; color?: string };
 
 type StageTransitionInspectorProps = {
   fromStage: StageOption;
+  /** Initial «тогда» target (defaults to next stage when opening a blank rule). */
   toStage: StageOption;
   stages: StageOption[];
   entity: Entity;
@@ -32,31 +33,6 @@ type StageTransitionInspectorProps = {
   /** Label for applying changes to the parent draft. */
   commitLabel?: string;
 };
-
-function StageChip({
-  name,
-  color,
-  className,
-}: {
-  name: string;
-  color?: string;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5 shadow-xs",
-        className,
-      )}
-    >
-      <span
-        className="size-2.5 shrink-0 rounded-full"
-        style={{ backgroundColor: color || "var(--primary)" }}
-      />
-      <span className="min-w-0 truncate text-sm font-medium">{name}</span>
-    </div>
-  );
-}
 
 /** Vertical stem + split into two branches (тогда / иначе). */
 function BranchFork({ className }: { className?: string }) {
@@ -83,6 +59,25 @@ function BranchFork({ className }: { className?: string }) {
   );
 }
 
+function StageSelectValue({
+  stage,
+  fallback,
+}: {
+  stage?: StageOption;
+  fallback: string;
+}) {
+  if (!stage) return fallback;
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        className="size-2 shrink-0 rounded-full"
+        style={{ backgroundColor: stage.color || "var(--muted-foreground)" }}
+      />
+      <span className="truncate">{stage.name}</span>
+    </span>
+  );
+}
+
 export function StageTransitionInspector({
   fromStage,
   toStage,
@@ -106,20 +101,27 @@ export function StageTransitionInspector({
   );
   const [saving, setSaving] = useState(false);
 
+  const thenStages = stages.filter((stage) => stage.id !== fromStage.id);
+  const thenStage =
+    stages.find((stage) => stage.id === draft.toOptionId) ?? toStage;
   const elseStages = stages.filter(
-    (stage) => stage.id !== fromStage.id && stage.id !== toStage.id,
+    (stage) =>
+      stage.id !== fromStage.id && stage.id !== draft.toOptionId,
   );
   const elseStage = stages.find((stage) => stage.id === draft.elseOptionId);
   const hasRules = draft.conditions.rules.length > 0;
 
   async function handleSave() {
     if (saving) return;
+    if (!draft.toOptionId || draft.toOptionId === fromStage.id) return;
     setSaving(true);
     try {
       await onSave({
         ...draft,
         fromOptionId: fromStage.id,
-        toOptionId: toStage.id,
+        toOptionId: draft.toOptionId,
+        elseOptionId:
+          draft.elseOptionId === draft.toOptionId ? "" : draft.elseOptionId,
       });
     } finally {
       setSaving(false);
@@ -152,7 +154,7 @@ export function StageTransitionInspector({
                 </span>
                 <ArrowRight className="size-3 shrink-0 opacity-60" />
                 <span className="truncate font-medium text-foreground/80">
-                  {toStage.name}
+                  {thenStage.name}
                 </span>
               </p>
             </div>
@@ -172,9 +174,9 @@ export function StageTransitionInspector({
       <div className="min-h-0 flex-1 space-y-1 overflow-auto pt-4">
         <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2.5">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            При переходе с «{fromStage.name}» на «{toStage.name}» проверяются
-            условия. Если выполнены — запись идёт дальше; иначе — на другую
-            стадию или переход запрещается.
+            При переходе с «{fromStage.name}» на «{thenStage.name}» проверяются
+            условия. Если выполнены — запись идёт на выбранную стадию; иначе —
+            на другую стадию или переход запрещается.
           </p>
         </div>
 
@@ -202,9 +204,34 @@ export function StageTransitionInspector({
                 Тогда
               </Label>
             </div>
-            <StageChip name={toStage.name} color={toStage.color} />
+            <Select
+              value={draft.toOptionId}
+              onValueChange={(next) => {
+                if (next == null) return;
+                const value = String(next);
+                setDraft((prev) => ({
+                  ...prev,
+                  toOptionId: value,
+                  elseOptionId:
+                    prev.elseOptionId === value ? "" : prev.elseOptionId,
+                }));
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  <StageSelectValue stage={thenStage} fallback="Выберите стадию" />
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {thenStages.map((stage) => (
+                  <SelectItem key={stage.id} value={stage.id}>
+                    <StageSelectValue stage={stage} fallback={stage.name} />
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-[10px] leading-snug text-muted-foreground">
-              Переход разрешён
+              Куда перейдёт запись при выполнении условий
             </p>
           </div>
 
@@ -232,18 +259,10 @@ export function StageTransitionInspector({
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {draft.elseOptionId ? (
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="size-2 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor:
-                            elseStage?.color || "var(--muted-foreground)",
-                        }}
-                      />
-                      <span className="truncate">
-                        {elseStage?.name || "Другая стадия"}
-                      </span>
-                    </span>
+                    <StageSelectValue
+                      stage={elseStage}
+                      fallback="Другая стадия"
+                    />
                   ) : (
                     "Запретить переход"
                   )}
@@ -253,7 +272,7 @@ export function StageTransitionInspector({
                 <SelectItem value="__block__">Запретить переход</SelectItem>
                 {elseStages.map((stage) => (
                   <SelectItem key={stage.id} value={stage.id}>
-                    {stage.name}
+                    <StageSelectValue stage={stage} fallback={stage.name} />
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -277,7 +296,7 @@ export function StageTransitionInspector({
         <Button
           type="button"
           size="sm"
-          disabled={saving}
+          disabled={saving || !draft.toOptionId}
           onClick={() => void handleSave()}
         >
           {commitLabel}

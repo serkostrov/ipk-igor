@@ -223,11 +223,37 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     null,
   );
   const [inspectStageId, setInspectStageId] = useState<string | null>(null);
+  const [inspectToOptionId, setInspectToOptionId] = useState<string | null>(
+    null,
+  );
   const canvasLayout = scenario?.canvasLayout ?? EMPTY_CANVAS_LAYOUT;
   const collapsedStageIds = useMemo(
     () => new Set(canvasLayout.collapsedStageIds),
     [canvasLayout.collapsedStageIds],
   );
+
+  function openStageTransition(fromOptionId: string, toOptionId?: string) {
+    setSelectedTemplateId(null);
+    setStageId(fromOptionId);
+    setInspectStageId(fromOptionId);
+    const fromIndex = stages.findIndex((item) => item.id === fromOptionId);
+    const nextId =
+      fromIndex >= 0 ? (stages[fromIndex + 1]?.id ?? null) : null;
+    const existingFrom = (scenario?.stageTransitions ?? []).filter(
+      (item) => item.fromOptionId === fromOptionId,
+    );
+    const preferred =
+      toOptionId ??
+      existingFrom.find((item) => item.toOptionId === nextId)?.toOptionId ??
+      existingFrom[0]?.toOptionId ??
+      nextId;
+    setInspectToOptionId(preferred);
+  }
+
+  function closeStageInspector() {
+    setInspectStageId(null);
+    setInspectToOptionId(null);
+  }
 
   function confirmDiscardIfDirty(): boolean {
     if (!dirty) return true;
@@ -346,10 +372,15 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
 
   const inspectToStage = useMemo(() => {
     if (!inspectFromStage) return null;
+    if (inspectToOptionId) {
+      const selected = stages.find((item) => item.id === inspectToOptionId);
+      if (selected && selected.id !== inspectFromStage.id) return selected;
+    }
     const index = stages.findIndex((item) => item.id === inspectFromStage.id);
-    if (index < 0) return null;
-    return stages[index + 1] ?? null;
-  }, [inspectFromStage, stages]);
+    const next = index >= 0 ? stages[index + 1] : undefined;
+    if (next) return next;
+    return stages.find((item) => item.id !== inspectFromStage.id) ?? null;
+  }, [inspectFromStage, inspectToOptionId, stages]);
 
   const inspectTransition =
     inspectFromStage && inspectToStage
@@ -358,6 +389,11 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
           inspectFromStage.id,
           inspectToStage.id,
         )
+      : null;
+
+  const selectedTransitionKey =
+    inspectFromStage && inspectToStage
+      ? `${inspectFromStage.id}\0${inspectToStage.id}`
       : null;
 
   async function ensureProcess(): Promise<{
@@ -577,6 +613,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       const next = [
         ...current.filter(
           (item) =>
+            item.id !== transition.id &&
             !(
               item.fromOptionId === transition.fromOptionId &&
               item.toOptionId === transition.toOptionId
@@ -589,6 +626,8 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         scenario: { ...prev.scenario, stageTransitions: next },
       };
     });
+    setInspectStageId(transition.fromOptionId);
+    setInspectToOptionId(transition.toOptionId);
   }
 
   function clearStageTransition(fromOptionId: string, toOptionId: string) {
@@ -878,20 +917,23 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 stageTransitions={scenario?.stageTransitions ?? []}
                 activeStageId={activeStageId}
                 selectedTemplateId={selectedTemplateId}
+                selectedTransitionKey={selectedTransitionKey}
                 canvasPositions={canvasLayout.positions}
                 collapsedStageIds={collapsedStageIds}
                 fields={entity?.fields ?? []}
                 onSelectStage={(id) => {
                   if (!id) {
-                    setInspectStageId(null);
+                    closeStageInspector();
                     return;
                   }
-                  setStageId(id);
-                  setInspectStageId(id);
+                  openStageTransition(id);
                 }}
                 onSelectTemplate={(id) => {
                   setSelectedTemplateId(id);
-                  if (id) setInspectStageId(null);
+                  if (id) closeStageInspector();
+                }}
+                onSelectTransition={(fromOptionId, toOptionId) => {
+                  openStageTransition(fromOptionId, toOptionId);
                 }}
                 onAdd={(stageOptionId, launchPhase, insertAt) =>
                   void addTemplate(stageOptionId, launchPhase, insertAt)
@@ -939,13 +981,14 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                     onSave={async (transition) => {
                       applyStageTransition(transition);
                     }}
-                    onClear={() =>
+                    onClear={() => {
                       clearStageTransition(
                         inspectFromStage.id,
-                        inspectToStage.id,
-                      )
-                    }
-                    onClose={() => setInspectStageId(null)}
+                        inspectTransition?.toOptionId ?? inspectToStage.id,
+                      );
+                      closeStageInspector();
+                    }}
+                    onClose={closeStageInspector}
                   />
                 ) : (
                   <div className="flex h-full min-h-0 flex-col">
@@ -957,7 +1000,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                           </span>
                           <div className="min-w-0">
                             <h3 className="text-sm font-semibold">
-                              Последняя стадия
+                              Переход дальше
                             </h3>
                             <p className="mt-0.5 truncate text-xs text-muted-foreground">
                               {inspectFromStage.name}
@@ -970,14 +1013,14 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                         variant="ghost"
                         size="sm"
                         className="shrink-0"
-                        onClick={() => setInspectStageId(null)}
+                        onClick={closeStageInspector}
                       >
                         Закрыть
                       </Button>
                     </div>
                     <div className="flex flex-1 items-center justify-center px-2 py-8 text-center">
                       <p className="text-sm text-muted-foreground">
-                        Нет исходящего перехода — это последняя стадия в списке.
+                        Нужна хотя бы ещё одна стадия, чтобы настроить переход.
                       </p>
                     </div>
                   </div>

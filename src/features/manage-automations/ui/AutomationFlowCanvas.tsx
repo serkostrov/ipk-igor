@@ -215,8 +215,204 @@ function FloatingEdge({
   );
 }
 
+type StageMapEdgeData = {
+  fromOptionId: string;
+  toOptionId: string;
+  configured: boolean;
+  selected: boolean;
+  elseLabel?: string;
+  onOpen?: () => void;
+};
+
+type StageElseEdgeData = {
+  fromOptionId: string;
+  toOptionId: string;
+  selected: boolean;
+  onOpen?: () => void;
+};
+
+/** Map link between stages — mid control opens the transition inspector. */
+function StageMapEdge({
+  id,
+  source,
+  target,
+  style,
+  markerEnd,
+  data,
+}: EdgeProps) {
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const edgeData = (data ?? {}) as StageMapEdgeData;
+
+  if (!sourceNode || !targetNode) return null;
+
+  const { sx, sy, tx, ty, sourcePos, targetPos, vertical } =
+    getAlignedEdgeParams(sourceNode, targetNode);
+  const aligned = vertical ? Math.abs(sx - tx) < 1.5 : Math.abs(sy - ty) < 1.5;
+
+  const [edgePath] = aligned
+    ? getStraightPath({ sourceX: sx, sourceY: sy, targetX: tx, targetY: ty })
+    : getSmoothStepPath({
+        sourceX: sx,
+        sourceY: sy,
+        sourcePosition: sourcePos,
+        targetX: tx,
+        targetY: ty,
+        targetPosition: targetPos,
+        borderRadius: 12,
+      });
+
+  const labelX = (sx + tx) / 2;
+  const labelY = (sy + ty) / 2;
+  const configured = edgeData.configured === true;
+  const selected = edgeData.selected === true;
+  const elseLabel = edgeData.elseLabel?.trim() ?? "";
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          stroke: selected
+            ? "var(--primary)"
+            : configured
+              ? "#64748b"
+              : (style?.stroke ?? "#d4d4d8"),
+          strokeWidth: selected || configured ? 2 : 1.5,
+        }}
+      />
+      <EdgeLabelRenderer>
+        <div
+          className="nodrag nopan pointer-events-auto absolute z-20 flex flex-col items-center gap-1"
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          }}
+        >
+          <button
+            type="button"
+            title={
+              configured
+                ? "Изменить условие перехода"
+                : "Добавить условие перехода"
+            }
+            aria-label={
+              configured
+                ? "Изменить условие перехода"
+                : "Добавить условие перехода"
+            }
+            className={cn(
+              "flex size-7 items-center justify-center rounded-full border bg-card shadow-sm transition-all",
+              "hover:scale-105 hover:border-primary/50 hover:text-primary hover:shadow-md",
+              selected
+                ? "border-primary text-primary ring-2 ring-primary/25"
+                : configured
+                  ? "border-border text-foreground"
+                  : "border-border/80 text-muted-foreground opacity-90 hover:opacity-100",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              edgeData.onOpen?.();
+            }}
+          >
+            {configured ? (
+              <GitBranch className="size-3.5" aria-hidden />
+            ) : (
+              <Plus className="size-3.5" strokeWidth={2.25} aria-hidden />
+            )}
+          </button>
+          {configured ? (
+            <span
+              className={cn(
+                "max-w-[11rem] truncate rounded-md border bg-card px-1.5 py-0.5 text-[9px] font-semibold tracking-wide uppercase shadow-xs",
+                selected
+                  ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+                  : "border-border/70 text-muted-foreground",
+              )}
+            >
+              тогда
+              {elseLabel ? ` · иначе → ${elseLabel}` : ""}
+            </span>
+          ) : null}
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+/** Redirect edge when conditions fail («иначе»). */
+function StageElseEdge({ id, source, target, markerEnd, data }: EdgeProps) {
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const edgeData = (data ?? {}) as StageElseEdgeData;
+
+  if (!sourceNode || !targetNode) return null;
+
+  const { sx, sy, tx, ty, sourcePos, targetPos } = getAlignedEdgeParams(
+    sourceNode,
+    targetNode,
+  );
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX: sx,
+    sourceY: sy,
+    sourcePosition: sourcePos,
+    targetX: tx,
+    targetY: ty,
+    targetPosition: targetPos,
+    borderRadius: 14,
+    offset: 28,
+  });
+  const selected = edgeData.selected === true;
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          stroke: selected ? "#d97706" : "#f59e0b",
+          strokeWidth: selected ? 2 : 1.75,
+          strokeDasharray: "6 4",
+        }}
+      />
+      <EdgeLabelRenderer>
+        <div
+          className="nodrag nopan pointer-events-auto absolute z-20"
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          }}
+        >
+          <button
+            type="button"
+            title="Ветка «иначе» — открыть условие"
+            aria-label="Ветка иначе"
+            className={cn(
+              "rounded-md border bg-card px-2 py-0.5 text-[9px] font-semibold tracking-wide uppercase shadow-sm transition-all",
+              "hover:border-amber-500/50 hover:text-amber-700",
+              selected
+                ? "border-amber-500 text-amber-700 ring-2 ring-amber-500/20 dark:text-amber-400"
+                : "border-amber-500/35 text-amber-700/90 dark:text-amber-400/90",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              edgeData.onOpen?.();
+            }}
+          >
+            иначе
+          </button>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
 const edgeTypes: EdgeTypes = {
   floating: memo(FloatingEdge),
+  stageMap: memo(StageMapEdge),
+  stageElse: memo(StageElseEdge),
 };
 
 type StageOption = { id: string; name: string; color?: string };
@@ -654,10 +850,12 @@ function buildLayout(input: {
   stageTransitions: AutomationStageTransition[];
   activeStageId: string | null;
   selectedTemplateId: string | null;
+  selectedTransitionKey: string | null;
   collapsedStageIds: ReadonlySet<string>;
   canvasPositions: AutomationCanvasNodePositions;
   fields: EntityField[];
   onToggleStageCollapse: (stageId: string) => void;
+  onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
   onAdd: (
     stageId: string,
     launchPhase: AutomationLaunchPhase,
@@ -670,30 +868,28 @@ function buildLayout(input: {
     stageTransitions,
     activeStageId,
     selectedTemplateId,
+    selectedTransitionKey,
     collapsedStageIds,
     canvasPositions,
     fields,
     onToggleStageCollapse,
+    onSelectTransition,
     onAdd,
   } = input;
   const nodes: Node[] = [];
   const edges: Edge[] = [];
+  const stageIds = new Set(stages.map((stage) => stage.id));
+  const mapEdgeKeys = new Set<string>();
 
   stages.forEach((stage, index) => {
     const colX = ORIGIN_X + index * (COL_W + COL_GAP);
     const stageNodeId = `stage:${stage.id}`;
     const stageTasks = templatesForStage(templates, stage.id);
     const collapsed = collapsedStageIds.has(stage.id);
-    const nextStage = stages[index + 1];
-    const hasTransitionRule = nextStage
-      ? stageTransitionIsConfigured(
-          stageTransitions.find(
-            (item) =>
-              item.fromOptionId === stage.id &&
-              item.toOptionId === nextStage.id,
-          ),
-        )
-      : false;
+    const hasTransitionRule = stageTransitions.some(
+      (item) =>
+        item.fromOptionId === stage.id && stageTransitionIsConfigured(item),
+    );
 
     nodes.push({
       id: stageNodeId,
@@ -712,6 +908,34 @@ function buildLayout(input: {
         onToggleCollapse: () => onToggleStageCollapse(stage.id),
       } satisfies StageData,
     });
+
+    const nextStage = stages[index + 1];
+    if (nextStage) {
+      const transition = stageTransitions.find(
+        (item) =>
+          item.fromOptionId === stage.id && item.toOptionId === nextStage.id,
+      );
+      const transitionKey = `${stage.id}\0${nextStage.id}`;
+      const elseStage = transition?.elseOptionId
+        ? stages.find((item) => item.id === transition.elseOptionId)
+        : null;
+      mapEdgeKeys.add(transitionKey);
+      edges.push({
+        id: `map-${stage.id}-${nextStage.id}`,
+        source: stageNodeId,
+        target: `stage:${nextStage.id}`,
+        type: "stageMap",
+        style: { stroke: "#d4d4d8", strokeWidth: 1.5 },
+        data: {
+          fromOptionId: stage.id,
+          toOptionId: nextStage.id,
+          configured: stageTransitionIsConfigured(transition),
+          selected: selectedTransitionKey === transitionKey,
+          elseLabel: elseStage?.name,
+          onOpen: () => onSelectTransition(stage.id, nextStage.id),
+        } satisfies StageMapEdgeData,
+      });
+    }
 
     const endId = `end:${stage.id}`;
 
@@ -816,6 +1040,54 @@ function buildLayout(input: {
     connect(endId, "onEnter", onEnterTasks.length, "#a1a1aa", 1.5);
   });
 
+  // Non-adjacent «тогда» links + «иначе» redirects.
+  for (const transition of stageTransitions) {
+    if (!stageIds.has(transition.fromOptionId)) continue;
+    if (!stageIds.has(transition.toOptionId)) continue;
+    const transitionKey = `${transition.fromOptionId}\0${transition.toOptionId}`;
+    const configured = stageTransitionIsConfigured(transition);
+    const elseId = transition.elseOptionId.trim();
+    const elseStage =
+      elseId && stageIds.has(elseId)
+        ? stages.find((stage) => stage.id === elseId)
+        : null;
+
+    if (!mapEdgeKeys.has(transitionKey) && configured) {
+      mapEdgeKeys.add(transitionKey);
+      edges.push({
+        id: `map-${transition.fromOptionId}-${transition.toOptionId}`,
+        source: `stage:${transition.fromOptionId}`,
+        target: `stage:${transition.toOptionId}`,
+        type: "stageMap",
+        style: { stroke: "#94a3b8", strokeWidth: 2 },
+        data: {
+          fromOptionId: transition.fromOptionId,
+          toOptionId: transition.toOptionId,
+          configured: true,
+          selected: selectedTransitionKey === transitionKey,
+          elseLabel: elseStage?.name,
+          onOpen: () =>
+            onSelectTransition(transition.fromOptionId, transition.toOptionId),
+        } satisfies StageMapEdgeData,
+      });
+    }
+
+    if (!elseStage || elseId === transition.toOptionId) continue;
+    edges.push({
+      id: `else-${transition.fromOptionId}-${elseId}-${transition.toOptionId}`,
+      source: `stage:${transition.fromOptionId}`,
+      target: `stage:${elseId}`,
+      type: "stageElse",
+      data: {
+        fromOptionId: transition.fromOptionId,
+        toOptionId: transition.toOptionId,
+        selected: selectedTransitionKey === transitionKey,
+        onOpen: () =>
+          onSelectTransition(transition.fromOptionId, transition.toOptionId),
+      } satisfies StageElseEdgeData,
+    });
+  }
+
   return { nodes, edges };
 }
 
@@ -825,11 +1097,13 @@ function FlowInner({
   stageTransitions,
   activeStageId,
   selectedTemplateId,
+  selectedTransitionKey,
   canvasPositions,
   collapsedStageIds,
   fields,
   onSelectStage,
   onSelectTemplate,
+  onSelectTransition,
   onAdd,
   onMoveTemplate,
   onCanvasPositionsChange,
@@ -841,11 +1115,13 @@ function FlowInner({
   stageTransitions: AutomationStageTransition[];
   activeStageId: string | null;
   selectedTemplateId: string | null;
+  selectedTransitionKey: string | null;
   canvasPositions: AutomationCanvasNodePositions;
   collapsedStageIds: ReadonlySet<string>;
   fields: EntityField[];
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
+  onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
   onAdd: (
     stageId: string,
     launchPhase: AutomationLaunchPhase,
@@ -909,10 +1185,12 @@ function FlowInner({
       stageTransitions,
       activeStageId,
       selectedTemplateId,
+      selectedTransitionKey,
       collapsedStageIds,
       canvasPositions: mergedPositions,
       fields,
       onToggleStageCollapse,
+      onSelectTransition,
       onAdd: (stageId, launchPhase, insertAt) => {
         onSelectStage(stageId);
         onSelectTemplate(null);
@@ -960,10 +1238,12 @@ function FlowInner({
     stageTransitions,
     activeStageId,
     selectedTemplateId,
+    selectedTransitionKey,
     collapsedStageIds,
     canvasPositions,
     fields,
     onToggleStageCollapse,
+    onSelectTransition,
     onAdd,
     onSelectStage,
     onSelectTemplate,
@@ -985,6 +1265,19 @@ function FlowInner({
       }
     },
     [onSelectStage, onSelectTemplate],
+  );
+
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      if (edge.type !== "stageMap" && edge.type !== "stageElse") return;
+      const data = edge.data as
+        | StageMapEdgeData
+        | StageElseEdgeData
+        | undefined;
+      if (!data?.fromOptionId || !data.toOptionId) return;
+      onSelectTransition(data.fromOptionId, data.toOptionId);
+    },
+    [onSelectTransition],
   );
 
   const onNodeDragStart: OnNodeDrag = useCallback(
@@ -1124,6 +1417,7 @@ function FlowInner({
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onNodeClick={onNodeClick}
+      onEdgeClick={onEdgeClick}
       onNodeDragStart={onNodeDragStart}
       onNodeDrag={onNodeDrag}
       onNodeDragStop={onNodeDragStop}
@@ -1177,11 +1471,13 @@ export function AutomationFlowCanvas({
   stageTransitions,
   activeStageId,
   selectedTemplateId,
+  selectedTransitionKey,
   canvasPositions,
   collapsedStageIds,
   fields,
   onSelectStage,
   onSelectTemplate,
+  onSelectTransition,
   onAdd,
   onMoveTemplate,
   onCanvasPositionsChange,
@@ -1192,11 +1488,13 @@ export function AutomationFlowCanvas({
   stageTransitions: AutomationStageTransition[];
   activeStageId: string | null;
   selectedTemplateId: string | null;
+  selectedTransitionKey: string | null;
   canvasPositions: AutomationCanvasNodePositions;
   collapsedStageIds: ReadonlySet<string>;
   fields: EntityField[];
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
+  onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
   onAdd: (
     stageId: string,
     launchPhase: AutomationLaunchPhase,
@@ -1215,7 +1513,9 @@ export function AutomationFlowCanvas({
   const fitKey = [
     stages.map((s) => s.id).join(","),
     templates.map((t) => t.id).join(","),
-    stageTransitions.map((t) => `${t.fromOptionId}:${t.toOptionId}`).join(","),
+    stageTransitions
+      .map((t) => `${t.fromOptionId}:${t.toOptionId}:${t.elseOptionId}`)
+      .join(","),
   ].join("|");
 
   return (
@@ -1227,11 +1527,13 @@ export function AutomationFlowCanvas({
           stageTransitions={stageTransitions}
           activeStageId={activeStageId}
           selectedTemplateId={selectedTemplateId}
+          selectedTransitionKey={selectedTransitionKey}
           canvasPositions={canvasPositions}
           collapsedStageIds={collapsedStageIds}
           fields={fields}
           onSelectStage={onSelectStage}
           onSelectTemplate={onSelectTemplate}
+          onSelectTransition={onSelectTransition}
           onAdd={onAdd}
           onMoveTemplate={onMoveTemplate}
           onCanvasPositionsChange={onCanvasPositionsChange}
