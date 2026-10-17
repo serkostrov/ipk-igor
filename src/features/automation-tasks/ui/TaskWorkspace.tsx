@@ -8,6 +8,7 @@ import {
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
 import {
   applyEntityFieldValue,
+  getCurrentUserRecordId,
   getEntityConfig,
   getEntityFieldDisplayName,
   getEntityListParentField,
@@ -31,6 +32,11 @@ import {
 import { useSessionUser } from "@/entities/session";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
+import {
+  applyAutomationSetFieldAutofill,
+  getOutcomeSetFieldActions,
+  mergeAutofillIntoFormValues,
+} from "../lib/apply-outcome-autofill";
 import {
   automationOutcomeNeedsInput,
   automationTaskShowsFormUpfront,
@@ -61,6 +67,8 @@ function buildTaskFormValues(
   record: EntityRecord,
   visibleFieldIds: string[],
   entities: Entity[],
+  setFieldActions: ReturnType<typeof getOutcomeSetFieldActions> = [],
+  actorUserId: string | null = null,
 ) {
   const draft: Record<string, string> = {};
   for (const fieldId of visibleFieldIds) {
@@ -68,7 +76,22 @@ function buildTaskFormValues(
     const raw = record.values[fieldId] ?? "";
     draft[fieldId] = field ? normalizeEntityFieldInputValue(field, raw) : raw;
   }
-  return sanitizeEntityRelationDependencies(entity, draft, entities);
+  const base = sanitizeEntityRelationDependencies(entity, draft, entities);
+  if (setFieldActions.length === 0) return base;
+  const merged = { ...record.values, ...base };
+  const filled = applyAutomationSetFieldAutofill({
+    entity,
+    entities,
+    values: merged,
+    actions: setFieldActions,
+    actorUserId,
+  });
+  return mergeAutofillIntoFormValues(
+    base,
+    record.values,
+    filled,
+    setFieldActions,
+  );
 }
 
 export function TaskWorkspace({
@@ -139,6 +162,17 @@ function TaskWorkspaceBody({
   );
   const selectedOutcome =
     task.config.outcomes.find((item) => item.id === selectedOutcomeId) ?? null;
+  const autofillOutcomeId =
+    selectedOutcomeId ??
+    getDefaultSelectedOutcomeId(task) ??
+    task.config.outcomes[0]?.id ??
+    null;
+  const setFieldActions = useMemo(() => {
+    const outcome =
+      task.config.outcomes.find((item) => item.id === autofillOutcomeId) ??
+      null;
+    return getOutcomeSetFieldActions(outcome);
+  }, [autofillOutcomeId, task.config.outcomes]);
   const ask = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
@@ -147,11 +181,20 @@ function TaskWorkspaceBody({
     [ask?.requiredFieldIds],
   );
 
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    entity && record
-      ? buildTaskFormValues(entity, record, taskAsk.visibleFieldIds, entities)
-      : {},
-  );
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    if (!entity || !record) return {};
+    const outcome =
+      task.config.outcomes.find((item) => item.id === autofillOutcomeId) ??
+      null;
+    return buildTaskFormValues(
+      entity,
+      record,
+      taskAsk.visibleFieldIds,
+      entities,
+      getOutcomeSetFieldActions(outcome),
+      getCurrentUserRecordId(),
+    );
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loggedSeconds, setLoggedSeconds] = useState(0);
@@ -159,6 +202,32 @@ function TaskWorkspaceBody({
   const onTotalSecondsChange = useCallback((seconds: number) => {
     setLoggedSeconds(seconds);
   }, []);
+
+  function applyOutcomeAutofill(outcomeId: string) {
+    if (!entity || !record) return;
+    const outcome =
+      task.config.outcomes.find((item) => item.id === outcomeId) ?? null;
+    const actions = getOutcomeSetFieldActions(outcome);
+    if (actions.length === 0) return;
+    const actorUserId =
+      sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    setValues((current) => {
+      const merged = { ...record.values, ...current };
+      const filled = applyAutomationSetFieldAutofill({
+        entity,
+        entities,
+        values: merged,
+        actions,
+        actorUserId,
+      });
+      return mergeAutofillIntoFormValues(
+        current,
+        record.values,
+        filled,
+        actions,
+      );
+    });
+  }
 
   const fields =
     !entity || !ask
@@ -195,9 +264,33 @@ function TaskWorkspaceBody({
 
   function setValue(fieldId: string, value: string) {
     if (!entity) return;
-    setValues((current) =>
-      applyEntityFieldValue(entity, current, fieldId, value, entities),
-    );
+    const actorUserId =
+      sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    setValues((current) => {
+      const base = applyEntityFieldValue(
+        entity,
+        current,
+        fieldId,
+        value,
+        entities,
+      );
+      if (setFieldActions.length === 0) return base;
+      const merged = { ...(record?.values ?? {}), ...base };
+      const filled = applyAutomationSetFieldAutofill({
+        entity,
+        entities,
+        values: merged,
+        actions: setFieldActions,
+        actorUserId,
+        changedFieldId: fieldId,
+      });
+      return mergeAutofillIntoFormValues(
+        base,
+        record?.values ?? {},
+        filled,
+        setFieldActions,
+      );
+    });
   }
 
   async function persistValues(outcomeId?: string) {
@@ -209,6 +302,7 @@ function TaskWorkspaceBody({
       outcomes.flatMap((item) => [
         ...item.fieldAccess.recordFieldIds,
         ...item.fieldAccess.requiredFieldIds,
+        ...getOutcomeSetFieldActions(item).map((action) => action.fieldId),
       ]),
     );
     const patch: Record<string, string> = {};
@@ -282,6 +376,7 @@ function TaskWorkspaceBody({
       return;
     }
     setSelectedOutcomeId(outcomeId);
+    applyOutcomeAutofill(outcomeId);
   }
 
   return (
