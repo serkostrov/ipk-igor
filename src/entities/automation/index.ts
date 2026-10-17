@@ -63,6 +63,7 @@ export {
   createAutomationScenarioId,
   createAutomationTemplateId,
   automationOutcomeHasConditions,
+  AUTOMATION_STAGE_TASK_RELEASE_LABELS,
   createAutomationStageTransitionId,
   createDefaultProcess,
   defaultAutofillOutcomes,
@@ -70,12 +71,14 @@ export {
   emptyAutomationCanvasLayout,
   emptyAutomationConfig,
   emptyAutomationOutcomeFieldAccess,
+  getStageTaskRelease,
   normalizeAutomationCanvasLayout,
   normalizeAutomationConfig,
   normalizeAutomationNotificationRule,
   normalizeAutomationOutcomeFieldAccess,
   normalizeAutomationProcess,
   normalizeAutomationScenario,
+  normalizeAutomationStageTaskReleaseMap,
   normalizeAutomationStageTransition,
   normalizeAutomationStageTransitions,
   normalizeAutomationTaskTemplate,
@@ -90,6 +93,8 @@ export {
   type AutomationRun,
   type AutomationScenario,
   type AutomationSla,
+  type AutomationStageTaskRelease,
+  type AutomationStageTaskReleaseMap,
   type AutomationStageTransition,
   type AutomationTask,
   type AutomationLaunchPhase,
@@ -108,6 +113,11 @@ export {
   setAutomationRequireTimeTracking,
 } from "./lib/require-time-tracking";
 export { pickAutomationOutcome } from "./lib/pick-outcome";
+export {
+  getOutcomeStageOptionId,
+  withOutcomeStageAction,
+  withoutOutcomeStageAction,
+} from "./lib/outcome-stage-action";
 export {
   findStageTransition,
   resolveStageTransition,

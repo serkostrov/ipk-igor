@@ -67,6 +67,7 @@ function mapScenarioRow(row: Record<string, unknown>) {
     priority: row.priority,
     canvasLayout: row.canvas_layout,
     stageTransitions: row.stage_transitions,
+    stageTaskRelease: row.stage_task_release,
   };
 }
 
@@ -144,6 +145,7 @@ export async function upsertAutomationScenario(
     priority: scenario.priority,
     canvas_layout: scenario.canvasLayout,
     stage_transitions: scenario.stageTransitions,
+    stage_task_release: scenario.stageTaskRelease ?? {},
     updated_at: new Date().toISOString(),
   });
   if (error) throw error;

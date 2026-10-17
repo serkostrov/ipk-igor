@@ -18,8 +18,9 @@ import {
 } from "@/entities/automation";
 import {
   getEntityFieldDisplayName,
+  getEntityTabKindLabel,
   isEntityComputedFieldType,
-  isEntityContentTab,
+  isEntityFilesTab,
   ListSelect,
   parseEntityListValueIds,
   serializeEntityListValueIds,
@@ -321,9 +322,16 @@ function ActionFields({
   if (action.kind === "viewTabs") {
     return (
       <ViewTabsEditor
-        tabs={(sourceEntity?.tabs ?? []).filter(isEntityContentTab)}
+        tabs={sourceEntity?.tabs ?? []}
         selectedIds={action.tabIds}
-        onChange={(tabIds) => onChange({ ...action, tabIds })}
+        filesTabEntryIds={action.filesTabEntryIds ?? {}}
+        onChange={(next) =>
+          onChange({
+            ...action,
+            tabIds: next.tabIds,
+            filesTabEntryIds: next.filesTabEntryIds,
+          })
+        }
       />
     );
   }
@@ -411,25 +419,24 @@ function FieldSelect({
   );
 }
 
-const VIEWABLE_TAB_KIND_LABELS: Record<string, string> = {
-  records: "Записи",
-  files: "Файлы",
-  history: "История",
-};
-
 function ViewTabsEditor({
   tabs,
   selectedIds,
+  filesTabEntryIds,
   onChange,
 }: {
   tabs: EntityTab[];
   selectedIds: string[];
-  onChange: (tabIds: string[]) => void;
+  filesTabEntryIds: Record<string, string[]>;
+  onChange: (next: {
+    tabIds: string[];
+    filesTabEntryIds: Record<string, string[]>;
+  }) => void;
 }) {
   const options = useMemo<EntityListOption[]>(
     () =>
       tabs.map((tab) => {
-        const kindLabel = VIEWABLE_TAB_KIND_LABELS[tab.kind] ?? tab.kind;
+        const kindLabel = getEntityTabKindLabel(tab.kind);
         const name = tab.name.trim() || kindLabel;
         return {
           id: tab.id,
@@ -447,23 +454,52 @@ function ViewTabsEditor({
   const value = serializeEntityListValueIds(
     selectedIds.filter((id) => knownIds.has(id)),
   );
+  const selectedTabs = useMemo(
+    () =>
+      selectedIds
+        .map((id) => tabs.find((tab) => tab.id === id))
+        .filter((tab): tab is EntityTab => tab != null),
+    [selectedIds, tabs],
+  );
+  const selectedFilesTabs = selectedTabs.filter(isEntityFilesTab);
+
+  function setTabIds(tabIds: string[]) {
+    const nextIds = tabIds.filter((id) => knownIds.has(id));
+    const allowed = new Set(nextIds);
+    const nextFiles: Record<string, string[]> = {};
+    for (const [tabId, entryIds] of Object.entries(filesTabEntryIds)) {
+      if (!allowed.has(tabId) || entryIds.length === 0) continue;
+      nextFiles[tabId] = entryIds;
+    }
+    onChange({ tabIds: nextIds, filesTabEntryIds: nextFiles });
+  }
+
+  function setFilesEntries(tabId: string, entryIds: string[]) {
+    const nextFiles = { ...filesTabEntryIds };
+    if (entryIds.length === 0) {
+      delete nextFiles[tabId];
+    } else {
+      nextFiles[tabId] = entryIds;
+    }
+    onChange({ tabIds: selectedIds, filesTabEntryIds: nextFiles });
+  }
 
   if (tabs.length === 0) {
     return (
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Нет вкладок «Записи», «Файлы» или «История»
+        У сущности пока нет вкладок
       </p>
     );
   }
 
   return (
-    <div className="mt-2 flex flex-col gap-1.5">
+    <div className="mt-2 flex flex-col gap-2">
       <div className="flex min-w-0 flex-col gap-0.5">
         <p className="text-[11px] font-medium text-muted-foreground">
           Показать в форме задачи
         </p>
         <p className="text-[10px] leading-snug text-muted-foreground/80">
-          Только просмотр — записи, файлы или история карточки
+          Только просмотр — любая вкладка карточки этой сущности
         </p>
       </div>
       <ListSelect
@@ -475,8 +511,63 @@ function ViewTabsEditor({
         emptyLabel="Выберите вкладки"
         aria-label="Вкладки для просмотра"
         className="h-8 rounded-md border-input font-normal shadow-xs"
-        onChange={(next) => onChange(parseEntityListValueIds(next))}
+        onChange={(next) => setTabIds(parseEntityListValueIds(next))}
       />
+
+      {selectedFilesTabs.map((tab) => {
+        const folderOptions: EntityListOption[] = tab.defaultFolders.map(
+          (folder) => ({
+            id: folder.id,
+            name: folder.name,
+            color: folder.color || "#94a3b8",
+            parentOptionId: null,
+          }),
+        );
+        const knownFolderIds = new Set(folderOptions.map((item) => item.id));
+        const selectedFolderIds = (filesTabEntryIds[tab.id] ?? []).filter(
+          (id) => knownFolderIds.has(id),
+        );
+        const tabLabel = tab.name.trim() || "Файлы";
+
+        if (folderOptions.length === 0) {
+          return (
+            <p
+              key={tab.id}
+              className="text-[11px] leading-snug text-muted-foreground"
+            >
+              На вкладке «{tabLabel}» нет настроенных папок — в задаче
+              отобразится вся вкладка.
+            </p>
+          );
+        }
+
+        return (
+          <div key={tab.id} className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <p className="text-[11px] font-medium text-muted-foreground">
+                Папки · {tabLabel}
+              </p>
+              <p className="text-[10px] leading-snug text-muted-foreground/80">
+                Пусто — вся вкладка. Выбранные папки покажутся вместе с файлами
+                внутри.
+              </p>
+            </div>
+            <ListSelect
+              options={folderOptions}
+              value={serializeEntityListValueIds(selectedFolderIds)}
+              multiple
+              size="sm"
+              showColors
+              emptyLabel="Все папки и файлы"
+              aria-label={`Папки вкладки ${tabLabel}`}
+              className="h-8 rounded-md border-input font-normal shadow-xs"
+              onChange={(next) =>
+                setFilesEntries(tab.id, parseEntityListValueIds(next))
+              }
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

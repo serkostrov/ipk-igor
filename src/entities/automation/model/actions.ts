@@ -46,6 +46,11 @@ export type AutomationAction =
       kind: "viewTabs";
       /** Show these entity tabs read-only on the task form (notes, files, …). */
       tabIds: string[];
+      /**
+       * For files tabs: default-folder ids to show on the task form.
+       * Key = tab id. Missing / empty list = entire tab.
+       */
+      filesTabEntryIds?: Record<string, string[]>;
     }
   | {
       id: string;
@@ -169,7 +174,7 @@ export function defaultAutomationAction(
     case "viewField":
       return { id, kind, fieldIds: [] };
     case "viewTabs":
-      return { id, kind, tabIds: [] };
+      return { id, kind, tabIds: [], filesTabEntryIds: {} };
     case "createRecord":
       return { id, kind, entityId: "", mappings: [] };
     case "createRecordsFromMapping":
@@ -208,6 +213,29 @@ export function defaultAutomationAction(
     default:
       return { id, kind: "noop" };
   }
+}
+
+/** Keep only non-empty id lists for currently selected tab ids. */
+function normalizeFilesTabEntryIds(
+  value: unknown,
+  tabIds: string[],
+): Record<string, string[]> {
+  const allowed = new Set(tabIds);
+  const result: Record<string, string[]> = {};
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return result;
+  for (const [tabId, rawIds] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (!allowed.has(tabId)) continue;
+    if (!Array.isArray(rawIds)) continue;
+    const ids = rawIds.filter(
+      (id): id is string => typeof id === "string" && id.trim().length > 0,
+    );
+    if (ids.length === 0) continue;
+    result[tabId] = [...new Set(ids)];
+  }
+  return result;
 }
 
 function normalizeMappings(value: unknown): AutomationFieldMapping[] {
@@ -338,13 +366,19 @@ export function normalizeAutomationAction(
           ? raw.fieldIds.filter((id): id is string => typeof id === "string")
           : [],
       };
-    case "viewTabs":
-      return {
-        ...withId,
-        tabIds: Array.isArray(raw.tabIds)
-          ? raw.tabIds.filter((id): id is string => typeof id === "string")
-          : [],
-      };
+    case "viewTabs": {
+      const tabIds = Array.isArray(raw.tabIds)
+        ? raw.tabIds.filter(
+            (id): id is string =>
+              typeof id === "string" && id.trim().length > 0,
+          )
+        : [];
+      const filesTabEntryIds = normalizeFilesTabEntryIds(
+        raw.filesTabEntryIds ?? raw.files_tab_entry_ids,
+        tabIds,
+      );
+      return { ...withId, tabIds, filesTabEntryIds };
+    }
     case "attachToFolder":
       return {
         ...withId,
@@ -390,10 +424,16 @@ export function describeAutomationAction(
       return action.fieldIds.length > 0
         ? `Показать: ${action.fieldIds.map(field).join(", ")}`
         : "Показать поля";
-    case "viewTabs":
-      return action.tabIds.length > 0
-        ? `Вкладки: ${action.tabIds.length}`
-        : "Показать вкладки";
+    case "viewTabs": {
+      if (action.tabIds.length === 0) return "Показать вкладки";
+      const filtered = Object.values(action.filesTabEntryIds ?? {}).reduce(
+        (count, ids) => count + ids.length,
+        0,
+      );
+      return filtered > 0
+        ? `Вкладки: ${action.tabIds.length} · файлы: ${filtered}`
+        : `Вкладки: ${action.tabIds.length}`;
+    }
     case "createRecord":
       return `Создать запись в «${entity(action.entityId)}»`;
     case "createRecordsFromMapping":

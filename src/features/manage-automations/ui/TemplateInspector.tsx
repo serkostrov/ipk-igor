@@ -28,11 +28,14 @@ import {
   defaultDecisionOutcomes,
   emptyAutomationConditions,
   emptyAutomationOutcomeFieldAccess,
+  getOutcomeStageOptionId,
   normalizeAutomationOutcomeFieldAccess,
   removeNotificationRule,
   saveNotificationRule,
   automationRequiresTimeTracking,
   setAutomationRequireTimeTracking,
+  withOutcomeStageAction,
+  withoutOutcomeStageAction,
   type AutomationLaunchPhase,
   type AutomationNotificationEvent,
   type AutomationNotificationRule,
@@ -56,6 +59,7 @@ import { ActionPipelineEditor } from "./ActionPipelineEditor";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { OutcomeAutofillEditor } from "./OutcomeAutofillEditor";
 import { OutcomeRouteBranchesEditor } from "./OutcomeRouteBranchesEditor";
+import { OutcomeStageSelect } from "./OutcomeStageSelect";
 import { TemplateFieldInput } from "./TemplateFieldInput";
 import { TemplateRichText } from "./TemplateRichText";
 import { cn } from "@/shared/lib/cn";
@@ -626,7 +630,7 @@ export function TemplateInspector({
   entity: Entity;
   entities: Entity[];
   options: Array<{ id: string; name: string }>;
-  /** Process trigger list field — used for stage routing in autofill. */
+  /** Process trigger list field — stage moves on outcome complete. */
   triggerFieldId: string;
   notificationRules: AutomationNotificationRule[];
   onSave: (template: AutomationTaskTemplate) => void | Promise<void>;
@@ -936,84 +940,129 @@ export function TemplateInspector({
               />
             ) : (
               <>
-                {draft.outcomes.map((outcome, index) => (
-                  <div
-                    key={outcome.id}
-                    className="rounded-lg border border-border/70 p-3"
-                  >
-                    <Field title="Название кнопки">
-                      <Input
-                        value={outcome.label}
-                        placeholder="Да / Нет / Готово"
-                        onChange={(event) =>
-                          patchOutcome(index, {
-                            ...outcome,
-                            label: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
+                {draft.outcomes.map((outcome, index) => {
+                  const stageId = getOutcomeStageOptionId(
+                    outcome.actions,
+                    triggerFieldId,
+                  );
+                  const actionsWithoutStage = withoutOutcomeStageAction(
+                    outcome.actions,
+                    triggerFieldId,
+                  );
+                  const hasRecordsTab = entity.tabs.some(isEntityRecordsTab);
 
-                    <div className="mt-3 flex flex-col gap-2.5">
-                      <OutcomeAskFieldsEditor
-                        fields={entity.fields}
-                        value={outcome.fieldAccess}
-                        hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
-                        onChange={(fieldAccess) =>
-                          patchOutcome(index, { ...outcome, fieldAccess })
-                        }
-                      />
-
-                      <OutcomeAutofillEditor
-                        actions={outcome.actions}
-                        fieldAccess={outcome.fieldAccess}
-                        sourceEntity={entity}
-                        entities={entities}
-                        hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
-                        hint="Автоматически выставить значения; «комм.» — дублировать во «Записи»"
-                        onChange={(actions) =>
-                          patchOutcome(index, { ...outcome, actions })
-                        }
-                        onFieldAccessChange={(fieldAccess) =>
-                          patchOutcome(index, { ...outcome, fieldAccess })
-                        }
-                      />
-                      <div className="flex flex-col gap-1.5">
-                        <p className="text-xs font-medium text-muted-foreground">
-                          Другие действия
-                        </p>
-                        <ActionPipelineEditor
-                          actions={outcome.actions}
-                          entities={entities}
-                          sourceEntity={entity}
-                          omitKinds={["setField"]}
-                          addKind="createRecord"
-                          onChange={(actions) =>
-                            patchOutcome(index, { ...outcome, actions })
+                  return (
+                    <div
+                      key={outcome.id}
+                      className="rounded-lg border border-border/70 p-3"
+                    >
+                      <Field title="Название кнопки">
+                        <Input
+                          value={outcome.label}
+                          placeholder="Да / Нет / Готово"
+                          onChange={(event) =>
+                            patchOutcome(index, {
+                              ...outcome,
+                              label: event.target.value,
+                            })
                           }
                         />
-                      </div>
-                    </div>
+                      </Field>
 
-                    {draft.outcomes.length > 1 ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="mt-2 h-7 text-destructive"
-                        onClick={() =>
-                          patch({
-                            outcomes: draft.outcomes.filter(
-                              (_, i) => i !== index,
-                            ),
-                          })
-                        }
-                      >
-                        Удалить
-                      </Button>
-                    ) : null}
-                  </div>
-                ))}
+                      <div className="mt-3 flex flex-col gap-2.5">
+                        <OutcomeStageSelect
+                          value={stageId}
+                          stages={options}
+                          triggerFieldId={triggerFieldId}
+                          onChange={(nextStageId) =>
+                            patchOutcome(index, {
+                              ...outcome,
+                              actions: withOutcomeStageAction(
+                                actionsWithoutStage,
+                                triggerFieldId,
+                                nextStageId,
+                              ),
+                            })
+                          }
+                        />
+
+                        <OutcomeAskFieldsEditor
+                          fields={entity.fields}
+                          value={outcome.fieldAccess}
+                          hasRecordsTab={hasRecordsTab}
+                          onChange={(fieldAccess) =>
+                            patchOutcome(index, { ...outcome, fieldAccess })
+                          }
+                        />
+
+                        <OutcomeAutofillEditor
+                          actions={actionsWithoutStage}
+                          fieldAccess={outcome.fieldAccess}
+                          sourceEntity={entity}
+                          entities={entities}
+                          hasRecordsTab={hasRecordsTab}
+                          excludeFieldIds={
+                            triggerFieldId ? [triggerFieldId] : undefined
+                          }
+                          hint="Автоматически выставить значения; «комм.» — дублировать во «Записи»"
+                          onChange={(actions) =>
+                            patchOutcome(index, {
+                              ...outcome,
+                              actions: withOutcomeStageAction(
+                                actions,
+                                triggerFieldId,
+                                stageId,
+                              ),
+                            })
+                          }
+                          onFieldAccessChange={(fieldAccess) =>
+                            patchOutcome(index, { ...outcome, fieldAccess })
+                          }
+                        />
+                        <div className="flex flex-col gap-1.5">
+                          <p className="text-xs font-medium text-muted-foreground">
+                            Другие действия
+                          </p>
+                          <ActionPipelineEditor
+                            actions={actionsWithoutStage}
+                            entities={entities}
+                            sourceEntity={entity}
+                            omitKinds={["setField"]}
+                            addKind="createRecord"
+                            onChange={(actions) =>
+                              patchOutcome(index, {
+                                ...outcome,
+                                actions: withOutcomeStageAction(
+                                  actions,
+                                  triggerFieldId,
+                                  stageId,
+                                ),
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      {draft.outcomes.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 h-7 text-destructive"
+                          onClick={() =>
+                            patch({
+                              outcomes: draft.outcomes.filter(
+                                (_, i) => i !== index,
+                              ),
+                            })
+                          }
+                        >
+                          Удалить
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
                 <Button
                   type="button"
                   variant="outline"

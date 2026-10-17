@@ -353,6 +353,7 @@ function TaskWorkspaceBody({
           entity={entity}
           record={{ ...record, values: mergedValues }}
           tabIds={earlyViewTabIds}
+          filesTabEntryIds={taskAsk.viewFilesTabEntryIds}
           fillBadge={
             hasFillForm && missingRequiredCount > 0 ? (
               <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">

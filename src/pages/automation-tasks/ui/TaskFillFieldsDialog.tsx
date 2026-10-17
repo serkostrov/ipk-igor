@@ -331,6 +331,7 @@ function TaskFillFieldsDialogBody({
               entity={entity}
               record={{ ...record, values: { ...record.values, ...values } }}
               tabIds={ask?.viewTabIds ?? []}
+              filesTabEntryIds={ask?.viewFilesTabEntryIds}
               fillBadge={
                 missingRequiredCount > 0 ? (
                   <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">

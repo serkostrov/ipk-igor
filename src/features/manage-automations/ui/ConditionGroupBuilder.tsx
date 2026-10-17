@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Folder, Plus, X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -115,10 +115,6 @@ export function ConditionGroupBuilder({
   );
   const noneSelected = allowNone && noneMode && value.rules.length === 0;
   const matchSelectValue = noneSelected ? "none" : value.match;
-
-  useEffect(() => {
-    if (value.rules.length > 0 && noneMode) setNoneMode(false);
-  }, [value.rules.length, noneMode]);
 
   function updateRules(rules: AutomationConditionNode[]) {
     if (rules.length > 0) setNoneMode(false);

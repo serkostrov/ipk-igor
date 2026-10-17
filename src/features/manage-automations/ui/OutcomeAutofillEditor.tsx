@@ -33,6 +33,8 @@ type OutcomeAutofillEditorProps = {
   className?: string;
   /** Soft hint under the title. */
   hint?: string;
+  /** Fields managed elsewhere (e.g. process stage via «Перейти на стадию»). */
+  excludeFieldIds?: readonly string[];
 };
 
 function isSetField(
@@ -96,10 +98,15 @@ export function OutcomeAutofillEditor({
   hasRecordsTab,
   className,
   hint = "Значение запишется в поле; «комм.» — ещё и во вкладку «Записи»",
+  excludeFieldIds = [],
 }: OutcomeAutofillEditorProps) {
   const access = normalizeAutomationOutcomeFieldAccess(fieldAccess);
+  const excluded = new Set(excludeFieldIds.filter(Boolean));
   const writable = sourceEntity.fields.filter(
-    (field) => !isEntityComputedFieldType(field.type) && field.type !== "file",
+    (field) =>
+      !isEntityComputedFieldType(field.type) &&
+      field.type !== "file" &&
+      !excluded.has(field.id),
   );
   const setFields = actions.filter(isSetField);
   const otherActions = actions.filter((action) => !isSetField(action));

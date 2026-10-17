@@ -7,6 +7,11 @@ export type AutomationAskFields = {
   viewFieldIds: string[];
   /** Read-only tabs from «Просмотреть вкладки» (записи, файлы, …). */
   viewTabIds: string[];
+  /**
+   * For files tabs: default-folder ids to show (union across actions).
+   * Missing / empty for a tab = show the whole tab.
+   */
+  viewFilesTabEntryIds: Record<string, string[]>;
   requireAttachment: boolean;
 };
 
@@ -15,8 +20,21 @@ const EMPTY_ASK_FIELDS: AutomationAskFields = {
   visibleFieldIds: [],
   viewFieldIds: [],
   viewTabIds: [],
+  viewFilesTabEntryIds: {},
   requireAttachment: false,
 };
+
+function mergeFilesTabEntryIds(
+  into: Record<string, string[]>,
+  from: Record<string, string[]> | undefined,
+) {
+  if (!from) return;
+  for (const [tabId, ids] of Object.entries(from)) {
+    if (!ids.length) continue;
+    const prev = into[tabId] ?? [];
+    into[tabId] = uniquePreserveOrder([...prev, ...ids]);
+  }
+}
 
 /** Stable unique list: first occurrence wins (keeps settings / action order). */
 function uniquePreserveOrder(ids: Iterable<string>): string[] {
@@ -47,6 +65,7 @@ export function getAutomationOutcomeAskFields(
 
   const viewOnly: string[] = [];
   const viewTabs: string[] = [];
+  const viewFilesTabEntryIds: Record<string, string[]> = {};
 
   for (const action of outcome.actions) {
     if (action.kind === "viewField") {
@@ -58,6 +77,7 @@ export function getAutomationOutcomeAskFields(
       for (const tabId of action.tabIds) {
         if (tabId.trim()) viewTabs.push(tabId);
       }
+      mergeFilesTabEntryIds(viewFilesTabEntryIds, action.filesTabEntryIds);
     }
   }
 
@@ -71,6 +91,7 @@ export function getAutomationOutcomeAskFields(
     visibleFieldIds,
     viewFieldIds,
     viewTabIds: uniquePreserveOrder(viewTabs),
+    viewFilesTabEntryIds,
     requireAttachment: outcome.fieldAccess.requireAttachment === true,
   };
 }
@@ -83,6 +104,7 @@ export function getAutomationTaskAskFields(
   const visible: string[] = [];
   const viewOnly: string[] = [];
   const viewTabs: string[] = [];
+  const viewFilesTabEntryIds: Record<string, string[]> = {};
   let requireAttachment = false;
 
   for (const outcome of task.config.outcomes) {
@@ -91,6 +113,7 @@ export function getAutomationTaskAskFields(
     visible.push(...ask.visibleFieldIds);
     viewOnly.push(...ask.viewFieldIds);
     viewTabs.push(...ask.viewTabIds);
+    mergeFilesTabEntryIds(viewFilesTabEntryIds, ask.viewFilesTabEntryIds);
     if (ask.requireAttachment) requireAttachment = true;
   }
 
@@ -104,6 +127,7 @@ export function getAutomationTaskAskFields(
       (fieldId) => !visibleSet.has(fieldId),
     ),
     viewTabIds: uniquePreserveOrder(viewTabs),
+    viewFilesTabEntryIds,
     requireAttachment,
   };
 }

@@ -12,6 +12,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import {
   createAutomationScenarioId,
+  createAutomationStageTransitionId,
   createAutomationTemplateId,
   createDefaultProcess,
   defaultAssigneeResolver,
@@ -19,6 +20,7 @@ import {
   emptyAutomationCanvasLayout,
   emptyAutomationConditions,
   findStageTransition,
+  type AutomationStageTaskRelease,
   removeTemplate,
   saveProcess,
   saveScenario,
@@ -411,6 +413,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         priority: 0,
         canvasLayout: emptyAutomationCanvasLayout(),
         stageTransitions: [],
+        stageTaskRelease: {},
       };
       await saveScenario(next);
       setScenarioId(next.id);
@@ -450,6 +453,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       priority: 10,
       canvasLayout: emptyAutomationCanvasLayout(),
       stageTransitions: [],
+      stageTaskRelease: {},
     };
     await saveScenario(next);
     setScenarioId(next.id);
@@ -643,6 +647,212 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         ),
       },
     }));
+  }
+
+  /** Drag-connect «тогда»: create rule or open existing. */
+  function connectThenStages(fromOptionId: string, toOptionId: string) {
+    if (!fromOptionId || !toOptionId || fromOptionId === toOptionId) return;
+    const existing = findStageTransition(
+      scenario?.stageTransitions ?? [],
+      fromOptionId,
+      toOptionId,
+    );
+    if (existing) {
+      openStageTransition(fromOptionId, toOptionId);
+      return;
+    }
+    applyStageTransition({
+      id: createAutomationStageTransitionId(),
+      fromOptionId,
+      toOptionId,
+      conditions: emptyAutomationConditions(),
+      elseOptionId: "",
+    });
+    openStageTransition(fromOptionId, toOptionId);
+  }
+
+  /**
+   * Drag-connect «иначе»: attach to selected / sole outgoing then-rule.
+   * Without a then-rule, open the inspector so the user can set «тогда» first.
+   */
+  function connectElseStages(fromOptionId: string, elseOptionId: string) {
+    if (!fromOptionId || !elseOptionId || fromOptionId === elseOptionId) return;
+    const outgoing = (scenario?.stageTransitions ?? []).filter(
+      (item) => item.fromOptionId === fromOptionId,
+    );
+    if (outgoing.length === 0) {
+      toast.message("Сначала соедините «тогда»", {
+        description:
+          "Протяните зелёную точку к целевой стадии, затем янтарную — для «иначе».",
+      });
+      openStageTransition(fromOptionId);
+      return;
+    }
+
+    const selected =
+      inspectStageId === fromOptionId && inspectToOptionId
+        ? outgoing.find((item) => item.toOptionId === inspectToOptionId)
+        : undefined;
+    const target =
+      selected ?? (outgoing.length === 1 ? outgoing[0] : undefined);
+
+    if (!target) {
+      toast.message("Выберите переход «тогда»", {
+        description:
+          "Кликните по линии «тогда», затем соедините «иначе», или задайте ветку в панели.",
+      });
+      openStageTransition(fromOptionId, outgoing[0]?.toOptionId);
+      return;
+    }
+
+    if (target.toOptionId === elseOptionId) {
+      toast.message("«Иначе» не может совпадать с «тогда»");
+      openStageTransition(fromOptionId, target.toOptionId);
+      return;
+    }
+
+    applyStageTransition({
+      ...target,
+      elseOptionId,
+    });
+    if (target.conditions.rules.length === 0) {
+      toast.message("Добавьте условия для ветки «иначе»", {
+        description:
+          "Без условий переход «тогда» всегда разрешён — «иначе» не сработает.",
+      });
+    }
+    openStageTransition(fromOptionId, target.toOptionId);
+  }
+
+  function reconnectThenStages(
+    fromOptionId: string,
+    oldToOptionId: string,
+    newToOptionId: string,
+  ) {
+    if (
+      !fromOptionId ||
+      !oldToOptionId ||
+      !newToOptionId ||
+      fromOptionId === newToOptionId
+    ) {
+      return;
+    }
+    const existing = findStageTransition(
+      scenario?.stageTransitions ?? [],
+      fromOptionId,
+      oldToOptionId,
+    );
+    if (!existing) {
+      // Placeholder neighbour edge → create a real rule at the new target.
+      connectThenStages(fromOptionId, newToOptionId);
+      return;
+    }
+    if (oldToOptionId === newToOptionId) {
+      openStageTransition(fromOptionId, newToOptionId);
+      return;
+    }
+    const collision = findStageTransition(
+      scenario?.stageTransitions ?? [],
+      fromOptionId,
+      newToOptionId,
+    );
+    if (collision && collision.id !== existing.id) {
+      toast.message("Переход на эту стадию уже есть");
+      openStageTransition(fromOptionId, newToOptionId);
+      return;
+    }
+    updateDraft((prev) => {
+      const current = prev.scenario.stageTransitions ?? [];
+      const next = current.map((item) => {
+        if (item.id !== existing.id) return item;
+        return {
+          ...item,
+          toOptionId: newToOptionId,
+          elseOptionId:
+            item.elseOptionId === newToOptionId ? "" : item.elseOptionId,
+        };
+      });
+      return {
+        ...prev,
+        scenario: { ...prev.scenario, stageTransitions: next },
+      };
+    });
+    openStageTransition(fromOptionId, newToOptionId);
+  }
+
+  function reconnectElseStages(
+    fromOptionId: string,
+    thenOptionId: string,
+    newElseOptionId: string,
+  ) {
+    if (
+      !fromOptionId ||
+      !thenOptionId ||
+      !newElseOptionId ||
+      fromOptionId === newElseOptionId ||
+      thenOptionId === newElseOptionId
+    ) {
+      return;
+    }
+    const existing = findStageTransition(
+      scenario?.stageTransitions ?? [],
+      fromOptionId,
+      thenOptionId,
+    );
+    if (!existing) {
+      openStageTransition(fromOptionId, thenOptionId);
+      return;
+    }
+    applyStageTransition({
+      ...existing,
+      elseOptionId: newElseOptionId,
+    });
+  }
+
+  function deleteThenStages(fromOptionId: string, toOptionId: string) {
+    clearStageTransition(fromOptionId, toOptionId);
+    if (inspectStageId === fromOptionId && inspectToOptionId === toOptionId) {
+      closeStageInspector();
+    }
+  }
+
+  function deleteElseStages(fromOptionId: string, toOptionId: string) {
+    const existing = findStageTransition(
+      scenario?.stageTransitions ?? [],
+      fromOptionId,
+      toOptionId,
+    );
+    if (!existing || !existing.elseOptionId) return;
+    applyStageTransition({
+      ...existing,
+      elseOptionId: "",
+    });
+  }
+
+  function setStageTaskRelease(
+    stageOptionId: string,
+    mode: AutomationStageTaskRelease,
+  ) {
+    updateDraft((prev) => {
+      const current = prev.scenario.stageTaskRelease ?? {};
+      if (mode === "parallel") {
+        if (!(stageOptionId in current)) return prev;
+        const next = { ...current };
+        delete next[stageOptionId];
+        return {
+          ...prev,
+          scenario: { ...prev.scenario, stageTaskRelease: next },
+        };
+      }
+      if (current[stageOptionId] === mode) return prev;
+      return {
+        ...prev,
+        scenario: {
+          ...prev.scenario,
+          stageTaskRelease: { ...current, [stageOptionId]: mode },
+        },
+      };
+    });
   }
 
   function selectEntity(nextId: string) {
@@ -914,6 +1124,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 stages={stages}
                 templates={scenarioTemplates}
                 stageTransitions={scenario?.stageTransitions ?? []}
+                stageTaskRelease={scenario?.stageTaskRelease ?? {}}
                 activeStageId={activeStageId}
                 selectedTemplateId={selectedTemplateId}
                 selectedTransitionKey={selectedTransitionKey}
@@ -934,6 +1145,13 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 onSelectTransition={(fromOptionId, toOptionId) => {
                   openStageTransition(fromOptionId, toOptionId);
                 }}
+                onConnectThen={connectThenStages}
+                onConnectElse={connectElseStages}
+                onReconnectThen={reconnectThenStages}
+                onReconnectElse={reconnectElseStages}
+                onDeleteThen={deleteThenStages}
+                onDeleteElse={deleteElseStages}
+                onTaskReleaseChange={setStageTaskRelease}
                 onAdd={(stageOptionId, launchPhase, insertAt) =>
                   void addTemplate(stageOptionId, launchPhase, insertAt)
                 }

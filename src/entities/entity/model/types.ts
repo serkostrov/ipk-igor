@@ -520,10 +520,24 @@ export const ENTITY_TAB_KINDS = [
 ] as const;
 export type EntityTabKind = (typeof ENTITY_TAB_KINDS)[number];
 
+/** Human-readable labels for tab kinds (settings, automation pickers). */
+export const ENTITY_TAB_KIND_LABELS: Record<EntityTabKind, string> = {
+  fields: "Поля",
+  records: "Записи",
+  files: "Файлы",
+  history: "История",
+  entity: "Сущность",
+  mirror: "Из записи",
+};
+
 export function normalizeEntityTabKind(value: unknown): EntityTabKind {
   return ENTITY_TAB_KINDS.includes(value as EntityTabKind)
     ? (value as EntityTabKind)
     : "fields";
+}
+
+export function getEntityTabKindLabel(kind: EntityTabKind) {
+  return ENTITY_TAB_KIND_LABELS[kind];
 }
 
 /** Root folder template for `kind: "files"` tabs (seeded on new records). */

@@ -3,9 +3,11 @@ import {
   Background,
   BackgroundVariant,
   BaseEdge,
+  ConnectionMode,
   Controls,
   EdgeLabelRenderer,
   Handle,
+  MarkerType,
   MiniMap,
   Position,
   ReactFlow,
@@ -16,14 +18,19 @@ import {
   useInternalNode,
   useNodesState,
   useReactFlow,
+  type Connection,
   type Edge,
   type EdgeProps,
   type EdgeTypes,
   type InternalNode,
+  type IsValidConnection,
   type Node,
   type NodeProps,
   type NodeTypes,
+  type OnConnect,
+  type OnEdgesDelete,
   type OnNodeDrag,
+  type OnReconnect,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -31,6 +38,7 @@ import {
   EyeOff,
   Flag,
   GitBranch,
+  ListOrdered,
   Lock,
   Plus,
   Timer,
@@ -41,10 +49,15 @@ import { cn } from "@/shared/lib/cn";
 import type {
   AutomationCanvasNodePositions,
   AutomationLaunchPhase,
+  AutomationStageTaskRelease,
+  AutomationStageTaskReleaseMap,
   AutomationStageTransition,
   AutomationTaskTemplate,
 } from "@/entities/automation";
-import { AUTOMATION_ASSIGNEE_TYPE_LABELS } from "@/entities/automation";
+import {
+  AUTOMATION_ASSIGNEE_TYPE_LABELS,
+  getStageTaskRelease,
+} from "@/entities/automation";
 import type { EntityField } from "@/entities/entity";
 import { TemplateRichText } from "./TemplateRichText";
 
@@ -56,15 +69,52 @@ const FLOW_Y = 130;
 const ROW_GAP = 40;
 const TASK_H = 92;
 const TRIGGER_H = 72;
+const TRIGGER_H_WITH_RELEASE = 108;
 
 const HANDLE_CLASS =
   "!size-2 !border-2 !border-background !bg-muted-foreground/35 !opacity-0";
+
+/** Visible target for stage→stage drag connections. */
+const STAGE_IN_HANDLE =
+  "!size-2.5 !border-2 !border-background !bg-slate-400 opacity-70 transition-all hover:opacity-100 hover:!bg-primary hover:!scale-110";
+
+/** Source handle for «тогда» branch. */
+const STAGE_THEN_HANDLE =
+  "!size-2.5 !border-2 !border-background !bg-emerald-500 opacity-80 transition-all hover:opacity-100 hover:!scale-110";
+
+/** Source handle for «иначе» branch. */
+const STAGE_ELSE_HANDLE =
+  "!size-2.5 !border-2 !border-background !bg-amber-500 opacity-80 transition-all hover:opacity-100 hover:!scale-110";
+
+const STAGE_MAP_MARKER = {
+  type: MarkerType.ArrowClosed,
+  width: 16,
+  height: 16,
+  color: "#64748b",
+} as const;
+
+const STAGE_ELSE_MARKER = {
+  type: MarkerType.ArrowClosed,
+  width: 16,
+  height: 16,
+  color: "#f59e0b",
+} as const;
 
 type InsertData = {
   stageId: string;
   launchPhase: AutomationLaunchPhase;
   insertAt: number;
 };
+
+function parseStageNodeId(nodeId: string): string | null {
+  if (!nodeId.startsWith("stage:")) return null;
+  const id = nodeId.slice("stage:".length).trim();
+  return id || null;
+}
+
+function isElseSourceHandle(handleId: string | null | undefined) {
+  return handleId === "else";
+}
 
 function nodeBounds(node: InternalNode) {
   const { width = COL_W, height = TASK_H } = node.measured ?? {};
@@ -137,6 +187,8 @@ function getAlignedEdgeParams(source: InternalNode, target: InternalNode) {
 type FloatingEdgeData = {
   insert?: InsertData;
   onAdd?: () => void;
+  /** Visual hint on edges between onEnter tasks. */
+  chainHint?: AutomationStageTaskRelease | null;
 };
 
 function FloatingEdge({
@@ -171,40 +223,68 @@ function FloatingEdge({
       });
 
   const insert = edgeData.insert;
+  const chainHint = edgeData.chainHint ?? null;
   const addLabel =
     insert?.launchPhase === "beforeEnter"
       ? "Добавить задачу до старта"
       : "Добавить задачу";
 
+  const edgeStyle = {
+    ...style,
+    ...(chainHint === "parallel"
+      ? { strokeDasharray: "5 4", stroke: style?.stroke ?? "#a1a1aa" }
+      : null),
+  };
+
   return (
     <>
-      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
-      {insert ? (
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={edgeStyle}
+      />
+      {insert || chainHint ? (
         <EdgeLabelRenderer>
           <div
-            className="nodrag nopan group pointer-events-auto absolute z-20"
+            className="nodrag nopan group pointer-events-auto absolute z-20 flex flex-col items-center gap-1"
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             }}
           >
-            <div className="relative flex min-h-6 min-w-6 items-center justify-center">
-              <button
-                type="button"
-                title={addLabel}
-                aria-label={addLabel}
+            {chainHint ? (
+              <span
                 className={cn(
-                  "flex size-6 items-center justify-center rounded-full border border-border/90 bg-card text-muted-foreground shadow-sm transition-all",
-                  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-                  "hover:scale-110 hover:border-primary/50 hover:bg-primary/[0.06] hover:text-primary",
+                  "rounded-md border bg-card px-1.5 py-0.5 text-[9px] font-semibold tracking-wide uppercase shadow-xs",
+                  chainHint === "sequential"
+                    ? "border-border/70 text-muted-foreground"
+                    : "border-sky-500/30 text-sky-700 dark:text-sky-400",
                 )}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  edgeData.onAdd?.();
-                }}
               >
-                <Plus className="size-3.5" strokeWidth={2.25} aria-hidden />
-              </button>
-            </div>
+                {chainHint === "sequential" ? "затем" : "сразу"}
+              </span>
+            ) : null}
+            {insert ? (
+              <div className="relative flex min-h-6 min-w-6 items-center justify-center">
+                <button
+                  type="button"
+                  title={addLabel}
+                  aria-label={addLabel}
+                  className={cn(
+                    "flex size-6 items-center justify-center rounded-full border border-border/90 bg-card text-muted-foreground shadow-sm transition-all",
+                    "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                    "hover:scale-110 hover:border-primary/50 hover:bg-primary/[0.06] hover:text-primary",
+                    chainHint && "opacity-70",
+                  )}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    edgeData.onAdd?.();
+                  }}
+                >
+                  <Plus className="size-3.5" strokeWidth={2.25} aria-hidden />
+                </button>
+              </div>
+            ) : null}
           </div>
         </EdgeLabelRenderer>
       ) : null}
@@ -438,34 +518,51 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
   return (
     <div
       className={cn(
-        "relative flex h-[56px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 pr-9 shadow-sm active:cursor-grabbing",
+        "group/stage relative flex h-[56px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 pr-9 shadow-sm active:cursor-grabbing",
         data.active ? "border-primary ring-2 ring-primary/20" : "border-border",
         data.collapsed && "border-dashed bg-muted/30",
       )}
     >
+      {/* Layout-only ports for intra-column floating edges */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="out-bottom"
+        isConnectable={false}
+        className={HANDLE_CLASS}
+      />
+      {/* Stage→stage connection ports */}
       <Handle
         type="target"
         position={Position.Left}
-        id="left"
-        className={HANDLE_CLASS}
+        id="in"
+        isConnectable
+        title="Входящий переход"
+        className={STAGE_IN_HANDLE}
       />
       <Handle
-        type="target"
+        type="source"
         position={Position.Right}
-        id="right"
-        className={HANDLE_CLASS}
+        id="then"
+        isConnectable
+        title="Соединить «тогда»"
+        className={STAGE_THEN_HANDLE}
       />
       <Handle
-        type="target"
+        type="source"
         position={Position.Bottom}
-        id="bottom"
-        className={HANDLE_CLASS}
+        id="else"
+        isConnectable
+        title="Соединить «иначе»"
+        className={cn(STAGE_ELSE_HANDLE, "!-bottom-1.5")}
+        style={{ left: "72%" }}
       />
       <div className="flex items-center gap-2">
         <span
@@ -519,92 +616,135 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
           <Eye className="size-3.5" strokeWidth={2} />
         )}
       </button>
-      <Handle
-        type="source"
-        position={Position.Top}
-        id="out-top"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="source"
-        position={Position.Left}
-        id="out-left"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="out-right"
-        className={HANDLE_CLASS}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="out-bottom"
-        className={HANDLE_CLASS}
-      />
     </div>
   );
 }
 
-function TriggerNode() {
+type TriggerData = {
+  stageId: string;
+  /** Show release toggle when the stage has 2+ onEnter tasks. */
+  showReleaseToggle: boolean;
+  taskRelease: AutomationStageTaskRelease;
+  onTaskReleaseChange: (mode: AutomationStageTaskRelease) => void;
+};
+
+function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
+  const height = data.showReleaseToggle ? TRIGGER_H_WITH_RELEASE : TRIGGER_H;
   return (
-    <div className="flex h-[72px] w-[220px] cursor-grab items-center gap-2.5 rounded-xl border border-amber-500/30 bg-card px-3 shadow-sm active:cursor-grabbing">
+    <div
+      className="flex w-[220px] cursor-grab flex-col justify-center gap-2 rounded-xl border border-amber-500/30 bg-card px-3 py-2.5 shadow-sm active:cursor-grabbing"
+      style={{ minHeight: height }}
+    >
       <Handle
         type="target"
         position={Position.Top}
         id="top"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
       <Handle
         type="target"
         position={Position.Right}
         id="right"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
       <Handle
         type="target"
         position={Position.Bottom}
         id="bottom"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600">
-        <Zap className="size-3.5" />
-      </span>
-      <div className="min-w-0">
-        <p className="text-xs font-semibold">Старт</p>
-        <p className="truncate text-[10px] text-muted-foreground">
-          Попадание на стадию
-        </p>
+      <div className="flex items-center gap-2.5">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600">
+          <Zap className="size-3.5" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">Старт</p>
+          <p className="truncate text-[10px] text-muted-foreground">
+            Попадание на стадию
+          </p>
+        </div>
       </div>
+      {data.showReleaseToggle ? (
+        <div
+          className="nodrag nopan flex rounded-lg border border-border/80 bg-muted/40 p-0.5"
+          role="group"
+          aria-label="Порядок задач"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            title="Все задачи появляются сразу"
+            aria-pressed={data.taskRelease === "parallel"}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
+              data.taskRelease === "parallel"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onTaskReleaseChange("parallel");
+            }}
+          >
+            <GitBranch className="size-3 rotate-90" aria-hidden />
+            Сразу
+          </button>
+          <button
+            type="button"
+            title="Следующая задача — после завершения предыдущей"
+            aria-pressed={data.taskRelease === "sequential"}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
+              data.taskRelease === "sequential"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onTaskReleaseChange("sequential");
+            }}
+          >
+            <ListOrdered className="size-3" aria-hidden />
+            По очереди
+          </button>
+        </div>
+      ) : null}
       <Handle
         type="source"
         position={Position.Top}
         id="out-top"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
       <Handle
         type="source"
         position={Position.Left}
         id="out-left"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
       <Handle
         type="source"
         position={Position.Right}
         id="out-right"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="out-bottom"
+        isConnectable={false}
         className={HANDLE_CLASS}
       />
     </div>
@@ -845,6 +985,7 @@ function buildLayout(input: {
   stages: StageOption[];
   templates: AutomationTaskTemplate[];
   stageTransitions: AutomationStageTransition[];
+  stageTaskRelease: AutomationStageTaskReleaseMap;
   activeStageId: string | null;
   selectedTemplateId: string | null;
   selectedTransitionKey: string | null;
@@ -853,6 +994,10 @@ function buildLayout(input: {
   fields: EntityField[];
   onToggleStageCollapse: (stageId: string) => void;
   onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
+  onTaskReleaseChange: (
+    stageId: string,
+    mode: AutomationStageTaskRelease,
+  ) => void;
   onAdd: (
     stageId: string,
     launchPhase: AutomationLaunchPhase,
@@ -863,6 +1008,7 @@ function buildLayout(input: {
     stages,
     templates,
     stageTransitions,
+    stageTaskRelease,
     activeStageId,
     selectedTemplateId,
     selectedTransitionKey,
@@ -871,6 +1017,7 @@ function buildLayout(input: {
     fields,
     onToggleStageCollapse,
     onSelectTransition,
+    onTaskReleaseChange,
     onAdd,
   } = input;
   const nodes: Node[] = [];
@@ -896,6 +1043,8 @@ function buildLayout(input: {
     nodes.push({
       id: stageNodeId,
       type: "stage",
+      connectable: true,
+      deletable: false,
       position: resolvePosition(
         stageNodeId,
         { x: colX, y: STAGE_Y },
@@ -919,7 +1068,12 @@ function buildLayout(input: {
         id: `map-${stage.id}-${nextStage.id}`,
         source: stageNodeId,
         target: `stage:${nextStage.id}`,
+        sourceHandle: "then",
+        targetHandle: "in",
         type: "stageMap",
+        reconnectable: true,
+        deletable: true,
+        markerEnd: STAGE_MAP_MARKER,
         style: { stroke: "#d4d4d8", strokeWidth: 1.5 },
         data: {
           fromOptionId: stage.id,
@@ -940,6 +1094,11 @@ function buildLayout(input: {
 
     const beforeTasks = templatesForStage(templates, stage.id, "beforeEnter");
     const onEnterTasks = templatesForStage(templates, stage.id, "onEnter");
+    const taskRelease = getStageTaskRelease(stageTaskRelease, stage.id);
+    const showReleaseToggle = onEnterTasks.length >= 2;
+    const triggerHeight = showReleaseToggle
+      ? TRIGGER_H_WITH_RELEASE
+      : TRIGGER_H;
 
     let prevId = stageNodeId;
     let y = FLOW_Y;
@@ -952,6 +1111,7 @@ function buildLayout(input: {
       insertAt: number,
       stroke: string,
       width: number,
+      chainHint: AutomationStageTaskRelease | null = null,
     ) => {
       const insert: InsertData = {
         stageId: stage.id,
@@ -963,9 +1123,12 @@ function buildLayout(input: {
         source: prevId,
         target: targetId,
         type: "floating",
+        reconnectable: false,
+        deletable: false,
         style: { stroke, strokeWidth: width },
         data: {
           insert,
+          chainHint,
           onAdd: () =>
             onAdd(insert.stageId, insert.launchPhase, insert.insertAt),
         } satisfies FloatingEdgeData,
@@ -978,6 +1141,8 @@ function buildLayout(input: {
       nodes.push({
         id: template.id,
         type: "task",
+        connectable: false,
+        deletable: false,
         position: resolvePosition(template.id, { x: colX, y }, canvasPositions),
         data: {
           template,
@@ -993,8 +1158,15 @@ function buildLayout(input: {
     nodes.push({
       id: triggerId,
       type: "trigger",
+      connectable: false,
+      deletable: false,
       position: resolvePosition(triggerId, { x: colX, y }, canvasPositions),
-      data: { stageId: stage.id },
+      data: {
+        stageId: stage.id,
+        showReleaseToggle,
+        taskRelease,
+        onTaskReleaseChange: (mode) => onTaskReleaseChange(stage.id, mode),
+      } satisfies TriggerData,
     });
     connect(
       triggerId,
@@ -1003,13 +1175,15 @@ function buildLayout(input: {
       flowStroke,
       flowWidth,
     );
-    y += TRIGGER_H + ROW_GAP;
+    y += triggerHeight + ROW_GAP;
 
     // After Start: tasks with mid-edge «+» slots.
     onEnterTasks.forEach((template, taskIndex) => {
       nodes.push({
         id: template.id,
         type: "task",
+        connectable: false,
+        deletable: false,
         position: resolvePosition(template.id, { x: colX, y }, canvasPositions),
         data: {
           template,
@@ -1017,13 +1191,16 @@ function buildLayout(input: {
           fields,
         },
       });
-      connect(template.id, "onEnter", taskIndex, "#a1a1aa", 1.5);
+      const chainHint = showReleaseToggle && taskIndex > 0 ? taskRelease : null;
+      connect(template.id, "onEnter", taskIndex, "#a1a1aa", 1.5, chainHint);
       y += TASK_H + ROW_GAP;
     });
 
     nodes.push({
       id: endId,
       type: "end",
+      connectable: false,
+      deletable: false,
       position: resolvePosition(
         endId,
         { x: colX + (COL_W - 140) / 2, y },
@@ -1049,7 +1226,12 @@ function buildLayout(input: {
       id: `map-${transition.fromOptionId}-${transition.toOptionId}`,
       source: `stage:${transition.fromOptionId}`,
       target: `stage:${transition.toOptionId}`,
+      sourceHandle: "then",
+      targetHandle: "in",
       type: "stageMap",
+      reconnectable: true,
+      deletable: true,
+      markerEnd: STAGE_MAP_MARKER,
       style: { stroke: "#94a3b8", strokeWidth: 2 },
       data: {
         fromOptionId: transition.fromOptionId,
@@ -1067,7 +1249,12 @@ function buildLayout(input: {
       id: `else-${transition.fromOptionId}-${elseId}-${transition.toOptionId}`,
       source: `stage:${transition.fromOptionId}`,
       target: `stage:${elseId}`,
+      sourceHandle: "else",
+      targetHandle: "in",
       type: "stageElse",
+      reconnectable: true,
+      deletable: true,
+      markerEnd: STAGE_ELSE_MARKER,
       data: {
         fromOptionId: transition.fromOptionId,
         toOptionId: transition.toOptionId,
@@ -1085,6 +1272,7 @@ function FlowInner({
   stages,
   templates,
   stageTransitions,
+  stageTaskRelease,
   activeStageId,
   selectedTemplateId,
   selectedTransitionKey,
@@ -1094,6 +1282,13 @@ function FlowInner({
   onSelectStage,
   onSelectTemplate,
   onSelectTransition,
+  onConnectThen,
+  onConnectElse,
+  onReconnectThen,
+  onReconnectElse,
+  onDeleteThen,
+  onDeleteElse,
+  onTaskReleaseChange,
   onAdd,
   onMoveTemplate,
   onCanvasPositionsChange,
@@ -1103,6 +1298,7 @@ function FlowInner({
   stages: StageOption[];
   templates: AutomationTaskTemplate[];
   stageTransitions: AutomationStageTransition[];
+  stageTaskRelease: AutomationStageTaskReleaseMap;
   activeStageId: string | null;
   selectedTemplateId: string | null;
   selectedTransitionKey: string | null;
@@ -1112,6 +1308,24 @@ function FlowInner({
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
   onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
+  onConnectThen: (fromOptionId: string, toOptionId: string) => void;
+  onConnectElse: (fromOptionId: string, elseOptionId: string) => void;
+  onReconnectThen: (
+    fromOptionId: string,
+    oldToOptionId: string,
+    newToOptionId: string,
+  ) => void;
+  onReconnectElse: (
+    fromOptionId: string,
+    thenOptionId: string,
+    newElseOptionId: string,
+  ) => void;
+  onDeleteThen: (fromOptionId: string, toOptionId: string) => void;
+  onDeleteElse: (fromOptionId: string, toOptionId: string) => void;
+  onTaskReleaseChange: (
+    stageId: string,
+    mode: AutomationStageTaskRelease,
+  ) => void;
   onAdd: (
     stageId: string,
     launchPhase: AutomationLaunchPhase,
@@ -1173,6 +1387,7 @@ function FlowInner({
       stages,
       templates,
       stageTransitions,
+      stageTaskRelease,
       activeStageId,
       selectedTemplateId,
       selectedTransitionKey,
@@ -1181,6 +1396,7 @@ function FlowInner({
       fields,
       onToggleStageCollapse,
       onSelectTransition,
+      onTaskReleaseChange,
       onAdd: (stageId, launchPhase, insertAt) => {
         onSelectStage(stageId);
         onSelectTemplate(null);
@@ -1226,6 +1442,7 @@ function FlowInner({
     stages,
     templates,
     stageTransitions,
+    stageTaskRelease,
     activeStageId,
     selectedTemplateId,
     selectedTransitionKey,
@@ -1234,6 +1451,7 @@ function FlowInner({
     fields,
     onToggleStageCollapse,
     onSelectTransition,
+    onTaskReleaseChange,
     onAdd,
     onSelectStage,
     onSelectTemplate,
@@ -1266,6 +1484,79 @@ function FlowInner({
       onSelectTransition(data.fromOptionId, data.toOptionId);
     },
     [onSelectTransition],
+  );
+
+  const isValidConnection = useCallback<IsValidConnection>((connection) => {
+    const from = parseStageNodeId(connection.source);
+    const to = parseStageNodeId(connection.target);
+    if (!from || !to || from === to) return false;
+    // Else handle may only land on a stage target handle.
+    if (isElseSourceHandle(connection.sourceHandle)) {
+      return connection.targetHandle === "in" || !connection.targetHandle;
+    }
+    return true;
+  }, []);
+
+  const handleConnect = useCallback<OnConnect>(
+    (connection: Connection) => {
+      const from = parseStageNodeId(connection.source);
+      const to = parseStageNodeId(connection.target);
+      if (!from || !to || from === to) return;
+      if (isElseSourceHandle(connection.sourceHandle)) {
+        onConnectElse(from, to);
+        return;
+      }
+      onConnectThen(from, to);
+    },
+    [onConnectThen, onConnectElse],
+  );
+
+  const handleReconnect = useCallback<OnReconnect>(
+    (oldEdge, newConnection) => {
+      const data = oldEdge.data as
+        StageMapEdgeData | StageElseEdgeData | undefined;
+      if (!data?.fromOptionId) return;
+
+      const newTarget = parseStageNodeId(newConnection.target);
+      if (!newTarget || newTarget === data.fromOptionId) return;
+
+      if (oldEdge.type === "stageElse") {
+        if (!data.toOptionId) return;
+        onReconnectElse(data.fromOptionId, data.toOptionId, newTarget);
+        return;
+      }
+
+      if (oldEdge.type === "stageMap") {
+        const oldTo = data.toOptionId;
+        if (!oldTo || oldTo === newTarget) {
+          onSelectTransition(data.fromOptionId, newTarget);
+          return;
+        }
+        onReconnectThen(data.fromOptionId, oldTo, newTarget);
+      }
+    },
+    [onReconnectThen, onReconnectElse, onSelectTransition],
+  );
+
+  const handleEdgesDelete = useCallback<OnEdgesDelete>(
+    (deleted) => {
+      for (const edge of deleted) {
+        const data = edge.data as
+          StageMapEdgeData | StageElseEdgeData | undefined;
+        if (!data?.fromOptionId || !data.toOptionId) continue;
+        if (edge.type === "stageElse") {
+          onDeleteElse(data.fromOptionId, data.toOptionId);
+          continue;
+        }
+        if (edge.type === "stageMap") {
+          // Placeholder neighbour links are not persisted rules.
+          const mapData = data as StageMapEdgeData;
+          if (mapData.configured === false) continue;
+          onDeleteThen(data.fromOptionId, data.toOptionId);
+        }
+      }
+    },
+    [onDeleteThen, onDeleteElse],
   );
 
   const onNodeDragStart: OnNodeDrag = useCallback(
@@ -1406,6 +1697,10 @@ function FlowInner({
       onEdgesChange={onEdgesChange}
       onNodeClick={onNodeClick}
       onEdgeClick={onEdgeClick}
+      onConnect={handleConnect}
+      onReconnect={handleReconnect}
+      onEdgesDelete={handleEdgesDelete}
+      isValidConnection={isValidConnection}
       onNodeDragStart={onNodeDragStart}
       onNodeDrag={onNodeDrag}
       onNodeDragStop={onNodeDragStop}
@@ -1414,16 +1709,21 @@ function FlowInner({
         onSelectStage("");
       }}
       nodesDraggable
-      nodesConnectable={false}
+      nodesConnectable
+      edgesReconnectable
+      connectionMode={ConnectionMode.Loose}
       elementsSelectable
       selectNodesOnDrag={false}
       nodeDragThreshold={4}
       edgesFocusable
-      deleteKeyCode={null}
+      deleteKeyCode={["Backspace", "Delete"]}
       minZoom={0.15}
       maxZoom={1.25}
       proOptions={{ hideAttribution: true }}
       className="bg-muted/20"
+      defaultEdgeOptions={{
+        interactionWidth: 24,
+      }}
     >
       <FitViewOnMount fitKey={fitKey} />
       <Background
@@ -1457,6 +1757,7 @@ export function AutomationFlowCanvas({
   stages,
   templates,
   stageTransitions,
+  stageTaskRelease,
   activeStageId,
   selectedTemplateId,
   selectedTransitionKey,
@@ -1466,6 +1767,13 @@ export function AutomationFlowCanvas({
   onSelectStage,
   onSelectTemplate,
   onSelectTransition,
+  onConnectThen,
+  onConnectElse,
+  onReconnectThen,
+  onReconnectElse,
+  onDeleteThen,
+  onDeleteElse,
+  onTaskReleaseChange,
   onAdd,
   onMoveTemplate,
   onCanvasPositionsChange,
@@ -1474,6 +1782,7 @@ export function AutomationFlowCanvas({
   stages: StageOption[];
   templates: AutomationTaskTemplate[];
   stageTransitions: AutomationStageTransition[];
+  stageTaskRelease: AutomationStageTaskReleaseMap;
   activeStageId: string | null;
   selectedTemplateId: string | null;
   selectedTransitionKey: string | null;
@@ -1483,6 +1792,24 @@ export function AutomationFlowCanvas({
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
   onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
+  onConnectThen: (fromOptionId: string, toOptionId: string) => void;
+  onConnectElse: (fromOptionId: string, elseOptionId: string) => void;
+  onReconnectThen: (
+    fromOptionId: string,
+    oldToOptionId: string,
+    newToOptionId: string,
+  ) => void;
+  onReconnectElse: (
+    fromOptionId: string,
+    thenOptionId: string,
+    newElseOptionId: string,
+  ) => void;
+  onDeleteThen: (fromOptionId: string, toOptionId: string) => void;
+  onDeleteElse: (fromOptionId: string, toOptionId: string) => void;
+  onTaskReleaseChange: (
+    stageId: string,
+    mode: AutomationStageTaskRelease,
+  ) => void;
   onAdd: (
     stageId: string,
     launchPhase: AutomationLaunchPhase,
@@ -1504,6 +1831,10 @@ export function AutomationFlowCanvas({
     stageTransitions
       .map((t) => `${t.fromOptionId}:${t.toOptionId}:${t.elseOptionId}`)
       .join(","),
+    Object.entries(stageTaskRelease)
+      .map(([id, mode]) => `${id}:${mode}`)
+      .sort()
+      .join(","),
   ].join("|");
 
   return (
@@ -1513,6 +1844,7 @@ export function AutomationFlowCanvas({
           stages={stages}
           templates={templates}
           stageTransitions={stageTransitions}
+          stageTaskRelease={stageTaskRelease}
           activeStageId={activeStageId}
           selectedTemplateId={selectedTemplateId}
           selectedTransitionKey={selectedTransitionKey}
@@ -1522,6 +1854,13 @@ export function AutomationFlowCanvas({
           onSelectStage={onSelectStage}
           onSelectTemplate={onSelectTemplate}
           onSelectTransition={onSelectTransition}
+          onConnectThen={onConnectThen}
+          onConnectElse={onConnectElse}
+          onReconnectThen={onReconnectThen}
+          onReconnectElse={onReconnectElse}
+          onDeleteThen={onDeleteThen}
+          onDeleteElse={onDeleteElse}
+          onTaskReleaseChange={onTaskReleaseChange}
           onAdd={onAdd}
           onMoveTemplate={onMoveTemplate}
           onCanvasPositionsChange={onCanvasPositionsChange}

@@ -3,19 +3,14 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/ui/select";
-import {
   createAutomationActionId,
   createAutomationOutcomeId,
   emptyAutomationConditions,
   emptyAutomationOutcomeFieldAccess,
+  getOutcomeStageOptionId,
   normalizeAutomationOutcomeFieldAccess,
-  type AutomationAction,
+  withOutcomeStageAction,
+  withoutOutcomeStageAction,
   type AutomationConditions,
   type AutomationOutcome,
 } from "@/entities/automation";
@@ -23,6 +18,7 @@ import { isEntityRecordsTab, type Entity } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { OutcomeAutofillEditor } from "./OutcomeAutofillEditor";
+import { OutcomeStageSelect } from "./OutcomeStageSelect";
 
 type StageOption = { id: string; name: string };
 
@@ -35,46 +31,6 @@ type OutcomeRouteBranchesEditorProps = {
   triggerFieldId: string;
   stages: StageOption[];
 };
-
-function stageFromActions(
-  actions: AutomationAction[],
-  triggerFieldId: string,
-): string {
-  if (!triggerFieldId) return "";
-  const hit = actions.find(
-    (action) => action.kind === "setField" && action.fieldId === triggerFieldId,
-  );
-  return hit && hit.kind === "setField" ? hit.value : "";
-}
-
-function otherActions(
-  actions: AutomationAction[],
-  triggerFieldId: string,
-): AutomationAction[] {
-  if (!triggerFieldId) return actions;
-  return actions.filter(
-    (action) =>
-      !(action.kind === "setField" && action.fieldId === triggerFieldId),
-  );
-}
-
-function mergeStageAndOthers(
-  stageId: string,
-  others: AutomationAction[],
-  triggerFieldId: string,
-): AutomationAction[] {
-  if (!triggerFieldId) return others;
-  if (!stageId) return others;
-  return [
-    {
-      id: createAutomationActionId(),
-      kind: "setField" as const,
-      fieldId: triggerFieldId,
-      value: stageId,
-    },
-    ...others,
-  ];
-}
 
 /** Keep comment flags; autofill has no ask-form (clear visible/required). */
 function branchFieldAccess(
@@ -177,9 +133,14 @@ export function OutcomeRouteBranchesEditor({
         {branches.map((branch, index) => {
           const isElse = index === branches.length - 1;
           const hasRules = branch.conditions.rules.length > 0;
-          const stageId = stageFromActions(branch.actions, triggerFieldId);
-          const stageName =
-            stages.find((item) => item.id === stageId)?.name ?? "";
+          const stageId = getOutcomeStageOptionId(
+            branch.actions,
+            triggerFieldId,
+          );
+          const actionsWithoutStage = withoutOutcomeStageAction(
+            branch.actions,
+            triggerFieldId,
+          );
 
           return (
             <li
@@ -253,55 +214,41 @@ export function OutcomeRouteBranchesEditor({
                 </p>
               )}
 
-              <div className="mt-3 flex flex-col gap-1.5">
-                <Label className="text-xs">Перейти на стадию</Label>
-                <Select
-                  value={stageId || "__none__"}
-                  onValueChange={(next) => {
-                    if (next == null) return;
-                    const value = String(next);
+              <div className="mt-3">
+                <OutcomeStageSelect
+                  compact
+                  value={stageId}
+                  stages={stages}
+                  triggerFieldId={triggerFieldId}
+                  onChange={(nextStageId) =>
                     patchBranch(index, {
-                      actions: mergeStageAndOthers(
-                        value === "__none__" ? "" : value,
-                        otherActions(branch.actions, triggerFieldId),
+                      actions: withOutcomeStageAction(
+                        actionsWithoutStage,
                         triggerFieldId,
+                        nextStageId,
                       ),
-                    });
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue>
-                      {stageName ||
-                        (triggerFieldId
-                          ? "Не менять стадию"
-                          : "Нет поля стадии")}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Не менять стадию</SelectItem>
-                    {stages.map((stage) => (
-                      <SelectItem key={stage.id} value={stage.id}>
-                        {stage.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    })
+                  }
+                />
               </div>
 
               <div className="mt-3">
                 <OutcomeAutofillEditor
-                  actions={otherActions(branch.actions, triggerFieldId)}
+                  actions={actionsWithoutStage}
                   fieldAccess={branch.fieldAccess}
                   sourceEntity={entity}
                   entities={entities}
                   hasRecordsTab={entity.tabs.some(isEntityRecordsTab)}
+                  excludeFieldIds={
+                    triggerFieldId ? [triggerFieldId] : undefined
+                  }
                   hint="Заполнить поля и при необходимости дублировать во «Записи»"
                   onChange={(actions) =>
                     patchBranch(index, {
-                      actions: mergeStageAndOthers(
-                        stageId,
+                      actions: withOutcomeStageAction(
                         actions,
                         triggerFieldId,
+                        stageId,
                       ),
                     })
                   }

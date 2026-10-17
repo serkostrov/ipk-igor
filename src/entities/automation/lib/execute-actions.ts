@@ -175,7 +175,11 @@ export async function executeAutomationActions(
           logs.push({ kind: "viewField", fieldIds: action.fieldIds });
           break;
         case "viewTabs":
-          logs.push({ kind: "viewTabs", tabIds: action.tabIds });
+          logs.push({
+            kind: "viewTabs",
+            tabIds: action.tabIds,
+            filesTabEntryIds: action.filesTabEntryIds ?? {},
+          });
           break;
         case "createRecord": {
           const values = applyMappings(action.mappings, ctx, createdRecordIds);

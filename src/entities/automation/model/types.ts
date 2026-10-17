@@ -307,6 +307,50 @@ export function normalizeAutomationStageTransitions(
   return out;
 }
 
+/**
+ * How tasks on a stage are released to assignees.
+ * - `parallel` — all matching tasks spawn on enter (default).
+ * - `sequential` — only the first by `stepOrder`; next spawns after the previous completes.
+ */
+export type AutomationStageTaskRelease = "parallel" | "sequential";
+
+export const AUTOMATION_STAGE_TASK_RELEASE_LABELS: Record<
+  AutomationStageTaskRelease,
+  string
+> = {
+  parallel: "Параллельно",
+  sequential: "Последовательно",
+};
+
+/** Per stage (list option id) release mode. Missing key → parallel. */
+export type AutomationStageTaskReleaseMap = Record<
+  string,
+  AutomationStageTaskRelease
+>;
+
+export function normalizeAutomationStageTaskReleaseMap(
+  value: unknown,
+): AutomationStageTaskReleaseMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: AutomationStageTaskReleaseMap = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const id = key.trim();
+    if (!id) continue;
+    if (raw === "sequential" || raw === "parallel") {
+      out[id] = raw;
+    }
+  }
+  return out;
+}
+
+export function getStageTaskRelease(
+  map: AutomationStageTaskReleaseMap | undefined,
+  stageOptionId: string,
+): AutomationStageTaskRelease {
+  const mode = map?.[stageOptionId];
+  return mode === "sequential" ? "sequential" : "parallel";
+}
+
 export type AutomationScenario = {
   id: string;
   processId: string;
@@ -317,6 +361,8 @@ export type AutomationScenario = {
   canvasLayout: AutomationCanvasLayout;
   /** Conditional rules on stage→stage edges of the process map. */
   stageTransitions: AutomationStageTransition[];
+  /** Per-stage task release: parallel (default) or sequential by stepOrder. */
+  stageTaskRelease: AutomationStageTaskReleaseMap;
 };
 
 export type AutomationProcess = {
@@ -629,6 +675,9 @@ export function normalizeAutomationScenario(
     stageTransitions: normalizeAutomationStageTransitions(
       raw.stageTransitions ?? raw.stage_transitions,
     ),
+    stageTaskRelease: normalizeAutomationStageTaskReleaseMap(
+      raw.stageTaskRelease ?? raw.stage_task_release,
+    ),
   };
 }
 
@@ -751,6 +800,7 @@ export function createDefaultProcess(input: {
       priority: 0,
       canvasLayout: emptyAutomationCanvasLayout(),
       stageTransitions: [],
+      stageTaskRelease: {},
     },
   };
 }
