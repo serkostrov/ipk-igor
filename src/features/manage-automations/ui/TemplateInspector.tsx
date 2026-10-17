@@ -31,6 +31,7 @@ import {
   normalizeAutomationOutcomeFieldAccess,
   removeNotificationRule,
   saveNotificationRule,
+  type AutomationLaunchPhase,
   type AutomationNotificationEvent,
   type AutomationNotificationRule,
   type AutomationOutcome,
@@ -825,6 +826,38 @@ export function TemplateInspector({
               </Field>
             </div>
 
+            <Field title="Момент запуска">
+              <Select
+                value={draft.launchPhase ?? "onEnter"}
+                onValueChange={(next) => {
+                  if (next === "onEnter" || next === "beforeEnter") {
+                    patch({ launchPhase: next as AutomationLaunchPhase });
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(draft.launchPhase ?? "onEnter") === "beforeEnter"
+                      ? "До старта"
+                      : "После старта"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="beforeEnter">
+                    До старта — до смены стадии списка
+                  </SelectItem>
+                  <SelectItem value="onEnter">
+                    После старта — после попадания на стадию
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                {(draft.launchPhase ?? "onEnter") === "beforeEnter"
+                  ? "Задача появится на предыдущей стадии и блокирует переход, пока не будет выполнена."
+                  : "Задача создаётся, когда запись попадает на эту стадию."}
+              </p>
+            </Field>
+
             <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2">
               <SettingSwitch
                 id="template-blocking"
@@ -912,23 +945,6 @@ export function TemplateInspector({
                           patchOutcome(index, { ...outcome, fieldAccess })
                         }
                       />
-                      <div className="rounded-md border border-border/70 bg-background px-2.5 py-2">
-                        <SettingSwitch
-                          id={`outcome-attach-${outcome.id}`}
-                          title="Нужно вложение"
-                          checked={outcome.fieldAccess.requireAttachment}
-                          onCheckedChange={(requireAttachment) =>
-                            patchOutcome(index, {
-                              ...outcome,
-                              fieldAccess: {
-                                ...outcome.fieldAccess,
-                                requireAttachment,
-                              },
-                            })
-                          }
-                        />
-                      </div>
-
                       <div className="flex flex-col gap-1.5">
                         <p className="text-xs font-medium text-muted-foreground">
                           Другие действия

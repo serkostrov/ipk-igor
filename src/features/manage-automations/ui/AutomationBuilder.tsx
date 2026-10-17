@@ -24,6 +24,7 @@ import {
   useAutomationConfig,
   useAutomationStatus,
   type AutomationCanvasLayout,
+  type AutomationLaunchPhase,
   type AutomationProcess,
   type AutomationScenario,
   type AutomationStageTransition,
@@ -216,14 +217,30 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setScenarioId(next.id);
   }
 
-  async function addTemplate(stageOptionId?: string) {
+  async function addTemplate(
+    stageOptionId?: string,
+    launchPhase: AutomationLaunchPhase = "onEnter",
+    insertAt?: number,
+  ) {
     const targetStageId = stageOptionId ?? activeStageId;
     if (!targetStageId) return;
     const ensured = await ensureProcess();
     if (!ensured) return;
-    const existingOnStage = scenarioTemplates.filter(
-      (item) => item.triggerOptionId === targetStageId,
-    ).length;
+    const phaseList = scenarioTemplates
+      .filter(
+        (item) =>
+          item.triggerOptionId === targetStageId &&
+          (item.launchPhase ?? "onEnter") === launchPhase,
+      )
+      .slice()
+      .sort(
+        (a, b) =>
+          a.stepOrder - b.stepOrder || a.name.localeCompare(b.name, "ru"),
+      );
+    const at = Math.max(
+      0,
+      Math.min(insertAt ?? phaseList.length, phaseList.length),
+    );
     const template: AutomationTaskTemplate = {
       id: createAutomationTemplateId(),
       scenarioId: ensured.scenario.id,
@@ -231,9 +248,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       nameTemplate: "",
       description: "",
       triggerOptionId: targetStageId,
-      stepOrder: existingOnStage,
+      stepOrder: at,
       isBlocking: true,
       kind: "decision",
+      launchPhase,
       launchConditions: emptyAutomationConditions(),
       assignee: defaultAssigneeResolver(),
       watchers: defaultAssigneeResolver(),
@@ -241,7 +259,13 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       sla: null,
       materials: [],
     };
-    await saveTemplate(template);
+    phaseList.splice(at, 0, template);
+    for (const [index, item] of phaseList.entries()) {
+      const next = { ...item, stepOrder: index, launchPhase };
+      if (item.id === template.id || item.stepOrder !== index) {
+        await saveTemplate(next);
+      }
+    }
     setStageId(targetStageId);
     setSelectedTemplateId(template.id);
   }
@@ -250,33 +274,58 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     templateId: string,
     targetStageId: string,
     stepOrder: number,
+    launchPhase: AutomationLaunchPhase = "onEnter",
   ) {
     const moving = scenarioTemplates.find((item) => item.id === templateId);
     if (!moving) return;
 
     const without = scenarioTemplates.filter((item) => item.id !== templateId);
+    const sourcePhase = moving.launchPhase ?? "onEnter";
+    const sourceStageId = moving.triggerOptionId;
+
     const targetList = without
-      .filter((item) => item.triggerOptionId === targetStageId)
+      .filter(
+        (item) =>
+          item.triggerOptionId === targetStageId &&
+          (item.launchPhase ?? "onEnter") === launchPhase,
+      )
       .slice()
       .sort((a, b) => a.stepOrder - b.stepOrder);
     const insertAt = Math.max(0, Math.min(stepOrder, targetList.length));
     targetList.splice(insertAt, 0, {
       ...moving,
       triggerOptionId: targetStageId,
+      launchPhase,
     });
 
     const updates: AutomationTaskTemplate[] = targetList.map((item, index) => ({
       ...item,
       triggerOptionId: targetStageId,
+      launchPhase,
       stepOrder: index,
     }));
+
+    if (sourceStageId !== targetStageId || sourcePhase !== launchPhase) {
+      const sourceList = without
+        .filter(
+          (item) =>
+            item.triggerOptionId === sourceStageId &&
+            (item.launchPhase ?? "onEnter") === sourcePhase,
+        )
+        .slice()
+        .sort((a, b) => a.stepOrder - b.stepOrder);
+      sourceList.forEach((item, index) => {
+        updates.push({ ...item, stepOrder: index });
+      });
+    }
 
     for (const item of updates) {
       const prev = scenarioTemplates.find((t) => t.id === item.id);
       if (
         !prev ||
         prev.triggerOptionId !== item.triggerOptionId ||
-        prev.stepOrder !== item.stepOrder
+        prev.stepOrder !== item.stepOrder ||
+        (prev.launchPhase ?? "onEnter") !== (item.launchPhase ?? "onEnter")
       ) {
         await saveTemplate(item);
       }
@@ -555,9 +604,21 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   if (id) setSelectedTransitionEdge(null);
                 }}
                 onSelectTransition={selectTransition}
-                onAdd={(stageOptionId) => void addTemplate(stageOptionId)}
-                onMoveTemplate={(templateId, stageOptionId, stepOrder) =>
-                  void moveTemplate(templateId, stageOptionId, stepOrder)
+                onAdd={(stageOptionId, launchPhase, insertAt) =>
+                  void addTemplate(stageOptionId, launchPhase, insertAt)
+                }
+                onMoveTemplate={(
+                  templateId,
+                  stageOptionId,
+                  stepOrder,
+                  launchPhase,
+                ) =>
+                  void moveTemplate(
+                    templateId,
+                    stageOptionId,
+                    stepOrder,
+                    launchPhase,
+                  )
                 }
                 onCanvasLayoutChange={(layout) => void saveCanvasLayout(layout)}
               />

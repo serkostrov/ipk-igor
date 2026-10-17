@@ -29,6 +29,7 @@ import { Flag, GitBranch, Lock, Plus, Timer, User, Zap } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import type {
   AutomationCanvasLayout,
+  AutomationLaunchPhase,
   AutomationStageTransition,
   AutomationTaskTemplate,
 } from "@/entities/automation";
@@ -44,10 +45,10 @@ const COL_GAP = 36;
 const ORIGIN_X = 32;
 const STAGE_Y = 28;
 const FLOW_Y = 130;
-const ROW_GAP = 28;
+const ROW_GAP = 16;
 const TASK_H = 92;
 const TRIGGER_H = 72;
-const EMPTY_H = 44;
+const INSERT_H = 28;
 
 const HANDLE_CLASS =
   "!size-2 !border-2 !border-background !bg-muted-foreground/35 !opacity-0";
@@ -147,6 +148,15 @@ type StageMapEdgeData = {
   toOptionId: string;
   configured: boolean;
   selected: boolean;
+  /** Optional «иначе» target stage name for the mid badge. */
+  elseLabel?: string;
+  onOpen?: () => void;
+};
+
+type StageElseEdgeData = {
+  fromOptionId: string;
+  toOptionId: string;
+  selected: boolean;
   onOpen?: () => void;
 };
 
@@ -181,6 +191,7 @@ function StageMapEdge({
 
   const configured = edgeData.configured === true;
   const selected = edgeData.selected === true;
+  const elseLabel = edgeData.elseLabel?.trim() ?? "";
 
   return (
     <>
@@ -200,7 +211,7 @@ function StageMapEdge({
       />
       <EdgeLabelRenderer>
         <div
-          className="nodrag nopan pointer-events-auto absolute z-20"
+          className="nodrag nopan pointer-events-auto absolute z-20 flex flex-col items-center gap-1"
           style={{
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
@@ -237,6 +248,87 @@ function StageMapEdge({
               <Plus className="size-3.5" aria-hidden />
             )}
           </button>
+          {configured ? (
+            <span
+              className={cn(
+                "rounded-md border bg-card px-1.5 py-0.5 text-[9px] font-medium tracking-wide uppercase shadow-xs",
+                selected
+                  ? "border-primary/40 text-primary"
+                  : "border-border/70 text-muted-foreground",
+              )}
+            >
+              тогда
+              {elseLabel ? ` · иначе → ${elseLabel}` : ""}
+            </span>
+          ) : null}
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+/** Redirect edge when conditions fail («иначе» → другой stage). */
+function StageElseEdge({ id, source, target, markerEnd, data }: EdgeProps) {
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const edgeData = (data ?? {}) as StageElseEdgeData;
+
+  if (!sourceNode || !targetNode) return null;
+
+  const { sx, sy, tx, ty, sourcePos, targetPos } = getFloatingEdgeParams(
+    sourceNode,
+    targetNode,
+  );
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX: sx,
+    sourceY: sy,
+    sourcePosition: sourcePos,
+    targetX: tx,
+    targetY: ty,
+    targetPosition: targetPos,
+    borderRadius: 16,
+    offset: 28,
+  });
+
+  const selected = edgeData.selected === true;
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          stroke: selected ? "#d97706" : "#f59e0b",
+          strokeWidth: selected ? 2 : 1.75,
+          strokeDasharray: "6 4",
+        }}
+      />
+      <EdgeLabelRenderer>
+        <div
+          className="nodrag nopan pointer-events-auto absolute z-20"
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          }}
+        >
+          <button
+            type="button"
+            title="Ветка «иначе» — открыть условие перехода"
+            aria-label="Ветка иначе"
+            className={cn(
+              "rounded-md border bg-card px-2 py-0.5 text-[9px] font-semibold tracking-wide uppercase shadow-sm transition-all",
+              "hover:border-amber-500/50 hover:text-amber-700",
+              selected
+                ? "border-amber-500 text-amber-700 ring-2 ring-amber-500/20"
+                : "border-amber-500/35 text-amber-700/90",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              edgeData.onOpen?.();
+            }}
+          >
+            иначе
+          </button>
         </div>
       </EdgeLabelRenderer>
     </>
@@ -246,6 +338,7 @@ function StageMapEdge({
 const edgeTypes: EdgeTypes = {
   floating: memo(FloatingEdge),
   stageMap: memo(StageMapEdge),
+  stageElse: memo(StageElseEdge),
 };
 
 type StageOption = { id: string; name: string; color?: string };
@@ -260,7 +353,11 @@ type TaskData = {
   selected: boolean;
   fields: EntityField[];
 };
-type EmptyData = { stageId: string; hasTasks: boolean };
+type InsertData = {
+  stageId: string;
+  launchPhase: AutomationLaunchPhase;
+  insertAt: number;
+};
 
 function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
   return (
@@ -448,6 +545,9 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
           </p>
           <p className="mt-0.5 text-[10px] text-muted-foreground">
             #{template.stepOrder}
+            {(template.launchPhase ?? "onEnter") === "beforeEnter"
+              ? " · до старта"
+              : ""}
             {template.kind === "decision"
               ? " · решение"
               : template.kind === "autofill"
@@ -507,23 +607,20 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
   );
 }
 
-function EmptyNode({ data }: NodeProps<Node<EmptyData, "empty">>) {
-  const label = data.hasTasks ? "Ещё задача" : "Добавить задачу";
+function InsertNode({ data }: NodeProps<Node<InsertData, "insert">>) {
+  const label =
+    data.launchPhase === "beforeEnter"
+      ? "Добавить задачу до старта"
+      : "Добавить задачу";
   return (
     <button
       type="button"
-      className={cn(
-        "nodrag nopan group relative flex h-11 w-[220px] items-center justify-center gap-1.5 rounded-xl border border-dashed text-[11px] font-medium transition-all",
-        "border-border/80 bg-card/70 text-muted-foreground",
-        "hover:border-primary/45 hover:bg-primary/[0.04] hover:text-foreground",
-      )}
+      className="nodrag nopan group relative flex h-7 w-[220px] items-center justify-center"
       data-stage-add={data.stageId}
+      data-launch-phase={data.launchPhase}
+      data-insert-at={data.insertAt}
       aria-label={label}
-      title={
-        data.hasTasks
-          ? "Добавить следующую задачу на эту стадию"
-          : "Добавить первую задачу на эту стадию"
-      }
+      title={label}
     >
       <Handle
         type="target"
@@ -549,10 +646,13 @@ function EmptyNode({ data }: NodeProps<Node<EmptyData, "empty">>) {
         id="bottom"
         className={HANDLE_CLASS}
       />
-      <span className="flex size-5 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-12 top-1/2 h-px -translate-y-1/2 bg-border/80 transition-colors group-hover:bg-primary/35"
+      />
+      <span className="relative z-10 flex size-6 items-center justify-center rounded-full border border-border/90 bg-card text-muted-foreground shadow-sm transition-all group-hover:scale-110 group-hover:border-primary/50 group-hover:bg-primary/[0.06] group-hover:text-primary">
         <Plus className="size-3.5" strokeWidth={2.25} />
       </span>
-      {label}
       <Handle
         type="source"
         position={Position.Top}
@@ -617,7 +717,7 @@ const nodeTypes: NodeTypes = {
   stage: memo(StageNode),
   trigger: memo(TriggerNode),
   task: memo(TaskNode),
-  empty: memo(EmptyNode),
+  insert: memo(InsertNode),
   end: memo(EndNode),
 };
 
@@ -638,9 +738,14 @@ function FitViewOnMount({ fitKey }: { fitKey: string }) {
 function templatesForStage(
   templates: AutomationTaskTemplate[],
   stageId: string,
+  launchPhase?: AutomationLaunchPhase,
 ) {
   return templates
-    .filter((item) => item.triggerOptionId === stageId)
+    .filter((item) => {
+      if (item.triggerOptionId !== stageId) return false;
+      if (!launchPhase) return true;
+      return (item.launchPhase ?? "onEnter") === launchPhase;
+    })
     .slice()
     .sort(
       (a, b) => a.stepOrder - b.stepOrder || a.name.localeCompare(b.name, "ru"),
@@ -652,10 +757,33 @@ function columnIndexFromX(x: number, stageCount: number) {
   return Math.max(0, Math.min(stageCount - 1, index));
 }
 
-function stepOrderFromY(y: number) {
-  const start = FLOW_Y + TRIGGER_H + ROW_GAP;
+/** Default Y of the trigger node for a column (after beforeEnter block). */
+function triggerYForStage(beforeCount: number) {
+  const slots = beforeCount + 1; // insert before each + trailing insert
+  return (
+    FLOW_Y + slots * (INSERT_H + ROW_GAP) + beforeCount * (TASK_H + ROW_GAP)
+  );
+}
+
+function phaseFromY(y: number, beforeCount: number): AutomationLaunchPhase {
+  const triggerY = triggerYForStage(beforeCount);
+  return y < triggerY + TRIGGER_H / 2 ? "beforeEnter" : "onEnter";
+}
+
+function stepOrderFromY(
+  y: number,
+  phase: AutomationLaunchPhase,
+  beforeCount: number,
+) {
+  if (phase === "beforeEnter") {
+    const start = FLOW_Y + INSERT_H + ROW_GAP;
+    if (y <= start) return 0;
+    return Math.max(0, Math.round((y - start) / (TASK_H + INSERT_H + ROW_GAP)));
+  }
+  const start =
+    triggerYForStage(beforeCount) + TRIGGER_H + ROW_GAP + INSERT_H + ROW_GAP;
   if (y <= start) return 0;
-  return Math.max(0, Math.round((y - start) / (TASK_H + ROW_GAP)));
+  return Math.max(0, Math.round((y - start) / (TASK_H + INSERT_H + ROW_GAP)));
 }
 
 function resolvePosition(
@@ -721,6 +849,9 @@ function buildLayout(input: {
         (item) => item.fromOptionId === prev.id && item.toOptionId === stage.id,
       );
       const transitionKey = `${prev.id}\0${stage.id}`;
+      const elseStage = transition?.elseOptionId
+        ? stages.find((item) => item.id === transition.elseOptionId)
+        : null;
       edges.push({
         id: `map-${prev.id}-${stage.id}`,
         source: `stage:${prev.id}`,
@@ -732,38 +863,45 @@ function buildLayout(input: {
           toOptionId: stage.id,
           configured: stageTransitionIsConfigured(transition),
           selected: selectedTransitionKey === transitionKey,
+          elseLabel: elseStage?.name,
           onOpen: () => onSelectTransition(prev.id, stage.id),
         } satisfies StageMapEdgeData,
       });
     }
 
-    const triggerId = `trigger:${stage.id}`;
-    nodes.push({
-      id: triggerId,
-      type: "trigger",
-      position: resolvePosition(
-        triggerId,
-        { x: colX, y: FLOW_Y },
-        canvasLayout,
-      ),
-      data: { stageId: stage.id },
-      selectable: false,
-    });
-    edges.push({
-      id: `down-${stage.id}`,
-      source: stageNodeId,
-      target: triggerId,
-      type: "floating",
-      style: {
-        stroke: stage.id === activeStageId ? "#f59e0b" : "#cbd5e1",
-        strokeWidth: stage.id === activeStageId ? 2 : 1.5,
-      },
-    });
+    const beforeTasks = templatesForStage(templates, stage.id, "beforeEnter");
+    const onEnterTasks = templatesForStage(templates, stage.id, "onEnter");
 
-    let prevId = triggerId;
-    let y = FLOW_Y + TRIGGER_H + ROW_GAP;
+    let prevId = stageNodeId;
+    let y = FLOW_Y;
+    const flowStroke = stage.id === activeStageId ? "#f59e0b" : "#cbd5e1";
+    const flowWidth = stage.id === activeStageId ? 2 : 1.5;
 
-    for (const template of stageTasks) {
+    const pushInsert = (phase: AutomationLaunchPhase, insertAt: number) => {
+      const insertId = `insert:${stage.id}:${phase}:${insertAt}`;
+      nodes.push({
+        id: insertId,
+        type: "insert",
+        position: { x: colX, y },
+        data: {
+          stageId: stage.id,
+          launchPhase: phase,
+          insertAt,
+        } satisfies InsertData,
+        draggable: false,
+      });
+      edges.push({
+        id: `e-${prevId}-${insertId}`,
+        source: prevId,
+        target: insertId,
+        type: "floating",
+        style: { stroke: flowStroke, strokeWidth: flowWidth },
+      });
+      prevId = insertId;
+      y += INSERT_H + ROW_GAP;
+    };
+
+    const pushTask = (template: AutomationTaskTemplate) => {
       nodes.push({
         id: template.id,
         type: "task",
@@ -783,41 +921,49 @@ function buildLayout(input: {
       });
       prevId = template.id;
       y += TASK_H + ROW_GAP;
-    }
+    };
 
-    // Always show add affordance so stages can grow beyond one task.
-    const emptyId = `empty:${stage.id}`;
-    const hasTasks = stageTasks.length > 0;
+    // Before Start: insert + tasks (prep before list change).
+    pushInsert("beforeEnter", 0);
+    beforeTasks.forEach((template, index) => {
+      pushTask(template);
+      pushInsert("beforeEnter", index + 1);
+    });
+
+    const triggerId = `trigger:${stage.id}`;
     nodes.push({
-      id: emptyId,
-      type: "empty",
-      // Keep add slot in the column flow (ignore free-drag layout).
-      position: { x: colX, y },
-      data: { stageId: stage.id, hasTasks },
-      draggable: false,
+      id: triggerId,
+      type: "trigger",
+      position: resolvePosition(triggerId, { x: colX, y }, canvasLayout),
+      data: { stageId: stage.id },
     });
     edges.push({
-      id: `e-${prevId}-${emptyId}`,
+      id: `down-${stage.id}`,
       source: prevId,
-      target: emptyId,
+      target: triggerId,
       type: "floating",
-      style: {
-        stroke: hasTasks ? "#d4d4d8" : "#e4e4e7",
-        strokeWidth: 1.25,
-        strokeDasharray: "4 4",
-      },
+      style: { stroke: flowStroke, strokeWidth: flowWidth },
     });
-    prevId = emptyId;
-    y += EMPTY_H + ROW_GAP;
+    prevId = triggerId;
+    y += TRIGGER_H + ROW_GAP;
+
+    // After Start: insert + tasks.
+    pushInsert("onEnter", 0);
+    onEnterTasks.forEach((template, index) => {
+      pushTask(template);
+      pushInsert("onEnter", index + 1);
+    });
 
     const endId = `end:${stage.id}`;
     nodes.push({
       id: endId,
       type: "end",
-      // End stays under the add slot in column order.
-      position: { x: colX + (COL_W - 140) / 2, y },
+      position: resolvePosition(
+        endId,
+        { x: colX + (COL_W - 140) / 2, y },
+        canvasLayout,
+      ),
       data: { stageId: stage.id },
-      selectable: false,
     });
     edges.push({
       id: `e-${prevId}-${endId}`,
@@ -827,6 +973,32 @@ function buildLayout(input: {
       style: { stroke: "#a1a1aa", strokeWidth: 1.5 },
     });
   });
+
+  // «Иначе» redirects: line from source stage to the configured else stage.
+  for (const transition of stageTransitions) {
+    if (!stageTransitionIsConfigured(transition)) continue;
+    const elseId = transition.elseOptionId.trim();
+    if (!elseId) continue;
+    if (!stages.some((stage) => stage.id === transition.fromOptionId)) continue;
+    if (!stages.some((stage) => stage.id === elseId)) continue;
+    // Skip if else is already the next consecutive stage (same as «тогда»).
+    if (elseId === transition.toOptionId) continue;
+
+    const transitionKey = `${transition.fromOptionId}\0${transition.toOptionId}`;
+    edges.push({
+      id: `else-${transition.fromOptionId}-${elseId}-${transition.toOptionId}`,
+      source: `stage:${transition.fromOptionId}`,
+      target: `stage:${elseId}`,
+      type: "stageElse",
+      data: {
+        fromOptionId: transition.fromOptionId,
+        toOptionId: transition.toOptionId,
+        selected: selectedTransitionKey === transitionKey,
+        onOpen: () =>
+          onSelectTransition(transition.fromOptionId, transition.toOptionId),
+      } satisfies StageElseEdgeData,
+    });
+  }
 
   return { nodes, edges };
 }
@@ -859,11 +1031,16 @@ function FlowInner({
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
   onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
-  onAdd: (stageId: string) => void;
+  onAdd: (
+    stageId: string,
+    launchPhase: AutomationLaunchPhase,
+    insertAt: number,
+  ) => void;
   onMoveTemplate: (
     templateId: string,
     stageId: string,
     stepOrder: number,
+    launchPhase: AutomationLaunchPhase,
   ) => void;
   onCanvasLayoutChange: (layout: AutomationCanvasLayout) => void;
   fitKey: string;
@@ -873,13 +1050,36 @@ function FlowInner({
   const dragStartRef = useRef<{ id: string; x: number; y: number } | null>(
     null,
   );
+  const draggingRef = useRef(false);
   const canvasLayoutRef = useRef(canvasLayout);
+  /** Local positions applied immediately on drop (before async scenario save). */
+  const pendingLayoutRef = useRef<AutomationCanvasLayout>({});
 
   useEffect(() => {
     canvasLayoutRef.current = canvasLayout;
+    // Drop pending keys once the saved layout matches them.
+    const pending = pendingLayoutRef.current;
+    const nextPending: AutomationCanvasLayout = {};
+    for (const [id, pos] of Object.entries(pending)) {
+      const saved = canvasLayout[id];
+      if (
+        !saved ||
+        Math.abs(saved.x - pos.x) > 0.5 ||
+        Math.abs(saved.y - pos.y) > 0.5
+      ) {
+        nextPending[id] = pos;
+      }
+    }
+    pendingLayoutRef.current = nextPending;
   }, [canvasLayout]);
 
   useEffect(() => {
+    if (draggingRef.current) return;
+
+    const mergedLayout: AutomationCanvasLayout = {
+      ...canvasLayout,
+      ...pendingLayoutRef.current,
+    };
     const layout = buildLayout({
       stages,
       templates,
@@ -887,11 +1087,31 @@ function FlowInner({
       activeStageId,
       selectedTemplateId,
       selectedTransitionKey,
-      canvasLayout,
+      canvasLayout: mergedLayout,
       fields,
       onSelectTransition,
     });
-    setNodes(layout.nodes);
+
+    setNodes((current) => {
+      const livePos = new Map(
+        current.map((node) => [node.id, node.position] as const),
+      );
+      return layout.nodes.map((node) => {
+        const live = livePos.get(node.id);
+        // Keep in-canvas positions for existing nodes so selection/data
+        // updates do not snap a just-dragged block back.
+        if (
+          live &&
+          (node.type === "task" ||
+            node.type === "stage" ||
+            node.type === "trigger" ||
+            node.type === "end")
+        ) {
+          return { ...node, position: live };
+        }
+        return node;
+      });
+    });
     setEdges(layout.edges);
   }, [
     fitKey,
@@ -921,11 +1141,11 @@ function FlowInner({
         onSelectTemplate(template.id);
         return;
       }
-      if (node.type === "empty") {
-        const stageId = (node.data as EmptyData).stageId;
-        onSelectStage(stageId);
+      if (node.type === "insert") {
+        const data = node.data as InsertData;
+        onSelectStage(data.stageId);
         onSelectTemplate(null);
-        onAdd(stageId);
+        onAdd(data.stageId, data.launchPhase, data.insertAt);
       }
     },
     [onSelectStage, onSelectTemplate, onAdd],
@@ -933,8 +1153,9 @@ function FlowInner({
 
   const onEdgeClick = useCallback(
     (_event: React.MouseEvent, edge: Edge) => {
-      if (edge.type !== "stageMap") return;
-      const data = edge.data as StageMapEdgeData | undefined;
+      if (edge.type !== "stageMap" && edge.type !== "stageElse") return;
+      const data = edge.data as
+        StageMapEdgeData | StageElseEdgeData | undefined;
       if (!data?.fromOptionId || !data.toOptionId) return;
       onSelectTransition(data.fromOptionId, data.toOptionId);
     },
@@ -942,6 +1163,7 @@ function FlowInner({
   );
 
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
+    draggingRef.current = true;
     dragStartRef.current = {
       id: node.id,
       x: node.position.x,
@@ -951,18 +1173,25 @@ function FlowInner({
 
   const onNodeDragStop: OnNodeDrag = useCallback(
     (_event, node) => {
+      draggingRef.current = false;
       const start = dragStartRef.current;
       dragStartRef.current = null;
       if (!start || start.id !== node.id) return;
-      if (node.type === "empty") return;
+      if (node.type === "insert") return;
 
       const movedFar =
         Math.hypot(node.position.x - start.x, node.position.y - start.y) > 8;
       if (!movedFar) return;
 
+      const nextPos = { x: node.position.x, y: node.position.y };
+      pendingLayoutRef.current = {
+        ...pendingLayoutRef.current,
+        [node.id]: nextPos,
+      };
       onCanvasLayoutChange({
         ...canvasLayoutRef.current,
-        [node.id]: { x: node.position.x, y: node.position.y },
+        ...pendingLayoutRef.current,
+        [node.id]: nextPos,
       });
 
       if (node.type !== "task" || stages.length === 0) return;
@@ -970,13 +1199,24 @@ function FlowInner({
       const colIndex = columnIndexFromX(node.position.x, stages.length);
       const stage = stages[colIndex];
       if (!stage) return;
-      const stepOrder = stepOrderFromY(node.position.y);
+      const beforeCount = templatesForStage(
+        templates,
+        stage.id,
+        "beforeEnter",
+      ).length;
+      const launchPhase = phaseFromY(node.position.y, beforeCount);
+      const stepOrder = stepOrderFromY(
+        node.position.y,
+        launchPhase,
+        beforeCount,
+      );
       onSelectStage(stage.id);
       onSelectTemplate(node.id);
-      onMoveTemplate(node.id, stage.id, stepOrder);
+      onMoveTemplate(node.id, stage.id, stepOrder, launchPhase);
     },
     [
       stages,
+      templates,
       onMoveTemplate,
       onSelectStage,
       onSelectTemplate,
@@ -1004,12 +1244,11 @@ function FlowInner({
       nodesConnectable={false}
       elementsSelectable
       selectNodesOnDrag={false}
+      nodeDragThreshold={4}
       edgesFocusable
       deleteKeyCode={null}
       minZoom={0.15}
       maxZoom={1.25}
-      fitView
-      fitViewOptions={{ padding: 0.1, maxZoom: 0.85 }}
       proOptions={{ hideAttribution: true }}
       className="bg-muted/20"
     >
@@ -1034,7 +1273,7 @@ function FlowInner({
               ? "#f59e0b"
               : node.type === "end"
                 ? "#10b981"
-                : node.type === "empty"
+                : node.type === "insert"
                   ? "#e4e4e7"
                   : "#94a3b8"
         }
@@ -1070,26 +1309,24 @@ export function AutomationFlowCanvas({
   onSelectStage: (stageId: string) => void;
   onSelectTemplate: (id: string | null) => void;
   onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
-  onAdd: (stageId: string) => void;
+  onAdd: (
+    stageId: string,
+    launchPhase: AutomationLaunchPhase,
+    insertAt: number,
+  ) => void;
   onMoveTemplate: (
     templateId: string,
     stageId: string,
     stepOrder: number,
+    launchPhase: AutomationLaunchPhase,
   ) => void;
   onCanvasLayoutChange: (layout: AutomationCanvasLayout) => void;
 }) {
+  // Structural fit only — ignore rename/reorder so drag does not re-fit.
   const fitKey = [
     stages.map((s) => s.id).join(","),
-    templates
-      .map((t) => `${t.id}:${t.triggerOptionId}:${t.stepOrder}:${t.name}`)
-      .join(","),
-    stageTransitions
-      .map(
-        (t) =>
-          `${t.fromOptionId}:${t.toOptionId}:${t.conditions.rules.length}:${t.elseOptionId}`,
-      )
-      .join(","),
-    selectedTransitionKey ?? "",
+    templates.map((t) => t.id).join(","),
+    stageTransitions.map((t) => `${t.fromOptionId}:${t.toOptionId}`).join(","),
   ].join("|");
 
   return (

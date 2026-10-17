@@ -23,6 +23,7 @@ function mapTaskRow(row: Record<string, unknown>): AutomationTask | null {
     stepOrder: Number(row.step_order ?? 0),
     isBlocking: row.is_blocking === true,
     kind: "decision" as const,
+    launchPhase: "onEnter" as const,
     launchConditions: { version: 1 as const, match: "all" as const, rules: [] },
     assignee: { type: "currentUser" as const },
     watchers: { type: "currentUser" as const },
@@ -102,6 +103,36 @@ export async function fetchAutomationTask(
   if (error) throw error;
   if (!data) return null;
   return mapTaskRow(data as Record<string, unknown>);
+}
+
+export async function countAutomationTasksForRecord(
+  entityId: string,
+  recordId: string,
+): Promise<number> {
+  if (!isSupabaseConfigured || !supabase) return 0;
+  const { count, error } = await supabase
+    .from("automation_tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("entity_id", entityId)
+    .eq("record_id", recordId);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/** Deletes all automation tasks for a record (and cascaded task children). */
+export async function deleteAutomationTasksForRecord(
+  entityId: string,
+  recordId: string,
+): Promise<number> {
+  if (!isSupabaseConfigured || !supabase) return 0;
+  const { data, error } = await supabase
+    .from("automation_tasks")
+    .delete()
+    .eq("entity_id", entityId)
+    .eq("record_id", recordId)
+    .select("id");
+  if (error) throw error;
+  return data?.length ?? 0;
 }
 
 export async function completeAutomationTaskRpc(

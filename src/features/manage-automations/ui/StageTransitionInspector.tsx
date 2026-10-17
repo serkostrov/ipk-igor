@@ -15,6 +15,7 @@ import {
   type AutomationStageTransition,
 } from "@/entities/automation";
 import type { Entity } from "@/entities/entity";
+import { cn } from "@/shared/lib/cn";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 
 type StageOption = { id: string; name: string; color?: string };
@@ -29,6 +30,56 @@ type StageTransitionInspectorProps = {
   onClear: () => void | Promise<void>;
   onClose: () => void;
 };
+
+function StageChip({
+  name,
+  color,
+  className,
+}: {
+  name: string;
+  color?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5 shadow-xs",
+        className,
+      )}
+    >
+      <span
+        className="size-2.5 shrink-0 rounded-full"
+        style={{ backgroundColor: color || "var(--primary)" }}
+      />
+      <span className="min-w-0 truncate text-sm font-medium">{name}</span>
+    </div>
+  );
+}
+
+/** Vertical stem + split into two branches (тогда / иначе). */
+function BranchFork({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={cn("relative mx-auto h-10 w-full max-w-[20rem]", className)}
+    >
+      <svg
+        viewBox="0 0 200 40"
+        className="h-full w-full overflow-visible text-border"
+        preserveAspectRatio="none"
+      >
+        <path
+          d="M100 0 V14 M100 14 H36 M100 14 H164 M36 14 V40 M164 14 V40"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </div>
+  );
+}
 
 export function StageTransitionInspector({
   fromStage,
@@ -55,8 +106,7 @@ export function StageTransitionInspector({
   const elseStages = stages.filter(
     (stage) => stage.id !== fromStage.id && stage.id !== toStage.id,
   );
-  const elseName =
-    stages.find((stage) => stage.id === draft.elseOptionId)?.name ?? "";
+  const elseStage = stages.find((stage) => stage.id === draft.elseOptionId);
   const hasRules = draft.conditions.rules.length > 0;
 
   async function handleSave() {
@@ -116,16 +166,16 @@ export function StageTransitionInspector({
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-auto pt-4">
+      <div className="min-h-0 flex-1 space-y-1 overflow-auto pt-4">
         <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2.5">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            При переходе записи с «{fromStage.name}» на «{toStage.name}»
-            проверяются условия ниже. Если они выполнены — запись идёт дальше;
-            иначе — на другую стадию или переход запрещается.
+            При переходе с «{fromStage.name}» на «{toStage.name}» проверяются
+            условия. Если выполнены — запись идёт дальше; иначе — на другую
+            стадию или переход запрещается.
           </p>
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5 pt-3">
           <Label className="text-xs font-medium">Если выполняется</Label>
           <ConditionGroupBuilder
             entity={entity}
@@ -136,55 +186,85 @@ export function StageTransitionInspector({
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs font-medium">Тогда</Label>
-          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5">
-            <span
-              className="size-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: toStage.color || "var(--primary)" }}
-            />
-            <span className="text-sm font-medium">{toStage.name}</span>
+        <BranchFork className="mt-1" />
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="size-1.5 rounded-full bg-emerald-500"
+                aria-hidden
+              />
+              <Label className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                Тогда
+              </Label>
+            </div>
+            <StageChip name={toStage.name} color={toStage.color} />
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              Переход разрешён
+            </p>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="size-1.5 rounded-full bg-amber-500"
+                aria-hidden
+              />
+              <Label className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Иначе
+              </Label>
+            </div>
+            <Select
+              value={draft.elseOptionId || "__block__"}
+              onValueChange={(next) => {
+                if (next == null) return;
+                const value = String(next);
+                setDraft((prev) => ({
+                  ...prev,
+                  elseOptionId: value === "__block__" ? "" : value,
+                }));
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {draft.elseOptionId ? (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="size-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor:
+                            elseStage?.color || "var(--muted-foreground)",
+                        }}
+                      />
+                      <span className="truncate">
+                        {elseStage?.name || "Другая стадия"}
+                      </span>
+                    </span>
+                  ) : (
+                    "Запретить переход"
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__block__">Запретить переход</SelectItem>
+                {elseStages.map((stage) => (
+                  <SelectItem key={stage.id} value={stage.id}>
+                    {stage.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              {draft.elseOptionId
+                ? "Запись будет перенаправлена на выбранную стадию"
+                : "Пользователь останется на текущей стадии"}
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs font-medium">Иначе</Label>
-          <Select
-            value={draft.elseOptionId || "__block__"}
-            onValueChange={(next) => {
-              if (next == null) return;
-              const value = String(next);
-              setDraft((prev) => ({
-                ...prev,
-                elseOptionId: value === "__block__" ? "" : value,
-              }));
-            }}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue>
-                {draft.elseOptionId
-                  ? elseName || "Другая стадия"
-                  : "Запретить переход"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__block__">Запретить переход</SelectItem>
-              {elseStages.map((stage) => (
-                <SelectItem key={stage.id} value={stage.id}>
-                  {stage.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            {draft.elseOptionId
-              ? "Запись будет перенаправлена на выбранную стадию"
-              : "Пользователь увидит предупреждение и останется на текущей стадии"}
-          </p>
-        </div>
-
         {!hasRules ? (
-          <p className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
+          <p className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
             Добавьте хотя бы одно условие — иначе переход всегда разрешён
           </p>
         ) : null}

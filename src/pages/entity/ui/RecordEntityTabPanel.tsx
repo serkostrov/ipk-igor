@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -890,66 +891,79 @@ export function RecordEntityTabPanel({
         }}
       />
 
-      <ConfirmDialog
-        open={pendingDelete != null}
-        onOpenChange={(open) => {
-          if (!open) setPendingDelete(null);
-        }}
-        title={ownsLinkedRecords ? "Удалить запись?" : "Убрать с вкладки?"}
-        description={
-          pendingDelete
-            ? ownsLinkedRecords
+      {ownsLinkedRecords ? (
+        <RecordDeleteConfirmDialog
+          open={pendingDelete != null}
+          onOpenChange={(open) => {
+            if (!open) setPendingDelete(null);
+          }}
+          entityId={linkedEntity.id}
+          recordId={pendingDelete?.id ?? null}
+          title="Удалить запись?"
+          description={
+            pendingDelete
               ? `Вы уверены, что хотите удалить «${getRecordTitle(valueContext, linkedEntity, pendingDelete)}»?`
-              : `Убрать «${getRecordTitle(valueContext, linkedEntity, pendingDelete)}» с этой вкладки? Запись останется в системе.`
-            : ownsLinkedRecords
-              ? "Вы уверены, что хотите удалить эту запись?"
-              : "Убрать запись с этой вкладки? Она останется в системе."
-        }
-        confirmLabel={ownsLinkedRecords ? "Удалить" : "Убрать"}
-        onConfirm={() => {
-          if (!pendingDelete || !parentLinkFieldId) return;
-          if (ownsLinkedRecords) {
+              : "Вы уверены, что хотите удалить эту запись?"
+          }
+          confirmLabel="Удалить"
+          onConfirm={() => {
+            if (!pendingDelete) return;
             removeEntityRecord(linkedEntity.id, pendingDelete.id);
+          }}
+        />
+      ) : (
+        <ConfirmDialog
+          open={pendingDelete != null}
+          onOpenChange={(open) => {
+            if (!open) setPendingDelete(null);
+          }}
+          title="Убрать с вкладки?"
+          description={
+            pendingDelete
+              ? `Убрать «${getRecordTitle(valueContext, linkedEntity, pendingDelete)}» с этой вкладки? Запись останется в системе.`
+              : "Убрать запись с этой вкладки? Она останется в системе."
+          }
+          confirmLabel="Убрать"
+          onConfirm={() => {
+            if (!pendingDelete || !parentLinkFieldId) return;
+
+            // Direct link: related → current. Reverse self-link: current → related.
+            if (
+              entityRelationIncludesId(
+                pendingDelete.values[parentLinkFieldId],
+                parentRecordId,
+              )
+            ) {
+              updateEntityRecord(linkedEntity.id, pendingDelete.id, {
+                ...pendingDelete.values,
+                [parentLinkFieldId]: serializeEntityRelationIds(
+                  parseEntityRelationIds(
+                    pendingDelete.values[parentLinkFieldId],
+                  ).filter((id) => id !== parentRecordId),
+                ),
+              });
+            } else if (
+              isSelfRef &&
+              parentRecord &&
+              entityRelationIncludesId(
+                parentRecord.values[parentLinkFieldId],
+                pendingDelete.id,
+              )
+            ) {
+              updateEntityRecord(linkedEntity.id, parentRecord.id, {
+                ...parentRecord.values,
+                [parentLinkFieldId]: serializeEntityRelationIds(
+                  parseEntityRelationIds(
+                    parentRecord.values[parentLinkFieldId],
+                  ).filter((id) => id !== pendingDelete.id),
+                ),
+              });
+            }
+
             setPendingDelete(null);
-            return;
-          }
-
-          // Direct link: related → current. Reverse self-link: current → related.
-          if (
-            entityRelationIncludesId(
-              pendingDelete.values[parentLinkFieldId],
-              parentRecordId,
-            )
-          ) {
-            updateEntityRecord(linkedEntity.id, pendingDelete.id, {
-              ...pendingDelete.values,
-              [parentLinkFieldId]: serializeEntityRelationIds(
-                parseEntityRelationIds(
-                  pendingDelete.values[parentLinkFieldId],
-                ).filter((id) => id !== parentRecordId),
-              ),
-            });
-          } else if (
-            isSelfRef &&
-            parentRecord &&
-            entityRelationIncludesId(
-              parentRecord.values[parentLinkFieldId],
-              pendingDelete.id,
-            )
-          ) {
-            updateEntityRecord(linkedEntity.id, parentRecord.id, {
-              ...parentRecord.values,
-              [parentLinkFieldId]: serializeEntityRelationIds(
-                parseEntityRelationIds(
-                  parentRecord.values[parentLinkFieldId],
-                ).filter((id) => id !== pendingDelete.id),
-              ),
-            });
-          }
-
-          setPendingDelete(null);
-        }}
-      />
+          }}
+        />
+      )}
     </section>
   );
 }

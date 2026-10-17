@@ -89,6 +89,7 @@ export {
   type AutomationSla,
   type AutomationStageTransition,
   type AutomationTask,
+  type AutomationLaunchPhase,
   type AutomationTaskKind,
   type AutomationTaskStatus,
   type AutomationTaskTemplate,
@@ -126,6 +127,8 @@ export {
 } from "./api/automation-config-api";
 export {
   addAutomationTaskAttachment,
+  countAutomationTasksForRecord,
+  deleteAutomationTasksForRecord,
   fetchAutomationTask,
   fetchAutomationTaskAttachments,
   fetchAutomationTasks,

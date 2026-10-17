@@ -146,6 +146,9 @@ export type AutomationNotificationRule = {
   messageTemplate: string;
 };
 
+/** When the task is created relative to landing on its stage. */
+export type AutomationLaunchPhase = "onEnter" | "beforeEnter";
+
 export type AutomationTaskTemplate = {
   id: string;
   scenarioId: string;
@@ -159,6 +162,12 @@ export type AutomationTaskTemplate = {
   stepOrder: number;
   isBlocking: boolean;
   kind: AutomationTaskKind;
+  /**
+   * `onEnter` — after landing on the stage (below «Старт»).
+   * `beforeEnter` — prep before moving to the stage (above «Старт»);
+   * spawns on the previous stage / next-option so it appears before the list change.
+   */
+  launchPhase: AutomationLaunchPhase;
   launchConditions: AutomationConditions;
   assignee: AutomationAssigneeResolver;
   watchers: AutomationAssigneeResolver;
@@ -445,6 +454,9 @@ export function normalizeAutomationTaskTemplate(
       : raw.kind === "autofill"
         ? "autofill"
         : "decision";
+  const launchPhaseRaw = raw.launchPhase ?? raw.launch_phase;
+  const launchPhase: AutomationLaunchPhase =
+    launchPhaseRaw === "beforeEnter" ? "beforeEnter" : "onEnter";
   return {
     id,
     scenarioId,
@@ -462,6 +474,7 @@ export function normalizeAutomationTaskTemplate(
         : 0,
     isBlocking,
     kind,
+    launchPhase,
     launchConditions: normalizeAutomationConditions(
       raw.launchConditions ?? raw.launch_conditions,
     ),

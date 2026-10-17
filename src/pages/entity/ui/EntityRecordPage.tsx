@@ -14,7 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
-import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1352,9 +1352,11 @@ export function EntityRecordPage({
         record={record}
       />
 
-      <ConfirmDialog
+      <RecordDeleteConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
+        entityId={entity.id}
+        recordId={record.id}
         title="Удалить запись?"
         description={`Вы уверены, что хотите удалить «${title}»? Это действие нельзя отменить.`}
         confirmLabel="Удалить"

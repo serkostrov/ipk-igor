@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
-import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
@@ -1528,11 +1528,13 @@ export function EntityTableView({
         )}
       </div>
 
-      <ConfirmDialog
+      <RecordDeleteConfirmDialog
         open={pendingDelete != null}
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null);
         }}
+        entityId={entity.id}
+        recordId={pendingDelete?.id ?? null}
         title="Удалить запись?"
         description={
           pendingDelete

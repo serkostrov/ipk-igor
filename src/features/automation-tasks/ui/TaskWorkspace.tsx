@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Lock, Paperclip } from "lucide-react";
+import { Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
-import { Input } from "@/shared/ui/input";
 import {
-  addAutomationTaskAttachment,
-  fetchAutomationTaskAttachments,
   fetchOpenAutomationTaskTimeSession,
   startAutomationTaskTimeSession,
   stopAutomationTaskTimeSession,
@@ -33,9 +30,12 @@ import {
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
-import { cn } from "@/shared/lib/cn";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
-import { getAutomationTaskAskFields } from "../lib/task-ask-fields";
+import {
+  automationOutcomeNeedsInput,
+  getAutomationOutcomeAskFields,
+  getAutomationTaskAskFields,
+} from "../lib/task-ask-fields";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
 function isFieldFilled(field: EntityField, value: string) {
@@ -129,21 +129,25 @@ function TaskWorkspaceBody({
   const valueContext = useEntityValueContext();
   const previewContext = getEntityPreviewValueContext(valueContext);
 
-  const ask = getAutomationTaskAskFields(task);
+  const taskAsk = getAutomationTaskAskFields(task);
+  const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(
+    null,
+  );
+  const selectedOutcome =
+    task.config.outcomes.find((item) => item.id === selectedOutcomeId) ?? null;
+  const ask = selectedOutcome
+    ? getAutomationOutcomeAskFields(selectedOutcome)
+    : null;
   const requiredIds = useMemo(
-    () => new Set(ask.requiredFieldIds),
-    [ask.requiredFieldIds],
+    () => new Set(ask?.requiredFieldIds ?? []),
+    [ask?.requiredFieldIds],
   );
 
   const [values, setValues] = useState<Record<string, string>>(() =>
     entity && record
-      ? buildTaskFormValues(entity, record, ask.visibleFieldIds, entities)
+      ? buildTaskFormValues(entity, record, taskAsk.visibleFieldIds, entities)
       : {},
   );
-  const [attachments, setAttachments] = useState<
-    Array<{ id: string; fileName: string }>
-  >([]);
-  const [attachmentName, setAttachmentName] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,8 +156,6 @@ function TaskWorkspaceBody({
     let cancelled = false;
     void (async () => {
       try {
-        const files = await fetchAutomationTaskAttachments(task.id);
-        if (!cancelled) setAttachments(files);
         if (sessionUser?.id) {
           const open = await fetchOpenAutomationTaskTimeSession(
             task.id,
@@ -162,10 +164,7 @@ function TaskWorkspaceBody({
           if (!cancelled) setSessionId(open);
         }
       } catch {
-        if (!cancelled) {
-          setAttachments([]);
-          setSessionId(null);
-        }
+        if (!cancelled) setSessionId(null);
       }
     })();
     return () => {
@@ -173,18 +172,20 @@ function TaskWorkspaceBody({
     };
   }, [task.id, sessionUser?.id]);
 
-  const fields = !entity
-    ? []
-    : ask.visibleFieldIds
-        .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-        .filter((field): field is EntityField => field != null)
-        .filter((field) => !isEntityComputedFieldType(field.type));
+  const fields =
+    !entity || !ask
+      ? []
+      : ask.visibleFieldIds
+          .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+          .filter((field): field is EntityField => field != null)
+          .filter((field) => !isEntityComputedFieldType(field.type));
 
-  const viewFields = !entity
-    ? []
-    : ask.viewFieldIds
-        .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-        .filter((field): field is EntityField => field != null);
+  const viewFields =
+    !entity || !ask
+      ? []
+      : ask.viewFieldIds
+          .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+          .filter((field): field is EntityField => field != null);
 
   const mergedValues = useMemo(
     () => ({ ...(record?.values ?? {}), ...values }),
@@ -192,11 +193,16 @@ function TaskWorkspaceBody({
   );
 
   const title = recordTitle(entity, mergedValues);
-  const hasForm =
-    fields.length > 0 ||
-    viewFields.length > 0 ||
-    ask.viewTabIds.length > 0 ||
-    ask.requireAttachment;
+  const hasOutcomeForm =
+    ask != null &&
+    (fields.length > 0 || viewFields.length > 0 || ask.viewTabIds.length > 0);
+  const missingRequiredCount = ask
+    ? ask.requiredFieldIds.filter((fieldId) => {
+        const field = entity?.fields.find((item) => item.id === fieldId);
+        if (!field) return true;
+        return !isFieldFilled(field, values[fieldId] ?? "");
+      }).length
+    : 0;
 
   function setValue(fieldId: string, value: string) {
     if (!entity) return;
@@ -234,10 +240,6 @@ function TaskWorkspaceBody({
     const outcome = task.config.outcomes.find((item) => item.id === outcomeId);
     if (!outcome) return "Не выбран результат";
 
-    if (outcome.fieldAccess.requireAttachment && attachments.length === 0) {
-      return "Добавьте вложение перед завершением";
-    }
-
     const missing = outcome.fieldAccess.requiredFieldIds.filter((fieldId) => {
       const field = entity.fields.find((item) => item.id === fieldId);
       if (!field) return true;
@@ -270,6 +272,17 @@ function TaskWorkspaceBody({
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleOutcomeClick(outcomeId: string) {
+    const outcome = task.config.outcomes.find((item) => item.id === outcomeId);
+    if (!outcome) return;
+    setError(null);
+    if (!automationOutcomeNeedsInput(outcome)) {
+      void run(outcomeId);
+      return;
+    }
+    setSelectedOutcomeId(outcomeId);
   }
 
   return (
@@ -325,183 +338,128 @@ function TaskWorkspaceBody({
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           Запись ещё не загружена. Обновите страницу или откройте карточку.
         </p>
-      ) : hasForm ? (
-        <section className="flex flex-col gap-4 rounded-xl border border-border bg-card px-4 py-4 shadow-xs">
-          {ask.viewTabIds.length > 0 ? (
-            <TaskViewTabsPreview
-              entity={entity}
-              record={{ ...record, values: mergedValues }}
-              tabIds={ask.viewTabIds}
-              className="border-border/60 bg-muted/10"
-            />
-          ) : null}
-
-          {viewFields.length > 0 ? (
-            <div className="flex flex-col gap-2.5">
-              <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                Контекст
-              </p>
-              <div className="grid gap-2">
-                {viewFields.map((field) => (
-                  <div
-                    key={field.id}
-                    className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5"
-                  >
-                    <p className="text-[11px] font-medium text-muted-foreground">
-                      {getEntityFieldDisplayName(field)}
-                    </p>
-                    <RecordValue
-                      ctx={previewContext}
-                      entity={entity}
-                      record={{ ...record, values: mergedValues }}
-                      field={field}
-                      className="mt-0.5 text-sm text-foreground"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {fields.length > 0 ? (
-            <div className="flex flex-col gap-3.5">
-              {viewFields.length > 0 ? (
-                <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                  Заполнить
-                </p>
-              ) : null}
-              {fields.map((field) => {
-                const parentField = getEntityListParentField(entity, field);
-                const parentValue = parentField
-                  ? (values[parentField.id] ?? record.values[parentField.id])
-                  : undefined;
-                const listOptions =
-                  field.type === "list"
-                    ? getVisibleListOptions(
-                        field,
-                        parentValue,
-                        parentField,
-                        entities,
-                      )
-                    : field.listOptions;
-                const listPresentation = resolveEntityListFieldPresentation(
-                  field,
-                  entities,
-                );
-                const listDisabled =
-                  field.type === "list" &&
-                  parentField != null &&
-                  parseEntityListValueIds(parentValue).length === 0;
-                const required = requiredIds.has(field.id);
-
-                return (
-                  <div key={field.id} className="relative">
-                    {required ? (
-                      <span className="absolute top-0 right-0 z-10 inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                        <Lock className="size-3" aria-hidden />
-                        обяз.
-                      </span>
-                    ) : null}
-                    <RecordFieldControl
-                      ctx={previewContext}
-                      entity={entity}
-                      field={field}
-                      value={values[field.id] ?? ""}
-                      values={mergedValues}
-                      onChange={(value) => setValue(field.id, value)}
-                      listOptions={listOptions}
-                      listDisabled={listDisabled}
-                      listDisabledHint={
-                        parentField
-                          ? `Сначала выберите «${getEntityFieldDisplayName(parentField)}»`
-                          : undefined
-                      }
-                      listMultiple={listPresentation.listMultiple}
-                      showColors={listPresentation.listUseColors}
-                      listAllowEmpty={!required}
-                      entities={entities}
-                      recordId={record.id}
-                      required={required}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-        </section>
-      ) : (
-        <div className="rounded-xl border border-border/70 bg-muted/15 px-4 py-3">
+      ) : !selectedOutcome ? (
+        <div className="rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-3">
           <p className="text-sm text-muted-foreground">
-            Для этого шага нет полей — можно сразу выбрать результат.
+            Выберите результат — поля формы появятся, если они заданы для этого
+            результата.
           </p>
         </div>
-      )}
+      ) : hasOutcomeForm ? (
+        <TaskViewTabsPreview
+          entity={entity}
+          record={{ ...record, values: mergedValues }}
+          tabIds={ask.viewTabIds}
+          className="shadow-xs"
+          fillBadge={
+            missingRequiredCount > 0 ? (
+              <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">
+                {missingRequiredCount}
+              </span>
+            ) : null
+          }
+          fillSlot={
+            fields.length > 0 || viewFields.length > 0 ? (
+              <div className="flex flex-col gap-4">
+                {viewFields.length > 0 ? (
+                  <div className="flex flex-col gap-2.5">
+                    <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                      Контекст
+                    </p>
+                    <div className="grid gap-2">
+                      {viewFields.map((field) => (
+                        <div
+                          key={field.id}
+                          className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5"
+                        >
+                          <p className="text-[11px] font-medium text-muted-foreground">
+                            {getEntityFieldDisplayName(field)}
+                          </p>
+                          <RecordValue
+                            ctx={previewContext}
+                            entity={entity}
+                            record={{ ...record, values: mergedValues }}
+                            field={field}
+                            className="mt-0.5 text-sm text-foreground"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
-      <div
-        className={cn(
-          "rounded-xl border px-3 py-3",
-          ask.requireAttachment
-            ? "border-border bg-muted/15"
-            : "border-border/70",
-        )}
-      >
-        <div className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-          <Paperclip className="size-3.5" aria-hidden />
-          Вложения
-          {ask.requireAttachment ? " · обязательно" : ""}
-        </div>
-        <ul className="mt-2 flex flex-col gap-1">
-          {attachments.map((file) => (
-            <li key={file.id} className="text-sm">
-              {file.fileName}
-            </li>
-          ))}
-          {attachments.length === 0 ? (
-            <li className="text-xs text-muted-foreground">Нет файлов</li>
-          ) : null}
-        </ul>
-        <div className="mt-2 flex gap-2">
-          <Input
-            className="h-8"
-            placeholder="Имя файла"
-            value={attachmentName}
-            onChange={(event) => setAttachmentName(event.target.value)}
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!attachmentName.trim() || busy}
-            onClick={() => {
-              void (async () => {
-                setBusy(true);
-                try {
-                  const id = await addAutomationTaskAttachment({
-                    taskId: task.id,
-                    fileName: attachmentName.trim(),
-                  });
-                  setAttachments((prev) => [
-                    ...prev,
-                    { id, fileName: attachmentName.trim() },
-                  ]);
-                  setAttachmentName("");
-                } catch (err: unknown) {
-                  setError(
-                    getAutomationErrorMessage(
-                      err,
-                      "Не удалось добавить вложение",
-                    ),
-                  );
-                } finally {
-                  setBusy(false);
-                }
-              })();
-            }}
-          >
-            Добавить
-          </Button>
-        </div>
-      </div>
+                {fields.length > 0 ? (
+                  <div className="flex flex-col gap-3.5">
+                    {viewFields.length > 0 ? (
+                      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                        Заполнить
+                      </p>
+                    ) : null}
+                    {fields.map((field) => {
+                      const parentField = getEntityListParentField(
+                        entity,
+                        field,
+                      );
+                      const parentValue = parentField
+                        ? (values[parentField.id] ??
+                          record.values[parentField.id])
+                        : undefined;
+                      const listOptions =
+                        field.type === "list"
+                          ? getVisibleListOptions(
+                              field,
+                              parentValue,
+                              parentField,
+                              entities,
+                            )
+                          : field.listOptions;
+                      const listPresentation =
+                        resolveEntityListFieldPresentation(field, entities);
+                      const listDisabled =
+                        field.type === "list" &&
+                        parentField != null &&
+                        parseEntityListValueIds(parentValue).length === 0;
+                      const required = requiredIds.has(field.id);
+
+                      return (
+                        <div key={field.id} className="relative">
+                          {required ? (
+                            <span className="absolute top-0 right-0 z-10 inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                              <Lock className="size-3" aria-hidden />
+                              обяз.
+                            </span>
+                          ) : null}
+                          <RecordFieldControl
+                            ctx={previewContext}
+                            entity={entity}
+                            field={field}
+                            value={values[field.id] ?? ""}
+                            values={mergedValues}
+                            onChange={(value) => setValue(field.id, value)}
+                            listOptions={listOptions}
+                            listDisabled={listDisabled}
+                            listDisabledHint={
+                              parentField
+                                ? `Сначала выберите «${getEntityFieldDisplayName(parentField)}»`
+                                : undefined
+                            }
+                            listMultiple={listPresentation.listMultiple}
+                            showColors={listPresentation.listUseColors}
+                            listAllowEmpty={!required}
+                            entities={entities}
+                            recordId={record.id}
+                            required={required}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : undefined
+          }
+        />
+      ) : null}
 
       {error ? (
         <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -511,16 +469,39 @@ function TaskWorkspaceBody({
 
       <footer className="flex flex-col gap-3 border-t border-border/70 pt-4">
         <div className="flex flex-wrap gap-2">
-          {task.config.outcomes.map((outcome) => (
-            <Button
-              key={outcome.id}
-              type="button"
-              disabled={busy || !record}
-              onClick={() => void run(outcome.id)}
-            >
-              {outcome.label}
-            </Button>
-          ))}
+          {selectedOutcome ? (
+            <>
+              <Button
+                type="button"
+                disabled={busy || !record}
+                onClick={() => void run(selectedOutcome.id)}
+              >
+                {selectedOutcome.label}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  setSelectedOutcomeId(null);
+                  setError(null);
+                }}
+              >
+                Назад
+              </Button>
+            </>
+          ) : (
+            task.config.outcomes.map((outcome) => (
+              <Button
+                key={outcome.id}
+                type="button"
+                disabled={busy || !record}
+                onClick={() => handleOutcomeClick(outcome.id)}
+              >
+                {outcome.label}
+              </Button>
+            ))
+          )}
           <Button
             type="button"
             variant="outline"
