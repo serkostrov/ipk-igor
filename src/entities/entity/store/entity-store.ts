@@ -2410,9 +2410,7 @@ function insertRecord(entityId: string, values: Record<string, string>) {
       .catch((error: unknown) => {
         dropEntityRecordLocal(entityId, record.id);
         handlePersistError(error, "Не удалось сохранить запись");
-        throw new Error(
-          getErrorMessage(error, "Не удалось сохранить запись"),
-        );
+        throw new Error(getErrorMessage(error, "Не удалось сохранить запись"));
       })
       .finally(() => {
         pendingRecordInserts.delete(record.id);

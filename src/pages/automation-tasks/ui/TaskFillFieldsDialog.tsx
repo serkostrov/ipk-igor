@@ -12,6 +12,7 @@ import {
 import {
   completeAutomationTask,
   fetchAutomationTask,
+  resolveAutomationGateError,
   returnAutomationTaskForRevision,
   type AutomationOutcome,
   type AutomationTask,
@@ -213,8 +214,7 @@ function TaskFillFieldsDialogBody({
 
   function setValue(fieldId: string, value: string) {
     if (!entity) return;
-    const actorUserId =
-      sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
     setValues((current) => {
       const base = applyEntityFieldValue(
         entity,
@@ -317,7 +317,21 @@ function TaskFillFieldsDialogBody({
       onOpenChange(false);
       onCompleted?.(completed);
     } catch (err: unknown) {
-      setError(getAutomationErrorMessage(err, "Ошибка завершения"));
+      const completed = task;
+      setError(
+        completed
+          ? await resolveAutomationGateError(
+              err,
+              {
+                taskId: completed.id,
+                recordId: completed.recordId,
+                triggerOptionId: completed.triggerOptionId,
+                stepOrder: completed.stepOrder,
+              },
+              "Ошибка завершения",
+            )
+          : getAutomationErrorMessage(err, "Ошибка завершения"),
+      );
     } finally {
       setBusy(false);
     }
@@ -333,8 +347,7 @@ function TaskFillFieldsDialogBody({
     if (!entity || !record) return;
     const actions = getOutcomeSetFieldActions(outcome);
     if (actions.length === 0) return;
-    const actorUserId =
-      sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
     setValues((current) => {
       const merged = { ...record.values, ...current };
       const filled = applyAutomationSetFieldAutofill({
@@ -528,7 +541,7 @@ function TaskFillFieldsDialogBody({
           ) : null}
 
           {error ? (
-            <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <p className="whitespace-pre-line rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {error}
             </p>
           ) : null}

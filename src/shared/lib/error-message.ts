@@ -17,18 +17,93 @@ export function getErrorMessage(error: unknown, fallback = "Ошибка"): stri
   return fallback;
 }
 
+/** Build a clear “do this first” message from blocking task titles. */
+export function formatAutomationBlockingMessage(
+  taskNames: string[],
+  options?: { previous?: boolean },
+): string {
+  const names = [
+    ...new Set(
+      taskNames.map((name) => name.trim()).filter((name) => name.length > 0),
+    ),
+  ];
+  if (names.length === 0) {
+    return options?.previous
+      ? "Сначала выполните предыдущие блокирующие задачи"
+      : "Сначала выполните блокирующие задачи автоматизации";
+  }
+  if (names.length === 1) {
+    return `Сначала выполните задачу «${names[0]}»`;
+  }
+  return `Сначала выполните задачи:\n• ${names.join("\n• ")}`;
+}
+
+function extractAutomationGateDetail(
+  raw: string,
+  code: "AUTOMATION_ORDER" | "AUTOMATION_BLOCKED",
+): string | null {
+  const match = raw.match(new RegExp(`${code}:\\s*(.+)$`, "i"));
+  if (!match?.[1]) return null;
+  return match[1].trim().replace(/\.$/, "");
+}
+
+function isGenericAutomationGateDetail(
+  detail: string,
+  code: "AUTOMATION_ORDER" | "AUTOMATION_BLOCKED",
+): boolean {
+  if (code === "AUTOMATION_ORDER") {
+    return /^Сначала выполните предыдущие блокирующие задачи\.?$/i.test(detail);
+  }
+  return /^Сначала выполните блокирующие задачи автоматизации(\s*\(\d+\))?\.?$/i.test(
+    detail,
+  );
+}
+
 /** Friendly copy for known automation RPC / trigger failures. */
 export function getAutomationErrorMessage(
   error: unknown,
   fallback = "Ошибка",
 ): string {
   const raw = getErrorMessage(error, fallback);
-  if (raw.includes("AUTOMATION_ORDER")) {
+
+  const orderDetail = extractAutomationGateDetail(raw, "AUTOMATION_ORDER");
+  if (orderDetail != null) {
+    if (!isGenericAutomationGateDetail(orderDetail, "AUTOMATION_ORDER")) {
+      const listed = orderDetail.match(/^Сначала выполните:\s*(.+)$/i)?.[1];
+      if (listed) {
+        return formatAutomationBlockingMessage(
+          listed.split(",").map((part) => part.trim()),
+          { previous: true },
+        );
+      }
+      return orderDetail.startsWith("Сначала выполните")
+        ? orderDetail
+        : formatAutomationBlockingMessage(
+            orderDetail.split(",").map((part) => part.trim()),
+            { previous: true },
+          );
+    }
     return "Сначала выполните предыдущие блокирующие задачи";
   }
-  if (raw.includes("AUTOMATION_BLOCKED")) {
+
+  const blockedDetail = extractAutomationGateDetail(raw, "AUTOMATION_BLOCKED");
+  if (blockedDetail != null) {
+    if (!isGenericAutomationGateDetail(blockedDetail, "AUTOMATION_BLOCKED")) {
+      const listed = blockedDetail.match(/^Сначала выполните:\s*(.+)$/i)?.[1];
+      if (listed) {
+        return formatAutomationBlockingMessage(
+          listed.split(",").map((part) => part.trim()),
+        );
+      }
+      return blockedDetail.startsWith("Сначала выполните")
+        ? blockedDetail
+        : formatAutomationBlockingMessage(
+            blockedDetail.split(",").map((part) => part.trim()),
+          );
+    }
     return "Сначала выполните блокирующие задачи автоматизации";
   }
+
   if (/task is not pending/i.test(raw)) {
     return "Задача уже завершена или отменена";
   }

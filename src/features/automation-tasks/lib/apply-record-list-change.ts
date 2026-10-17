@@ -23,6 +23,7 @@ import {
 } from "@/entities/entity";
 import { getSessionUser } from "@/entities/session";
 import { isSupabaseConfigured } from "@/shared/api/supabase";
+import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { automationTaskNeedsFillDialog } from "./task-ask-fields";
 import {
   clearAutomationTaskFillDialogDismissed,
@@ -151,8 +152,7 @@ async function isBeforeEnterPrepCompletedForDestination(
   });
   return prepTemplates.every((template) =>
     history.some(
-      (task) =>
-        task.templateId === template.id && task.status === "completed",
+      (task) => task.templateId === template.id && task.status === "completed",
     ),
   );
 }
@@ -200,28 +200,49 @@ function assigneeLabel(task: AutomationTask) {
  * Open a blocking task only when it belongs to the current user.
  * Otherwise explain who must complete it — do not hijack their form.
  */
+function describeBlockingTasksForToast(tasks: AutomationTask[]) {
+  if (tasks.length === 0) {
+    return "Есть незавершённые блокирующие задачи на текущем статусе";
+  }
+  if (tasks.length === 1) {
+    const only = tasks[0]!;
+    const who = assigneeLabel(only);
+    return who
+      ? `«${only.name || "Задача"}» — назначена на ${who}`
+      : `«${only.name || "Задача"}»`;
+  }
+  return tasks
+    .map((task) => {
+      const who = assigneeLabel(task);
+      const title = task.name || "Задача";
+      return who ? `«${title}» (${who})` : `«${title}»`;
+    })
+    .join(", ");
+}
+
 function openBlockingTaskOrNotify(tasks: AutomationTask[]) {
   const mine =
     pickTaskToOpen(tasks, { allowDismissed: true, onlyMine: true }) ?? null;
   if (mine) {
-    openTaskDialog(mine, { toast: "blocked" });
+    openTaskDialog(mine, {
+      toast: "blocked",
+      blockingTasks: tasks,
+    });
     return;
   }
-  const other = tasks[0];
-  if (!other) return;
-  const who = assigneeLabel(other);
-  toast.warning("Сначала выполните задачу", {
-    description: who
-      ? `«${other.name || "Задача"}» назначена на ${who}`
-      : other.name ||
-        "Есть незавершённые блокирующие задачи на текущем статусе",
-    duration: 7_000,
+  if (tasks.length === 0) return;
+  toast.warning("Сначала выполните задачи", {
+    description: describeBlockingTasksForToast(tasks),
+    duration: 8_000,
   });
 }
 
 function openTaskDialog(
   task: AutomationTask,
-  options?: { toast?: "spawn" | "blocked" | "none" },
+  options?: {
+    toast?: "spawn" | "blocked" | "none";
+    blockingTasks?: AutomationTask[];
+  },
 ) {
   const toastKind = options?.toast ?? "spawn";
   clearAutomationTaskFillDialogDismissed(task.id);
@@ -229,11 +250,12 @@ function openTaskDialog(
     openAutomationTaskFillDialog(task.id);
     if (toastKind === "none") return;
     if (toastKind === "blocked") {
-      toast.warning("Сначала выполните задачу", {
-        description:
-          task.name ||
-          "Есть незавершённые блокирующие задачи на текущем статусе",
-        duration: 7_000,
+      const blocking = options?.blockingTasks?.length
+        ? options.blockingTasks
+        : [task];
+      toast.warning("Сначала выполните задачи", {
+        description: describeBlockingTasksForToast(blocking),
+        duration: 8_000,
         action: {
           label: "Открыть",
           onClick: () => openAutomationTaskFillDialog(task.id),
@@ -575,8 +597,11 @@ export async function applyRecordListChange(
       } catch (fetchError: unknown) {
         console.error("[automation] load blocking tasks failed", fetchError);
         toast.warning("Переход заблокирован", {
-          description: "Сначала выполните блокирующие задачи автоматизации",
-          duration: 7_000,
+          description: getAutomationErrorMessage(
+            error,
+            "Сначала выполните блокирующие задачи автоматизации",
+          ),
+          duration: 8_000,
         });
       }
       return false;

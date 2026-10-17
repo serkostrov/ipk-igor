@@ -22,6 +22,7 @@ import {
 } from "../api/automation-tasks-api";
 import { resolveAutomationActionValue } from "../model/action-values";
 import { getAutomationConfig } from "../store/automation-store";
+import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
 import type { AutomationOutcomeFieldAccess } from "../model/types";
 
@@ -154,11 +155,22 @@ export async function completeAutomationTask(
     );
   }
 
-  const rpcResult = await completeAutomationTaskRpc(
-    taskId,
-    outcome.id,
-    actorUserId,
-  );
+  let rpcResult;
+  try {
+    rpcResult = await completeAutomationTaskRpc(
+      taskId,
+      outcome.id,
+      actorUserId,
+    );
+  } catch (error: unknown) {
+    const message = await resolveAutomationGateError(error, {
+      taskId: task.id,
+      recordId: task.recordId,
+      triggerOptionId: task.triggerOptionId,
+      stepOrder: task.stepOrder,
+    });
+    throw new Error(message, { cause: error });
+  }
   notifyAutomationTasksChanged();
 
   // SQL setField writes the DB; realtime is often down — mirror into local store

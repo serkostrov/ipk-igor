@@ -212,9 +212,7 @@ export async function completeAutomationTaskRpc(
   };
 }
 
-function parseRpcFieldValues(
-  value: unknown,
-): Record<string, string> | null {
+function parseRpcFieldValues(value: unknown): Record<string, string> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }

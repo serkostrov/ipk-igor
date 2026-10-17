@@ -417,9 +417,7 @@ function EntityRecordForm({
                 onCancel();
               })
               .catch((error: unknown) => {
-                setSubmitError(
-                  getErrorMessage(error, "Не удалось сохранить"),
-                );
+                setSubmitError(getErrorMessage(error, "Не удалось сохранить"));
               })
               .finally(() => {
                 setPending(false);

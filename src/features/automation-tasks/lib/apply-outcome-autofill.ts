@@ -7,10 +7,7 @@ import {
   type AutomationAction,
   type AutomationOutcome,
 } from "@/entities/automation";
-import {
-  applyEntityFieldValue,
-  type Entity,
-} from "@/entities/entity";
+import { applyEntityFieldValue, type Entity } from "@/entities/entity";
 
 /** setField actions that write a concrete field. */
 export function getOutcomeSetFieldActions(

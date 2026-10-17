@@ -3,6 +3,7 @@ import { Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
   automationRequiresTimeTracking,
+  resolveAutomationGateError,
   type AutomationTask,
 } from "@/entities/automation";
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
@@ -209,8 +210,7 @@ function TaskWorkspaceBody({
       task.config.outcomes.find((item) => item.id === outcomeId) ?? null;
     const actions = getOutcomeSetFieldActions(outcome);
     if (actions.length === 0) return;
-    const actorUserId =
-      sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
     setValues((current) => {
       const merged = { ...record.values, ...current };
       const filled = applyAutomationSetFieldAutofill({
@@ -264,8 +264,7 @@ function TaskWorkspaceBody({
 
   function setValue(fieldId: string, value: string) {
     if (!entity) return;
-    const actorUserId =
-      sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
     setValues((current) => {
       const base = applyEntityFieldValue(
         entity,
@@ -361,7 +360,18 @@ function TaskWorkspaceBody({
       await resumePendingRecordListChange(task.recordId);
       onCompleted();
     } catch (err: unknown) {
-      setError(getAutomationErrorMessage(err, "Ошибка завершения"));
+      setError(
+        await resolveAutomationGateError(
+          err,
+          {
+            taskId: task.id,
+            recordId: task.recordId,
+            triggerOptionId: task.triggerOptionId,
+            stepOrder: task.stepOrder,
+          },
+          "Ошибка завершения",
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -560,7 +570,7 @@ function TaskWorkspaceBody({
       ) : null}
 
       {error ? (
-        <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+        <p className="whitespace-pre-line rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
       ) : null}

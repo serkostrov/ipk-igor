@@ -136,6 +136,11 @@ export {
   returnAutomationTaskForRevision,
 } from "./lib/complete-task";
 export {
+  describeBlockingTasks,
+  resolveAutomationGateError,
+  type AutomationGateContext,
+} from "./lib/blocking-error";
+export {
   fetchAutomationConfig,
   saveAutomationConfig,
   upsertAutomationProcess,
