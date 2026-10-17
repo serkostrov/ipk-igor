@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Filter, GitBranch, Plus, RotateCcw, Save, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
@@ -332,7 +332,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   }
 
   function patchCanvasLayout(patch: Partial<AutomationCanvasLayout>) {
-    updateDraft((prev) => {
+    const apply = (prev: AutomationEditSnapshot): AutomationEditSnapshot => {
       const current = prev.scenario.canvasLayout;
       const nextLayout: AutomationCanvasLayout = {
         positions: patch.positions ?? current.positions,
@@ -352,6 +352,29 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         ...prev,
         scenario: { ...prev.scenario, canvasLayout: nextLayout },
       };
+    };
+
+    if (draft) {
+      updateDraft(apply);
+      return;
+    }
+
+    // First interaction on an entity that had no draft yet.
+    void ensureProcess().then((ensured) => {
+      if (!ensured) return;
+      const base = makeSnap(
+        ensured.scenario,
+        templates.filter((item) => item.scenarioId === ensured.scenario.id),
+      );
+      const next = apply(base);
+      if (snapsEqual(base, next)) {
+        setDraft(base);
+        setSaved(cloneSnap(base));
+        return;
+      }
+      setDraft(next);
+      setSaved(cloneSnap(base));
+      setUndoStack([cloneSnap(base)]);
     });
   }
 
@@ -403,8 +426,22 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     scenario: AutomationScenario;
   } | null> {
     if (!resolvedEntityId || !resolvedTriggerFieldId) return null;
-    if (process && scenario) return { process, scenario };
-    if (process && !scenario) {
+
+    // Prefer the store scenario (not draft-derived `scenario`, which is null
+    // until a draft is seeded — that blocked Save/Undo on entities without a
+    // prior edit session).
+    if (process && storeScenario) {
+      if (!draft || draft.scenario.id !== storeScenario.id) {
+        const snap = makeSnap(storeScenario, templates);
+        setDraft(snap);
+        setSaved(cloneSnap(snap));
+        setUndoStack([]);
+        setSeededScenarioId(storeScenario.id);
+      }
+      return { process, scenario: storeScenario };
+    }
+
+    if (process && !storeScenario) {
       const next: AutomationScenario = {
         id: createAutomationScenarioId(),
         processId: process.id,
@@ -422,8 +459,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       setDraft(snap);
       setSaved(cloneSnap(snap));
       setUndoStack([]);
+      setSeededScenarioId(next.id);
       return { process, scenario: next };
     }
+
     const created = createDefaultProcess({
       name: `${entity?.name ?? "Сущность"} · автоматизация`,
       entityId: resolvedEntityId,
@@ -438,8 +477,36 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setDraft(snap);
     setSaved(cloneSnap(snap));
     setUndoStack([]);
+    setSeededScenarioId(created.scenario.id);
     return created;
   }
+
+  // Seed a process/scenario as soon as the stage map is shown so canvas drags
+  // can mark the draft dirty (Save / Undo / Revert). Without this, entities
+  // that never had «+ задача» kept draft=null and updateDraft was a no-op.
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (!resolvedEntityId || !resolvedTriggerFieldId) return;
+    if (stages.length === 0) return;
+    if (draft && process && storeScenario) return;
+
+    let cancelled = false;
+    void ensureProcess().then((ensured) => {
+      if (cancelled || !ensured) return;
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional seed on entity/field/map
+  }, [
+    status,
+    resolvedEntityId,
+    resolvedTriggerFieldId,
+    stages.length,
+    process?.id,
+    storeScenarioId,
+    draft?.scenario.id,
+  ]);
 
   async function addScenario() {
     if (!confirmDiscardIfDirty()) return;
