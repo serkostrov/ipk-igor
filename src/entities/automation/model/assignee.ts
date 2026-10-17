@@ -53,8 +53,7 @@ export function normalizeAssigneeResolver(
     case "field":
     case "relationFieldFanOut": {
       const fieldIdRaw = raw.fieldId ?? raw.field_id;
-      const fieldId =
-        typeof fieldIdRaw === "string" ? fieldIdRaw.trim() : "";
+      const fieldId = typeof fieldIdRaw === "string" ? fieldIdRaw.trim() : "";
       if (!fieldId) return defaultAssigneeResolver();
       return { type, fieldId };
     }

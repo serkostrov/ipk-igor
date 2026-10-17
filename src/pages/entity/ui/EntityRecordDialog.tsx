@@ -34,6 +34,7 @@ import {
   resolveEntityFieldDefaultValue,
   resolveEntityListFieldPresentation,
   updateEntityRecord,
+  waitForEntityRecordInsert,
   useCurrentUserRecordId,
   useEntityConfig,
   useEntityValueContext,
@@ -474,10 +475,11 @@ export function EntityRecordDialog({
                 return;
               }
               if (record) {
-                updateEntityRecord(entity.id, record.id, values);
+                await updateEntityRecord(entity.id, record.id, values);
                 return;
               }
-              addEntityRecord(entity.id, values);
+              const created = addEntityRecord(entity.id, values);
+              await waitForEntityRecordInsert(created.id);
             }}
           />
         ) : null}

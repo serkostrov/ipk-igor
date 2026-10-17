@@ -26,6 +26,7 @@ import { cn } from "@/shared/lib/cn";
 import { canField, useCanEntity, useCurrentRole } from "@/entities/access";
 import {
   addEntityRecord,
+  waitForEntityRecordInsert,
   ENTITY_FIELD_GROUP_COLUMNS,
   ENTITY_OVERVIEW_TAB_ID,
   getEntityRecordCopyValues,
@@ -1134,7 +1135,13 @@ export function EntityRecordPage({
       entity.id,
       getEntityRecordCopyValues(entity, record),
     );
-    onOpenRelation?.(entity.id, copy.id);
+    void waitForEntityRecordInsert(copy.id)
+      .then(() => {
+        onOpenRelation?.(entity.id, copy.id);
+      })
+      .catch(() => {
+        // Persist error already surfaced via entity store status.
+      });
   }
 
   function handleListChange(fieldId: string, optionId: string) {

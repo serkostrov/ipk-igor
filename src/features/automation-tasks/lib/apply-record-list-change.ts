@@ -152,7 +152,8 @@ function openBlockingTaskOrNotify(tasks: AutomationTask[]) {
   toast.warning("Сначала выполните задачу", {
     description: who
       ? `«${other.name || "Задача"}» назначена на ${who}`
-      : other.name || "Есть незавершённые блокирующие задачи на текущем статусе",
+      : other.name ||
+        "Есть незавершённые блокирующие задачи на текущем статусе",
     duration: 7_000,
   });
 }
@@ -417,9 +418,7 @@ export async function applyRecordListChange(
       try {
         const pending = await fetchPendingTasksForRecord(record.id);
         const blocking = findBlockingTasks(pending, field.id, fromOptionId);
-        openBlockingTaskOrNotify(
-          blocking.length > 0 ? blocking : pending,
-        );
+        openBlockingTaskOrNotify(blocking.length > 0 ? blocking : pending);
       } catch (fetchError: unknown) {
         console.error("[automation] load blocking tasks failed", fetchError);
         toast.warning("Переход заблокирован", {

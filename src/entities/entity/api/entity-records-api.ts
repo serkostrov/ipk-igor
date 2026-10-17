@@ -225,9 +225,41 @@ export async function insertEntityRecord(
   return rowToRecord(data as unknown as EntityRecordRow);
 }
 
+function isAutomationPersistError(error: unknown) {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message?: unknown }).message ?? "")
+      : error instanceof Error
+        ? error.message
+        : String(error ?? "");
+  return (
+    message.includes("AUTOMATION_BLOCKED") ||
+    message.includes("AUTOMATION_ORDER")
+  );
+}
+
+function isMissingRpcError(error: unknown) {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message?: unknown }).message ?? "")
+      : error instanceof Error
+        ? error.message
+        : String(error ?? "");
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code ?? "")
+      : "";
+  return (
+    code === "PGRST202" ||
+    code === "42883" ||
+    /could not find the function|function .* does not exist/i.test(message)
+  );
+}
+
 /**
- * Updates record field values via RPC that strips fields the role cannot edit.
- * Falls back to a direct update when the RPC is unavailable (local / pre-migration).
+ * Updates record field values via merge RPC when available.
+ * Falls back to a direct update only when the RPC is missing (pre-migration).
+ * Automation guard errors are never masked by a second write attempt.
  */
 export async function updateEntityRecordValues(
   recordId: string,
@@ -259,6 +291,11 @@ export async function updateEntityRecordValues(
     return rowToRecord(row);
   }
 
+  if (rpcError) {
+    if (isAutomationPersistError(rpcError)) throw rpcError;
+    if (!isMissingRpcError(rpcError)) throw rpcError;
+  }
+
   const select = entityRecordsSupportsCreatedBy()
     ? ENTITY_RECORD_SELECT
     : ENTITY_RECORD_SELECT_LEGACY;
@@ -286,7 +323,7 @@ export async function updateEntityRecordValues(
       .single());
   }
 
-  if (error) throw rpcError ?? error;
+  if (error) throw error;
   return rowToRecord(data as unknown as EntityRecordRow);
 }
 

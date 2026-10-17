@@ -984,9 +984,7 @@ function resolveStageForTaskDrop(input: {
   }
   if (!best) return current;
 
-  const currentHeader = nodes.find(
-    (node) => node.id === `stage:${current.id}`,
-  );
+  const currentHeader = nodes.find((node) => node.id === `stage:${current.id}`);
   if (!currentHeader || best.id === current.id) return best;
 
   // Require crossing past mid-gap before switching columns.
@@ -1001,8 +999,7 @@ function resolvePhaseForTaskDrop(
   triggerNodeY: number | undefined,
   beforeCountExcludingSelf: number,
 ): AutomationLaunchPhase {
-  const triggerY =
-    triggerNodeY ?? triggerYForStage(beforeCountExcludingSelf);
+  const triggerY = triggerNodeY ?? triggerYForStage(beforeCountExcludingSelf);
   // Compare card center to trigger mid — freelayout-safe.
   return dropY + TASK_H / 2 < triggerY + TRIGGER_H / 2
     ? "beforeEnter"
@@ -1411,11 +1408,14 @@ function FlowInner({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
   const collapsedStageIdsRef = useRef(collapsedStageIds);
   const dragStartRef = useRef<{ id: string; x: number; y: number } | null>(
     null,
   );
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
   /** When dragging a stage header, child column nodes move by the same delta. */
   const stageGroupDragRef = useRef<{
     stageId: string;
@@ -1795,11 +1795,7 @@ function FlowInner({
         triggerNode?.position.y,
         beforeOthers.length,
       );
-      const phaseSiblings = templatesForStage(
-        templates,
-        stage.id,
-        launchPhase,
-      )
+      const phaseSiblings = templatesForStage(templates, stage.id, launchPhase)
         .filter((item) => item.id !== node.id)
         .map((item) => item.id);
       const stepOrder = stepOrderAmongSiblings(

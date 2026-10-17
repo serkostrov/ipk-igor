@@ -24,7 +24,11 @@ import {
   normalizeEntityRecord,
   toEntityStructure,
 } from "../lib/parse-entity-config";
-import { serializeEntityDecimal } from "../model/field";
+import {
+  parseEntityListValueIds,
+  serializeEntityDecimal,
+  serializeEntityListValueIds,
+} from "../model/field";
 import {
   applyEntityFieldDefaults,
   applyEntityFilesTabDefaults,
@@ -61,6 +65,7 @@ import {
   getEntityFieldTabId,
   getEntityFieldsHostTabIds,
   getEntityHomeFieldsTabId,
+  getEntityKanbanField,
   getEntityRelationTargetId,
   getEntityTableFields,
   isEntityFieldsHostTab,
@@ -83,6 +88,7 @@ import {
   packEntityFieldGroupsByArea,
   resolveEntityKanbanFieldId,
   resolveEntityListDependencies,
+  resolveEntityListFieldOptions,
 } from "../model/types";
 import type {
   Entity,
@@ -118,6 +124,8 @@ const listeners = new Set<Listener>();
 const LOCAL_WRITE_ECHO_MS = 4000;
 const localRecordWrites = new Map<string, number>();
 const localStructureWrites = new Map<string, number>();
+/** In-flight inserts so updates wait for the row to exist remotely. */
+const pendingRecordInserts = new Map<string, Promise<void>>();
 
 function notify() {
   listeners.forEach((listener) => listener());
@@ -2338,14 +2346,50 @@ export function moveEntityFieldToGroup(
   });
 }
 
+/** Seed the kanban list column when the create form left it empty. */
+function applyKanbanListDefault(
+  entity: Entity,
+  values: Record<string, string>,
+): Record<string, string> {
+  const field = getEntityKanbanField(entity);
+  if (!field || field.type !== "list") return values;
+  const selected = parseEntityListValueIds(values[field.id]);
+  if (selected.length > 0) return values;
+  const first = resolveEntityListFieldOptions(field, config.entities)[0];
+  if (!first) return values;
+  return {
+    ...values,
+    [field.id]: serializeEntityListValueIds([first.id]),
+  };
+}
+
+/** Drop a ghost local row without calling the delete API. */
+function dropEntityRecordLocal(entityId: string, recordId: string) {
+  mapEntityLocal(entityId, (entity) => ({
+    ...entity,
+    records: entity.records.filter((record) => record.id !== recordId),
+  }));
+}
+
+/**
+ * Wait until a just-created record has finished remote insert (or failed).
+ * No-op when the record was never pending or Supabase is off.
+ */
+export function waitForEntityRecordInsert(recordId: string): Promise<void> {
+  return pendingRecordInserts.get(recordId) ?? Promise.resolve();
+}
+
 function insertRecord(entityId: string, values: Record<string, string>) {
   const entity = config.entities.find((item) => item.id === entityId);
   const withFieldDefaults = entity
     ? applyEntityFieldDefaults(entity, values, getCurrentUserRecordId())
     : values;
-  const withDefaults = entity
+  const withFilesDefaults = entity
     ? applyEntityFilesTabDefaults(entity, withFieldDefaults)
     : withFieldDefaults;
+  const withDefaults = entity
+    ? applyKanbanListDefault(entity, withFilesDefaults)
+    : withFilesDefaults;
   const record = normalizeEntityRecord({
     id: createId("record"),
     values: withDefaults,
@@ -2360,9 +2404,19 @@ function insertRecord(entityId: string, values: Record<string, string>) {
 
   if (isSupabaseConfigured) {
     markLocalRecordWrite(record.id);
-    void insertEntityRecord(entityId, record).catch((error: unknown) => {
-      handlePersistError(error, "Не удалось сохранить запись");
-    });
+    const persist = insertEntityRecord(entityId, record)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        dropEntityRecordLocal(entityId, record.id);
+        handlePersistError(error, "Не удалось сохранить запись");
+        throw error instanceof Error
+          ? error
+          : new Error("Не удалось сохранить запись");
+      })
+      .finally(() => {
+        pendingRecordInserts.delete(record.id);
+      });
+    pendingRecordInserts.set(record.id, persist);
   }
 
   return record;
@@ -2488,11 +2542,23 @@ export function appendEntityRecord(entityId: string, record: EntityRecord) {
   return normalized;
 }
 
-function saveRecord(
+async function saveRecord(
   entityId: string,
   recordId: string,
   values: Record<string, string>,
 ): Promise<void> {
+  const pendingInsert = pendingRecordInserts.get(recordId);
+  if (pendingInsert) {
+    await pendingInsert;
+  }
+
+  const stillExists = config.entities
+    .find((item) => item.id === entityId)
+    ?.records.some((record) => record.id === recordId);
+  if (!stillExists) {
+    throw new Error("Запись не найдена");
+  }
+
   mapEntityLocal(entityId, (entity) => ({
     ...entity,
     records: entity.records.map((record) =>
@@ -2502,15 +2568,15 @@ function saveRecord(
     ),
   }));
 
-  if (!isSupabaseConfigured) return Promise.resolve();
+  if (!isSupabaseConfigured) return;
 
   markLocalRecordWrite(recordId);
-  return updateEntityRecordValues(recordId, values)
-    .then(() => undefined)
-    .catch((error: unknown) => {
-      handlePersistError(error, "Не удалось обновить запись");
-      throw error;
-    });
+  try {
+    await updateEntityRecordValues(recordId, values);
+  } catch (error: unknown) {
+    handlePersistError(error, "Не удалось обновить запись");
+    throw error;
+  }
 }
 
 /** In-memory record values only (no remote persist). Used for optimistic rollback. */

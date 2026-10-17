@@ -372,6 +372,7 @@ export {
   addEntityField,
   addEntityListOption,
   addEntityRecord,
+  waitForEntityRecordInsert,
   appendEntityRecord,
   addEntityTab,
   addEntityMirrorTab,

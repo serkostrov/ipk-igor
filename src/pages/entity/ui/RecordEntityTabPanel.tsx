@@ -31,6 +31,7 @@ import {
 import {
   addEntityRecord,
   updateEntityRecord,
+  waitForEntityRecordInsert,
   entityRelationIncludesId,
   formatEntityDecimalTotal,
   formatRecordFieldValue,
@@ -868,7 +869,7 @@ export function RecordEntityTabPanel({
         }
         titleOverride={dialogRecord !== null ? dialogTitle : undefined}
         submitLabel="Сохранить"
-        onSubmit={(values) => {
+        onSubmit={async (values) => {
           if (!parentLinkFieldId) return;
           const previousLink =
             dialogRecord && dialogRecord !== "new"
@@ -882,11 +883,16 @@ export function RecordEntityTabPanel({
             ]),
           };
           if (dialogRecord === "new") {
-            addEntityRecord(linkedEntity.id, nextValues);
+            const created = addEntityRecord(linkedEntity.id, nextValues);
+            await waitForEntityRecordInsert(created.id);
             return;
           }
           if (dialogRecord) {
-            updateEntityRecord(linkedEntity.id, dialogRecord.id, nextValues);
+            await updateEntityRecord(
+              linkedEntity.id,
+              dialogRecord.id,
+              nextValues,
+            );
           }
         }}
       />
