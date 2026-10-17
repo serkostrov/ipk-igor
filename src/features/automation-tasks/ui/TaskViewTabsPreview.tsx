@@ -17,8 +17,6 @@ import {
   getEntityFieldGroupName,
   getEntityFieldTabId,
   getEntityTabFilesValueKey,
-  getEntityTabRecordsValueKey,
-  getSystemUserName,
   getSystemUserNameByAuthId,
   groupEntityFields,
   isEntityFieldVisibleOnRecord,
@@ -30,8 +28,8 @@ import {
   isEntityTabWithLinkedEntity,
   parseEntityRelationIds,
   parseEntityTabFileEntries,
-  parseEntityTabRecordEntries,
   PRIMARY_ENTITY_FIELD_GROUP,
+  RecordNotesEditor,
   RecordValue,
   resolveEntityMirrorTab,
   useEntityConfig,
@@ -156,50 +154,22 @@ function EmptyPreview({ children }: { children: ReactNode }) {
 }
 
 function RecordsPreview({
+  entity,
   record,
   tab,
 }: {
+  entity: Entity;
   record: EntityRecord;
   tab: EntityTab;
 }) {
-  const { entities } = useEntityConfig();
-  const entries = useMemo(() => {
-    const key = getEntityTabRecordsValueKey(tab.id);
-    return parseEntityTabRecordEntries(record.values[key]);
-  }, [record.values, tab.id]);
-  const shown = entries.slice(0, PREVIEW_LIMIT);
-  const rest = entries.length - shown.length;
-
-  if (entries.length === 0) {
-    return <EmptyPreview>Записей пока нет</EmptyPreview>;
-  }
-
   return (
-    <ul className="flex flex-col gap-2">
-      {shown.map((entry) => {
-        const author = getSystemUserName(entities, entry.authorId);
-        return (
-          <li
-            key={entry.id}
-            className="rounded-lg border border-border/60 bg-background px-3 py-2.5"
-          >
-            <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-snug text-foreground">
-              {entry.text}
-            </p>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              {author ?? "Без автора"}
-              {" · "}
-              {formatTimestampDisplay(entry.createdAt)}
-            </p>
-          </li>
-        );
-      })}
-      {rest > 0 ? (
-        <li className="text-center text-[11px] text-muted-foreground">
-          и ещё {rest}
-        </li>
-      ) : null}
-    </ul>
+    <RecordNotesEditor
+      entity={entity}
+      record={record}
+      tab={tab}
+      limit={PREVIEW_LIMIT}
+      compact
+    />
   );
 }
 
@@ -572,7 +542,7 @@ function TabPreviewBody({
   depth?: number;
 }) {
   if (isEntityRecordsTab(tab)) {
-    return <RecordsPreview record={record} tab={tab} />;
+    return <RecordsPreview entity={entity} record={record} tab={tab} />;
   }
   if (isEntityFilesTab(tab)) {
     return (

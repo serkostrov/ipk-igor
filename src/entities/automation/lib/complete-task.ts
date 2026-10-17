@@ -6,6 +6,7 @@ import {
   getEntityTabRecordsValueKey,
   getEntityValueContext,
   isEntityRecordsTab,
+  notifyRecordMentions,
   parseEntityTabRecordEntries,
   serializeEntityTabRecordEntries,
   setEntityRecordValuesLocal,
@@ -71,6 +72,14 @@ async function appendOutcomeFieldComments(
   await updateEntityRecord(entity.id, record.id, {
     ...record.values,
     [valueKey]: serializeEntityTabRecordEntries([entry, ...existing]),
+  });
+  await notifyRecordMentions({
+    entities: getEntityConfig().entities,
+    entityId: entity.id,
+    recordId: record.id,
+    text: entry.text,
+    authorId: entry.authorId,
+    entityName: entity.name,
   });
 }
 

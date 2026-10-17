@@ -347,6 +347,21 @@ export { ProgressValue } from "./ui/ProgressValue";
 export { RecordValue } from "./ui/RecordValue";
 export { ConditionBuilder } from "./ui/ConditionBuilder";
 export { RecordChangeList } from "./ui/RecordChangeList";
+export { RecordMentionText } from "./ui/RecordMentionText";
+export { RecordMentionTextarea } from "./ui/RecordMentionTextarea";
+export { RecordNotesEditor } from "./ui/RecordNotesEditor";
+export {
+  applyMentionInsertion,
+  extractMentionedUserIds,
+  extractNewMentionedUserIds,
+  filterMentionableUsers,
+  findActiveMentionQuery,
+  listMentionableUsers,
+  splitRecordMentionSegments,
+  type MentionableUser,
+  type RecordMentionSegment,
+} from "./lib/record-mentions";
+export { notifyRecordMentions } from "./lib/notify-record-mentions";
 export {
   getEntityRecordDependencies,
   getEntityTimelineDates,
