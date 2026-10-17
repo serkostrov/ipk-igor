@@ -168,6 +168,7 @@ export async function completeAutomationTask(
       recordId: task.recordId,
       triggerOptionId: task.triggerOptionId,
       stepOrder: task.stepOrder,
+      taskName: task.name,
     });
     throw new Error(message, { cause: error });
   }

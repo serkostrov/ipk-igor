@@ -45,6 +45,10 @@ import {
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
 } from "../lib/task-ask-fields";
+import {
+  collectTaskFormPersistFieldIds,
+  processTriggerFieldId,
+} from "../lib/task-form-persist";
 import { resumePendingRecordListChange } from "../model/pending-list-change";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
@@ -297,13 +301,11 @@ function TaskWorkspaceBody({
     const outcomes = outcomeId
       ? task.config.outcomes.filter((item) => item.id === outcomeId)
       : task.config.outcomes;
-    const fieldIds = new Set(
-      outcomes.flatMap((item) => [
-        ...item.fieldAccess.recordFieldIds,
-        ...item.fieldAccess.requiredFieldIds,
-        ...getOutcomeSetFieldActions(item).map((action) => action.fieldId),
-      ]),
-    );
+    // Stage/list field is applied by complete RPC — writing it here while
+    // this blocking task is still pending raises AUTOMATION_BLOCKED on itself.
+    const fieldIds = collectTaskFormPersistFieldIds(outcomes, {
+      excludeFieldIds: [processTriggerFieldId(task.processId)],
+    });
     const patch: Record<string, string> = {};
     for (const fieldId of fieldIds) {
       if (!entity.fields.some((field) => field.id === fieldId)) continue;
@@ -368,6 +370,7 @@ function TaskWorkspaceBody({
             recordId: task.recordId,
             triggerOptionId: task.triggerOptionId,
             stepOrder: task.stepOrder,
+            taskName: task.name,
           },
           "Ошибка завершения",
         ),

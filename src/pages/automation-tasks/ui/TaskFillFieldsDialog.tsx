@@ -52,6 +52,10 @@ import {
   getOutcomeSetFieldActions,
   mergeAutofillIntoFormValues,
 } from "@/features/automation-tasks/lib/apply-outcome-autofill";
+import {
+  collectTaskFormPersistFieldIds,
+  processTriggerFieldId,
+} from "@/features/automation-tasks/lib/task-form-persist";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
@@ -253,13 +257,11 @@ function TaskFillFieldsDialogBody({
     const outcomes = outcomeId
       ? task.config.outcomes.filter((item) => item.id === outcomeId)
       : task.config.outcomes;
-    const fieldIds = new Set(
-      outcomes.flatMap((item) => [
-        ...item.fieldAccess.recordFieldIds,
-        ...item.fieldAccess.requiredFieldIds,
-        ...getOutcomeSetFieldActions(item).map((action) => action.fieldId),
-      ]),
-    );
+    // Stage/list field is applied by complete RPC — writing it here while
+    // this blocking task is still pending raises AUTOMATION_BLOCKED on itself.
+    const fieldIds = collectTaskFormPersistFieldIds(outcomes, {
+      excludeFieldIds: [processTriggerFieldId(task.processId)],
+    });
     const patch: Record<string, string> = {};
     for (const fieldId of fieldIds) {
       if (!entity.fields.some((field) => field.id === fieldId)) continue;
@@ -327,6 +329,7 @@ function TaskFillFieldsDialogBody({
                 recordId: completed.recordId,
                 triggerOptionId: completed.triggerOptionId,
                 stepOrder: completed.stepOrder,
+                taskName: completed.name,
               },
               "Ошибка завершения",
             )
