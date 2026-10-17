@@ -854,9 +854,39 @@ export function TemplateInspector({
               <Select
                 value={draft.launchPhase ?? "onEnter"}
                 onValueChange={(next) => {
-                  if (next === "onEnter" || next === "beforeEnter") {
-                    patch({ launchPhase: next as AutomationLaunchPhase });
+                  if (next !== "onEnter" && next !== "beforeEnter") return;
+                  const launchPhase = next as AutomationLaunchPhase;
+                  if (
+                    launchPhase === "beforeEnter" &&
+                    triggerFieldId &&
+                    draft.triggerOptionId
+                  ) {
+                    // Seed «Перейти на стадию» so prep completion lands on this
+                    // stage (default «Готово» buttons otherwise leave the record).
+                    patch({
+                      launchPhase,
+                      outcomes: draft.outcomes.map((outcome) => {
+                        if (
+                          getOutcomeStageOptionId(
+                            outcome.actions,
+                            triggerFieldId,
+                          )
+                        ) {
+                          return outcome;
+                        }
+                        return {
+                          ...outcome,
+                          actions: withOutcomeStageAction(
+                            outcome.actions,
+                            triggerFieldId,
+                            draft.triggerOptionId,
+                          ),
+                        };
+                      }),
+                    });
+                    return;
                   }
+                  patch({ launchPhase });
                 }}
               >
                 <SelectTrigger className="w-full">

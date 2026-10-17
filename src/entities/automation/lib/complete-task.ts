@@ -21,6 +21,7 @@ import {
   returnAutomationTaskForRevisionRpc,
 } from "../api/automation-tasks-api";
 import { resolveAutomationActionValue } from "../model/action-values";
+import { getAutomationConfig } from "../store/automation-store";
 import { executeAutomationActions } from "./execute-actions";
 import type { AutomationOutcomeFieldAccess } from "../model/types";
 
@@ -185,6 +186,38 @@ export async function completeAutomationTask(
       );
     }
   }
+
+  // beforeEnter prep without «Перейти на стадию» must still land on the
+  // destination stage (template.triggerOptionId). Default «Готово» buttons
+  // ship with empty actions — otherwise the record stays on the previous
+  // column and the «ТОГДА» gateway keeps blocking manual moves.
+  const launchPhase = task.config.launchPhase ?? "onEnter";
+  if (launchPhase === "beforeEnter") {
+    const process = getAutomationConfig().processes.find(
+      (item) => item.id === task.processId,
+    );
+    const triggerFieldId = process?.triggerFieldId?.trim() ?? "";
+    const destination = task.config.triggerOptionId?.trim() ?? "";
+    const hasExplicitStage = outcome.actions.some(
+      (action) =>
+        action.kind === "setField" && action.fieldId === triggerFieldId,
+    );
+    if (
+      entity &&
+      triggerFieldId &&
+      destination &&
+      !hasExplicitStage &&
+      (patchedValues[triggerFieldId] ?? "") !== destination
+    ) {
+      patchedValues[triggerFieldId] = destination;
+      try {
+        await updateEntityRecord(entity.id, task.recordId, patchedValues);
+      } catch (error: unknown) {
+        console.error("[automation] beforeEnter stage advance failed", error);
+      }
+    }
+  }
+
   if (entity) {
     setEntityRecordValuesLocal(entity.id, task.recordId, patchedValues);
   }

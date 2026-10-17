@@ -27,6 +27,7 @@ import {
   saveTemplate,
   useAutomationConfig,
   useAutomationStatus,
+  withOutcomeStageAction,
   type AutomationCanvasLayout,
   type AutomationCanvasNodePositions,
   type AutomationLaunchPhase,
@@ -495,6 +496,19 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         0,
         Math.min(insertAt ?? phaseList.length, phaseList.length),
       );
+      const triggerFieldId = ensured.process.triggerFieldId?.trim() ?? "";
+      const baseOutcomes = defaultDecisionOutcomes();
+      const outcomes =
+        launchPhase === "beforeEnter" && triggerFieldId
+          ? baseOutcomes.map((outcome) => ({
+              ...outcome,
+              actions: withOutcomeStageAction(
+                outcome.actions,
+                triggerFieldId,
+                targetStageId,
+              ),
+            }))
+          : baseOutcomes;
       const template: AutomationTaskTemplate = {
         id: templateId,
         scenarioId: ensured.scenario.id,
@@ -509,7 +523,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         launchConditions: emptyAutomationConditions(),
         assignee: defaultAssigneeResolver(),
         watchers: defaultAssigneeResolver(),
-        outcomes: defaultDecisionOutcomes(),
+        outcomes,
         sla: null,
         materials: [],
       };

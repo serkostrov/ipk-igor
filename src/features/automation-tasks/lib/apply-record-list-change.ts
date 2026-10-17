@@ -128,6 +128,35 @@ function findPrepTasksForMove(
   });
 }
 
+/** True when every blocking beforeEnter template for `to` is completed. */
+async function isBeforeEnterPrepCompletedForDestination(
+  recordId: string,
+  scenarioId: string,
+  toOptionId: string,
+) {
+  if (!toOptionId) return false;
+  const { templates } = getAutomationConfig();
+  const prepTemplates = templates.filter(
+    (item) =>
+      item.scenarioId === scenarioId &&
+      (item.launchPhase ?? "onEnter") === "beforeEnter" &&
+      item.isBlocking &&
+      optionIdsMatch(item.triggerOptionId, toOptionId),
+  );
+  if (prepTemplates.length === 0) return false;
+
+  const history = await fetchAutomationTasks({
+    recordId,
+    status: ["completed", "pending", "returned"],
+  });
+  return prepTemplates.every((template) =>
+    history.some(
+      (task) =>
+        task.templateId === template.id && task.status === "completed",
+    ),
+  );
+}
+
 function tasksForDestination(
   tasks: AutomationTask[],
   fieldId: string,
@@ -456,18 +485,42 @@ export async function applyRecordListChange(
                 openBlockingTaskOrNotify(openable);
                 return false;
               }
+              // Prep for this destination already done → allow the move even
+              // when the edge «ТОГДА» conditions still fail (legacy records
+              // that completed beforeEnter without auto stage advance).
+              if (
+                await isBeforeEnterPrepCompletedForDestination(
+                  record.id,
+                  scenario.id,
+                  toOptionId,
+                )
+              ) {
+                // fall through — apply the list change
+              } else {
+                toast.warning("Переход недоступен", {
+                  description: resolution.message,
+                  duration: 7_000,
+                });
+                return false;
+              }
             } catch (error: unknown) {
               console.error(
                 "[automation] prep tasks after gateway block failed",
                 error,
               );
+              toast.warning("Переход недоступен", {
+                description: resolution.message,
+                duration: 7_000,
+              });
+              return false;
             }
+          } else {
+            toast.warning("Переход недоступен", {
+              description: resolution.message,
+              duration: 7_000,
+            });
+            return false;
           }
-          toast.warning("Переход недоступен", {
-            description: resolution.message,
-            duration: 7_000,
-          });
-          return false;
         }
         if (resolution.kind === "redirect") {
           toOptionId = resolution.optionId;
