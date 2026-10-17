@@ -42,6 +42,7 @@ import {
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
+  resumePendingRecordListChange,
   type AutomationAskFields,
 } from "@/features/automation-tasks";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
@@ -248,6 +249,7 @@ function TaskFillFieldsDialogBody({
         sessionUser?.id ?? null,
         values,
       );
+      await resumePendingRecordListChange(completed.recordId);
       onOpenChange(false);
       onCompleted?.(completed);
     } catch (err: unknown) {

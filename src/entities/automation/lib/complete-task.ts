@@ -8,6 +8,7 @@ import {
   isEntityRecordsTab,
   parseEntityTabRecordEntries,
   serializeEntityTabRecordEntries,
+  setEntityRecordValuesLocal,
   updateEntityRecord,
   type Entity,
   type EntityRecord,
@@ -159,15 +160,37 @@ export async function completeAutomationTask(
   );
   notifyAutomationTasksChanged();
 
-  // Refresh after SQL setField side-effects.
-  const { entities: nextEntities } = getEntityConfig();
-  const nextEntity = nextEntities.find((item) => item.id === task.entityId);
-  const nextRecord = nextEntity?.records.find(
-    (item) => item.id === task.recordId,
-  );
-  const values: Record<string, string> = {
-    ...(nextRecord?.values ?? previousValues),
+  // SQL setField writes the DB; realtime is often down — mirror into local store
+  // so Kanban / record views move to the configured stage immediately.
+  const patchedValues: Record<string, string> = {
+    ...previousValues,
+    ...valuesForForm,
   };
+  if (rpcResult.fieldValues) {
+    Object.assign(patchedValues, rpcResult.fieldValues);
+  } else if (entity) {
+    for (const action of outcome.actions) {
+      if (action.kind !== "setField" || !action.fieldId.trim()) continue;
+      const field = entity.fields.find((item) => item.id === action.fieldId);
+      patchedValues[action.fieldId] = resolveAutomationActionValue(
+        action.value,
+        valuesForForm,
+        {
+          entities,
+          triggerEntityId: entity.id,
+          fieldType: field?.type,
+          datetimeWithTime: field?.datetimeWithTime,
+          actorUserId: actorUserId ?? getCurrentUserRecordId(),
+        },
+      );
+    }
+  }
+  if (entity) {
+    setEntityRecordValuesLocal(entity.id, task.recordId, patchedValues);
+  }
+
+  const { entities: nextEntities } = getEntityConfig();
+  const values: Record<string, string> = { ...patchedValues };
 
   const richActions = outcome.actions.filter(
     (action) =>

@@ -264,7 +264,7 @@ function TaskWorkspaceBody({
     try {
       await persistValues(outcomeId);
       await onComplete(outcomeId, values);
-      void resumePendingRecordListChange(task.recordId);
+      await resumePendingRecordListChange(task.recordId);
       onCompleted();
     } catch (err: unknown) {
       setError(getAutomationErrorMessage(err, "Ошибка завершения"));

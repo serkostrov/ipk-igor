@@ -183,7 +183,12 @@ export async function completeAutomationTaskRpc(
   taskId: string,
   outcomeId: string,
   actorUserId?: string | null,
-): Promise<{ taskId: string; runId: string; outcomeId: string }> {
+): Promise<{
+  taskId: string;
+  runId: string;
+  outcomeId: string;
+  fieldValues: Record<string, string> | null;
+}> {
   const client = requireClient();
   const { data, error } = await client.rpc("complete_automation_task", {
     p_task_id: taskId,
@@ -197,12 +202,28 @@ export async function completeAutomationTaskRpc(
     taskId?: string;
     runId?: string;
     outcomeId?: string;
+    fieldValues?: unknown;
   };
   return {
     taskId: result.taskId ?? taskId,
     runId: result.runId ?? "",
     outcomeId: result.outcomeId ?? outcomeId,
+    fieldValues: parseRpcFieldValues(result.fieldValues),
   };
+}
+
+function parseRpcFieldValues(
+  value: unknown,
+): Record<string, string> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const out: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === "string") out[key] = item;
+    else if (item != null) out[key] = String(item);
+  }
+  return out;
 }
 
 export async function returnAutomationTaskForRevisionRpc(

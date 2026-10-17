@@ -14,7 +14,6 @@ import {
   closeAutomationTaskFillDialog,
   getActiveAutomationTaskDialogId,
   isAutomationTaskFillDialogDismissed,
-  resumePendingRecordListChange,
   subscribeAutomationTaskDialog,
 } from "@/features/automation-tasks";
 import { useAppNavigate } from "@/shared/lib/navigation";
@@ -164,7 +163,7 @@ export function AutomationTasksHost() {
       onCompleted={(task) => {
         closeAutomationTaskFillDialog();
         knownTaskIdsRef.current?.delete(task.id);
-        void resumePendingRecordListChange(task.recordId);
+        // Resume already awaited inside TaskFillFieldsDialog after complete.
       }}
       onOpenRecord={(entityId, recordId) => {
         openRecord(entityId, recordId);
