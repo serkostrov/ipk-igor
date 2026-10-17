@@ -184,9 +184,12 @@ function getAlignedEdgeParams(source: InternalNode, target: InternalNode) {
   };
 }
 
+type InsertPosition = { x: number; y: number };
+
 type FloatingEdgeData = {
   insert?: InsertData;
-  onAdd?: () => void;
+  /** Place the new task at the edge midpoint (card top-left). */
+  onAdd?: (position: InsertPosition) => void;
   /** Visual hint on edges between onEnter tasks. */
   chainHint?: AutomationStageTaskRelease | null;
 };
@@ -278,7 +281,11 @@ function FloatingEdge({
                   )}
                   onClick={(event) => {
                     event.stopPropagation();
-                    edgeData.onAdd?.();
+                    // Card top-left so the node sits on the «+» between neighbours.
+                    edgeData.onAdd?.({
+                      x: labelX - COL_W / 2,
+                      y: labelY - TASK_H / 2,
+                    });
                   }}
                 >
                   <Plus className="size-3.5" strokeWidth={2.25} aria-hidden />
@@ -940,33 +947,86 @@ function isStageColumnChild(node: Node, stageId: string): boolean {
   return false;
 }
 
-function columnIndexFromX(x: number, stageCount: number) {
-  const index = Math.round((x - ORIGIN_X) / (COL_W + COL_GAP));
-  return Math.max(0, Math.min(stageCount - 1, index));
-}
-
 /** Default Y of the trigger node for a column (after beforeEnter tasks). */
 function triggerYForStage(beforeCount: number) {
   return FLOW_Y + beforeCount * (TASK_H + ROW_GAP);
 }
 
-function phaseFromY(y: number, beforeCount: number): AutomationLaunchPhase {
-  const triggerY = triggerYForStage(beforeCount);
-  return y < triggerY + TRIGGER_H / 2 ? "beforeEnter" : "onEnter";
+const INSERT_PITCH = TASK_H + ROW_GAP;
+
+/**
+ * Nearest non-collapsed stage column by header X (freelayout-aware).
+ * Falls back to the template's current stage when nothing is closer.
+ */
+function resolveStageForTaskDrop(input: {
+  dropX: number;
+  stages: StageOption[];
+  nodes: Node[];
+  collapsedStageIds: ReadonlySet<string>;
+  currentStageId: string;
+}): StageOption | null {
+  const { dropX, stages, nodes, collapsedStageIds, currentStageId } = input;
+  const current =
+    stages.find((stage) => stage.id === currentStageId) ?? stages[0] ?? null;
+  if (!current) return null;
+
+  let best: StageOption | null = null;
+  let bestDist = Infinity;
+  for (const stage of stages) {
+    if (collapsedStageIds.has(stage.id)) continue;
+    const header = nodes.find((node) => node.id === `stage:${stage.id}`);
+    if (!header) continue;
+    const dist = Math.abs(header.position.x - dropX);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = stage;
+    }
+  }
+  if (!best) return current;
+
+  const currentHeader = nodes.find(
+    (node) => node.id === `stage:${current.id}`,
+  );
+  if (!currentHeader || best.id === current.id) return best;
+
+  // Require crossing past mid-gap before switching columns.
+  const currentDist = Math.abs(currentHeader.position.x - dropX);
+  const switchThreshold = (COL_W + COL_GAP) / 2;
+  if (bestDist + switchThreshold >= currentDist) return current;
+  return best;
 }
 
-function stepOrderFromY(
-  y: number,
-  phase: AutomationLaunchPhase,
-  beforeCount: number,
+function resolvePhaseForTaskDrop(
+  dropY: number,
+  triggerNodeY: number | undefined,
+  beforeCountExcludingSelf: number,
+): AutomationLaunchPhase {
+  const triggerY =
+    triggerNodeY ?? triggerYForStage(beforeCountExcludingSelf);
+  // Compare card center to trigger mid — freelayout-safe.
+  return dropY + TASK_H / 2 < triggerY + TRIGGER_H / 2
+    ? "beforeEnter"
+    : "onEnter";
+}
+
+function stepOrderAmongSiblings(
+  dropY: number,
+  siblingIds: string[],
+  nodes: Node[],
 ) {
-  if (phase === "beforeEnter") {
-    if (y <= FLOW_Y) return 0;
-    return Math.max(0, Math.round((y - FLOW_Y) / (TASK_H + ROW_GAP)));
+  const siblingYs = siblingIds
+    .map((id) => {
+      const node = nodes.find((item) => item.id === id);
+      return node ? node.position.y : null;
+    })
+    .filter((y): y is number => y != null)
+    .sort((a, b) => a - b);
+  let order = 0;
+  for (const y of siblingYs) {
+    if (y < dropY - 4) order += 1;
+    else break;
   }
-  const start = triggerYForStage(beforeCount) + TRIGGER_H + ROW_GAP;
-  if (y <= start) return 0;
-  return Math.max(0, Math.round((y - start) / (TASK_H + ROW_GAP)));
+  return order;
 }
 
 function resolvePosition(
@@ -1002,6 +1062,7 @@ function buildLayout(input: {
     stageId: string,
     launchPhase: AutomationLaunchPhase,
     insertAt: number,
+    position?: InsertPosition,
   ) => void;
 }): { nodes: Node[]; edges: Edge[] } {
   const {
@@ -1129,8 +1190,13 @@ function buildLayout(input: {
         data: {
           insert,
           chainHint,
-          onAdd: () =>
-            onAdd(insert.stageId, insert.launchPhase, insert.insertAt),
+          onAdd: (position) =>
+            onAdd(
+              insert.stageId,
+              insert.launchPhase,
+              insert.insertAt,
+              position,
+            ),
         } satisfies FloatingEdgeData,
       });
       prevId = targetId;
@@ -1330,6 +1396,7 @@ function FlowInner({
     stageId: string,
     launchPhase: AutomationLaunchPhase,
     insertAt: number,
+    position?: InsertPosition,
   ) => void;
   onMoveTemplate: (
     templateId: string,
@@ -1343,6 +1410,8 @@ function FlowInner({
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
   const collapsedStageIdsRef = useRef(collapsedStageIds);
   const dragStartRef = useRef<{ id: string; x: number; y: number } | null>(
     null,
@@ -1397,10 +1466,47 @@ function FlowInner({
       onToggleStageCollapse,
       onSelectTransition,
       onTaskReleaseChange,
-      onAdd: (stageId, launchPhase, insertAt) => {
+      onAdd: (stageId, launchPhase, insertAt, position) => {
         onSelectStage(stageId);
-        onSelectTemplate(null);
-        onAdd(stageId, launchPhase, insertAt);
+        // Open a gap at the «+»: push same-column nodes below the insert.
+        if (position) {
+          const updates: AutomationCanvasNodePositions = {
+            ...canvasPositionsRef.current,
+            ...pendingPositionsRef.current,
+          };
+          for (const node of nodesRef.current) {
+            if (
+              node.type !== "task" &&
+              node.type !== "trigger" &&
+              node.type !== "end"
+            ) {
+              continue;
+            }
+            if (Math.abs(node.position.x - position.x) > COL_W * 0.65) {
+              continue;
+            }
+            if (node.position.y < position.y - 4) {
+              updates[node.id] = {
+                x: node.position.x,
+                y: node.position.y,
+              };
+              continue;
+            }
+            updates[node.id] = {
+              x: node.position.x,
+              y: node.position.y + INSERT_PITCH,
+            };
+          }
+          pendingPositionsRef.current = {
+            ...pendingPositionsRef.current,
+            ...updates,
+          };
+          onCanvasPositionsChange({
+            ...canvasPositionsRef.current,
+            ...pendingPositionsRef.current,
+          });
+        }
+        onAdd(stageId, launchPhase, insertAt, position);
       },
     });
 
@@ -1419,6 +1525,10 @@ function FlowInner({
           ) {
             return node;
           }
+        }
+        // Fresh insert / nudge from pending must win over stale live coords.
+        if (pendingPositionsRef.current[node.id]) {
+          return node;
         }
         const live = livePos.get(node.id);
         // Keep in-canvas positions for existing nodes so selection/data
@@ -1455,6 +1565,7 @@ function FlowInner({
     onAdd,
     onSelectStage,
     onSelectTemplate,
+    onCanvasPositionsChange,
     setNodes,
     setEdges,
   ]);
@@ -1659,23 +1770,54 @@ function FlowInner({
 
       if (node.type !== "task" || stages.length === 0) return;
 
-      const colIndex = columnIndexFromX(node.position.x, stages.length);
-      const stage = stages[colIndex];
+      const template = templates.find((item) => item.id === node.id);
+      if (!template) return;
+
+      const stage = resolveStageForTaskDrop({
+        dropX: node.position.x,
+        stages,
+        nodes: nodesRef.current,
+        collapsedStageIds: collapsedStageIdsRef.current,
+        currentStageId: template.triggerOptionId,
+      });
       if (!stage) return;
-      const beforeCount = templatesForStage(
+
+      const beforeOthers = templatesForStage(
         templates,
         stage.id,
         "beforeEnter",
-      ).length;
-      const launchPhase = phaseFromY(node.position.y, beforeCount);
-      const stepOrder = stepOrderFromY(
-        node.position.y,
-        launchPhase,
-        beforeCount,
+      ).filter((item) => item.id !== node.id);
+      const triggerNode = nodesRef.current.find(
+        (item) => item.id === `trigger:${stage.id}`,
       );
+      const launchPhase = resolvePhaseForTaskDrop(
+        node.position.y,
+        triggerNode?.position.y,
+        beforeOthers.length,
+      );
+      const phaseSiblings = templatesForStage(
+        templates,
+        stage.id,
+        launchPhase,
+      )
+        .filter((item) => item.id !== node.id)
+        .map((item) => item.id);
+      const stepOrder = stepOrderAmongSiblings(
+        node.position.y,
+        phaseSiblings,
+        nodesRef.current,
+      );
+
+      const prevPhase = template.launchPhase ?? "onEnter";
       onSelectStage(stage.id);
       onSelectTemplate(node.id);
-      onMoveTemplate(node.id, stage.id, stepOrder, launchPhase);
+      if (
+        stage.id !== template.triggerOptionId ||
+        launchPhase !== prevPhase ||
+        stepOrder !== template.stepOrder
+      ) {
+        onMoveTemplate(node.id, stage.id, stepOrder, launchPhase);
+      }
     },
     [
       stages,
@@ -1814,6 +1956,7 @@ export function AutomationFlowCanvas({
     stageId: string,
     launchPhase: AutomationLaunchPhase,
     insertAt: number,
+    position?: InsertPosition,
   ) => void;
   onMoveTemplate: (
     templateId: string,

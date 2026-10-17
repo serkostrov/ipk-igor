@@ -467,6 +467,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     stageOptionId?: string,
     launchPhase: AutomationLaunchPhase = "onEnter",
     insertAt?: number,
+    position?: { x: number; y: number },
   ) {
     const targetStageId = stageOptionId ?? activeStageId;
     if (!targetStageId) return;
@@ -522,8 +523,24 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         stepOrder: index,
         launchPhase,
       }));
+      const positions: AutomationCanvasNodePositions = {
+        ...base.scenario.canvasLayout.positions,
+      };
+      if (
+        position &&
+        Number.isFinite(position.x) &&
+        Number.isFinite(position.y)
+      ) {
+        positions[templateId] = { x: position.x, y: position.y };
+      }
       return {
-        scenario: base.scenario,
+        scenario: {
+          ...base.scenario,
+          canvasLayout: {
+            ...base.scenario.canvasLayout,
+            positions,
+          },
+        },
         templates: [...others, ...reordered],
       };
     });
@@ -1152,8 +1169,13 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 onDeleteThen={deleteThenStages}
                 onDeleteElse={deleteElseStages}
                 onTaskReleaseChange={setStageTaskRelease}
-                onAdd={(stageOptionId, launchPhase, insertAt) =>
-                  void addTemplate(stageOptionId, launchPhase, insertAt)
+                onAdd={(stageOptionId, launchPhase, insertAt, position) =>
+                  void addTemplate(
+                    stageOptionId,
+                    launchPhase,
+                    insertAt,
+                    position,
+                  )
                 }
                 onMoveTemplate={(
                   templateId,
