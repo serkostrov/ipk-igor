@@ -237,8 +237,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setStageId(fromOptionId);
     setInspectStageId(fromOptionId);
     const fromIndex = stages.findIndex((item) => item.id === fromOptionId);
-    const nextId =
-      fromIndex >= 0 ? (stages[fromIndex + 1]?.id ?? null) : null;
+    const nextId = fromIndex >= 0 ? (stages[fromIndex + 1]?.id ?? null) : null;
     const existingFrom = (scenario?.stageTransitions ?? []).filter(
       (item) => item.fromOptionId === fromOptionId,
     );

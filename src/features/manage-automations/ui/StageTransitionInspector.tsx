@@ -105,8 +105,7 @@ export function StageTransitionInspector({
   const thenStage =
     stages.find((stage) => stage.id === draft.toOptionId) ?? toStage;
   const elseStages = stages.filter(
-    (stage) =>
-      stage.id !== fromStage.id && stage.id !== draft.toOptionId,
+    (stage) => stage.id !== fromStage.id && stage.id !== draft.toOptionId,
   );
   const elseStage = stages.find((stage) => stage.id === draft.elseOptionId);
   const hasRules = draft.conditions.rules.length > 0;

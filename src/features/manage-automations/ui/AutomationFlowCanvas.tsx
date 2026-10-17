@@ -1261,9 +1261,7 @@ function FlowInner({
     (_event: React.MouseEvent, edge: Edge) => {
       if (edge.type !== "stageMap" && edge.type !== "stageElse") return;
       const data = edge.data as
-        | StageMapEdgeData
-        | StageElseEdgeData
-        | undefined;
+        StageMapEdgeData | StageElseEdgeData | undefined;
       if (!data?.fromOptionId || !data.toOptionId) return;
       onSelectTransition(data.fromOptionId, data.toOptionId);
     },

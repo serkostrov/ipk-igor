@@ -18,46 +18,59 @@ const EMPTY_ASK_FIELDS: AutomationAskFields = {
   requireAttachment: false,
 };
 
+/** Stable unique list: first occurrence wins (keeps settings / action order). */
+function uniquePreserveOrder(ids: Iterable<string>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 /** Fields / tabs for a single outcome (form appears only after that button). */
 export function getAutomationOutcomeAskFields(
   outcome: AutomationOutcome,
 ): AutomationAskFields {
-  const required = new Set<string>();
-  const visible = new Set<string>();
-  const viewOnly = new Set<string>();
-  const viewTabs = new Set<string>();
+  // Order matches «Поля формы» in the builder (`visibleFieldIds` is the source of truth).
+  const visibleFieldIds = uniquePreserveOrder([
+    ...outcome.fieldAccess.visibleFieldIds,
+    // Legacy / edge: required without visible still must appear on the form.
+    ...outcome.fieldAccess.requiredFieldIds,
+  ]);
+  const visibleSet = new Set(visibleFieldIds);
+  const requiredFieldIds = uniquePreserveOrder(
+    outcome.fieldAccess.requiredFieldIds.filter((id) => visibleSet.has(id)),
+  );
 
-  for (const fieldId of outcome.fieldAccess.requiredFieldIds) {
-    required.add(fieldId);
-    visible.add(fieldId);
-  }
-  for (const fieldId of outcome.fieldAccess.visibleFieldIds) {
-    visible.add(fieldId);
-  }
+  const viewOnly: string[] = [];
+  const viewTabs: string[] = [];
 
   for (const action of outcome.actions) {
     if (action.kind === "viewField") {
       for (const fieldId of action.fieldIds) {
-        if (fieldId.trim()) viewOnly.add(fieldId);
+        if (fieldId.trim()) viewOnly.push(fieldId);
       }
     }
     if (action.kind === "viewTabs") {
       for (const tabId of action.tabIds) {
-        if (tabId.trim()) viewTabs.add(tabId);
+        if (tabId.trim()) viewTabs.push(tabId);
       }
     }
   }
 
   // Prefer editable form over read-only when the same field appears in both.
-  for (const fieldId of visible) {
-    viewOnly.delete(fieldId);
-  }
+  const viewFieldIds = uniquePreserveOrder(viewOnly).filter(
+    (fieldId) => !visibleSet.has(fieldId),
+  );
 
   return {
-    requiredFieldIds: [...required],
-    visibleFieldIds: [...visible],
-    viewFieldIds: [...viewOnly],
-    viewTabIds: [...viewTabs],
+    requiredFieldIds,
+    visibleFieldIds,
+    viewFieldIds,
+    viewTabIds: uniquePreserveOrder(viewTabs),
     requireAttachment: outcome.fieldAccess.requireAttachment === true,
   };
 }
@@ -66,30 +79,31 @@ export function getAutomationOutcomeAskFields(
 export function getAutomationTaskAskFields(
   task: AutomationTask,
 ): AutomationAskFields {
-  const required = new Set<string>();
-  const visible = new Set<string>();
-  const viewOnly = new Set<string>();
-  const viewTabs = new Set<string>();
+  const required: string[] = [];
+  const visible: string[] = [];
+  const viewOnly: string[] = [];
+  const viewTabs: string[] = [];
   let requireAttachment = false;
 
   for (const outcome of task.config.outcomes) {
     const ask = getAutomationOutcomeAskFields(outcome);
-    for (const fieldId of ask.requiredFieldIds) required.add(fieldId);
-    for (const fieldId of ask.visibleFieldIds) visible.add(fieldId);
-    for (const fieldId of ask.viewFieldIds) viewOnly.add(fieldId);
-    for (const tabId of ask.viewTabIds) viewTabs.add(tabId);
+    required.push(...ask.requiredFieldIds);
+    visible.push(...ask.visibleFieldIds);
+    viewOnly.push(...ask.viewFieldIds);
+    viewTabs.push(...ask.viewTabIds);
     if (ask.requireAttachment) requireAttachment = true;
   }
 
-  for (const fieldId of visible) {
-    viewOnly.delete(fieldId);
-  }
+  const visibleFieldIds = uniquePreserveOrder(visible);
+  const visibleSet = new Set(visibleFieldIds);
 
   return {
-    requiredFieldIds: [...required],
-    visibleFieldIds: [...visible],
-    viewFieldIds: [...viewOnly],
-    viewTabIds: [...viewTabs],
+    requiredFieldIds: uniquePreserveOrder(required),
+    visibleFieldIds,
+    viewFieldIds: uniquePreserveOrder(viewOnly).filter(
+      (fieldId) => !visibleSet.has(fieldId),
+    ),
+    viewTabIds: uniquePreserveOrder(viewTabs),
     requireAttachment,
   };
 }
