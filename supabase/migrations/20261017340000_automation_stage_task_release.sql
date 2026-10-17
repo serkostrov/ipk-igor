@@ -290,11 +290,11 @@ security definer
 set search_path = public
 as $$
 declare
-  old_values jsonb := coalesce(OLD.field_values, '{}'::jsonb);
-  new_values jsonb := coalesce(NEW.field_values, '{}'::jsonb);
-  proc record;
-  scenario record;
-  tmpl record;
+  old_values jsonb := '{}'::jsonb;
+  new_values jsonb := '{}'::jsonb;
+  proc public.automation_processes%rowtype;
+  scenario public.automation_scenarios%rowtype;
+  tmpl public.automation_task_templates%rowtype;
   old_opt text;
   new_opt text;
   old_opt_id text;
@@ -313,6 +313,13 @@ begin
   depth := coalesce(current_setting('automation.execution_depth', true), '0');
   if depth <> '' and depth::integer > 0 then
     return NEW;
+  end if;
+
+  if TG_OP <> 'INSERT' then
+    old_values := coalesce(OLD.field_values, '{}'::jsonb);
+  end if;
+  if TG_OP <> 'DELETE' then
+    new_values := coalesce(NEW.field_values, '{}'::jsonb);
   end if;
 
   actor := coalesce(auth.uid()::text, null);

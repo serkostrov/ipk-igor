@@ -1,5 +1,6 @@
 import { isSupabaseConfigured } from "@/shared/api/supabase";
 import { parseLocalDatetime, toLocalDatetime } from "@/shared/lib/datetime";
+import { getErrorMessage } from "@/shared/lib/error-message";
 import { formatDateDisplay } from "@/shared/lib/format-date";
 import { withTimeout } from "@/shared/lib/with-timeout";
 import { syncEntityMenuItems } from "@/entities/menu";
@@ -337,7 +338,7 @@ function menuLabels(entities: Entity[]) {
 }
 
 function handlePersistError(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message : fallback;
+  const message = getErrorMessage(error, fallback);
   console.error("[entity] save failed", error);
   setStatus("error", message);
 }
@@ -2409,9 +2410,9 @@ function insertRecord(entityId: string, values: Record<string, string>) {
       .catch((error: unknown) => {
         dropEntityRecordLocal(entityId, record.id);
         handlePersistError(error, "Не удалось сохранить запись");
-        throw error instanceof Error
-          ? error
-          : new Error("Не удалось сохранить запись");
+        throw new Error(
+          getErrorMessage(error, "Не удалось сохранить запись"),
+        );
       })
       .finally(() => {
         pendingRecordInserts.delete(record.id);

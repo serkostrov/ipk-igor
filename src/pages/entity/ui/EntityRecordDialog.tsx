@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { getErrorMessage } from "@/shared/lib/error-message";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -416,11 +417,9 @@ function EntityRecordForm({
                 onCancel();
               })
               .catch((error: unknown) => {
-                const message =
-                  error instanceof Error
-                    ? error.message
-                    : "Не удалось сохранить";
-                setSubmitError(message);
+                setSubmitError(
+                  getErrorMessage(error, "Не удалось сохранить"),
+                );
               })
               .finally(() => {
                 setPending(false);
