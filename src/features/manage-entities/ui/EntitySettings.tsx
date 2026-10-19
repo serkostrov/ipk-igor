@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { cn } from "@/shared/lib/cn";
 import {
   addEntity,
   getVisibleEntities,
@@ -169,14 +170,45 @@ function EntityPage({
         </div>
       </div>
 
-      <div className="px-5 py-5">
-        <EntityFieldsEditor
-          key={entity.id}
-          entity={entity}
-          readOnly={locked}
-          activeTabId={activeTabId}
-          onActiveTabIdChange={onActiveTabIdChange}
-        />
+      <div className="relative px-5 py-5">
+        <div
+          aria-hidden={locked || undefined}
+          className={cn(
+            "transition-[filter,opacity] duration-300 ease-out",
+            locked && "pointer-events-none select-none opacity-55 blur-[3px]",
+          )}
+        >
+          <EntityFieldsEditor
+            key={entity.id}
+            entity={entity}
+            readOnly={locked}
+            activeTabId={activeTabId}
+            onActiveTabIdChange={onActiveTabIdChange}
+          />
+        </div>
+
+        {locked ? (
+          <div
+            role="status"
+            className="absolute inset-0 z-10 flex items-start justify-center px-6 pt-14 sm:pt-16"
+          >
+            <div className="pointer-events-none absolute inset-0 rounded-b-xl bg-gradient-to-b from-card/55 via-card/35 to-card/50 backdrop-blur-[1.5px]" />
+            <div className="relative flex max-w-sm flex-col items-center gap-3 rounded-2xl border border-border/80 bg-card/95 px-6 py-5 text-center shadow-lg ring-1 ring-foreground/5 backdrop-blur-md">
+              <span className="flex size-11 items-center justify-center rounded-full border border-border bg-muted/70 text-muted-foreground">
+                <Lock className="size-5" aria-hidden />
+              </span>
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold tracking-tight text-foreground">
+                  Схема заблокирована
+                </p>
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  Поля и вкладки только для просмотра. Нажмите замочек сверху,
+                  чтобы снова редактировать.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
