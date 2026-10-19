@@ -97,16 +97,33 @@ function parsePermissions(value: unknown): RolePermissions {
   if (!isRecord(value)) {
     return createEmployeeRole().permissions;
   }
-  return {
+  const automationTasksScope = parseDataScope(
+    value.automationTasksScope ?? "all",
+  );
+  const permissions: RolePermissions = {
     menuItemIds: parseMenuItemIds(value.menuItemIds),
     settingsTabs: parseSettingsTabs(value.settingsTabs),
     canInviteUsers: value.canInviteUsers === true,
     canAccessHistory: value.canAccessHistory === true,
     canAccessAutomationTasks: value.canAccessAutomationTasks === true,
     canDeleteAutomationTasks: value.canDeleteAutomationTasks === true,
+    automationTasksScope,
     canAccessNotifications: value.canAccessNotifications !== false,
     entities: parseEntities(value.entities),
   };
+  if (automationTasksScope === "filter") {
+    const entityId =
+      typeof value.automationTasksScopeEntityId === "string"
+        ? value.automationTasksScopeEntityId.trim()
+        : "";
+    if (entityId) {
+      permissions.automationTasksScopeEntityId = entityId;
+    }
+    permissions.automationTasksScopeFilter = normalizeEntityConditions(
+      value.automationTasksScopeFilter,
+    );
+  }
+  return permissions;
 }
 
 export function normalizeRole(role: Role): Role {

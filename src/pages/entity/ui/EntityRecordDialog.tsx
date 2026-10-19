@@ -26,6 +26,7 @@ import {
   isEntityComputedFieldType,
   isEntityFieldVisibleOnCreate,
   isEntityFieldVisibleOnRecord,
+  isEntityInternal,
   isEntityNameField,
   isValidEntityEmail,
   normalizeEntityFieldInputValue,
@@ -243,19 +244,28 @@ function EntityRecordForm({
     [pinnedFields],
   );
   const isSubEntity = Boolean(entity.parentEntityId);
+  const isInternal = isEntityInternal(entity);
+  const bodyFields = useMemo(
+    () => visibleFields.filter((field) => !pinnedIds.has(field.id)),
+    [visibleFields, pinnedIds],
+  );
   const fieldGroups = useMemo(() => {
-    const fields = visibleFields
-      .filter((field) => !pinnedIds.has(field.id))
-      .map((field) =>
-        isSubEntity &&
-        getEntityFieldGroupName(field.group) === PRIMARY_ENTITY_FIELD_GROUP
-          ? { ...field, group: "" }
-          : field,
-      );
+    // Service entities: flat order from settings (entity.fields), no folders.
+    if (isInternal) {
+      return bodyFields.length > 0
+        ? [{ name: "", fields: bodyFields, colSpan: 2 }]
+        : [];
+    }
+    const fields = bodyFields.map((field) =>
+      isSubEntity &&
+      getEntityFieldGroupName(field.group) === PRIMARY_ENTITY_FIELD_GROUP
+        ? { ...field, group: "" }
+        : field,
+    );
     return groupEntityFields(fields, entity.fieldGroups).filter(
       (group) => !(isSubEntity && group.name === PRIMARY_ENTITY_FIELD_GROUP),
     );
-  }, [visibleFields, entity.fieldGroups, pinnedIds, isSubEntity]);
+  }, [bodyFields, entity.fieldGroups, isSubEntity, isInternal]);
   const entityLabel =
     entity.name.trim() || entity.namePlural.trim() || "Без названия";
   const previewContext = getEntityPreviewValueContext(valueContext);

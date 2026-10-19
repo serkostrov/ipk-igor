@@ -3,13 +3,22 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
-import { useCanDeleteAutomationTasks } from "@/entities/access";
+import {
+  canViewAutomationTask,
+  useCanDeleteAutomationTasks,
+  useCurrentRole,
+} from "@/entities/access";
 import {
   completeAutomationTask,
   deleteAutomationTask,
   fetchAutomationTask,
   type AutomationTask,
 } from "@/entities/automation";
+import {
+  getCurrentUserRecordId,
+  useEntityConfig,
+  useEntityValueContext,
+} from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { TaskWorkspace } from "@/features/automation-tasks";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
@@ -24,6 +33,9 @@ export function AutomationTaskPage({
   onOpenRecord?: (entityId: string, recordId: string) => void;
 }) {
   const sessionUser = useSessionUser();
+  const role = useCurrentRole();
+  const { entities } = useEntityConfig();
+  const valueContext = useEntityValueContext();
   const canDelete = useCanDeleteAutomationTasks();
   const [task, setTask] = useState<AutomationTask | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +51,19 @@ export function AutomationTaskPage({
       try {
         const next = await fetchAutomationTask(taskId);
         if (cancelled) return;
+        if (
+          next &&
+          !canViewAutomationTask(role, next, {
+            authUserId: sessionUser?.id ?? null,
+            userRecordId: getCurrentUserRecordId(),
+            entities,
+            valueContext,
+          })
+        ) {
+          setTask(null);
+          setError("Нет доступа к этому заданию");
+          return;
+        }
         setTask(next);
         if (!next) setError("Задача не найдена");
       } catch (err: unknown) {
@@ -54,7 +79,7 @@ export function AutomationTaskPage({
     return () => {
       cancelled = true;
     };
-  }, [taskId]);
+  }, [taskId, role, sessionUser?.id, entities, valueContext]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6 md:p-8">

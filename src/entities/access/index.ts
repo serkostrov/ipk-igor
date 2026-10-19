@@ -24,6 +24,8 @@ export {
 } from "./model/types";
 export {
   allowedSettingsTabs,
+  automationTasksScope,
+  automationTasksScopeFilter,
   canAccessAutomationTasks,
   canAccessHistory,
   canAccessNotifications,
@@ -34,8 +36,10 @@ export {
   canInviteUsers,
   canMenuItem,
   canSettingsTab,
+  canViewAutomationTask,
   entityScope,
   entityScopeFilter,
+  filterAutomationTasksForRole,
   getEntityAccess,
   isAdminRole,
 } from "./model/permissions";
@@ -69,6 +73,7 @@ export {
 export {
   useAccessError,
   useAccessStatus,
+  useAutomationTasksScope,
   useCanAccessAutomationTasks,
   useCanAccessHistory,
   useCanAccessNotifications,

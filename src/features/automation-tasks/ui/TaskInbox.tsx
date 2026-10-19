@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, RotateCcw } from "lucide-react";
 import { Button } from "@/shared/ui/button";
+import {
+  filterAutomationTasksForRole,
+  useCurrentRole,
+} from "@/entities/access";
 import {
   completeAutomationTask,
   fetchAutomationTasks,
@@ -8,6 +12,11 @@ import {
   subscribeAutomationTasks,
   type AutomationTask,
 } from "@/entities/automation";
+import {
+  getCurrentUserRecordId,
+  useEntityConfig,
+  useEntityValueContext,
+} from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { cn } from "@/shared/lib/cn";
 import { TaskWorkspace } from "./TaskWorkspace";
@@ -18,11 +27,25 @@ export function TaskInbox({
   onOpenRecord?: (entityId: string, recordId: string) => void;
 }) {
   const sessionUser = useSessionUser();
+  const role = useCurrentRole();
+  const { entities } = useEntityConfig();
+  const valueContext = useEntityValueContext();
   const [tasks, setTasks] = useState<AutomationTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
+  const visibleTasks = useMemo(
+    () =>
+      filterAutomationTasksForRole(role, tasks, {
+        authUserId: sessionUser?.id ?? null,
+        userRecordId: getCurrentUserRecordId(),
+        entities,
+        valueContext,
+      }),
+    [role, tasks, sessionUser?.id, entities, valueContext],
+  );
 
   const reload = useCallback(() => {
     setReloadToken((token) => token + 1);
@@ -65,7 +88,7 @@ export function TaskInbox({
     });
   }, []);
 
-  const selected = tasks.find((task) => task.id === selectedId) ?? null;
+  const selected = visibleTasks.find((task) => task.id === selectedId) ?? null;
 
   return (
     <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
@@ -87,13 +110,13 @@ export function TaskInbox({
             <div className="h-24 animate-pulse rounded-lg bg-muted/40" />
           ) : error ? (
             <p className="px-2 py-4 text-sm text-destructive">{error}</p>
-          ) : tasks.length === 0 ? (
+          ) : visibleTasks.length === 0 ? (
             <p className="px-2 py-8 text-center text-sm text-muted-foreground">
               Нет активных задач
             </p>
           ) : (
             <ul className="flex flex-col gap-1">
-              {tasks.map((task) => (
+              {visibleTasks.map((task) => (
                 <li key={task.id}>
                   <button
                     type="button"

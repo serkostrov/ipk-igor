@@ -34,7 +34,11 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
-import { useCanDeleteAutomationTasks } from "@/entities/access";
+import {
+  filterAutomationTasksForRole,
+  useCanDeleteAutomationTasks,
+  useCurrentRole,
+} from "@/entities/access";
 import {
   deleteAutomationTask,
   fetchAutomationTasks,
@@ -48,14 +52,17 @@ import {
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
   ENTITY_TABLE_PAGE_SIZES,
   ENTITY_TABLE_PAGE_SIZE_STORAGE_KEY,
+  getCurrentUserRecordId,
   getSystemUserName,
   isEntityNameField,
   isEntityTablePageSize,
   parseEntityTablePageSize,
   resolveRelationRecordLabel,
   useEntityConfig,
+  useEntityValueContext,
   type EntityTablePageSize,
 } from "@/entities/entity";
+import { useSessionUser } from "@/entities/session";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { formatTimestampDisplay } from "@/shared/lib/format-date";
 import { cn } from "@/shared/lib/cn";
@@ -282,6 +289,9 @@ export function TaskTableView({
   onOpenRecord?: (entityId: string, recordId: string) => void;
 }) {
   const { entities } = useEntityConfig();
+  const valueContext = useEntityValueContext();
+  const role = useCurrentRole();
+  const sessionUser = useSessionUser();
   const canDelete = useCanDeleteAutomationTasks();
   const [tasks, setTasks] = useState<AutomationTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -348,8 +358,19 @@ export function TaskTableView({
     });
   }, []);
 
+  const scopedTasks = useMemo(
+    () =>
+      filterAutomationTasksForRole(role, tasks, {
+        authUserId: sessionUser?.id ?? null,
+        userRecordId: getCurrentUserRecordId(),
+        entities,
+        valueContext,
+      }),
+    [role, tasks, sessionUser?.id, entities, valueContext],
+  );
+
   const entityOptions = useMemo(() => {
-    const ids = new Set(tasks.map((task) => task.entityId));
+    const ids = new Set(scopedTasks.map((task) => task.entityId));
     return entities
       .filter((entity) => ids.has(entity.id))
       .map((entity) => ({
@@ -357,11 +378,11 @@ export function TaskTableView({
         label: entity.namePlural?.trim() || entity.name,
       }))
       .sort((a, b) => a.label.localeCompare(b.label, "ru"));
-  }, [tasks, entities]);
+  }, [scopedTasks, entities]);
 
   const recordOptions = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const task of tasks) {
+    for (const task of scopedTasks) {
       if (entityFilter !== ALL_OPTION && task.entityId !== entityFilter) {
         continue;
       }
@@ -374,12 +395,12 @@ export function TaskTableView({
     return [...seen.entries()]
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "ru"));
-  }, [tasks, entities, entityFilter]);
+  }, [scopedTasks, entities, entityFilter]);
 
   const assigneeOptions = useMemo(() => {
     const seen = new Map<string, string>();
     let hasNone = false;
-    for (const task of tasks) {
+    for (const task of scopedTasks) {
       if (!task.assigneeUserId) {
         hasNone = true;
         continue;
@@ -394,7 +415,7 @@ export function TaskTableView({
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "ru"));
     return { named, hasNone };
-  }, [tasks, entities]);
+  }, [scopedTasks, entities]);
 
   const effectiveEntityFilter =
     entityFilter === ALL_OPTION ||
@@ -421,7 +442,7 @@ export function TaskTableView({
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("ru");
-    return tasks.filter((task) => {
+    return scopedTasks.filter((task) => {
       if (
         effectiveEntityFilter !== ALL_OPTION &&
         task.entityId !== effectiveEntityFilter
@@ -462,7 +483,7 @@ export function TaskTableView({
       return haystack.includes(needle);
     });
   }, [
-    tasks,
+    scopedTasks,
     search,
     entities,
     effectiveEntityFilter,

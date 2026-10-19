@@ -47,6 +47,7 @@ import {
   getEntityListParentField,
   getEntityRelationTargetId,
   getEntityTableFields,
+  isEntityInternal,
   getEntityUrlHref,
   getRelationRecordOptions,
   getVisibleListOptions,
@@ -893,7 +894,9 @@ export function EntityTableView({
   );
   const [page, setPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<EntityRecord | null>(null);
-  const tableFields = getEntityTableFields(entity.fields);
+  const tableFields = getEntityTableFields(entity.fields, {
+    preferArrayOrder: isEntityInternal(entity),
+  });
   const filterFields = entity.fields.filter(
     (field) => field.showInFilters !== false && !isEntityNameField(field),
   );

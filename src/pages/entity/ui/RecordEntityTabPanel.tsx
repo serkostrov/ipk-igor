@@ -37,6 +37,7 @@ import {
   formatRecordFieldValue,
   getEntityFieldDisplayName,
   getEntityTableFields,
+  isEntityInternal,
   getRecordFieldNumber,
   getRelationRecordOptions,
   groupEntityFields,
@@ -103,9 +104,9 @@ function getLinkedTableColumns(
   entity: Entity,
   parentLinkFieldId: string | null,
 ) {
-  const tableFields = getEntityTableFields(entity.fields).filter(
-    (field) => !isEntityParentLinkField(field, parentLinkFieldId),
-  );
+  const tableFields = getEntityTableFields(entity.fields, {
+    preferArrayOrder: isEntityInternal(entity),
+  }).filter((field) => !isEntityParentLinkField(field, parentLinkFieldId));
   if (tableFields.length > 0) return tableFields;
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   const fallback = getRecordCardFields(entity, parentLinkFieldId).slice(0, 4);

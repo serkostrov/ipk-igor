@@ -51,6 +51,16 @@ export type RolePermissions = {
   canAccessAutomationTasks: boolean;
   /** Delete automation task instances from the tasks list / page. */
   canDeleteAutomationTasks: boolean;
+  /**
+   * Which automation tasks the role sees in the list / task page.
+   * `own` — assigned to the current user; `filter` — linked record matches
+   * `automationTasksScopeFilter` on `automationTasksScopeEntityId`.
+   */
+  automationTasksScope: DataScope;
+  /** Entity for `automationTasksScope === "filter"`. */
+  automationTasksScopeEntityId?: string;
+  /** Record conditions when `automationTasksScope === "filter"`. */
+  automationTasksScopeFilter?: EntityCondition[];
   canAccessNotifications: boolean;
   entities: EntityAccess[] | "*";
 };
@@ -99,6 +109,7 @@ export function createAdminRole(): Role {
       canAccessHistory: true,
       canAccessAutomationTasks: true,
       canDeleteAutomationTasks: true,
+      automationTasksScope: "all",
       canAccessNotifications: true,
       entities: "*",
     },
@@ -118,6 +129,7 @@ export function createEmployeeRole(): Role {
       canAccessHistory: true,
       canAccessAutomationTasks: true,
       canDeleteAutomationTasks: false,
+      automationTasksScope: "own",
       canAccessNotifications: true,
       entities: "*",
     },

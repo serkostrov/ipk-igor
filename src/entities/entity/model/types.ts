@@ -1848,8 +1848,15 @@ export function resolveEntityListDependencies(
   });
 }
 
-/** Table columns: title field first, then other visible fields by `tableOrder`. */
-export function getEntityTableFields(fields: EntityField[]): EntityField[] {
+/**
+ * Table columns: title field first, then other visible fields.
+ * Default: by `tableOrder`, then array index.
+ * `preferArrayOrder` — settings list order (service / internal entities).
+ */
+export function getEntityTableFields(
+  fields: EntityField[],
+  options?: { preferArrayOrder?: boolean },
+): EntityField[] {
   const visible = fields.filter((field) => field.showInTable !== false);
   const title = visible.filter((field) => isEntityNameField(field));
   const indexById = new Map(fields.map((field, index) => [field.id, index]));
@@ -1857,7 +1864,9 @@ export function getEntityTableFields(fields: EntityField[]): EntityField[] {
     .filter((field) => !isEntityNameField(field))
     .slice()
     .sort((a, b) => {
-      if (a.tableOrder !== b.tableOrder) return a.tableOrder - b.tableOrder;
+      if (!options?.preferArrayOrder && a.tableOrder !== b.tableOrder) {
+        return a.tableOrder - b.tableOrder;
+      }
       return (indexById.get(a.id) ?? 0) - (indexById.get(b.id) ?? 0);
     });
   return [...title, ...rest];

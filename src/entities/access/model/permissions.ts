@@ -4,7 +4,13 @@ import {
   NOTIFICATIONS_ITEM_ID,
   SETTINGS_ITEM_ID,
 } from "@/entities/menu";
-import type { EntityCondition } from "@/entities/entity";
+import {
+  matchesEntityConditions,
+  type Entity,
+  type EntityCondition,
+  type EntityRecord,
+  type EntityValueContext,
+} from "@/entities/entity";
 import {
   ROLE_ADMIN_ID,
   type DataScope,
@@ -137,6 +143,98 @@ export function canDeleteAutomationTasks(
   if (isAdminRole(role)) return true;
   if (!role.permissions.canAccessAutomationTasks) return false;
   return role.permissions.canDeleteAutomationTasks === true;
+}
+
+/** Visibility scope for automation tasks list / task page. */
+export function automationTasksScope(role: Role | null | undefined): DataScope {
+  if (!role || isAdminRole(role)) return "all";
+  return role.permissions.automationTasksScope ?? "all";
+}
+
+export function automationTasksScopeFilter(
+  role: Role | null | undefined,
+): { entityId: string; conditions: EntityCondition[] } | null {
+  if (!role || isAdminRole(role)) return null;
+  if (role.permissions.automationTasksScope !== "filter") return null;
+  const entityId = role.permissions.automationTasksScopeEntityId?.trim() ?? "";
+  if (!entityId) return null;
+  return {
+    entityId,
+    conditions: role.permissions.automationTasksScopeFilter ?? [],
+  };
+}
+
+type AutomationTaskVisibilityTarget = {
+  assigneeUserId: string | null;
+  entityId: string;
+  recordId: string;
+};
+
+/** Whether the role may open / see this automation task instance. */
+export function canViewAutomationTask(
+  role: Role | null | undefined,
+  task: AutomationTaskVisibilityTarget,
+  options: {
+    authUserId: string | null;
+    userRecordId: string | null;
+    entities: Entity[];
+    valueContext: EntityValueContext;
+  },
+): boolean {
+  if (!canAccessAutomationTasks(role)) return false;
+  const scope = automationTasksScope(role);
+  if (scope === "all") return true;
+
+  if (scope === "own") {
+    if (!task.assigneeUserId) return true;
+    if (
+      options.authUserId != null &&
+      task.assigneeUserId === options.authUserId
+    ) {
+      return true;
+    }
+    if (
+      options.userRecordId != null &&
+      task.assigneeUserId === options.userRecordId
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  const filter = automationTasksScopeFilter(role);
+  if (!filter) return false;
+  if (task.entityId !== filter.entityId) return false;
+  if (filter.conditions.length === 0) return false;
+  const entity = options.entities.find((item) => item.id === filter.entityId);
+  if (!entity) return false;
+  const record: EntityRecord | undefined = entity.records.find(
+    (item) => item.id === task.recordId,
+  );
+  if (!record) return false;
+  return matchesEntityConditions(
+    options.valueContext,
+    entity,
+    record,
+    filter.conditions,
+  );
+}
+
+export function filterAutomationTasksForRole<
+  T extends AutomationTaskVisibilityTarget,
+>(
+  role: Role | null | undefined,
+  tasks: T[],
+  options: {
+    authUserId: string | null;
+    userRecordId: string | null;
+    entities: Entity[];
+    valueContext: EntityValueContext;
+  },
+): T[] {
+  if (!canAccessAutomationTasks(role)) return [];
+  if (automationTasksScope(role) === "all") return tasks;
+  return tasks.filter((task) => canViewAutomationTask(role, task, options));
 }
 
 export function canAccessNotifications(role: Role | null | undefined): boolean {

@@ -491,21 +491,22 @@ function ScopeFilterPanel({
   entities,
   conditions,
   onChange,
+  title = "Условия видимости записей",
+  description = "Роль видит только записи, у которых все условия выполнены. Без условий записи не показываются.",
 }: {
   entity: Entity;
   entities: Entity[];
   conditions: EntityCondition[];
   onChange: (conditions: EntityCondition[]) => void;
+  title?: string;
+  description?: string;
 }) {
   return (
     <div className="space-y-2 rounded-lg border border-border/70 bg-muted/15 p-3">
       <div>
-        <p className="text-xs font-medium text-foreground">
-          Условия видимости записей
-        </p>
+        <p className="text-xs font-medium text-foreground">{title}</p>
         <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-          Роль видит только записи, у которых все условия выполнены. Без условий
-          записи не показываются.
+          {description}
         </p>
       </div>
       <ConditionBuilder
@@ -774,7 +775,8 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             <h3 className="text-sm font-semibold text-foreground">Сущности</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
               CRUD и область данных: все записи, только свои или фильтр по
-              полям. Автоматизации и задания — внизу таблицы.
+              полям. У заданий автоматизации — та же область: кто какие задания
+              видит.
             </p>
           </div>
           <ToggleRow
@@ -965,54 +967,202 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                 </PermissionCell>
               </tr>
 
-              <tr>
-                <td className="px-3 py-2">
-                  <p className="font-medium">Задания автоматизации</p>
-                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                    Список заданий и страница задачи. Удаление — корзина
-                  </p>
-                </td>
-                <PermissionCell>
-                  <Switch
-                    checked={role.permissions.canAccessAutomationTasks}
-                    onCheckedChange={(checked) =>
-                      onChange(
-                        patchPermissions(role, {
-                          canAccessAutomationTasks: checked,
-                          ...(!checked
-                            ? { canDeleteAutomationTasks: false }
-                            : {}),
-                        }),
-                      )
-                    }
-                  />
-                </PermissionCell>
-                <PermissionCell>
-                  <PermissionDash />
-                </PermissionCell>
-                <PermissionCell>
-                  <PermissionDash />
-                </PermissionCell>
-                <PermissionCell>
-                  <Switch
-                    checked={
-                      role.permissions.canAccessAutomationTasks &&
-                      role.permissions.canDeleteAutomationTasks
-                    }
-                    disabled={!role.permissions.canAccessAutomationTasks}
-                    onCheckedChange={(checked) =>
-                      onChange(
-                        patchPermissions(role, {
-                          canDeleteAutomationTasks: checked,
-                        }),
-                      )
-                    }
-                  />
-                </PermissionCell>
-                <PermissionCell>
-                  <PermissionDash />
-                </PermissionCell>
-              </tr>
+              <Fragment>
+                <tr
+                  className={
+                    role.permissions.canAccessAutomationTasks &&
+                    role.permissions.automationTasksScope === "filter"
+                      ? "border-b border-border"
+                      : undefined
+                  }
+                >
+                  <td className="px-3 py-2">
+                    <p className="font-medium">Задания автоматизации</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                      Список заданий и страница задачи. Удаление — корзина
+                    </p>
+                  </td>
+                  <PermissionCell>
+                    <Switch
+                      checked={role.permissions.canAccessAutomationTasks}
+                      onCheckedChange={(checked) =>
+                        onChange(
+                          patchPermissions(role, {
+                            canAccessAutomationTasks: checked,
+                            ...(!checked
+                              ? { canDeleteAutomationTasks: false }
+                              : {}),
+                          }),
+                        )
+                      }
+                    />
+                  </PermissionCell>
+                  <PermissionCell>
+                    <PermissionDash />
+                  </PermissionCell>
+                  <PermissionCell>
+                    <PermissionDash />
+                  </PermissionCell>
+                  <PermissionCell>
+                    <Switch
+                      checked={
+                        role.permissions.canAccessAutomationTasks &&
+                        role.permissions.canDeleteAutomationTasks
+                      }
+                      disabled={!role.permissions.canAccessAutomationTasks}
+                      onCheckedChange={(checked) =>
+                        onChange(
+                          patchPermissions(role, {
+                            canDeleteAutomationTasks: checked,
+                          }),
+                        )
+                      }
+                    />
+                  </PermissionCell>
+                  <PermissionCell>
+                    {role.permissions.canAccessAutomationTasks ? (
+                      <Select
+                        value={role.permissions.automationTasksScope}
+                        onValueChange={(value) => {
+                          if (value == null || !isDataScope(String(value))) {
+                            return;
+                          }
+                          const scope = String(value) as DataScope;
+                          if (scope === "filter") {
+                            onChange(
+                              patchPermissions(role, {
+                                automationTasksScope: scope,
+                                automationTasksScopeEntityId:
+                                  role.permissions
+                                    .automationTasksScopeEntityId ??
+                                  entities[0]?.id,
+                                automationTasksScopeFilter:
+                                  role.permissions.automationTasksScopeFilter ??
+                                  [],
+                              }),
+                            );
+                            return;
+                          }
+                          onChange(
+                            patchPermissions(role, {
+                              automationTasksScope: scope,
+                              automationTasksScopeEntityId: undefined,
+                              automationTasksScopeFilter: undefined,
+                            }),
+                          );
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-[148px]">
+                          <SelectValue>
+                            {
+                              DATA_SCOPE_LABELS[
+                                role.permissions.automationTasksScope
+                              ]
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">
+                            {DATA_SCOPE_LABELS.all}
+                          </SelectItem>
+                          <SelectItem value="own">
+                            {DATA_SCOPE_LABELS.own}
+                          </SelectItem>
+                          <SelectItem value="filter">
+                            {DATA_SCOPE_LABELS.filter}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <PermissionDash />
+                    )}
+                  </PermissionCell>
+                </tr>
+                {role.permissions.canAccessAutomationTasks &&
+                role.permissions.automationTasksScope === "filter" ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-3">
+                      <div className="space-y-3">
+                        <div className="flex flex-col gap-1.5 sm:max-w-sm">
+                          <Label className="text-xs text-muted-foreground">
+                            Сущность записи задания
+                          </Label>
+                          <Select
+                            value={
+                              role.permissions.automationTasksScopeEntityId ??
+                              entities[0]?.id ??
+                              ""
+                            }
+                            onValueChange={(value) => {
+                              if (typeof value !== "string" || !value) return;
+                              onChange(
+                                patchPermissions(role, {
+                                  automationTasksScopeEntityId: value,
+                                  automationTasksScopeFilter: [],
+                                }),
+                              );
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-full bg-background">
+                              <SelectValue placeholder="Сущность">
+                                {entities.find(
+                                  (entity) =>
+                                    entity.id ===
+                                    role.permissions
+                                      .automationTasksScopeEntityId,
+                                )?.name ?? "Выберите сущность"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {entities.map((entity) => (
+                                <SelectItem key={entity.id} value={entity.id}>
+                                  {entity.name.trim() || "Без названия"}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {(() => {
+                          const filterEntity =
+                            entities.find(
+                              (entity) =>
+                                entity.id ===
+                                role.permissions.automationTasksScopeEntityId,
+                            ) ?? entities[0];
+                          if (!filterEntity) {
+                            return (
+                              <p className="text-xs text-muted-foreground">
+                                Нет сущностей для фильтра
+                              </p>
+                            );
+                          }
+                          return (
+                            <ScopeFilterPanel
+                              entity={filterEntity}
+                              entities={entities}
+                              conditions={
+                                role.permissions.automationTasksScopeFilter ??
+                                []
+                              }
+                              title="Условия видимости заданий"
+                              description="Роль видит только задания по записям этой сущности, у которых все условия выполнены. Без условий задания не показываются."
+                              onChange={(conditions) =>
+                                onChange(
+                                  patchPermissions(role, {
+                                    automationTasksScopeEntityId:
+                                      filterEntity.id,
+                                    automationTasksScopeFilter: conditions,
+                                  }),
+                                )
+                              }
+                            />
+                          );
+                        })()}
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             </tbody>
           </table>
         </div>

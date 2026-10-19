@@ -2185,7 +2185,16 @@ export function reorderEntityFields(entityId: string, fieldIds: string[]) {
     const nameFields = entity.fields.filter((field) =>
       isEntityNameField(field),
     );
-    return { ...entity, fields: [...nameFields, ...next] };
+    // Keep table / create / settings order in sync (settings list is source).
+    let tableOrder = 1;
+    const ordered = next.map((field) => {
+      const nextOrder = tableOrder;
+      tableOrder += 1;
+      if (field.tableOrder === nextOrder) return field;
+      return normalizeEntityField({ ...field, tableOrder: nextOrder });
+    });
+
+    return { ...entity, fields: [...nameFields, ...ordered] };
   });
 }
 
