@@ -49,9 +49,13 @@ import {
   getDefaultSelectedOutcomeId,
 } from "../lib/task-ask-fields";
 import {
-  collectTaskFormPersistFieldIds,
+  buildTaskFormPersistPatch,
   processTriggerFieldId,
 } from "../lib/task-form-persist";
+import {
+  taskFormAutosaveLabel,
+  useTaskFormAutosave,
+} from "../lib/use-task-form-autosave";
 import { resumePendingRecordListChange } from "../model/pending-list-change";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
@@ -209,6 +213,18 @@ function TaskWorkspaceBody({
     setLoggedSeconds(seconds);
   }, []);
 
+  const autosave = useTaskFormAutosave({
+    enabled: Boolean(entity && record),
+    entityId: task.entityId,
+    recordId: task.recordId,
+    processId: task.processId,
+    entity,
+    outcomes: task.config.outcomes,
+    values,
+    recordValues: record?.values ?? {},
+  });
+  const autosaveLabel = taskFormAutosaveLabel(autosave.status);
+
   function applyOutcomeAutofill(outcomeId: string) {
     if (!entity || !record) return;
     const outcome =
@@ -216,6 +232,7 @@ function TaskWorkspaceBody({
     const actions = getOutcomeSetFieldActions(outcome);
     if (actions.length === 0) return;
     const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    autosave.markDirty();
     setValues((current) => {
       const merged = { ...record.values, ...current };
       const filled = applyAutomationSetFieldAutofill({
@@ -270,6 +287,7 @@ function TaskWorkspaceBody({
   function setValue(fieldId: string, value: string) {
     if (!entity) return;
     const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    autosave.markDirty();
     setValues((current) => {
       const base = applyEntityFieldValue(
         entity,
@@ -304,16 +322,13 @@ function TaskWorkspaceBody({
       : task.config.outcomes;
     // Stage/list field is applied by complete RPC — writing it here while
     // this blocking task is still pending raises AUTOMATION_BLOCKED on itself.
-    const fieldIds = collectTaskFormPersistFieldIds(outcomes, {
+    const patch = buildTaskFormPersistPatch({
+      entity,
+      outcomes,
+      values,
       excludeFieldIds: [processTriggerFieldId(task.processId)],
     });
-    const patch: Record<string, string> = {};
-    for (const fieldId of fieldIds) {
-      if (!entity.fields.some((field) => field.id === fieldId)) continue;
-      if (values[fieldId] === undefined) continue;
-      patch[fieldId] = values[fieldId]!;
-    }
-    if (Object.keys(patch).length === 0) return;
+    if (!patch) return;
     // Partial patch — store merges into current values (keeps files tabs etc.).
     await updateEntityRecord(task.entityId, task.recordId, patch);
   }
@@ -357,6 +372,7 @@ function TaskWorkspaceBody({
     setBusy(true);
     setError(null);
     try {
+      await autosave.flush();
       await persistValues(outcomeId);
       await onComplete(outcomeId, values);
       await resumePendingRecordListChange(task.recordId);
@@ -483,6 +499,18 @@ function TaskWorkspaceBody({
           fillSlot={
             hasFillForm ? (
               <div className="flex flex-col gap-4">
+                {autosaveLabel || autosave.error ? (
+                  <p
+                    className={cn(
+                      "text-[11px]",
+                      autosave.status === "error"
+                        ? "text-destructive"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {autosave.error ?? autosaveLabel}
+                  </p>
+                ) : null}
                 {viewFields.length > 0 ? (
                   <div className="flex flex-col gap-2.5">
                     <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">

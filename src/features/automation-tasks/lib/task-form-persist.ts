@@ -2,6 +2,7 @@ import {
   getAutomationConfig,
   type AutomationOutcome,
 } from "@/entities/automation";
+import type { Entity } from "@/entities/entity";
 import { getOutcomeSetFieldActions } from "./apply-outcome-autofill";
 
 /** Process list/stage field — must be written only by complete RPC. */
@@ -38,4 +39,34 @@ export function collectTaskFormPersistFieldIds(
     }
   }
   return fieldIds;
+}
+
+/**
+ * Partial record patch from task form values.
+ * When `recordValues` is passed, unchanged fields are omitted.
+ */
+export function buildTaskFormPersistPatch(options: {
+  entity: Entity;
+  outcomes: AutomationOutcome[];
+  values: Record<string, string>;
+  excludeFieldIds?: string[];
+  recordValues?: Record<string, string | undefined>;
+}): Record<string, string> | null {
+  const fieldIds = collectTaskFormPersistFieldIds(options.outcomes, {
+    excludeFieldIds: options.excludeFieldIds,
+  });
+  const patch: Record<string, string> = {};
+  for (const fieldId of fieldIds) {
+    if (!options.entity.fields.some((field) => field.id === fieldId)) continue;
+    if (options.values[fieldId] === undefined) continue;
+    const next = options.values[fieldId]!;
+    if (
+      options.recordValues &&
+      (options.recordValues[fieldId] ?? "") === next
+    ) {
+      continue;
+    }
+    patch[fieldId] = next;
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
 }

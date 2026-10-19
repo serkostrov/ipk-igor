@@ -16,6 +16,8 @@ import {
 } from "@/entities/automation";
 import {
   getCurrentUserRecordId,
+  getEntityConfig,
+  getEntityValueContext,
   useEntityConfig,
   useEntityValueContext,
 } from "@/entities/entity";
@@ -43,6 +45,8 @@ export function AutomationTaskPage({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Load only when the task id changes. Entity store updates (uploads, field
+  // saves, timers) must not remount the workspace — same pattern as the fill dialog.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -51,18 +55,21 @@ export function AutomationTaskPage({
       try {
         const next = await fetchAutomationTask(taskId);
         if (cancelled) return;
-        if (
-          next &&
-          !canViewAutomationTask(role, next, {
-            authUserId: sessionUser?.id ?? null,
-            userRecordId: getCurrentUserRecordId(),
-            entities,
-            valueContext,
-          })
-        ) {
-          setTask(null);
-          setError("Нет доступа к этому заданию");
-          return;
+        if (next) {
+          const entitiesNow = getEntityConfig().entities;
+          const valueContextNow = getEntityValueContext(entitiesNow);
+          if (
+            !canViewAutomationTask(role, next, {
+              authUserId: sessionUser?.id ?? null,
+              userRecordId: getCurrentUserRecordId(),
+              entities: entitiesNow,
+              valueContext: valueContextNow,
+            })
+          ) {
+            setTask(null);
+            setError("Нет доступа к этому заданию");
+            return;
+          }
         }
         setTask(next);
         if (!next) setError("Задача не найдена");
@@ -79,7 +86,26 @@ export function AutomationTaskPage({
     return () => {
       cancelled = true;
     };
-  }, [taskId, role, sessionUser?.id, entities, valueContext]);
+    // role / session are read at fetch time; do not re-fetch on entities churn
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taskId only
+  }, [taskId]);
+
+  // Soft access re-check without skeleton (role / scope filter changes).
+  useEffect(() => {
+    if (!task || loading) return;
+    if (
+      canViewAutomationTask(role, task, {
+        authUserId: sessionUser?.id ?? null,
+        userRecordId: getCurrentUserRecordId(),
+        entities,
+        valueContext,
+      })
+    ) {
+      return;
+    }
+    setTask(null);
+    setError("Нет доступа к этому заданию");
+  }, [task, loading, role, sessionUser?.id, entities, valueContext]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6 md:p-8">

@@ -55,9 +55,13 @@ import {
   mergeAutofillIntoFormValues,
 } from "@/features/automation-tasks/lib/apply-outcome-autofill";
 import {
-  collectTaskFormPersistFieldIds,
+  buildTaskFormPersistPatch,
   processTriggerFieldId,
 } from "@/features/automation-tasks/lib/task-form-persist";
+import {
+  taskFormAutosaveLabel,
+  useTaskFormAutosave,
+} from "@/features/automation-tasks/lib/use-task-form-autosave";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
 import { automationUploadTargetBlocksComplete } from "@/features/automation-tasks/lib/upload-to-files-tab";
 import { TaskUploadPanel } from "@/features/automation-tasks/ui/TaskUploadPanel";
@@ -233,9 +237,22 @@ function TaskFillFieldsDialogBody({
     ask != null &&
     (fields.length > 0 || viewFields.length > 0 || ask.viewTabIds.length > 0);
 
+  const autosave = useTaskFormAutosave({
+    enabled: Boolean(task && entity && record),
+    entityId: task?.entityId ?? "",
+    recordId: task?.recordId ?? "",
+    processId: task?.processId ?? "",
+    entity,
+    outcomes: task?.config.outcomes ?? [],
+    values,
+    recordValues: record?.values ?? {},
+  });
+  const autosaveLabel = taskFormAutosaveLabel(autosave.status);
+
   function setValue(fieldId: string, value: string) {
     if (!entity) return;
     const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    autosave.markDirty();
     setValues((current) => {
       const base = applyEntityFieldValue(
         entity,
@@ -275,16 +292,13 @@ function TaskFillFieldsDialogBody({
       : task.config.outcomes;
     // Stage/list field is applied by complete RPC — writing it here while
     // this blocking task is still pending raises AUTOMATION_BLOCKED on itself.
-    const fieldIds = collectTaskFormPersistFieldIds(outcomes, {
+    const patch = buildTaskFormPersistPatch({
+      entity,
+      outcomes,
+      values,
       excludeFieldIds: [processTriggerFieldId(task.processId)],
     });
-    const patch: Record<string, string> = {};
-    for (const fieldId of fieldIds) {
-      if (!entity.fields.some((field) => field.id === fieldId)) continue;
-      if (values[fieldId] === undefined) continue;
-      patch[fieldId] = values[fieldId]!;
-    }
-    if (Object.keys(patch).length === 0) return;
+    if (!patch) return;
     // Partial patch — store merges into current values (keeps files tabs etc.).
     await updateEntityRecord(task.entityId, task.recordId, patch);
   }
@@ -322,6 +336,7 @@ function TaskFillFieldsDialogBody({
     setBusy(true);
     setError(null);
     try {
+      await autosave.flush();
       await persistValues(outcomeId);
       const completed = task!;
       await completeAutomationTask(
@@ -366,6 +381,7 @@ function TaskFillFieldsDialogBody({
     const actions = getOutcomeSetFieldActions(outcome);
     if (actions.length === 0) return;
     const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
+    autosave.markDirty();
     setValues((current) => {
       const merged = { ...record.values, ...current };
       const filled = applyAutomationSetFieldAutofill({
@@ -438,6 +454,17 @@ function TaskFillFieldsDialogBody({
               fillSlot={
                 fields.length > 0 || viewFields.length > 0 ? (
                   <div className="flex flex-col gap-4">
+                    {autosaveLabel || autosave.error ? (
+                      <p
+                        className={
+                          autosave.status === "error"
+                            ? "text-[11px] text-destructive"
+                            : "text-[11px] text-muted-foreground"
+                        }
+                      >
+                        {autosave.error ?? autosaveLabel}
+                      </p>
+                    ) : null}
                     {viewFields.length > 0 ? (
                       <div className="flex flex-col gap-2.5 rounded-xl border border-border/70 bg-muted/15 px-3 py-3">
                         <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">

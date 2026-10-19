@@ -734,9 +734,7 @@ function MappingsEditor({
                 size="icon-sm"
                 className="shrink-0"
                 aria-label="Удалить маппинг"
-                onClick={() =>
-                  onChange(mappings.filter((_, i) => i !== index))
-                }
+                onClick={() => onChange(mappings.filter((_, i) => i !== index))}
               >
                 <Trash2 className="size-3.5" />
               </Button>
