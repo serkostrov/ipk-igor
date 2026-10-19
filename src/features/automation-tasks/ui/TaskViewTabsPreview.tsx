@@ -1,15 +1,18 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  Check,
   ClipboardPen,
   ExternalLink,
   FileText,
   Folder,
+  FolderInput,
   History,
   LayoutGrid,
   Link2,
   StickyNote,
   Table2,
 } from "lucide-react";
+import { Button } from "@/shared/ui/button";
 import {
   entityRelationIncludesId,
   filterEntityFieldGroupsForTab,
@@ -254,7 +257,9 @@ function FilesPreview({
   allowMove?: boolean;
 }) {
   const [openingId, setOpeningId] = useState<string | null>(null);
-  const [movingId, setMovingId] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [destinationId, setDestinationId] = useState<string>("");
   const [actionError, setActionError] = useState<string | null>(null);
 
   const valueKey = getEntityTabFilesValueKey(tab.id);
@@ -298,18 +303,52 @@ function FilesPreview({
   const allowRootMove =
     allowMove && !(selectedFolderIds && selectedFolderIds.length > 0);
 
-  const fileCount = useMemo(
+  const canChooseDestination =
+    allowMove && (moveTargets.length > 0 || allowRootMove);
+
+  const fileIds = useMemo(
     () =>
-      rows.reduce(
-        (count, row) => count + (row.entry.kind === "file" ? 1 : 0),
-        0,
-      ),
+      rows
+        .filter((row) => row.entry.kind === "file")
+        .map((row) => row.entry.id),
     [rows],
   );
 
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedCount = selectedIds.length;
+  const allFilesSelected =
+    fileIds.length > 0 && fileIds.every((id) => selectedSet.has(id));
+
+  const fileCount = fileIds.length;
   const shown = rows.slice(0, FILES_PREVIEW_LIMIT);
   const rest = rows.length - shown.length;
   const hasFilter = (selectedFolderIds?.length ?? 0) > 0;
+
+  const destinationLabel =
+    destinationId === FILES_ROOT_VALUE
+      ? "Корень"
+      : destinationId
+        ? (moveTargets.find((item) => item.id === destinationId)?.label ??
+          "Папка")
+        : "Куда переместить…";
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  }
+
+  function clearSelection() {
+    setSelectedIds([]);
+    setDestinationId("");
+    setActionError(null);
+  }
+
+  function selectAllFiles() {
+    setSelectedIds(fileIds);
+  }
 
   async function openFile(entry: EntityTabFileEntry) {
     if (entry.kind !== "file") return;
@@ -334,13 +373,11 @@ function FilesPreview({
     }
   }
 
-  async function moveFile(
-    entry: EntityTabFileEntry,
-    nextParentId: string | null,
-  ) {
-    if (entry.kind !== "file") return;
-    const currentParent = entry.parentId ?? null;
-    if (currentParent === nextParentId) return;
+  async function moveSelected() {
+    if (!canChooseDestination || selectedCount === 0 || !destinationId) return;
+
+    const nextParentId =
+      destinationId === FILES_ROOT_VALUE ? null : destinationId;
 
     if (nextParentId) {
       const target = byId.get(nextParentId);
@@ -353,35 +390,57 @@ function FilesPreview({
       return;
     }
 
-    const conflict = entries.some(
-      (item) =>
-        item.id !== entry.id &&
-        item.kind === "file" &&
-        (item.parentId ?? null) === nextParentId &&
-        item.name.trim().toLocaleLowerCase("ru") ===
-          entry.name.trim().toLocaleLowerCase("ru"),
+    const movingFiles = entries.filter(
+      (item) => item.kind === "file" && selectedSet.has(item.id),
     );
-    if (conflict) {
-      setActionError("В этой папке уже есть файл с таким именем");
+    if (movingFiles.length === 0) return;
+
+    const alreadyThere = movingFiles.every(
+      (item) => (item.parentId ?? null) === nextParentId,
+    );
+    if (alreadyThere) {
+      setActionError("Файлы уже в этой папке");
       return;
     }
 
+    const nameSet = new Set(
+      entries
+        .filter(
+          (item) =>
+            item.kind === "file" &&
+            !selectedSet.has(item.id) &&
+            (item.parentId ?? null) === nextParentId,
+        )
+        .map((item) => item.name.trim().toLocaleLowerCase("ru")),
+    );
+    for (const file of movingFiles) {
+      const key = file.name.trim().toLocaleLowerCase("ru");
+      if (nameSet.has(key)) {
+        setActionError(`В папке назначения уже есть файл «${file.name}»`);
+        return;
+      }
+      nameSet.add(key);
+    }
+
     setActionError(null);
-    setMovingId(entry.id);
+    setMoving(true);
     try {
       const nextEntries = entries.map((item) =>
-        item.id === entry.id ? { ...item, parentId: nextParentId } : item,
+        item.kind === "file" && selectedSet.has(item.id)
+          ? { ...item, parentId: nextParentId }
+          : item,
       );
       await updateEntityRecord(entity.id, record.id, {
         ...record.values,
         [valueKey]: serializeEntityTabFileEntries(nextEntries),
       });
+      clearSelection();
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : "Не удалось переместить файл",
+        err instanceof Error ? err.message : "Не удалось переместить файлы",
       );
     } finally {
-      setMovingId(null);
+      setMoving(false);
     }
   }
 
@@ -395,103 +454,166 @@ function FilesPreview({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2 px-0.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
         <p className="text-[11px] text-muted-foreground">
           {fileCount > 0
             ? `${fileCount} ${pluralRu(fileCount, "файл", "файла", "файлов")}`
             : "Только папки — файлов пока нет"}
           {hasFilter ? " · выбранные папки" : ""}
-          {allowMove ? " · можно перемещать" : ""}
         </p>
+        {allowMove && fileCount > 0 && selectedCount === 0 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-[11px] text-muted-foreground"
+            onClick={selectAllFiles}
+          >
+            Выбрать все
+          </Button>
+        ) : null}
       </div>
+
+      {allowMove && selectedCount > 0 ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border/80 bg-muted/25 p-2.5 sm:flex-row sm:items-center">
+          <p className="shrink-0 text-xs font-medium text-foreground">
+            Выбрано: {selectedCount}
+          </p>
+          <Select
+            value={destinationId || undefined}
+            disabled={moving || !canChooseDestination}
+            onValueChange={(next) => {
+              if (next == null) return;
+              setDestinationId(String(next));
+              setActionError(null);
+            }}
+          >
+            <SelectTrigger className="h-8 min-w-0 flex-1 bg-background">
+              <SelectValue placeholder="Куда переместить…">
+                {destinationLabel}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start">
+              {allowRootMove ? (
+                <SelectItem value={FILES_ROOT_VALUE}>Корень</SelectItem>
+              ) : null}
+              {moveTargets.map((folder) => (
+                <SelectItem key={folder.id} value={folder.id}>
+                  {folder.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={moving || !destinationId || !canChooseDestination}
+              onClick={() => void moveSelected()}
+            >
+              <FolderInput className="size-3.5" aria-hidden />
+              {moving ? "Перемещение…" : "Переместить"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8"
+              disabled={moving}
+              onClick={clearSelection}
+            >
+              Отмена
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {actionError ? (
         <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
           {actionError}
         </p>
       ) : null}
+
       <ul className="flex flex-col gap-1">
         {shown.map(({ entry, depth }) => {
           const isFile = entry.kind === "file";
           const sizeLabel = isFile ? formatEntityFileSize(entry.size) : "";
           const canOpen = isFile && Boolean(entry.dataUrl || entry.storagePath);
           const indent = Math.min(depth, 6) * 14;
-          const folderValue = entry.parentId ?? FILES_ROOT_VALUE;
-          const currentFolderLabel = entry.parentId
-            ? folderPathLabel(byId, entry.parentId)
-            : "Корень";
+          const selected = selectedSet.has(entry.id);
+          const folderLabel = isFile
+            ? entry.parentId
+              ? folderPathLabel(byId, entry.parentId)
+              : "Корень"
+            : null;
 
           if (isFile) {
             return (
               <li key={entry.id} style={{ paddingLeft: indent }}>
-                <div className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-background px-3 py-2">
+                <div
+                  className={cn(
+                    "flex items-start gap-2 rounded-lg border px-2.5 py-2 transition-colors",
+                    selected
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-border/60 bg-background",
+                  )}
+                >
+                  {allowMove ? (
+                    <button
+                      type="button"
+                      className={cn(
+                        "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+                        selected
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border/80 bg-background hover:border-foreground/30",
+                      )}
+                      aria-label={selected ? "Снять выбор" : "Выбрать"}
+                      aria-pressed={selected}
+                      disabled={moving}
+                      onClick={() => toggleSelected(entry.id)}
+                    >
+                      {selected ? <Check className="size-2.5" /> : null}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     disabled={!canOpen || openingId === entry.id}
                     onClick={() => void openFile(entry)}
                     className={cn(
-                      "flex w-full items-center gap-2.5 text-left text-sm transition-colors",
+                      "flex min-w-0 flex-1 items-start gap-2.5 text-left text-sm transition-colors",
                       canOpen ? "hover:text-primary" : "opacity-70",
                     )}
                   >
                     <FileText
-                      className="size-4 shrink-0 text-muted-foreground"
+                      className="mt-0.5 size-4 shrink-0 text-muted-foreground"
                       aria-hidden
                     />
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                      {entry.name}
-                    </span>
-                    {sizeLabel ? (
-                      <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                        {sizeLabel}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-foreground">
+                        {entry.name}
                       </span>
-                    ) : null}
+                      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                        {folderLabel ? (
+                          <span className="truncate">
+                            <span className="tracking-wide uppercase opacity-70">
+                              Папка
+                            </span>{" "}
+                            {folderLabel}
+                          </span>
+                        ) : null}
+                        {sizeLabel ? (
+                          <span className="tabular-nums">{sizeLabel}</span>
+                        ) : null}
+                      </span>
+                    </span>
                     {canOpen ? (
                       <ExternalLink
-                        className="size-3.5 shrink-0 text-muted-foreground"
+                        className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
                         aria-hidden
                       />
                     ) : null}
                   </button>
-                  {allowMove && (moveTargets.length > 0 || allowRootMove) ? (
-                    <div className="flex items-center gap-2 pl-6">
-                      <span className="shrink-0 text-[10px] tracking-wide text-muted-foreground uppercase">
-                        Папка
-                      </span>
-                      <Select
-                        value={folderValue}
-                        disabled={movingId === entry.id}
-                        onValueChange={(next) => {
-                          if (next == null) return;
-                          const parentId =
-                            String(next) === FILES_ROOT_VALUE
-                              ? null
-                              : String(next);
-                          void moveFile(entry, parentId);
-                        }}
-                      >
-                        <SelectTrigger
-                          size="sm"
-                          className="h-7 min-w-0 flex-1 bg-muted/20 text-xs"
-                        >
-                          <SelectValue placeholder="Папка">
-                            {currentFolderLabel}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent align="start">
-                          {allowRootMove ? (
-                            <SelectItem value={FILES_ROOT_VALUE}>
-                              Корень
-                            </SelectItem>
-                          ) : null}
-                          {moveTargets.map((folder) => (
-                            <SelectItem key={folder.id} value={folder.id}>
-                              {folder.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : null}
                 </div>
               </li>
             );
@@ -526,6 +648,17 @@ function FilesPreview({
           </li>
         ) : null}
       </ul>
+
+      {allowMove && selectedCount > 0 && !allFilesSelected && fileCount > 1 ? (
+        <button
+          type="button"
+          className="self-start px-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          disabled={moving}
+          onClick={selectAllFiles}
+        >
+          Выбрать все файлы
+        </button>
+      ) : null}
     </div>
   );
 }

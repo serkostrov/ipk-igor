@@ -216,19 +216,23 @@ function MenuAccessIcon({
 function MenuAccessList({
   entries,
   menuAll,
+  menuFlat,
   selectedIds,
   onToggleAll,
+  onMenuFlatChange,
   onToggleItem,
   onToggleItems,
 }: {
   entries: MenuEntry[];
   menuAll: boolean;
+  menuFlat: boolean;
   selectedIds: string[];
   onToggleAll: (checked: boolean) => void;
+  onMenuFlatChange: (flat: boolean) => void;
   onToggleItem: (itemId: string, checked: boolean) => void;
   onToggleItems: (itemIds: string[], checked: boolean) => void;
 }) {
-  const [viewMode, setViewMode] = useState<MenuAccessViewMode>("tree");
+  const viewMode: MenuAccessViewMode = menuFlat ? "flat" : "tree";
   const rows = useMemo(
     () => buildMenuAccessRows(entries, 0, viewMode),
     [entries, viewMode],
@@ -240,13 +244,13 @@ function MenuAccessList({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/20 px-3 py-2">
         <p className="text-[11px] text-muted-foreground">
           {viewMode === "tree"
-            ? "Как в боковом меню — папки и пункты"
-            : "Плоский список без папок"}
+            ? "В боковом меню — папки и пункты"
+            : "В боковом меню — плоский список без папок"}
         </p>
         <div
           className="inline-flex rounded-lg border border-border/80 bg-background p-0.5"
           role="group"
-          aria-label="Вид списка разделов"
+          aria-label="Отображение меню для роли"
         >
           <button
             type="button"
@@ -257,7 +261,7 @@ function MenuAccessList({
                 : "text-muted-foreground hover:text-foreground",
             )}
             aria-pressed={viewMode === "tree"}
-            onClick={() => setViewMode("tree")}
+            onClick={() => onMenuFlatChange(false)}
           >
             Как в меню
           </button>
@@ -270,7 +274,7 @@ function MenuAccessList({
                 : "text-muted-foreground hover:text-foreground",
             )}
             aria-pressed={viewMode === "flat"}
-            onClick={() => setViewMode("flat")}
+            onClick={() => onMenuFlatChange(true)}
           >
             Без папок
           </button>
@@ -656,6 +660,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
         <MenuAccessList
           entries={entries}
           menuAll={menuAll}
+          menuFlat={role.permissions.menuFlat === true}
           selectedIds={
             role.permissions.menuItemIds === "*"
               ? menuItems.map((item) => item.id)
@@ -667,6 +672,9 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                 menuItemIds: checked ? "*" : menuItems.map((item) => item.id),
               }),
             )
+          }
+          onMenuFlatChange={(flat) =>
+            onChange(patchPermissions(role, { menuFlat: flat }))
           }
           onToggleItem={(itemId, checked) => {
             const current =

@@ -22,6 +22,7 @@ import {
   AUTOMATION_TASKS_ITEM_ID,
   NOTIFICATIONS_ITEM_ID,
   filterVisibleMenuEntries,
+  flattenMenuEntriesToItems,
   flattenMenuGroupItems,
   getMenuIcon,
   isEntityLinkedMenuItem,
@@ -31,7 +32,7 @@ import {
   type MenuGroupEntry,
   type MenuIconName,
 } from "@/entities/menu";
-import { canMenuItem, useCurrentRole } from "@/entities/access";
+import { canMenuItem, roleMenuFlat, useCurrentRole } from "@/entities/access";
 import { signOut, useSessionUser } from "@/entities/session";
 import { NotificationBell } from "@/features/notification-inbox";
 import { SidebarNavSkeleton } from "./SidebarNavSkeleton";
@@ -388,13 +389,14 @@ export function Sidebar({
     const internalIds = new Set(
       entities.filter(isEntityInternal).map((entity) => entity.id),
     );
-    return filterVisibleMenuEntries(entries, (itemId) => {
+    const visible = filterVisibleMenuEntries(entries, (itemId) => {
       if (isEntityLinkedMenuItem(itemId) && internalIds.has(itemId)) {
         return true;
       }
       const entityId = isEntityLinkedMenuItem(itemId) ? itemId : null;
       return !canMenuItem(role, itemId, entityId);
     });
+    return roleMenuFlat(role) ? flattenMenuEntriesToItems(visible) : visible;
   }, [entries, entities, role]);
 
   const currentUser = useMemo(() => {

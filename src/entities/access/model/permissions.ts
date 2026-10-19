@@ -283,3 +283,9 @@ export function allowedSettingsTabs(
   if (isAdminRole(role)) return "*";
   return role.permissions.settingsTabs;
 }
+
+/** Sidebar without folders for this role («Без папок» in role settings). */
+export function roleMenuFlat(role: Role | null | undefined): boolean {
+  if (!role) return false;
+  return role.permissions.menuFlat === true;
+}

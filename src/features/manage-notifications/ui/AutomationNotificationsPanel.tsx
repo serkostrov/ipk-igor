@@ -20,6 +20,8 @@ import {
   type Entity,
 } from "@/entities/entity";
 import { AutomationNotificationRuleEditor } from "@/features/manage-automations";
+import { formatTemplateLabel } from "@/features/manage-automations/lib/template-text";
+import { TemplateRichText } from "@/features/manage-automations/ui/TemplateRichText";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
 import {
@@ -84,7 +86,13 @@ export function AutomationNotificationsPanel() {
       if (entityCmp !== 0) return entityCmp;
       const stageCmp = a.stageName.localeCompare(b.stageName, "ru");
       if (stageCmp !== 0) return stageCmp;
-      return a.template.name.localeCompare(b.template.name, "ru");
+      return formatTemplateLabel(
+        a.template.name,
+        a.entity.fields,
+      ).localeCompare(
+        formatTemplateLabel(b.template.name, b.entity.fields),
+        "ru",
+      );
     });
   }, [entities, processes, scenarios, templates]);
 
@@ -270,7 +278,10 @@ export function AutomationNotificationsPanel() {
               <SelectTrigger className="h-9 w-full">
                 <SelectValue placeholder="Задание">
                   {selectedContext
-                    ? selectedContext.template.name.trim() || "Без названия"
+                    ? formatTemplateLabel(
+                        selectedContext.template.name,
+                        selectedContext.entity.fields,
+                      )
                     : "Задание"}
                 </SelectValue>
               </SelectTrigger>
@@ -279,7 +290,10 @@ export function AutomationNotificationsPanel() {
                   <SelectItem key={item.template.id} value={item.template.id}>
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate">
-                        {item.template.name.trim() || "Без названия"}
+                        {formatTemplateLabel(
+                          item.template.name,
+                          item.entity.fields,
+                        )}
                       </span>
                       <span className="truncate text-[10px] text-muted-foreground">
                         {item.stageName} · {item.scenarioName}
@@ -298,8 +312,12 @@ export function AutomationNotificationsPanel() {
           <div className="flex flex-col gap-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {selectedContext.template.name.trim() || "Без названия"}
+                <p className="text-sm font-medium leading-snug">
+                  <TemplateRichText
+                    value={selectedContext.template.name}
+                    fields={selectedContext.entity.fields}
+                    empty="Без названия"
+                  />
                 </p>
                 <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                   {getEntityDisplayName(selectedContext.entity)} ·{" "}

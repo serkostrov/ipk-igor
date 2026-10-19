@@ -20,6 +20,7 @@ export {
   SETTINGS_ITEM_ID,
   SYSTEM_USERS_MENU_ITEM_ID,
   filterVisibleMenuEntries,
+  flattenMenuEntriesToItems,
   flattenMenuGroupItems,
   getEntityLinkedMenuItemIds,
   getMenuEntityTree,

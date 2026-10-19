@@ -102,6 +102,7 @@ function parsePermissions(value: unknown): RolePermissions {
   );
   const permissions: RolePermissions = {
     menuItemIds: parseMenuItemIds(value.menuItemIds),
+    menuFlat: value.menuFlat === true,
     settingsTabs: parseSettingsTabs(value.settingsTabs),
     canInviteUsers: value.canInviteUsers === true,
     canAccessHistory: value.canAccessHistory === true,

@@ -339,6 +339,19 @@ export function flattenMenuGroupItems(group: MenuGroupEntry): MenuItem[] {
   return items;
 }
 
+/** Flatten a menu tree to leaf items (DFS), keeping item entries as-is. */
+export function flattenMenuEntriesToItems(entries: MenuEntry[]): MenuItemEntry[] {
+  const items: MenuItemEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type === "item") {
+      items.push(entry);
+      continue;
+    }
+    items.push(...flattenMenuEntriesToItems(entry.entries));
+  }
+  return items;
+}
+
 export function groupHasProtectedItems(group: MenuGroupEntry): boolean {
   for (const entry of group.entries) {
     if (entry.type === "item" && isProtectedMenuItem(entry.id)) return true;

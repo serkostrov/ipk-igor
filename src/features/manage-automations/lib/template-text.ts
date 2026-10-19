@@ -56,6 +56,27 @@ export function getTemplateFieldLabel(
   return field ? getEntityFieldDisplayName(field) : token;
 }
 
+/**
+ * Human-readable template for selects / lists: `{{fieldId}}` → `[Имя поля]`.
+ */
+export function formatTemplateLabel(
+  template: string,
+  fields: readonly EntityField[],
+  empty = "Без названия",
+): string {
+  const trimmed = template.trim();
+  if (!trimmed) return empty;
+  const label = parseTemplateParts(trimmed)
+    .map((part) =>
+      part.kind === "field"
+        ? `[${getTemplateFieldLabel(fields, part.id)}]`
+        : part.text,
+    )
+    .join("")
+    .trim();
+  return label || empty;
+}
+
 /** Replace `{{fieldId}}` with record values (preview / client render). */
 export function renderTemplateText(
   template: string,

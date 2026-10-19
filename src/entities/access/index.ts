@@ -42,6 +42,7 @@ export {
   filterAutomationTasksForRole,
   getEntityAccess,
   isAdminRole,
+  roleMenuFlat,
 } from "./model/permissions";
 export {
   cloneDefaultRolesConfig,

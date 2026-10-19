@@ -45,6 +45,11 @@ export type SettingsTabId =
 
 export type RolePermissions = {
   menuItemIds: string[] | "*";
+  /**
+   * When true, sidebar shows a flat list of menu items (no folders).
+   * Matches the «Без папок» option in role settings.
+   */
+  menuFlat: boolean;
   settingsTabs: SettingsTabId[] | "*";
   canInviteUsers: boolean;
   canAccessHistory: boolean;
@@ -104,6 +109,7 @@ export function createAdminRole(): Role {
     isSystem: true,
     permissions: {
       menuItemIds: "*",
+      menuFlat: false,
       settingsTabs: "*",
       canInviteUsers: true,
       canAccessHistory: true,
@@ -124,6 +130,7 @@ export function createEmployeeRole(): Role {
     isSystem: false,
     permissions: {
       menuItemIds: "*",
+      menuFlat: false,
       settingsTabs: [],
       canInviteUsers: false,
       canAccessHistory: true,
