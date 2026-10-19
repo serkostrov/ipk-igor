@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Wand2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
@@ -13,12 +13,14 @@ import {
   AUTOMATION_ACTION_KIND_LABELS,
   AUTOMATION_ACTION_KINDS,
   defaultAutomationAction,
+  toAutomationFieldRef,
   type AutomationAction,
   type AutomationActionKind,
 } from "@/entities/automation";
 import {
   getEntityDisplayName,
   getEntityFieldDisplayName,
+  getEntityFieldTypeLabel,
   getEntityRelationTargetId,
   getEntityTabKindLabel,
   isEntityComputedFieldType,
@@ -26,6 +28,7 @@ import {
   ListSelect,
   parseEntityListValueIds,
   serializeEntityListValueIds,
+  SYSTEM_USERS_ENTITY_ID,
   type Entity,
   type EntityField,
   type EntityListOption,
@@ -208,9 +211,7 @@ function ActionFields({
     const sourceLabel = sourceEntity
       ? getEntityDisplayName(sourceEntity)
       : "текущей записи";
-    const targetLabel = target
-      ? getEntityDisplayName(target)
-      : "новой записи";
+    const targetLabel = target ? getEntityDisplayName(target) : "новой записи";
     const parentLinked =
       Boolean(target?.parentEntityId) &&
       target?.parentEntityId === sourceEntity?.id;
@@ -313,6 +314,7 @@ function ActionFields({
           targetFields={target?.fields ?? []}
           targetEntityName={targetLabel}
           sourceFields={sourceEntity?.fields ?? []}
+          sourceEntityId={sourceEntity?.id}
           sourceEntityName={sourceLabel}
           entities={entities}
           onChange={(mappings) => onChange({ ...action, mappings })}
@@ -464,18 +466,68 @@ function EntitySelect({
   );
 }
 
+function fieldMappingTypeHint(
+  field: EntityField,
+  entities: Entity[] = [],
+): string {
+  if (field.type === "relation") {
+    const targetId = getEntityRelationTargetId(field);
+    if (targetId === SYSTEM_USERS_ENTITY_ID) return "Пользователь";
+    const target = entities.find((item) => item.id === targetId);
+    if (target) return getEntityDisplayName(target);
+  }
+  return getEntityFieldTypeLabel(field.type);
+}
+
+function fieldMappingLabel(
+  field: EntityField,
+  entities: Entity[] = [],
+): string {
+  return `${getEntityFieldDisplayName(field)} · ${fieldMappingTypeHint(field, entities)}`;
+}
+
+function sortFieldsForMapping(
+  fields: EntityField[],
+  entities: Entity[],
+): EntityField[] {
+  return [...fields].sort((left, right) => {
+    const leftUsers =
+      left.type === "relation" &&
+      getEntityRelationTargetId(left) === SYSTEM_USERS_ENTITY_ID
+        ? 0
+        : 1;
+    const rightUsers =
+      right.type === "relation" &&
+      getEntityRelationTargetId(right) === SYSTEM_USERS_ENTITY_ID
+        ? 0
+        : 1;
+    if (leftUsers !== rightUsers) return leftUsers - rightUsers;
+    return fieldMappingLabel(left, entities).localeCompare(
+      fieldMappingLabel(right, entities),
+      "ru",
+    );
+  });
+}
+
 function FieldSelect({
   fields,
   value,
   onChange,
   placeholder = "Поле",
+  entities = [],
+  showType = false,
+  className,
 }: {
   fields: EntityField[];
   value: string;
   onChange: (fieldId: string) => void;
   placeholder?: string;
+  entities?: Entity[];
+  /** Append type / relation target in the list (mapping pickers). */
+  showType?: boolean;
+  className?: string;
 }) {
-  const selected = fields.find((field) => field.id === value);
+  const options = showType ? sortFieldsForMapping(fields, entities) : fields;
   return (
     <Select
       value={value || undefined}
@@ -483,17 +535,45 @@ function FieldSelect({
         if (next != null) onChange(String(next));
       }}
     >
-      <SelectTrigger size="sm" className="h-8">
-        <SelectValue>
-          {selected ? getEntityFieldDisplayName(selected) : placeholder}
+      <SelectTrigger
+        size="sm"
+        className={cn("h-8 w-full min-w-0 overflow-hidden", className)}
+      >
+        <SelectValue className="min-w-0">
+          {(selected) => {
+            const field = options.find((item) => item.id === selected);
+            return (
+              <span className="block truncate">
+                {field ? getEntityFieldDisplayName(field) : placeholder}
+              </span>
+            );
+          }}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent>
-        {fields.map((field) => (
-          <SelectItem key={field.id} value={field.id}>
-            {getEntityFieldDisplayName(field)}
-          </SelectItem>
-        ))}
+      <SelectContent className="max-h-72">
+        {options.map((field) => {
+          const name = getEntityFieldDisplayName(field);
+          const typeHint = showType
+            ? fieldMappingTypeHint(field, entities)
+            : "";
+          const full = typeHint ? `${name} · ${typeHint}` : name;
+          // `label` is what search indexes; keep type there. Closed trigger
+          // uses SelectValue render above (short name only).
+          return (
+            <SelectItem key={field.id} value={field.id} label={full}>
+              {typeHint ? (
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  <span className="truncate">{name}</span>
+                  <span className="truncate text-muted-foreground">
+                    {typeHint}
+                  </span>
+                </span>
+              ) : (
+                name
+              )}
+            </SelectItem>
+          );
+        })}
       </SelectContent>
     </Select>
   );
@@ -742,11 +822,62 @@ function RequireFieldsEditor({
   );
 }
 
+function normalizeMappingFieldName(field: EntityField) {
+  return getEntityFieldDisplayName(field)
+    .trim()
+    .toLocaleLowerCase("ru")
+    .replaceAll("ё", "е");
+}
+
+function fieldsCompatibleForAutoMap(
+  target: EntityField,
+  source: EntityField,
+): boolean {
+  if (isEntityComputedFieldType(source.type) || source.type === "file") {
+    return false;
+  }
+  if (target.type === source.type) {
+    if (target.type === "relation") {
+      const targetId = getEntityRelationTargetId(target);
+      const sourceId = getEntityRelationTargetId(source);
+      return !targetId || !sourceId || targetId === sourceId;
+    }
+    return true;
+  }
+  if (
+    (target.type === "text" || target.type === "textarea") &&
+    (source.type === "text" ||
+      source.type === "textarea" ||
+      source.type === "phone" ||
+      source.type === "email" ||
+      source.type === "url")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function findSameNameSourceField(
+  target: EntityField,
+  sourceFields: EntityField[],
+): EntityField | null {
+  const name = normalizeMappingFieldName(target);
+  if (!name) return null;
+  return (
+    sourceFields.find(
+      (source) =>
+        fieldsCompatibleForAutoMap(target, source) &&
+        normalizeMappingFieldName(source) === name,
+    ) ?? null
+  );
+}
+
 function MappingsEditor({
   mappings,
   targetFields,
   targetEntityName,
   sourceFields,
+  sourceEntityId,
   sourceEntityName,
   entities,
   onChange,
@@ -755,6 +886,7 @@ function MappingsEditor({
   targetFields: EntityField[];
   targetEntityName: string;
   sourceFields: EntityField[];
+  sourceEntityId?: string;
   sourceEntityName: string;
   entities: Entity[];
   onChange: (
@@ -766,96 +898,152 @@ function MappingsEditor({
   );
   const targetLabel = targetEntityName.trim() || "Новая запись";
   const sourceLabel = sourceEntityName.trim() || "Текущая запись";
+  const usedTargetIds = new Set(
+    mappings.map((mapping) => mapping.targetFieldId).filter(Boolean),
+  );
+  const autoMapCount = writable.filter((field) => {
+    if (!findSameNameSourceField(field, sourceFields)) return false;
+    const existing = mappings.find(
+      (mapping) => mapping.targetFieldId === field.id,
+    );
+    return !existing || !existing.source.trim();
+  }).length;
+
+  function autoMapSameNames() {
+    const byTarget = new Map(
+      mappings.map((mapping, index) => [mapping.targetFieldId, index]),
+    );
+    const next = [...mappings];
+    for (const field of writable) {
+      const match = findSameNameSourceField(field, sourceFields);
+      if (!match) continue;
+      const source = toAutomationFieldRef(match.id);
+      const index = byTarget.get(field.id);
+      if (index != null) {
+        if (!next[index]!.source.trim()) {
+          next[index] = { targetFieldId: field.id, source };
+        }
+        continue;
+      }
+      next.push({ targetFieldId: field.id, source });
+      byTarget.set(field.id, next.length - 1);
+    }
+    onChange(next);
+  }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex min-w-0 flex-col gap-1">
-        <p className="text-[11px] font-medium text-muted-foreground">
-          Заполнить поля новой записи
-        </p>
-        <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/60 bg-muted/25 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-          <span className="font-medium text-foreground/80">Откуда</span>
-          <span className="truncate">«{sourceLabel}»</span>
-          <span className="text-muted-foreground/70" aria-hidden>
-            →
-          </span>
-          <span className="font-medium text-foreground/80">Куда</span>
-          <span className="truncate">«{targetLabel}»</span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            Поля новой записи
+          </p>
+          <p className="truncate text-[10px] text-muted-foreground/80">
+            «{sourceLabel}» → «{targetLabel}»
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            disabled={autoMapCount === 0}
+            title="Добавить маппинги для полей с одинаковыми названиями"
+            onClick={autoMapSameNames}
+          >
+            <Wand2 className="size-3.5" />
+            По именам
+            {autoMapCount > 0 ? ` · ${autoMapCount}` : ""}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            disabled={writable.length === 0}
+            onClick={() => {
+              const free =
+                writable.find((field) => !usedTargetIds.has(field.id)) ??
+                writable[0];
+              onChange([
+                ...mappings,
+                { targetFieldId: free?.id ?? "", source: "" },
+              ]);
+            }}
+          >
+            <Plus className="size-3.5" />
+            Поле
+          </Button>
         </div>
       </div>
-      {mappings.map((mapping, index) => {
-        const target =
-          writable.find((field) => field.id === mapping.targetFieldId) ?? null;
-        return (
-          <div
-            key={`${mapping.targetFieldId}-${index}`}
-            className="flex flex-col gap-2 rounded-md border border-border/60 bg-background p-2.5"
-          >
-            <div className="flex items-start gap-1.5">
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                  Куда · поле в «{targetLabel}»
-                </p>
-                <FieldSelect
-                  fields={writable}
-                  value={mapping.targetFieldId}
-                  placeholder="Выберите поле"
-                  onChange={(targetFieldId) => {
-                    const next = [...mappings];
-                    next[index] = { targetFieldId, source: "" };
-                    onChange(next);
-                  }}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="mt-4 shrink-0"
-                aria-label="Удалить маппинг"
-                onClick={() =>
-                  onChange(mappings.filter((_, i) => i !== index))
-                }
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </div>
-            <div className="space-y-1 border-t border-border/50 pt-2">
-              <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                Откуда · значение из «{sourceLabel}»
-              </p>
-              <ActionValueEditor
-                field={target}
-                value={mapping.source}
-                sourceFields={sourceFields}
-                mapToOtherEntity
-                entities={entities}
-                onChange={(source) => {
-                  const next = [...mappings];
-                  next[index] = { ...mapping, source };
-                  onChange(next);
-                }}
-              />
-            </div>
+
+      {mappings.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border/70 px-3 py-2 text-[11px] text-muted-foreground">
+          Нет маппингов. Нажмите «По именам» или добавьте поле вручную.
+        </p>
+      ) : (
+        <div className="rounded-md border border-border/70">
+          <div className="grid grid-cols-[minmax(0,8.5rem)_minmax(0,1fr)_1.75rem] items-center gap-1.5 border-b border-border/60 bg-muted/30 px-2 py-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+            <span className="truncate">Куда · {targetLabel}</span>
+            <span className="truncate">Откуда · {sourceLabel}</span>
+            <span aria-hidden />
           </div>
-        );
-      })}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 gap-1 self-start px-2 text-xs"
-        disabled={writable.length === 0}
-        onClick={() =>
-          onChange([
-            ...mappings,
-            { targetFieldId: writable[0]?.id ?? "", source: "" },
-          ])
-        }
-      >
-        <Plus className="size-3.5" />
-        Поле
-      </Button>
+          <ul className="divide-y divide-border/60">
+            {mappings.map((mapping, index) => {
+              const target =
+                writable.find((field) => field.id === mapping.targetFieldId) ??
+                null;
+              return (
+                <li
+                  key={`${mapping.targetFieldId}-${index}`}
+                  className="grid grid-cols-[minmax(0,8.5rem)_minmax(0,1fr)_1.75rem] items-center gap-1.5 px-2 py-1.5"
+                >
+                  <FieldSelect
+                    fields={writable}
+                    value={mapping.targetFieldId}
+                    placeholder="Поле"
+                    entities={entities}
+                    showType
+                    onChange={(targetFieldId) => {
+                      const next = [...mappings];
+                      next[index] = { targetFieldId, source: "" };
+                      onChange(next);
+                    }}
+                  />
+                  <ActionValueEditor
+                    field={target}
+                    value={mapping.source}
+                    sourceFields={sourceFields}
+                    sourceEntityId={sourceEntityId}
+                    mapToOtherEntity
+                    compact
+                    className="min-w-0"
+                    entities={entities}
+                    onChange={(source) => {
+                      const next = [...mappings];
+                      next[index] = { ...mapping, source };
+                      onChange(next);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0 justify-self-end"
+                    aria-label="Удалить маппинг"
+                    onClick={() =>
+                      onChange(mappings.filter((_, i) => i !== index))
+                    }
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

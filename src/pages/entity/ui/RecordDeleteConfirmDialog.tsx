@@ -19,6 +19,10 @@ type RecordDeleteConfirmDialogProps = {
   onConfirm: () => void | Promise<void>;
 };
 
+/**
+ * Waits for automation-task count before showing the confirm UI, so the
+ * «Удалить с автоматизацией» action never pops in a second later.
+ */
 export function RecordDeleteConfirmDialog({
   open,
   onOpenChange,
@@ -38,6 +42,7 @@ export function RecordDeleteConfirmDialog({
 
   useEffect(() => {
     if (!fetchKey || !entityId || !recordId) return;
+
     let cancelled = false;
     void countAutomationTasksForRecord(entityId, recordId)
       .then((count) => {
@@ -46,12 +51,14 @@ export function RecordDeleteConfirmDialog({
       .catch(() => {
         if (!cancelled) setFetched({ key: fetchKey, count: 0 });
       });
+
     return () => {
       cancelled = true;
     };
   }, [fetchKey, entityId, recordId]);
 
-  const taskCount = fetchKey && fetched?.key === fetchKey ? fetched.count : 0;
+  const ready = fetchKey != null && fetched?.key === fetchKey;
+  const taskCount = ready ? fetched.count : 0;
 
   const fullDescription =
     taskCount > 0
@@ -60,7 +67,7 @@ export function RecordDeleteConfirmDialog({
 
   return (
     <ConfirmDialog
-      open={open}
+      open={open && ready}
       onOpenChange={onOpenChange}
       title={title}
       description={fullDescription}

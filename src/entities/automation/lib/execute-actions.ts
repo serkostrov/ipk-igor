@@ -54,6 +54,7 @@ function resolveTemplateValue(
     datetimeWithTime,
     entities: ctx.entities,
     triggerEntityId: ctx.triggerEntityId,
+    triggerRecordId: ctx.triggerRecordId,
     values: ctx.values,
   });
 }
@@ -125,8 +126,7 @@ async function createMappedRecord(
   createdRecordIds: string[],
   extra?: Record<string, string>,
 ) {
-  const target =
-    ctx.entities.find((entity) => entity.id === entityId) ?? null;
+  const target = ctx.entities.find((entity) => entity.id === entityId) ?? null;
   const values = withParentLink(
     applyMappings(mappings, ctx, createdRecordIds, extra, target),
     target,
@@ -227,11 +227,9 @@ export async function executeAutomationActions(
           createdRecordIds.push(record.id);
           if (action.linkBackFieldId) {
             const linked = serializeEntityRelationIds([record.id]);
-            await updateEntityRecord(
-              ctx.triggerEntityId,
-              ctx.triggerRecordId,
-              { [action.linkBackFieldId]: linked },
-            );
+            await updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
+              [action.linkBackFieldId]: linked,
+            });
             ctx.values[action.linkBackFieldId] = linked;
           }
           logs.push({
@@ -445,10 +443,7 @@ export async function executeAutomationActions(
           break;
       }
     } catch (error: unknown) {
-      const message = getErrorMessage(
-        error,
-        "Ошибка действия автоматизации",
-      );
+      const message = getErrorMessage(error, "Ошибка действия автоматизации");
       errors.push(message);
       logs.push({ kind: action.kind, error: message });
     }

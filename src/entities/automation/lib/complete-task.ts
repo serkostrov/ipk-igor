@@ -147,6 +147,7 @@ export async function completeAutomationTask(
         {
           entities,
           triggerEntityId: entity.id,
+          triggerRecordId: task.recordId,
           fieldType: field?.type,
           datetimeWithTime: field?.datetimeWithTime,
           actorUserId: actorUserId ?? getCurrentUserRecordId(),
@@ -201,6 +202,7 @@ export async function completeAutomationTask(
         {
           entities,
           triggerEntityId: entity.id,
+          triggerRecordId: task.recordId,
           fieldType: field?.type,
           datetimeWithTime: field?.datetimeWithTime,
           actorUserId: actorUserId ?? getCurrentUserRecordId(),

@@ -1,5 +1,6 @@
 import * as React from "react";
 import {
+  AUTOMATION_VALUE_CURRENT_RECORD,
   AUTOMATION_VALUE_CURRENT_USER,
   AUTOMATION_VALUE_NOW,
   AUTOMATION_VALUE_TIME_NOW,
@@ -50,14 +51,27 @@ type ActionValueEditorProps = {
   className?: string;
   /** Value is written to another entity (createRecord mappings). */
   mapToOtherEntity?: boolean;
+  /** Source/trigger entity — enables «Текущая запись» for reverse relations. */
+  sourceEntityId?: string;
+  /** Mode + value on one row for dense mapping tables. */
+  compact?: boolean;
 };
 
-function valueSourceLabels(mapToOtherEntity: boolean | undefined) {
+function valueSourceLabels(
+  mapToOtherEntity: boolean | undefined,
+  compact?: boolean,
+) {
   // When mapping onto another entity, entity names live in the parent header —
   // keep mode labels short to avoid «Лиды» three times in one row.
-  const fromFieldLabel = mapToOtherEntity ? "Из поля" : "Из другого поля";
+  const fromFieldLabel = mapToOtherEntity
+    ? compact
+      ? "Поле"
+      : "Из поля"
+    : "Из другого поля";
   const fromEntityLabel = mapToOtherEntity
-    ? "Через связь"
+    ? compact
+      ? "Связь"
+      : "Через связь"
     : "Из другой сущности";
   return { fromFieldLabel, fromEntityLabel };
 }
@@ -71,6 +85,7 @@ type ValueMode =
   | "true"
   | "false"
   | "currentUser"
+  | "currentRecord"
   | "fromField"
   | "fromEntity";
 
@@ -88,6 +103,7 @@ function detectMode(value: string, field: EntityField | null): ValueMode {
     return "now";
   }
   if (raw === AUTOMATION_VALUE_CURRENT_USER) return "currentUser";
+  if (raw === AUTOMATION_VALUE_CURRENT_RECORD) return "currentRecord";
   if (isAutomationEntityPathRef(raw)) return "fromEntity";
   if (isAutomationFieldRef(raw)) return "fromField";
   if (field?.type === "boolean") {
@@ -101,13 +117,13 @@ function ModeSelect({
   value,
   options,
   onChange,
+  className,
 }: {
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (next: string) => void;
+  className?: string;
 }) {
-  const current =
-    options.find((item) => item.value === value)?.label ?? "Выберите";
   return (
     <Select
       value={value}
@@ -115,12 +131,22 @@ function ModeSelect({
         if (next != null) onChange(String(next));
       }}
     >
-      <SelectTrigger size="sm" className="h-8 w-full min-w-0">
-        <SelectValue>{current}</SelectValue>
+      <SelectTrigger
+        size="sm"
+        className={cn("h-8 w-full min-w-0 overflow-hidden", className)}
+      >
+        <SelectValue className="min-w-0">
+          {(selected) => {
+            const label =
+              options.find((item) => item.value === selected)?.label ??
+              "Выберите";
+            return <span className="block truncate">{label}</span>;
+          }}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent searchable={false} align="start" className="min-w-[12rem]">
         {options.map((item) => (
-          <SelectItem key={item.value} value={item.value}>
+          <SelectItem key={item.value} value={item.value} label={item.label}>
             {item.label}
           </SelectItem>
         ))}
@@ -136,6 +162,7 @@ function SourceFieldSelect({
   excludeFieldId,
   placeholder = "Выберите поле",
   entitySuffix,
+  className,
 }: {
   fields: EntityField[];
   value: string;
@@ -144,6 +171,7 @@ function SourceFieldSelect({
   placeholder?: string;
   /** Shown in the closed trigger as «Поле · Сущность». */
   entitySuffix?: string;
+  className?: string;
 }) {
   const options = fields.filter(
     (field) =>
@@ -151,34 +179,53 @@ function SourceFieldSelect({
       !isEntityComputedFieldType(field.type) &&
       field.type !== "file",
   );
-  const selected = options.find((field) => field.id === value);
-  const selectedLabel = selected
-    ? entitySuffix
-      ? `${getEntityFieldDisplayName(selected)} · ${entitySuffix}`
-      : getEntityFieldDisplayName(selected)
-    : placeholder;
+  const optionLabel = (field: EntityField) => {
+    const name = getEntityFieldDisplayName(field);
+    if (entitySuffix) return `${name} · ${entitySuffix}`;
+    if (field.type === "relation") {
+      const targetId = getEntityRelationTargetId(field);
+      if (targetId === SYSTEM_USERS_ENTITY_ID) return `${name} · пользователь`;
+    }
+    return name;
+  };
   return (
-    <Select
-      value={value || undefined}
-      onValueChange={(next) => {
-        if (next != null) onChange(String(next));
-      }}
-    >
-      <SelectTrigger size="sm" className="h-8">
-        <SelectValue>{selectedLabel}</SelectValue>
-      </SelectTrigger>
-      <SelectContent className="max-h-64">
-        {options.map((field) => (
-          <SelectItem
-            key={field.id}
-            value={field.id}
-            label={getEntityFieldDisplayName(field)}
-          >
-            {getEntityFieldDisplayName(field)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className={cn("min-w-0", className)}>
+      <Select
+        value={value || undefined}
+        onValueChange={(next) => {
+          if (next != null) onChange(String(next));
+        }}
+      >
+        <SelectTrigger size="sm" className="h-8 w-full min-w-0 overflow-hidden">
+          <SelectValue className="min-w-0">
+            {(selected) => {
+              const field = options.find((item) => item.id === selected);
+              return (
+                <span className="block truncate">
+                  {field ? optionLabel(field) : placeholder}
+                </span>
+              );
+            }}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent className="max-h-72">
+          {options.length === 0 ? (
+            <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+              Нет совместимых полей на исходной записи
+            </div>
+          ) : (
+            options.map((field) => {
+              const label = optionLabel(field);
+              return (
+                <SelectItem key={field.id} value={field.id} label={label}>
+                  {label}
+                </SelectItem>
+              );
+            })
+          )}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 
@@ -219,6 +266,7 @@ function FromEntitySelects({
   value,
   onChange,
   mapToOtherEntity,
+  className,
 }: {
   targetField: EntityField;
   sourceFields: EntityField[];
@@ -226,6 +274,7 @@ function FromEntitySelects({
   value: string;
   onChange: (next: string) => void;
   mapToOtherEntity?: boolean;
+  className?: string;
 }) {
   const path = parseAutomationEntityPathRef(value);
   const relationFields = sourceFields.filter(
@@ -252,7 +301,7 @@ function FromEntitySelects({
     : "связанной записи";
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={cn("flex flex-col gap-1.5", className)}>
       {relationFields.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">
           Нет полей связи, из которых можно взять значение.
@@ -360,6 +409,8 @@ export function ActionValueEditor({
   entities,
   className,
   mapToOtherEntity,
+  sourceEntityId,
+  compact = false,
 }: ActionValueEditorProps) {
   if (!field) {
     return (
@@ -387,6 +438,8 @@ export function ActionValueEditor({
       entities={entities}
       className={className}
       mapToOtherEntity={mapToOtherEntity}
+      sourceEntityId={sourceEntityId}
+      compact={compact}
     />
   );
 }
@@ -399,6 +452,8 @@ function ActionValueEditorBody({
   entities,
   className,
   mapToOtherEntity,
+  sourceEntityId,
+  compact,
 }: {
   field: EntityField;
   value: string;
@@ -407,11 +462,26 @@ function ActionValueEditorBody({
   entities: Entity[];
   className?: string;
   mapToOtherEntity?: boolean;
+  sourceEntityId?: string;
+  compact: boolean;
 }) {
   const { mode, selectMode } = useEditorMode(value, field);
-  const { fromFieldLabel, fromEntityLabel } =
-    valueSourceLabels(mapToOtherEntity);
+  const { fromFieldLabel, fromEntityLabel } = valueSourceLabels(
+    mapToOtherEntity,
+    compact,
+  );
   const excludeSourceFieldId = mapToOtherEntity ? undefined : field.id;
+  const shellClass = compact
+    ? cn(
+        "flex min-w-0 items-center gap-1 overflow-hidden",
+        mode === "fromEntity" ? "flex-wrap" : "flex-nowrap",
+        className,
+      )
+    : cn("flex flex-col gap-1.5", className);
+  const modeClass = compact ? "h-8 w-[6.5rem] shrink-0" : undefined;
+  const valueGrowClass = compact ? "min-w-0 flex-1 overflow-hidden" : undefined;
+  const customModeLabel = (full: string, short: string) =>
+    compact ? short : full;
 
   const applyMode = (next: ValueMode, nextValue: string) => {
     onChange(selectMode(next, nextValue));
@@ -426,6 +496,7 @@ function ActionValueEditorBody({
         value={value}
         onChange={onChange}
         mapToOtherEntity={mapToOtherEntity}
+        className={compact ? "w-full basis-full" : undefined}
       />
     ) : null;
 
@@ -433,15 +504,19 @@ function ActionValueEditorBody({
     const withTime = field.datetimeWithTime !== false;
     const { date, time } = splitDatetime(mode === "custom" ? value : "");
     return (
-      <div className={cn("flex flex-col gap-1.5", className)}>
+      <div className={shellClass}>
         <ModeSelect
+          className={modeClass}
           value={mode}
           options={[
             { value: "empty", label: "Очистить" },
             { value: "today", label: "Сегодня" },
             { value: "tomorrow", label: "Завтра" },
             ...(withTime ? [{ value: "now", label: "Сейчас" }] : []),
-            { value: "custom", label: "Выбрать дату" },
+            {
+              value: "custom",
+              label: customModeLabel("Выбрать дату", "Дата"),
+            },
             { value: "fromField", label: fromFieldLabel },
             { value: "fromEntity", label: fromEntityLabel },
           ]}
@@ -464,7 +539,12 @@ function ActionValueEditorBody({
         />
         {mode === "custom" ? (
           withTime ? (
-            <div className="grid grid-cols-[1.25fr_1fr] gap-1.5">
+            <div
+              className={cn(
+                "grid grid-cols-[1.25fr_1fr] gap-1.5",
+                valueGrowClass,
+              )}
+            >
               <DatePicker
                 value={date}
                 className="h-8"
@@ -481,7 +561,7 @@ function ActionValueEditorBody({
           ) : (
             <DatePicker
               value={date || value}
-              className="h-8"
+              className={cn("h-8", valueGrowClass)}
               aria-label="Дата"
               onChange={onChange}
             />
@@ -489,6 +569,7 @@ function ActionValueEditorBody({
         ) : null}
         {mode === "fromField" ? (
           <SourceFieldSelect
+            className={valueGrowClass}
             fields={sourceFields.filter(
               (item) => item.type === "datetime" || item.type === "text",
             )}
@@ -504,13 +585,17 @@ function ActionValueEditorBody({
 
   if (field.type === "time") {
     return (
-      <div className={cn("flex flex-col gap-1.5", className)}>
+      <div className={shellClass}>
         <ModeSelect
+          className={modeClass}
           value={mode}
           options={[
             { value: "empty", label: "Очистить" },
             { value: "now", label: "Сейчас" },
-            { value: "custom", label: "Выбрать время" },
+            {
+              value: "custom",
+              label: customModeLabel("Выбрать время", "Время"),
+            },
             { value: "fromField", label: fromFieldLabel },
             { value: "fromEntity", label: fromEntityLabel },
           ]}
@@ -530,13 +615,14 @@ function ActionValueEditorBody({
         {mode === "custom" ? (
           <TimePicker
             value={value}
-            className="h-8"
+            className={cn("h-8", valueGrowClass)}
             aria-label="Время"
             onChange={onChange}
           />
         ) : null}
         {mode === "fromField" ? (
           <SourceFieldSelect
+            className={valueGrowClass}
             fields={sourceFields.filter(
               (item) => item.type === "time" || item.type === "text",
             )}
@@ -560,8 +646,9 @@ function ActionValueEditorBody({
         ? mode
         : "empty";
     return (
-      <div className={cn("flex flex-col gap-1.5", className)}>
+      <div className={shellClass}>
         <ModeSelect
+          className={modeClass}
           value={booleanMode}
           options={[
             { value: "empty", label: "Очистить" },
@@ -591,6 +678,7 @@ function ActionValueEditorBody({
         ) : null}
         {mode === "fromField" ? (
           <SourceFieldSelect
+            className={valueGrowClass}
             fields={sourceFields.filter((item) => item.type === "boolean")}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
@@ -610,12 +698,16 @@ function ActionValueEditorBody({
         ? mode
         : "custom";
     return (
-      <div className={cn("flex flex-col gap-1.5", className)}>
+      <div className={shellClass}>
         <ModeSelect
+          className={modeClass}
           value={listMode}
           options={[
             { value: "empty", label: "Очистить" },
-            { value: "custom", label: "Выбрать вариант" },
+            {
+              value: "custom",
+              label: customModeLabel("Выбрать вариант", "Вариант"),
+            },
             { value: "fromField", label: fromFieldLabel },
             { value: "fromEntity", label: fromEntityLabel },
           ]}
@@ -640,12 +732,16 @@ function ActionValueEditorBody({
             size="sm"
             emptyLabel="Не выбрано"
             aria-label="Значение списка"
-            className="h-8 rounded-md border-input font-normal"
+            className={cn(
+              "h-8 min-w-0 rounded-md border-input font-normal",
+              valueGrowClass,
+            )}
             onChange={onChange}
           />
         ) : null}
         {listMode === "fromField" ? (
           <SourceFieldSelect
+            className={valueGrowClass}
             fields={sourceFields.filter((item) => item.type === "list")}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
@@ -661,23 +757,54 @@ function ActionValueEditorBody({
     const targetId = getEntityRelationTargetId(field);
     const target = entities.find((entity) => entity.id === targetId) ?? null;
     const isUsers = targetId === SYSTEM_USERS_ENTITY_ID;
+    const canLinkCurrentRecord =
+      Boolean(mapToOtherEntity) &&
+      Boolean(sourceEntityId) &&
+      targetId === sourceEntityId;
+    const sourceEntity = canLinkCurrentRecord
+      ? (entities.find((entity) => entity.id === sourceEntityId) ?? null)
+      : null;
+    const sourceEntityName = sourceEntity
+      ? getEntityDisplayName(sourceEntity)
+      : "запись";
     const relationMode =
       mode === "currentUser" ||
+      mode === "currentRecord" ||
       mode === "fromField" ||
       mode === "fromEntity" ||
       mode === "empty"
         ? mode
         : "custom";
     return (
-      <div className={cn("flex flex-col gap-1.5", className)}>
+      <div className={shellClass}>
         <ModeSelect
+          className={modeClass}
           value={relationMode}
           options={[
             { value: "empty", label: "Очистить" },
             ...(isUsers
-              ? [{ value: "currentUser", label: "Текущий пользователь" }]
+              ? [
+                  {
+                    value: "currentUser",
+                    label: customModeLabel("Текущий пользователь", "Я"),
+                  },
+                ]
               : []),
-            { value: "custom", label: "Выбрать запись" },
+            ...(canLinkCurrentRecord
+              ? [
+                  {
+                    value: "currentRecord",
+                    label: customModeLabel(
+                      `Текущая «${sourceEntityName}»`,
+                      "Текущая",
+                    ),
+                  },
+                ]
+              : []),
+            {
+              value: "custom",
+              label: customModeLabel("Выбрать запись", "Запись"),
+            },
             { value: "fromField", label: fromFieldLabel },
             { value: "fromEntity", label: fromEntityLabel },
           ]}
@@ -685,12 +812,16 @@ function ActionValueEditorBody({
             if (next === "empty") applyMode("empty", "");
             else if (next === "currentUser") {
               applyMode("currentUser", AUTOMATION_VALUE_CURRENT_USER);
+            } else if (next === "currentRecord") {
+              applyMode("currentRecord", AUTOMATION_VALUE_CURRENT_RECORD);
             } else if (next === "custom") {
               applyMode(
                 "custom",
                 mode === "custom" &&
                   !isAutomationFieldRef(value) &&
-                  !isAutomationEntityPathRef(value)
+                  !isAutomationEntityPathRef(value) &&
+                  value !== AUTOMATION_VALUE_CURRENT_USER &&
+                  value !== AUTOMATION_VALUE_CURRENT_RECORD
                   ? value
                   : "",
               );
@@ -707,27 +838,31 @@ function ActionValueEditorBody({
             value={
               isAutomationFieldRef(value) ||
               isAutomationEntityPathRef(value) ||
-              value === AUTOMATION_VALUE_CURRENT_USER
+              value === AUTOMATION_VALUE_CURRENT_USER ||
+              value === AUTOMATION_VALUE_CURRENT_RECORD
                 ? ""
                 : value
             }
             multiple={field.relationMultiple}
             placeholder="Не выбран"
             aria-label="Запись"
-            className="h-8"
+            className={cn("h-8", valueGrowClass)}
             onChange={onChange}
           />
         ) : null}
         {relationMode === "fromField" ? (
           <SourceFieldSelect
-            fields={sourceFields.filter(
-              (item) =>
-                item.type === "relation" ||
-                item.type === "dependencies" ||
-                item.type === "text",
-            )}
+            className={valueGrowClass}
+            fields={compatibleNestedFields(field, sourceFields)}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
+            entitySuffix={
+              isUsers
+                ? "пользователь"
+                : target
+                  ? getEntityDisplayName(target)
+                  : undefined
+            }
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
@@ -742,8 +877,9 @@ function ActionValueEditorBody({
         ? mode
         : "custom";
     return (
-      <div className={cn("flex flex-col gap-1.5", className)}>
+      <div className={shellClass}>
         <ModeSelect
+          className={modeClass}
           value={textMode}
           options={[
             { value: "empty", label: "Очистить" },
@@ -763,15 +899,25 @@ function ActionValueEditorBody({
           }}
         />
         {textMode === "custom" ? (
-          <Textarea
-            className="min-h-16 resize-none text-sm"
-            placeholder="Значение"
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-          />
+          compact ? (
+            <Input
+              className={cn("h-8", valueGrowClass)}
+              placeholder="Значение"
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+            />
+          ) : (
+            <Textarea
+              className="min-h-16 resize-none text-sm"
+              placeholder="Значение"
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+            />
+          )
         ) : null}
         {textMode === "fromField" ? (
           <SourceFieldSelect
+            className={valueGrowClass}
             fields={sourceFields}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
@@ -798,8 +944,9 @@ function ActionValueEditorBody({
       : "custom";
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div className={shellClass}>
       <ModeSelect
+        className={modeClass}
         value={textMode}
         options={[
           { value: "empty", label: "Очистить" },
@@ -820,7 +967,7 @@ function ActionValueEditorBody({
       />
       {textMode === "custom" ? (
         <Input
-          className="h-8"
+          className={cn("h-8", valueGrowClass)}
           type={field.type === "url" ? "url" : "text"}
           inputMode={inputMode}
           placeholder="Значение"
@@ -836,6 +983,7 @@ function ActionValueEditorBody({
       ) : null}
       {textMode === "fromField" ? (
         <SourceFieldSelect
+          className={valueGrowClass}
           fields={sourceFields}
           value={fieldRefId(value)}
           excludeFieldId={excludeSourceFieldId}

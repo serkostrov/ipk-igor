@@ -91,21 +91,17 @@ export function AutomationTaskPage({
   }, [taskId]);
 
   // Soft access re-check without skeleton (role / scope filter changes).
-  useEffect(() => {
-    if (!task || loading) return;
-    if (
-      canViewAutomationTask(role, task, {
-        authUserId: sessionUser?.id ?? null,
-        userRecordId: getCurrentUserRecordId(),
-        entities,
-        valueContext,
-      })
-    ) {
-      return;
-    }
-    setTask(null);
-    setError("Нет доступа к этому заданию");
-  }, [task, loading, role, sessionUser?.id, entities, valueContext]);
+  const accessDenied =
+    !loading &&
+    task != null &&
+    !canViewAutomationTask(role, task, {
+      authUserId: sessionUser?.id ?? null,
+      userRecordId: getCurrentUserRecordId(),
+      entities,
+      valueContext,
+    });
+  const visibleTask = accessDenied ? null : task;
+  const displayError = accessDenied ? "Нет доступа к этому заданию" : error;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6 md:p-8">
@@ -119,7 +115,7 @@ export function AutomationTaskPage({
         >
           <ArrowLeft className="size-4" aria-hidden />К задачам
         </Button>
-        {canDelete && task ? (
+        {canDelete && visibleTask ? (
           <Button
             type="button"
             variant="outline"
@@ -141,10 +137,10 @@ export function AutomationTaskPage({
             <div className="h-4 w-1/2 animate-pulse rounded-md bg-muted/40" />
             <div className="mt-4 h-40 animate-pulse rounded-xl bg-muted/30" />
           </div>
-        ) : error || !task ? (
+        ) : displayError || !visibleTask ? (
           <div className="flex flex-col items-start gap-3 py-10">
             <p className="text-sm text-destructive">
-              {error ?? "Задача не найдена"}
+              {displayError ?? "Задача не найдена"}
             </p>
             <Button type="button" variant="outline" size="sm" onClick={onBack}>
               Вернуться к списку
@@ -152,12 +148,12 @@ export function AutomationTaskPage({
           </div>
         ) : (
           <TaskWorkspace
-            task={task}
+            task={visibleTask}
             onOpenRecord={onOpenRecord}
             onCompleted={onBack}
             onComplete={async (outcomeId, formValues) => {
               await completeAutomationTask(
-                task.id,
+                visibleTask.id,
                 outcomeId,
                 sessionUser?.id ?? null,
                 formValues,
@@ -169,22 +165,22 @@ export function AutomationTaskPage({
 
       <ConfirmDialog
         open={deleteOpen}
-        onOpenChange={(open) => {
-          if (!open && !deleting) setDeleteOpen(false);
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !deleting) setDeleteOpen(false);
         }}
         title="Удалить задачу?"
         description={
-          task
-            ? `Задача «${task.name}» будет удалена без возможности восстановления.`
+          visibleTask
+            ? `Задача «${visibleTask.name}» будет удалена без возможности восстановления.`
             : "Задача будет удалена без возможности восстановления."
         }
         confirmLabel={deleting ? "Удаление…" : "Удалить"}
         confirmDisabled={deleting}
         onConfirm={async () => {
-          if (!task || deleting) return;
+          if (!visibleTask || deleting) return;
           setDeleting(true);
           try {
-            await deleteAutomationTask(task.id);
+            await deleteAutomationTask(visibleTask.id);
             toast.success("Задача удалена");
             onBack();
           } catch (err: unknown) {

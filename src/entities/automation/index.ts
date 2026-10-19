@@ -12,6 +12,7 @@ export {
   type DescribeAutomationActionContext,
 } from "./model/actions";
 export {
+  AUTOMATION_VALUE_CURRENT_RECORD,
   AUTOMATION_VALUE_CURRENT_USER,
   AUTOMATION_VALUE_NOW,
   AUTOMATION_VALUE_TIME_NOW,

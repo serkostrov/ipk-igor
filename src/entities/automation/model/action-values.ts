@@ -2,6 +2,7 @@ import {
   getCurrentUserRecordId,
   getEntityRelationTargetId,
   parseEntityRelationIds,
+  serializeEntityRelationIds,
   type Entity,
   type EntityField,
   type EntityFieldType,
@@ -18,6 +19,8 @@ export const AUTOMATION_VALUE_TOMORROW = "__tomorrow__";
 export const AUTOMATION_VALUE_NOW = "__now__";
 export const AUTOMATION_VALUE_TIME_NOW = "__timeNow__";
 export const AUTOMATION_VALUE_CURRENT_USER = "__currentUser__";
+/** Trigger record of the running automation (link from createRecord mappings). */
+export const AUTOMATION_VALUE_CURRENT_RECORD = "__currentRecord__";
 
 /** `{{fieldId}}` — value from a field on the same record. */
 export function isAutomationFieldRef(value: string) {
@@ -71,6 +74,7 @@ export type ResolveAutomationActionValueOptions = {
   ) => string;
   entities?: Entity[];
   triggerEntityId?: string;
+  triggerRecordId?: string;
   values?: Record<string, string>;
 };
 
@@ -140,6 +144,17 @@ export function resolveAutomationActionValue(
   if (raw === AUTOMATION_VALUE_CURRENT_USER) {
     return options.actorUserId?.trim() || getCurrentUserRecordId() || "";
   }
+  if (raw === AUTOMATION_VALUE_CURRENT_RECORD) {
+    const recordId = options.triggerRecordId?.trim() || "";
+    if (!recordId) return "";
+    if (
+      options.fieldType === "relation" ||
+      options.fieldType === "dependencies"
+    ) {
+      return serializeEntityRelationIds([recordId]);
+    }
+    return recordId;
+  }
   if (raw === "{{created}}" || raw === "created") {
     const ids = options.createdRecordIds ?? [];
     return ids[ids.length - 1] ?? "";
@@ -188,6 +203,7 @@ export function describeAutomationActionValue(
   }
   if (raw === AUTOMATION_VALUE_TIME_NOW) return "Сейчас";
   if (raw === AUTOMATION_VALUE_CURRENT_USER) return "Текущий пользователь";
+  if (raw === AUTOMATION_VALUE_CURRENT_RECORD) return "Текущая запись";
   if (raw === "true") return "Да";
   if (raw === "false") return "Нет";
 
