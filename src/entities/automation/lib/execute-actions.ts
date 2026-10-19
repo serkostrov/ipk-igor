@@ -159,6 +159,7 @@ export async function executeAutomationActions(
             kind: "viewTabs",
             tabIds: action.tabIds,
             filesTabEntryIds: action.filesTabEntryIds ?? {},
+            filesTabAllowMove: action.filesTabAllowMove === true,
           });
           break;
         case "createRecord": {

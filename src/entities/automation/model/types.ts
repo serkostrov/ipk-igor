@@ -1,3 +1,4 @@
+import { normalizeListColor } from "@/entities/entity";
 import {
   defaultWatcherResolver,
   normalizeAssigneeResolver,
@@ -119,6 +120,11 @@ export function normalizeAutomationOutcomeFieldAccess(
 export type AutomationOutcome = {
   id: string;
   label: string;
+  /**
+   * Accent for the result button in the task UI (`#rrggbb`).
+   * `null` / missing — theme default.
+   */
+  color: string | null;
   actions: AutomationAction[];
   fieldAccess: AutomationOutcomeFieldAccess;
   /**
@@ -136,6 +142,37 @@ export type AutomationSla = {
 };
 
 export type AutomationNotificationEvent = "assigned" | "completed" | "overdue";
+
+export const AUTOMATION_NOTIFICATION_EVENT_OPTIONS: Array<{
+  value: AutomationNotificationEvent;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "assigned",
+    label: "Назначение",
+    description: "Когда задание появляется у исполнителя",
+  },
+  {
+    value: "completed",
+    label: "Завершение",
+    description: "Когда исполнитель завершил задание",
+  },
+  {
+    value: "overdue",
+    label: "Просрочка",
+    description: "Когда истёк срок по SLA",
+  },
+];
+
+export function describeAutomationNotificationEvent(
+  event: AutomationNotificationEvent,
+): string {
+  return (
+    AUTOMATION_NOTIFICATION_EVENT_OPTIONS.find((item) => item.value === event)
+      ?.label ?? event
+  );
+}
 
 export type AutomationNotificationRule = {
   id: string;
@@ -460,9 +497,11 @@ function normalizeOutcome(
     typeof item.label === "string" && item.label.trim()
       ? item.label.trim()
       : "Результат";
+  const colorRaw = typeof item.color === "string" ? item.color.trim() : "";
   return {
     id,
     label,
+    color: colorRaw ? normalizeListColor(colorRaw) : null,
     actions: normalizeAutomationActions(item.actions),
     fieldAccess: normalizeAutomationOutcomeFieldAccess(item.fieldAccess),
     conditions: normalizeAutomationConditions(item.conditions),
@@ -481,6 +520,7 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
     {
       id: createAutomationOutcomeId(),
       label: "Да",
+      color: "#22c55e",
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
@@ -488,6 +528,7 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
     {
       id: createAutomationOutcomeId(),
       label: "Нет",
+      color: "#ef4444",
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
@@ -504,6 +545,7 @@ export function defaultAutofillOutcomes(): AutomationOutcome[] {
     {
       id: createAutomationOutcomeId(),
       label: "Иначе",
+      color: null,
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
@@ -592,6 +634,7 @@ export function normalizeAutomationTaskTemplate(
                 {
                   id: createAutomationOutcomeId(),
                   label: "Готово",
+                  color: null,
                   actions: [],
                   fieldAccess: emptyAutomationOutcomeFieldAccess(),
                   conditions: emptyAutomationConditions(),

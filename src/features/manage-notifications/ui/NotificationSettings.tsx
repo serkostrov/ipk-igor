@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Plus } from "lucide-react";
+import { GitBranch, Plus } from "lucide-react";
 import {
   createDefaultNotificationRule,
   describeNotificationTrigger,
@@ -10,23 +10,33 @@ import {
   useNotificationStatus,
   type NotificationRule,
 } from "@/entities/notification";
+import { useAutomationConfig } from "@/entities/automation";
 import { findSystemUserByAuthId, useEntityConfig } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import { cn } from "@/shared/lib/cn";
+import { pluralRu } from "@/shared/lib/plural";
+import { AutomationNotificationsPanel } from "./AutomationNotificationsPanel";
 import { NotificationRuleEditor } from "./NotificationRuleEditor";
+
+type Selection = { kind: "automation" } | { kind: "rule"; id: string };
 
 export function NotificationSettings({ leading }: { leading?: ReactNode }) {
   const { rules } = useNotificationConfig();
   const status = useNotificationStatus();
+  const { notificationRules: automationRules } = useAutomationConfig();
   const { entities } = useEntityConfig();
   const sessionUser = useSessionUser();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>({
+    kind: "automation",
+  });
   const [busy, setBusy] = useState(false);
 
-  const selected =
-    rules.find((rule) => rule.id === selectedId) ?? rules[0] ?? null;
+  const selectedRule =
+    selection.kind === "rule"
+      ? (rules.find((rule) => rule.id === selection.id) ?? null)
+      : null;
 
   const entityNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -36,6 +46,16 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
     return map;
   }, [entities]);
 
+  const automationCountLabel =
+    automationRules.length > 0
+      ? `${automationRules.length} ${pluralRu(
+          automationRules.length,
+          "правило",
+          "правила",
+          "правил",
+        )}`
+      : "Задания";
+
   async function handleAdd() {
     const entityId = entities[0]?.id;
     if (!entityId) return;
@@ -43,7 +63,7 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
     setBusy(true);
     try {
       await saveNotificationRule(rule);
-      setSelectedId(rule.id);
+      setSelection({ kind: "rule", id: rule.id });
     } finally {
       setBusy(false);
     }
@@ -53,7 +73,7 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
     setBusy(true);
     try {
       await saveNotificationRule(rule);
-      setSelectedId(rule.id);
+      setSelection({ kind: "rule", id: rule.id });
     } finally {
       setBusy(false);
     }
@@ -63,7 +83,7 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
     setBusy(true);
     try {
       await removeNotificationRule(ruleId);
-      setSelectedId(null);
+      setSelection({ kind: "automation" });
     } finally {
       setBusy(false);
     }
@@ -112,64 +132,119 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
           <div className="min-h-0 flex-1 overflow-auto p-2">
             {status === "loading" ? (
               <div className="h-24 animate-pulse rounded-lg bg-muted/40" />
-            ) : rules.length === 0 ? (
-              <p className="px-2 py-8 text-center text-xs text-muted-foreground">
-                Пока нет правил. Создайте первое.
-              </p>
             ) : (
-              <ul className="flex flex-col gap-1">
-                {rules.map((rule) => {
-                  const active = selected?.id === rule.id;
-                  return (
-                    <li key={rule.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId(rule.id)}
-                        className={cn(
-                          "flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors",
-                          active
-                            ? "bg-accent text-accent-foreground"
-                            : "hover:bg-muted/60",
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {rule.name}
-                          </p>
-                          <p className="truncate text-[11px] text-muted-foreground">
-                            {entityNameById.get(rule.entityId) ?? "—"} ·{" "}
-                            {describeNotificationTrigger(rule)}
-                          </p>
-                        </div>
-                        <Switch
-                          checked={rule.enabled}
-                          onCheckedChange={(enabled) => {
-                            void handleSave({ ...rule, enabled });
-                          }}
-                          onClick={(event) => event.stopPropagation()}
-                        />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="px-2 pb-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                    Системные
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSelection({ kind: "automation" })}
+                    className={cn(
+                      "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
+                      selection.kind === "automation"
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-muted/60",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border",
+                        selection.kind === "automation"
+                          ? "border-border/60 bg-background/70"
+                          : "border-border/70 bg-muted/40 text-muted-foreground",
+                      )}
+                    >
+                      <GitBranch className="size-3.5" aria-hidden />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-sm font-medium">
+                          Автоматизации
+                        </p>
+                        <span className="rounded px-1 py-px text-[9px] font-medium tracking-wide text-muted-foreground uppercase">
+                          сист.
+                        </span>
+                      </div>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {automationCountLabel} · назначение / завершение /
+                        просрочка
+                      </p>
+                    </div>
+                  </button>
+                </div>
+
+                <div>
+                  <p className="px-2 pb-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                    Сущности
+                  </p>
+                  {rules.length === 0 ? (
+                    <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                      Пока нет правил по сущностям. Создайте первое.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col gap-1">
+                      {rules.map((rule) => {
+                        const active =
+                          selection.kind === "rule" && selection.id === rule.id;
+                        return (
+                          <li key={rule.id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelection({ kind: "rule", id: rule.id })
+                              }
+                              className={cn(
+                                "flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors",
+                                active
+                                  ? "bg-accent text-accent-foreground"
+                                  : "hover:bg-muted/60",
+                              )}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">
+                                  {rule.name}
+                                </p>
+                                <p className="truncate text-[11px] text-muted-foreground">
+                                  {entityNameById.get(rule.entityId) ?? "—"} ·{" "}
+                                  {describeNotificationTrigger(rule)}
+                                </p>
+                              </div>
+                              <Switch
+                                checked={rule.enabled}
+                                onCheckedChange={(enabled) => {
+                                  void handleSave({ ...rule, enabled });
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                              />
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
-          {selected ? (
+          {selection.kind === "automation" ? (
+            <AutomationNotificationsPanel />
+          ) : selectedRule ? (
             <NotificationRuleEditor
-              key={selected.id}
-              rule={selected}
+              key={selectedRule.id}
+              rule={selectedRule}
               entities={entities}
               onSave={(rule) => void handleSave(rule)}
-              onDelete={() => void handleDelete(selected.id)}
+              onDelete={() => void handleDelete(selectedRule.id)}
               onTest={(rule) => void handleTest(rule)}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-              Выберите правило или создайте новое
+              Выберите правило или откройте блок «Автоматизации»
             </div>
           )}
         </div>

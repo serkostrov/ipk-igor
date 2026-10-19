@@ -71,9 +71,15 @@ export {
   cloneAutomationScenario,
   type ClonedAutomationScenario,
 } from "./lib/clone-scenario";
+export {
+  automationOutcomeButtonStyle,
+  automationOutcomeChipStyle,
+} from "./lib/outcome-button-style";
 export { IPK_NEW_AUTOMATION_MAPPING_VERSION } from "./model/ipk-new-mapping";
 export {
   AUTOMATION_TRIGGER_KIND_LABELS,
+  AUTOMATION_NOTIFICATION_EVENT_OPTIONS,
+  describeAutomationNotificationEvent,
   createAutomationNotificationRuleId,
   createAutomationOutcomeId,
   createAutomationProcessId,

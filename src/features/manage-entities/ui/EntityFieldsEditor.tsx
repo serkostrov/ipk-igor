@@ -643,6 +643,13 @@ const fieldLayoutTransition = {
   mass: 0.55,
 };
 
+const simpleFieldDropTransition = {
+  type: "spring" as const,
+  stiffness: 520,
+  damping: 32,
+  mass: 0.4,
+};
+
 const groupExitTransition = {
   duration: 0.22,
   ease: [0.22, 1, 0.36, 1] as const,
@@ -2499,6 +2506,41 @@ function simpleFieldDropEdge(
   return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
 }
 
+function setSimpleFieldDragPreview(event: ReactDragEvent, source: HTMLElement) {
+  const rect = source.getBoundingClientRect();
+  const ghost = source.cloneNode(true) as HTMLElement;
+  ghost.querySelectorAll("button").forEach((button) => button.remove());
+  ghost.setAttribute("aria-hidden", "true");
+  Object.assign(ghost.style, {
+    position: "fixed",
+    top: "-1000px",
+    left: "-1000px",
+    width: `${rect.width}px`,
+    margin: "0",
+    pointerEvents: "none",
+    zIndex: "99999",
+    opacity: "1",
+    transform: "rotate(1.25deg)",
+    boxShadow:
+      "0 18px 40px -16px rgb(0 0 0 / 0.4), 0 0 0 1px color-mix(in oklab, var(--primary) 35%, transparent)",
+    borderColor: "color-mix(in oklab, var(--primary) 45%, transparent)",
+    background: "var(--card)",
+  });
+  document.body.appendChild(ghost);
+  const offsetX = Math.min(
+    Math.max(event.clientX - rect.left, 12),
+    Math.max(rect.width - 12, 12),
+  );
+  const offsetY = Math.min(
+    Math.max(event.clientY - rect.top, 12),
+    Math.max(rect.height - 12, 12),
+  );
+  event.dataTransfer.setDragImage(ghost, offsetX, offsetY);
+  requestAnimationFrame(() => {
+    ghost.remove();
+  });
+}
+
 /** Red grab rail to the left of a flat field row (internal entities). */
 function SimpleFieldDragHandle({
   label,
@@ -2533,20 +2575,36 @@ function SimpleFieldDragHandle({
   );
 }
 
-function SimpleFieldDropLine({ edge }: { edge: "before" | "after" }) {
+function SimpleFieldDropIndicator({ edge }: { edge: "before" | "after" }) {
   return (
-    <span
+    <motion.span
       aria-hidden
+      initial={{ opacity: 0, scaleX: 0.82 }}
+      animate={{ opacity: 1, scaleX: 1 }}
+      exit={{ opacity: 0, scaleX: 0.9 }}
+      transition={simpleFieldDropTransition}
       className={cn(
-        "pointer-events-none absolute right-0 left-0 z-20 flex items-center",
+        "pointer-events-none absolute right-0 left-0 z-20 flex origin-left items-center",
         edge === "before"
           ? "top-0 -translate-y-1/2"
           : "bottom-0 translate-y-1/2",
       )}
     >
-      <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+      <span className="relative flex size-2.5 shrink-0 items-center justify-center">
+        <motion.span
+          aria-hidden
+          className="absolute size-2.5 rounded-full bg-primary/30"
+          animate={{ scale: [1, 1.35, 1] }}
+          transition={{
+            duration: 0.9,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+        <span className="size-1.5 rounded-full bg-primary" />
+      </span>
       <span className="h-0.5 min-w-0 flex-1 rounded-full bg-primary" />
-    </span>
+    </motion.span>
   );
 }
 
@@ -2559,6 +2617,7 @@ function SimpleFieldRow({
   draggable = false,
   isDragging = false,
   dropEdge = null,
+  handleEpoch = 0,
   onEdit,
   onDelete,
   onConfigureList,
@@ -2575,6 +2634,7 @@ function SimpleFieldRow({
   draggable?: boolean;
   isDragging?: boolean;
   dropEdge?: "before" | "after" | null;
+  handleEpoch?: number;
   onEdit?: () => void;
   onDelete?: () => void;
   onConfigureList?: () => void;
@@ -2590,13 +2650,8 @@ function SimpleFieldRow({
   const card = (
     <div
       data-simple-field-card
-      className={cn(
-        "group/field relative flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-transparent bg-card px-3 py-2.5 transition-colors",
-        isDragging && "opacity-40",
-        dropEdge && "border-primary/20",
-      )}
+      className="group/field relative flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-transparent bg-card px-3 py-2.5"
     >
-      {dropEdge ? <SimpleFieldDropLine edge={dropEdge} /> : null}
       <div className="min-w-0 flex-1">
         <FieldCardMeta field={field} entityId={entityId} />
       </div>
@@ -2648,41 +2703,63 @@ function SimpleFieldRow({
 
   if (!draggable) {
     return (
-      <li className="relative flex min-w-0 items-stretch gap-0.5 px-1.5 py-0.5">
-        <span className="w-2.5 shrink-0" aria-hidden />
-        {card}
+      <li className="relative px-1.5 py-0.5">
+        <motion.div
+          layout="position"
+          layoutId={`simple-field-${field.id}`}
+          transition={fieldLayoutTransition}
+          className="relative flex min-w-0 items-stretch gap-0.5"
+        >
+          <span className="w-2.5 shrink-0" aria-hidden />
+          <div className="relative min-w-0 flex-1">{card}</div>
+        </motion.div>
       </li>
     );
   }
 
   return (
     <li
-      className="group/field relative flex min-w-0 items-stretch gap-0.5 px-1.5 py-0.5"
+      className="group/field relative px-1.5 py-0.5"
       draggable
       onMouseDown={onPrepareDrag}
       onDragStart={(event) => {
         const preview = event.currentTarget.querySelector<HTMLElement>(
           "[data-simple-field-card]",
         );
-        if (preview) {
-          const rect = preview.getBoundingClientRect();
-          event.dataTransfer.setDragImage(
-            preview,
-            Math.min(Math.max(event.clientX - rect.left, 12), rect.width - 12),
-            Math.min(Math.max(event.clientY - rect.top, 12), rect.height - 12),
-          );
-        }
+        if (preview) setSimpleFieldDragPreview(event, preview);
         onDragStart?.(event);
       }}
       onDragEnd={onDragEnd}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <SimpleFieldDragHandle
-        label={`Перетащить поле «${name}»`}
-        active={isDragging}
-      />
-      {card}
+      <motion.div
+        layout="position"
+        layoutId={`simple-field-${field.id}`}
+        transition={fieldLayoutTransition}
+        className="relative flex min-w-0 items-stretch gap-0.5"
+      >
+        <SimpleFieldDragHandle
+          key={`handle-${field.id}-${handleEpoch}`}
+          label={`Перетащить поле «${name}»`}
+          active={isDragging}
+        />
+        <div className="relative min-w-0 flex-1">
+          <AnimatePresence initial={false}>
+            {dropEdge ? (
+              <SimpleFieldDropIndicator key="drop" edge={dropEdge} />
+            ) : null}
+          </AnimatePresence>
+          {isDragging ? (
+            <div
+              aria-hidden
+              className="h-[3.25rem] rounded-lg border-2 border-dashed border-primary/35 bg-primary/[0.04]"
+            />
+          ) : (
+            card
+          )}
+        </div>
+      </motion.div>
     </li>
   );
 }
@@ -2708,6 +2785,7 @@ function SimpleFieldsList({
   const [dropBeforeId, setDropBeforeId] = useState<string | null | undefined>(
     undefined,
   );
+  const [handleEpoch, setHandleEpoch] = useState(0);
   const allowDragRef = useRef(false);
 
   const nameFields = fields.filter((field) => isEntityNameField(field));
@@ -2724,11 +2802,22 @@ function SimpleFieldsList({
     }
   }
 
-  function clearDrag() {
+  function clearDrag(event?: ReactDragEvent) {
     allowDragRef.current = false;
     setDraggingId(null);
     setDropBeforeId(undefined);
+    setHandleEpoch((value) => value + 1);
     unlockDragSelection();
+
+    const target = event?.target;
+    const handle =
+      target instanceof Element ? target.closest("[data-drag-handle]") : null;
+    if (handle instanceof HTMLElement) {
+      handle.style.pointerEvents = "none";
+      requestAnimationFrame(() => {
+        handle.style.pointerEvents = "";
+      });
+    }
   }
 
   function commitReorder(fieldId: string, beforeFieldId: string | null) {
@@ -2747,100 +2836,103 @@ function SimpleFieldsList({
   }
 
   return (
-    <ul className="flex flex-col gap-0.5 overflow-hidden rounded-xl border border-border bg-muted/20 p-1.5">
-      {nameFields.map((field) => (
-        <SimpleFieldRow
-          key={field.id}
-          field={field}
-          entityId={entityId}
-          allowEdit={!readOnly}
-          allowDelete={false}
-          onEdit={readOnly ? undefined : () => onEdit(field)}
-        />
-      ))}
-      {movableFields.map((field, index) => {
-        const locked = protectedFieldIds.has(field.id);
-        const nextId = movableFields[index + 1]?.id ?? null;
-        const hintMatches =
-          canReorder &&
-          draggingId != null &&
-          draggingId !== field.id &&
-          dropBeforeId !== undefined;
-        const dropEdge: "before" | "after" | null = !hintMatches
-          ? null
-          : dropBeforeId === field.id
-            ? "before"
-            : dropBeforeId == null && index === movableFields.length - 1
-              ? "after"
-              : null;
-
-        return (
+    <LayoutGroup id={`simple-fields-${entityId}`}>
+      <ul className="flex flex-col gap-0.5 overflow-hidden rounded-xl border border-border bg-muted/20 p-1.5">
+        {nameFields.map((field) => (
           <SimpleFieldRow
             key={field.id}
             field={field}
             entityId={entityId}
             allowEdit={!readOnly}
-            allowDelete={!readOnly && !locked}
-            draggable={canReorder}
-            isDragging={draggingId === field.id}
-            dropEdge={dropEdge}
+            allowDelete={false}
             onEdit={readOnly ? undefined : () => onEdit(field)}
-            onDelete={readOnly || locked ? undefined : () => onDelete(field)}
-            onConfigureList={
-              readOnly || field.type !== "list" || field.listSourceFieldId
-                ? undefined
-                : () => onConfigureList(field)
-            }
-            onPrepareDrag={prepareDrag}
-            onDragStart={(event) => {
-              if (!allowDragRef.current) {
-                event.preventDefault();
-                return;
-              }
-              lockDragSelection();
-              const payload: SimpleFieldDragPayload = { fieldId: field.id };
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData(
-                SIMPLE_FIELD_MIME,
-                JSON.stringify(payload),
-              );
-              event.dataTransfer.setData("text/plain", field.id);
-              setDraggingId(field.id);
-              setDropBeforeId(undefined);
-            }}
-            onDragEnd={() => clearDrag()}
-            onDragOver={(event) => {
-              if (draggingId == null || draggingId === field.id) return;
-              if (
-                ![...event.dataTransfer.types].includes(SIMPLE_FIELD_MIME) &&
-                ![...event.dataTransfer.types].includes("text/plain")
-              ) {
-                return;
-              }
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              const edge = simpleFieldDropEdge(event);
-              setDropBeforeId(edge === "before" ? field.id : nextId);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              const payload =
-                readSimpleFieldDrag(event) ??
-                (draggingId ? { fieldId: draggingId } : null);
-              const activeId = payload?.fieldId ?? draggingId;
-              if (!activeId || activeId === field.id) {
-                clearDrag();
-                return;
-              }
-              const edge = simpleFieldDropEdge(event);
-              const beforeId = edge === "before" ? field.id : nextId;
-              commitReorder(activeId, beforeId);
-              clearDrag();
-            }}
           />
-        );
-      })}
-    </ul>
+        ))}
+        {movableFields.map((field, index) => {
+          const locked = protectedFieldIds.has(field.id);
+          const nextId = movableFields[index + 1]?.id ?? null;
+          const hintMatches =
+            canReorder &&
+            draggingId != null &&
+            draggingId !== field.id &&
+            dropBeforeId !== undefined;
+          const dropEdge: "before" | "after" | null = !hintMatches
+            ? null
+            : dropBeforeId === field.id
+              ? "before"
+              : dropBeforeId == null && index === movableFields.length - 1
+                ? "after"
+                : null;
+
+          return (
+            <SimpleFieldRow
+              key={field.id}
+              field={field}
+              entityId={entityId}
+              allowEdit={!readOnly}
+              allowDelete={!readOnly && !locked}
+              draggable={canReorder}
+              isDragging={draggingId === field.id}
+              dropEdge={dropEdge}
+              handleEpoch={handleEpoch}
+              onEdit={readOnly ? undefined : () => onEdit(field)}
+              onDelete={readOnly || locked ? undefined : () => onDelete(field)}
+              onConfigureList={
+                readOnly || field.type !== "list" || field.listSourceFieldId
+                  ? undefined
+                  : () => onConfigureList(field)
+              }
+              onPrepareDrag={prepareDrag}
+              onDragStart={(event) => {
+                if (!allowDragRef.current) {
+                  event.preventDefault();
+                  return;
+                }
+                lockDragSelection();
+                const payload: SimpleFieldDragPayload = { fieldId: field.id };
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData(
+                  SIMPLE_FIELD_MIME,
+                  JSON.stringify(payload),
+                );
+                event.dataTransfer.setData("text/plain", field.id);
+                setDraggingId(field.id);
+                setDropBeforeId(undefined);
+              }}
+              onDragEnd={(event) => clearDrag(event)}
+              onDragOver={(event) => {
+                if (draggingId == null || draggingId === field.id) return;
+                if (
+                  ![...event.dataTransfer.types].includes(SIMPLE_FIELD_MIME) &&
+                  ![...event.dataTransfer.types].includes("text/plain")
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                const edge = simpleFieldDropEdge(event);
+                setDropBeforeId(edge === "before" ? field.id : nextId);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const payload =
+                  readSimpleFieldDrag(event) ??
+                  (draggingId ? { fieldId: draggingId } : null);
+                const activeId = payload?.fieldId ?? draggingId;
+                if (!activeId || activeId === field.id) {
+                  clearDrag(event);
+                  return;
+                }
+                const edge = simpleFieldDropEdge(event);
+                const beforeId = edge === "before" ? field.id : nextId;
+                commitReorder(activeId, beforeId);
+                clearDrag(event);
+              }}
+            />
+          );
+        })}
+      </ul>
+    </LayoutGroup>
   );
 }
 

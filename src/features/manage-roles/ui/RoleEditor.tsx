@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -12,22 +12,30 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import {
+  DATA_SCOPE_LABELS,
   SETTINGS_TAB_IDS,
   createEmptyEntityAccess,
   createFullEntityAccess,
+  isDataScope,
+  type DataScope,
   type EntityAccess,
   type FieldAccess,
   type Role,
   type SettingsTabId,
 } from "@/entities/access";
 import {
+  ConditionBuilder,
   getEntityFieldDisplayName,
   useEntityConfig,
   type Entity,
+  type EntityCondition,
 } from "@/entities/entity";
 import {
   flattenMenuGroupItems,
+  getMenuEntityTree,
   useMenuConfig,
+  type MenuEntityTreeNode,
+  type MenuEntry,
   type MenuItem,
 } from "@/entities/menu";
 
@@ -39,10 +47,51 @@ const SETTINGS_TAB_LABELS: Record<SettingsTabId, string> = {
   roles: "Роли",
 };
 
+/** Automations are configured in the Entities table, not here. */
+const SETTINGS_TABS_IN_UI = SETTINGS_TAB_IDS.filter(
+  (tab) => tab !== "automations",
+);
+
 type RoleEditorProps = {
   role: Role;
   onChange: (role: Role) => void;
 };
+
+function PermissionCell({ children }: { children: ReactNode }) {
+  return <td className="px-3 py-2">{children}</td>;
+}
+
+function PermissionDash() {
+  return (
+    <span className="text-xs text-muted-foreground/60" aria-hidden>
+      —
+    </span>
+  );
+}
+
+function hasSettingsTab(role: Role, tab: SettingsTabId): boolean {
+  const tabs = role.permissions.settingsTabs;
+  return tabs === "*" || tabs.includes(tab);
+}
+
+function withSettingsTab(
+  role: Role,
+  tab: SettingsTabId,
+  enabled: boolean,
+): Role {
+  if (role.permissions.settingsTabs === "*") {
+    if (enabled) return role;
+    return patchPermissions(role, {
+      settingsTabs: SETTINGS_TAB_IDS.filter((item) => item !== tab),
+    });
+  }
+  const current = role.permissions.settingsTabs;
+  return patchPermissions(role, {
+    settingsTabs: enabled
+      ? [...new Set([...current, tab])]
+      : current.filter((item) => item !== tab),
+  });
+}
 
 function ToggleRow({
   label,
@@ -114,10 +163,132 @@ function getEntityAccessList(role: Role, entities: Entity[]): EntityAccess[] {
   );
 }
 
+/** Same grouping as EntityMenuSelect: menu tree + leftovers «Вне меню». */
+type EntityAccessTableRow =
+  | { type: "group"; id: string; title: string; depth: number }
+  | { type: "entity"; entity: Entity; depth: number };
+
+function resolveMenuEntityRows(
+  nodes: MenuEntityTreeNode[],
+  byId: Map<string, Entity>,
+  seen: Set<string>,
+  depth: number,
+): EntityAccessTableRow[] {
+  const rows: EntityAccessTableRow[] = [];
+  for (const node of nodes) {
+    if (node.type === "entity") {
+      const entity = byId.get(node.entityId);
+      if (!entity || seen.has(entity.id)) continue;
+      seen.add(entity.id);
+      rows.push({ type: "entity", entity, depth });
+      continue;
+    }
+    const children = resolveMenuEntityRows(
+      node.children,
+      byId,
+      seen,
+      depth + 1,
+    );
+    if (children.length === 0) continue;
+    rows.push({ type: "group", id: node.id, title: node.title, depth });
+    rows.push(...children);
+  }
+  return rows;
+}
+
+function buildEntityAccessTableRows(
+  entities: Entity[],
+  menuEntries: MenuEntry[],
+): EntityAccessTableRow[] {
+  const byId = new Map(entities.map((entity) => [entity.id, entity]));
+  const seen = new Set<string>();
+  const rows = resolveMenuEntityRows(
+    getMenuEntityTree(menuEntries),
+    byId,
+    seen,
+    0,
+  );
+  const leftovers = entities.filter((entity) => !seen.has(entity.id));
+  if (leftovers.length > 0) {
+    rows.push({
+      type: "group",
+      id: "outside-menu",
+      title: "Вне меню",
+      depth: 0,
+    });
+    for (const entity of leftovers) {
+      rows.push({ type: "entity", entity, depth: 1 });
+    }
+  }
+  return rows;
+}
+
+function rowIndent(depth: number) {
+  if (depth <= 0) return undefined;
+  return { paddingLeft: Math.min(depth, 4) * 12 };
+}
+
+function withScope(
+  access: EntityAccess,
+  scope: DataScope,
+): Partial<EntityAccess> {
+  if (scope === "filter") {
+    return {
+      scope,
+      scopeFilter: access.scopeFilter ?? [],
+    };
+  }
+  return {
+    scope,
+    scopeFilter: undefined,
+  };
+}
+
+function ScopeFilterPanel({
+  entity,
+  entities,
+  conditions,
+  onChange,
+}: {
+  entity: Entity;
+  entities: Entity[];
+  conditions: EntityCondition[];
+  onChange: (conditions: EntityCondition[]) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-border/70 bg-muted/15 p-3">
+      <div>
+        <p className="text-xs font-medium text-foreground">
+          Условия видимости записей
+        </p>
+        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+          Роль видит только записи, у которых все условия выполнены. Без условий
+          записи не показываются.
+        </p>
+      </div>
+      <ConditionBuilder
+        entity={entity}
+        entities={entities}
+        conditions={conditions}
+        onChange={onChange}
+      />
+      {conditions.length === 0 ? (
+        <p className="text-[11px] text-amber-700 dark:text-amber-400">
+          Добавьте хотя бы одно условие
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function RoleEditor({ role, onChange }: RoleEditorProps) {
   const { entries } = useMenuConfig();
   const { entities } = useEntityConfig();
   const menuItems = useMemo(() => collectMenuItems(entries), [entries]);
+  const entityTableRows = useMemo(
+    () => buildEntityAccessTableRows(entities, entries),
+    [entities, entries],
+  );
   const [fieldsEntityId, setFieldsEntityId] = useState<string>(
     entities[0]?.id ?? "",
   );
@@ -126,26 +297,43 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
   const menuAll = role.permissions.menuItemIds === "*";
   const settingsAll = role.permissions.settingsTabs === "*";
   const entityAccessList = getEntityAccessList(role, entities);
+  const accessByEntityId = useMemo(() => {
+    const map = new Map<string, EntityAccess>();
+    for (const item of entityAccessList) {
+      map.set(item.entityId, item);
+    }
+    return map;
+  }, [entityAccessList]);
   const fieldsEntity =
     entities.find((entity) => entity.id === fieldsEntityId) ?? entities[0];
   const fieldsAccess = fieldsEntity
-    ? entityAccessList.find((item) => item.entityId === fieldsEntity.id)
+    ? (accessByEntityId.get(fieldsEntity.id) ?? null)
     : null;
 
   const updateEntityAccess = (
     entityId: string,
     patch: Partial<EntityAccess>,
   ) => {
+    const merge = (base: EntityAccess): EntityAccess => {
+      const next: EntityAccess = { ...base, ...patch };
+      if (patch.scopeFilter === undefined && "scopeFilter" in patch) {
+        delete next.scopeFilter;
+      }
+      if (next.scope !== "filter") {
+        delete next.scopeFilter;
+      }
+      return next;
+    };
     if (entitiesAll) {
       const list = entities.map((entity) => {
         const base = createFullEntityAccess(entity.id);
-        return entity.id === entityId ? { ...base, ...patch } : base;
+        return entity.id === entityId ? merge(base) : base;
       });
       onChange(patchPermissions(role, { entities: list }));
       return;
     }
     const list = entityAccessList.map((item) =>
-      item.entityId === entityId ? { ...item, ...patch } : item,
+      item.entityId === entityId ? merge(item) : item,
     );
     onChange(patchPermissions(role, { entities: list }));
   };
@@ -264,34 +452,6 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             }
           />
           <ToggleRow
-            label="Задачи автоматизаций"
-            checked={role.permissions.canAccessAutomationTasks}
-            onCheckedChange={(checked) =>
-              onChange(
-                patchPermissions(role, {
-                  canAccessAutomationTasks: checked,
-                  ...(!checked ? { canDeleteAutomationTasks: false } : {}),
-                }),
-              )
-            }
-          />
-          <ToggleRow
-            label="Удалять задачи автоматизаций"
-            description="Корзина в списке и на странице задачи"
-            checked={
-              role.permissions.canAccessAutomationTasks &&
-              role.permissions.canDeleteAutomationTasks
-            }
-            disabled={!role.permissions.canAccessAutomationTasks}
-            onCheckedChange={(checked) =>
-              onChange(
-                patchPermissions(role, {
-                  canDeleteAutomationTasks: checked,
-                }),
-              )
-            }
-          />
-          <ToggleRow
             label="Уведомления"
             checked={role.permissions.canAccessNotifications}
             onCheckedChange={(checked) =>
@@ -333,7 +493,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             }
           />
           {!settingsAll
-            ? SETTINGS_TAB_IDS.map((tab) => {
+            ? SETTINGS_TABS_IN_UI.map((tab) => {
                 const checked = role.permissions.settingsTabs.includes(tab);
                 return (
                   <ToggleRow
@@ -362,7 +522,8 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
           <div>
             <h3 className="text-sm font-semibold text-foreground">Сущности</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              CRUD и область данных. «Только свои» — записи, где вы создатель.
+              CRUD и область данных: все записи, только свои или фильтр по
+              полям. Автоматизации и задания — внизу таблицы.
             </p>
           </div>
           <ToggleRow
@@ -382,75 +543,228 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
           />
         </div>
 
-        {!entitiesAll ? (
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Сущность</th>
-                  <th className="px-3 py-2 font-medium">Чтение</th>
-                  <th className="px-3 py-2 font-medium">Создание</th>
-                  <th className="px-3 py-2 font-medium">Изменение</th>
-                  <th className="px-3 py-2 font-medium">Удаление</th>
-                  <th className="px-3 py-2 font-medium">Область</th>
+        <div className="overflow-x-auto rounded-xl border border-border">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Сущность</th>
+                <th className="px-3 py-2 font-medium">Чтение</th>
+                <th className="px-3 py-2 font-medium">Создание</th>
+                <th className="px-3 py-2 font-medium">Изменение</th>
+                <th className="px-3 py-2 font-medium">Удаление</th>
+                <th className="px-3 py-2 font-medium">Область</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entitiesAll ? (
+                <tr className="border-b border-border">
+                  <td
+                    colSpan={6}
+                    className="px-3 py-2.5 text-xs text-muted-foreground"
+                  >
+                    Полный доступ ко всем сущностям данных
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {entityAccessList.map((access) => {
-                  const entity = entities.find(
-                    (item) => item.id === access.entityId,
-                  );
-                  if (!entity) return null;
-                  return (
-                    <tr
-                      key={access.entityId}
-                      className="border-b border-border last:border-0"
-                    >
-                      <td className="px-3 py-2 font-medium">{entity.name}</td>
-                      {(["read", "create", "update", "delete"] as const).map(
-                        (action) => (
-                          <td key={action} className="px-3 py-2">
-                            <Switch
-                              checked={access[action]}
-                              onCheckedChange={(checked) =>
-                                updateEntityAccess(access.entityId, {
-                                  [action]: checked,
-                                })
-                              }
-                            />
-                          </td>
-                        ),
-                      )}
-                      <td className="px-3 py-2">
-                        <Select
-                          value={access.scope}
-                          onValueChange={(value) => {
-                            if (value == null) return;
-                            updateEntityAccess(access.entityId, {
-                              scope: value === "own" ? "own" : "all",
-                            });
-                          }}
+              ) : (
+                entityTableRows.map((row) => {
+                  if (row.type === "group") {
+                    return (
+                      <tr
+                        key={`group-${row.id}`}
+                        className="border-b border-border bg-muted/25"
+                      >
+                        <td
+                          colSpan={6}
+                          className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground"
                         >
-                          <SelectTrigger className="h-8 w-[140px]">
-                            <SelectValue>
-                              {access.scope === "own"
-                                ? "Только свои"
-                                : "Все записи"}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Все записи</SelectItem>
-                            <SelectItem value="own">Только свои</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </td>
-                    </tr>
+                          <span
+                            className="block truncate"
+                            style={rowIndent(row.depth)}
+                          >
+                            {row.title}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  const access = accessByEntityId.get(row.entity.id);
+                  if (!access) return null;
+                  const filterOpen = access.scope === "filter";
+
+                  return (
+                    <Fragment key={row.entity.id}>
+                      <tr className="border-b border-border">
+                        <td className="px-3 py-2 font-medium">
+                          <span
+                            className="block truncate"
+                            style={rowIndent(row.depth)}
+                          >
+                            {row.entity.name.trim() || "Без названия"}
+                          </span>
+                        </td>
+                        {(["read", "create", "update", "delete"] as const).map(
+                          (action) => (
+                            <PermissionCell key={action}>
+                              <Switch
+                                checked={access[action]}
+                                onCheckedChange={(checked) =>
+                                  updateEntityAccess(row.entity.id, {
+                                    [action]: checked,
+                                  })
+                                }
+                              />
+                            </PermissionCell>
+                          ),
+                        )}
+                        <PermissionCell>
+                          <Select
+                            value={access.scope}
+                            onValueChange={(value) => {
+                              if (
+                                value == null ||
+                                !isDataScope(String(value))
+                              ) {
+                                return;
+                              }
+                              updateEntityAccess(
+                                row.entity.id,
+                                withScope(access, String(value) as DataScope),
+                              );
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-[148px]">
+                              <SelectValue>
+                                {DATA_SCOPE_LABELS[access.scope]}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">
+                                {DATA_SCOPE_LABELS.all}
+                              </SelectItem>
+                              <SelectItem value="own">
+                                {DATA_SCOPE_LABELS.own}
+                              </SelectItem>
+                              <SelectItem value="filter">
+                                {DATA_SCOPE_LABELS.filter}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </PermissionCell>
+                      </tr>
+                      {filterOpen ? (
+                        <tr className="border-b border-border bg-muted/10">
+                          <td colSpan={6} className="px-3 py-3">
+                            <div style={rowIndent(row.depth)}>
+                              <ScopeFilterPanel
+                                entity={row.entity}
+                                entities={entities}
+                                conditions={access.scopeFilter ?? []}
+                                onChange={(conditions) =>
+                                  updateEntityAccess(row.entity.id, {
+                                    scope: "filter",
+                                    scopeFilter: conditions,
+                                  })
+                                }
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
+                })
+              )}
+
+              <tr className="border-b border-border bg-muted/25">
+                <td
+                  colSpan={6}
+                  className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                >
+                  Системные разделы
+                </td>
+              </tr>
+
+              <tr className="border-b border-border">
+                <td className="px-3 py-2">
+                  <p className="font-medium">Автоматизации</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    Вкладка «Автоматизации» в настройках — сценарии и шаблоны
+                  </p>
+                </td>
+                <PermissionCell>
+                  <Switch
+                    checked={hasSettingsTab(role, "automations")}
+                    onCheckedChange={(checked) =>
+                      onChange(withSettingsTab(role, "automations", checked))
+                    }
+                  />
+                </PermissionCell>
+                <PermissionCell>
+                  <PermissionDash />
+                </PermissionCell>
+                <PermissionCell>
+                  <PermissionDash />
+                </PermissionCell>
+                <PermissionCell>
+                  <PermissionDash />
+                </PermissionCell>
+                <PermissionCell>
+                  <PermissionDash />
+                </PermissionCell>
+              </tr>
+
+              <tr>
+                <td className="px-3 py-2">
+                  <p className="font-medium">Задания автоматизации</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    Список заданий и страница задачи. Удаление — корзина
+                  </p>
+                </td>
+                <PermissionCell>
+                  <Switch
+                    checked={role.permissions.canAccessAutomationTasks}
+                    onCheckedChange={(checked) =>
+                      onChange(
+                        patchPermissions(role, {
+                          canAccessAutomationTasks: checked,
+                          ...(!checked
+                            ? { canDeleteAutomationTasks: false }
+                            : {}),
+                        }),
+                      )
+                    }
+                  />
+                </PermissionCell>
+                <PermissionCell>
+                  <PermissionDash />
+                </PermissionCell>
+                <PermissionCell>
+                  <PermissionDash />
+                </PermissionCell>
+                <PermissionCell>
+                  <Switch
+                    checked={
+                      role.permissions.canAccessAutomationTasks &&
+                      role.permissions.canDeleteAutomationTasks
+                    }
+                    disabled={!role.permissions.canAccessAutomationTasks}
+                    onCheckedChange={(checked) =>
+                      onChange(
+                        patchPermissions(role, {
+                          canDeleteAutomationTasks: checked,
+                        }),
+                      )
+                    }
+                  />
+                </PermissionCell>
+                <PermissionCell>
+                  <PermissionDash />
+                </PermissionCell>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="space-y-3">

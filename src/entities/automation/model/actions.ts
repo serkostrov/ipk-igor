@@ -51,6 +51,11 @@ export type AutomationAction =
        * Key = tab id. Missing / empty list = entire tab.
        */
       filesTabEntryIds?: Record<string, string[]>;
+      /**
+       * When true, the task form lets the assignee move files between folders
+       * on selected files tabs (still no upload/delete here).
+       */
+      filesTabAllowMove?: boolean;
     }
   | {
       id: string;
@@ -174,7 +179,13 @@ export function defaultAutomationAction(
     case "viewField":
       return { id, kind, fieldIds: [] };
     case "viewTabs":
-      return { id, kind, tabIds: [], filesTabEntryIds: {} };
+      return {
+        id,
+        kind,
+        tabIds: [],
+        filesTabEntryIds: {},
+        filesTabAllowMove: false,
+      };
     case "createRecord":
       return { id, kind, entityId: "", mappings: [] };
     case "createRecordsFromMapping":
@@ -377,7 +388,9 @@ export function normalizeAutomationAction(
         raw.filesTabEntryIds ?? raw.files_tab_entry_ids,
         tabIds,
       );
-      return { ...withId, tabIds, filesTabEntryIds };
+      const filesTabAllowMove =
+        raw.filesTabAllowMove === true || raw.files_tab_allow_move === true;
+      return { ...withId, tabIds, filesTabEntryIds, filesTabAllowMove };
     }
     case "attachToFolder":
       return {
@@ -430,9 +443,11 @@ export function describeAutomationAction(
         (count, ids) => count + ids.length,
         0,
       );
-      return filtered > 0
-        ? `Вкладки: ${action.tabIds.length} · файлы: ${filtered}`
-        : `Вкладки: ${action.tabIds.length}`;
+      const base =
+        filtered > 0
+          ? `Вкладки: ${action.tabIds.length} · файлы: ${filtered}`
+          : `Вкладки: ${action.tabIds.length}`;
+      return action.filesTabAllowMove ? `${base} · перемещение` : base;
     }
     case "createRecord":
       return `Создать запись в «${entity(action.entityId)}»`;

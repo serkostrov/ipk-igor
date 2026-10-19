@@ -5,6 +5,7 @@ import {
   type AutomationAssigneeResolver,
 } from "@/entities/automation";
 import { ConditionGroupBuilder } from "@/features/manage-automations/ui/ConditionGroupBuilder";
+import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
 import {
   NOTIFICATION_TRIGGER_KIND_LABELS,
   describeNotificationTrigger,
@@ -24,7 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import { Textarea } from "@/shared/ui/textarea";
 
 const TRIGGER_KINDS = Object.keys(
   NOTIFICATION_TRIGGER_KIND_LABELS,
@@ -314,24 +314,31 @@ export function NotificationRuleEditor({
         )}
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Заголовок</Label>
-        <Input
-          placeholder="Можно использовать {{fieldId}}"
-          value={draft.titleTemplate}
-          onChange={(event) => patch({ titleTemplate: event.target.value })}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Текст</Label>
-        <Textarea
-          placeholder="Текст уведомления, плейсхолдеры {{fieldId}}"
-          value={draft.messageTemplate}
-          onChange={(event) => patch({ messageTemplate: event.target.value })}
-          rows={3}
-        />
-      </div>
+      {entity ? (
+        <>
+          <TemplateFieldInput
+            id={`nr-title-${draft.id}`}
+            title="Заголовок"
+            value={draft.titleTemplate}
+            placeholder="Например: Вам назначено задание по {{name}}"
+            fields={entity.fields}
+            onChange={(titleTemplate) => patch({ titleTemplate })}
+          />
+          <TemplateFieldInput
+            id={`nr-message-${draft.id}`}
+            title="Текст"
+            value={draft.messageTemplate}
+            placeholder="Текст уведомления"
+            fields={entity.fields}
+            multiline
+            onChange={(messageTemplate) => patch({ messageTemplate })}
+          />
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Выберите сущность, чтобы собрать заголовок и текст из полей
+        </p>
+      )}
 
       <SettingSwitch
         id={`nr-toast-${draft.id}`}
@@ -355,7 +362,7 @@ export function NotificationRuleEditor({
       <div className="rounded-lg border border-dashed border-border px-3 py-2">
         <p className="text-[11px] font-medium text-muted-foreground">Превью</p>
         <p className="mt-1 text-sm font-medium">{previewTitle || "—"}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        <p className="mt-0.5 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
           {previewMessage || "—"}
         </p>
       </div>

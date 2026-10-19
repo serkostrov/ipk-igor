@@ -1,6 +1,8 @@
+import { normalizeEntityConditions } from "@/entities/entity";
 import {
   createAdminRole,
   createEmployeeRole,
+  isDataScope,
   isSettingsTabId,
   ROLE_ADMIN_ID,
   ROLE_EMPLOYEE_ID,
@@ -18,7 +20,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseDataScope(value: unknown): DataScope {
-  return value === "own" ? "own" : "all";
+  return typeof value === "string" && isDataScope(value) ? value : "all";
 }
 
 function parseFieldAccess(value: unknown): FieldAccess | null {
@@ -43,15 +45,20 @@ function parseFields(value: unknown): Record<string, FieldAccess> | "*" {
 function parseEntityAccess(value: unknown): EntityAccess | null {
   if (!isRecord(value)) return null;
   if (typeof value.entityId !== "string" || !value.entityId.trim()) return null;
-  return {
+  const scope = parseDataScope(value.scope);
+  const access: EntityAccess = {
     entityId: value.entityId.trim(),
     create: value.create === true,
     read: value.read === true,
     update: value.update === true,
     delete: value.delete === true,
-    scope: parseDataScope(value.scope),
+    scope,
     fields: parseFields(value.fields),
   };
+  if (scope === "filter") {
+    access.scopeFilter = normalizeEntityConditions(value.scopeFilter);
+  }
+  return access;
 }
 
 function parseSettingsTabs(value: unknown): SettingsTabId[] | "*" {

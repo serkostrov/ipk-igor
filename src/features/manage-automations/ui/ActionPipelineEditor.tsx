@@ -30,6 +30,7 @@ import {
   type EntityTab,
 } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
+import { SettingSwitch } from "@/shared/ui/setting-controls";
 import { ActionValueEditor } from "./ActionValueEditor";
 
 type ActionPipelineEditorProps = {
@@ -325,11 +326,13 @@ function ActionFields({
         tabs={sourceEntity?.tabs ?? []}
         selectedIds={action.tabIds}
         filesTabEntryIds={action.filesTabEntryIds ?? {}}
+        filesTabAllowMove={action.filesTabAllowMove === true}
         onChange={(next) =>
           onChange({
             ...action,
             tabIds: next.tabIds,
             filesTabEntryIds: next.filesTabEntryIds,
+            filesTabAllowMove: next.filesTabAllowMove,
           })
         }
       />
@@ -423,14 +426,17 @@ function ViewTabsEditor({
   tabs,
   selectedIds,
   filesTabEntryIds,
+  filesTabAllowMove,
   onChange,
 }: {
   tabs: EntityTab[];
   selectedIds: string[];
   filesTabEntryIds: Record<string, string[]>;
+  filesTabAllowMove: boolean;
   onChange: (next: {
     tabIds: string[];
     filesTabEntryIds: Record<string, string[]>;
+    filesTabAllowMove: boolean;
   }) => void;
 }) {
   const options = useMemo<EntityListOption[]>(
@@ -471,7 +477,14 @@ function ViewTabsEditor({
       if (!allowed.has(tabId) || entryIds.length === 0) continue;
       nextFiles[tabId] = entryIds;
     }
-    onChange({ tabIds: nextIds, filesTabEntryIds: nextFiles });
+    const stillHasFilesTab = nextIds.some((id) =>
+      tabs.some((tab) => tab.id === id && isEntityFilesTab(tab)),
+    );
+    onChange({
+      tabIds: nextIds,
+      filesTabEntryIds: nextFiles,
+      filesTabAllowMove: stillHasFilesTab ? filesTabAllowMove : false,
+    });
   }
 
   function setFilesEntries(tabId: string, entryIds: string[]) {
@@ -481,7 +494,11 @@ function ViewTabsEditor({
     } else {
       nextFiles[tabId] = entryIds;
     }
-    onChange({ tabIds: selectedIds, filesTabEntryIds: nextFiles });
+    onChange({
+      tabIds: selectedIds,
+      filesTabEntryIds: nextFiles,
+      filesTabAllowMove,
+    });
   }
 
   if (tabs.length === 0) {
@@ -568,6 +585,22 @@ function ViewTabsEditor({
           </div>
         );
       })}
+
+      {selectedFilesTabs.length > 0 ? (
+        <SettingSwitch
+          id="automation-view-tabs-allow-move"
+          title="Перемещение файлов"
+          description="В задании можно перекладывать файлы между папками этой вкладки"
+          checked={filesTabAllowMove}
+          onCheckedChange={(checked) =>
+            onChange({
+              tabIds: selectedIds,
+              filesTabEntryIds,
+              filesTabAllowMove: checked,
+            })
+          }
+        />
+      ) : null}
     </div>
   );
 }

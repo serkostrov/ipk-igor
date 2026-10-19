@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
   ClipboardPen,
+  ExternalLink,
   FileText,
   Folder,
   History,
@@ -12,10 +13,12 @@ import {
 import {
   entityRelationIncludesId,
   filterEntityFieldGroupsForTab,
+  formatEntityFileSize,
   getEntityFieldDisplayName,
   getEntityFieldGroupArea,
   getEntityFieldGroupName,
   getEntityFieldTabId,
+  getEntityFileDownloadUrl,
   getEntityTabFilesValueKey,
   getSystemUserNameByAuthId,
   groupEntityFields,
@@ -32,6 +35,8 @@ import {
   RecordNotesEditor,
   RecordValue,
   resolveEntityMirrorTab,
+  serializeEntityTabFileEntries,
+  updateEntityRecord,
   useEntityConfig,
   useEntityValueContext,
   type Entity,
@@ -42,10 +47,22 @@ import {
 } from "@/entities/entity";
 import { useEntityRecordEvents } from "@/entities/history";
 import { formatTimestampDisplay } from "@/shared/lib/format-date";
+import { pluralRu } from "@/shared/lib/plural";
 import { cn } from "@/shared/lib/cn";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
+const FILES_ROOT_VALUE = "__root__";
+
 const PREVIEW_LIMIT = 12;
+/** Files tab in a task is meant for review — show a deeper tree. */
+const FILES_PREVIEW_LIMIT = 80;
 const FILL_TAB_ID = "__fill__";
 
 type TaskViewTabsPreviewProps = {
@@ -57,12 +74,30 @@ type TaskViewTabsPreviewProps = {
    * Missing / empty for a tab = entire tab.
    */
   filesTabEntryIds?: Record<string, string[]>;
+  /** Allow moving files between folders on files tabs. */
+  filesTabAllowMove?: boolean;
   /** When set, adds a leading «Заполнить» tab with this content. */
   fillSlot?: ReactNode;
   /** Optional badge on the fill tab (e.g. remaining required count). */
   fillBadge?: ReactNode;
   className?: string;
 };
+
+function folderPathLabel(
+  byId: Map<string, EntityTabFileEntry>,
+  folderId: string,
+): string {
+  const parts: string[] = [];
+  let cursor: EntityTabFileEntry | undefined = byId.get(folderId);
+  const seen = new Set<string>();
+  while (cursor && cursor.kind === "folder") {
+    if (seen.has(cursor.id)) break;
+    seen.add(cursor.id);
+    parts.unshift(cursor.name);
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+  }
+  return parts.join(" / ") || "Папка";
+}
 
 /**
  * Resolve selected default-folder ids to record file entries: matched folders
@@ -107,6 +142,11 @@ function filterFilesTabEntries(
   return entries.filter((entry) => allowed.has(entry.id));
 }
 
+function compareFileEntries(a: EntityTabFileEntry, b: EntityTabFileEntry) {
+  if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
+  return a.name.localeCompare(b.name, "ru");
+}
+
 /** Root rows for preview: selected folders, or real roots when unfiltered. */
 function filesPreviewRoots(
   entries: EntityTabFileEntry[],
@@ -129,10 +169,37 @@ function filesPreviewRoots(
       );
     })
     .slice()
-    .sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-      return a.name.localeCompare(b.name, "ru");
-    });
+    .sort(compareFileEntries);
+}
+
+/** Flatten folder → nested folders + files under each root. */
+function collectFilesPreviewRows(
+  scope: EntityTabFileEntry[],
+  roots: EntityTabFileEntry[],
+): { entry: EntityTabFileEntry; depth: number }[] {
+  const byParent = new Map<string | null, EntityTabFileEntry[]>();
+  for (const entry of scope) {
+    const key = entry.parentId;
+    const list = byParent.get(key);
+    if (list) list.push(entry);
+    else byParent.set(key, [entry]);
+  }
+  for (const list of byParent.values()) {
+    list.sort(compareFileEntries);
+  }
+
+  const rows: { entry: EntityTabFileEntry; depth: number }[] = [];
+  const visit = (entry: EntityTabFileEntry, depth: number) => {
+    rows.push({ entry, depth });
+    if (entry.kind !== "folder") return;
+    for (const child of byParent.get(entry.id) ?? []) {
+      visit(child, depth + 1);
+    }
+  };
+  for (const root of roots) {
+    visit(root, 0);
+  }
+  return rows;
 }
 
 function TabKindIcon({ tab }: { tab: EntityTab }) {
@@ -174,18 +241,27 @@ function RecordsPreview({
 }
 
 function FilesPreview({
+  entity,
   record,
   tab,
   selectedFolderIds,
+  allowMove = false,
 }: {
+  entity: Entity;
   record: EntityRecord;
   tab: EntityTab;
   selectedFolderIds?: string[];
+  allowMove?: boolean;
 }) {
-  const entries = useMemo(() => {
-    const key = getEntityTabFilesValueKey(tab.id);
-    return parseEntityTabFileEntries(record.values[key]);
-  }, [record.values, tab.id]);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [movingId, setMovingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const valueKey = getEntityTabFilesValueKey(tab.id);
+  const entries = useMemo(
+    () => parseEntityTabFileEntries(record.values[valueKey]),
+    [record.values, valueKey],
+  );
 
   const filtered = useMemo(
     () => filterFilesTabEntries(entries, tab, selectedFolderIds),
@@ -194,27 +270,120 @@ function FilesPreview({
 
   const rows = useMemo(() => {
     const roots = filesPreviewRoots(entries, filtered, selectedFolderIds);
-    const result: { entry: EntityTabFileEntry; depth: number }[] = [];
-    for (const root of roots) {
-      result.push({ entry: root, depth: 0 });
-      if (root.kind !== "folder") continue;
-      const children = filtered
-        .filter((entry) => entry.parentId === root.id)
-        .slice()
-        .sort((a, b) => {
-          if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-          return a.name.localeCompare(b.name, "ru");
-        });
-      for (const child of children) {
-        result.push({ entry: child, depth: 1 });
-      }
-    }
-    return result;
+    return collectFilesPreviewRows(filtered, roots);
   }, [entries, filtered, selectedFolderIds]);
 
-  const shown = rows.slice(0, PREVIEW_LIMIT);
+  const byId = useMemo(() => {
+    const map = new Map<string, EntityTabFileEntry>();
+    for (const entry of entries) map.set(entry.id, entry);
+    return map;
+  }, [entries]);
+
+  const moveTargets = useMemo(() => {
+    const folders = filtered
+      .filter((entry) => entry.kind === "folder")
+      .slice()
+      .sort((a, b) =>
+        folderPathLabel(byId, a.id).localeCompare(
+          folderPathLabel(byId, b.id),
+          "ru",
+        ),
+      );
+    return folders.map((folder) => ({
+      id: folder.id,
+      label: folderPathLabel(byId, folder.id),
+    }));
+  }, [byId, filtered]);
+
+  const allowRootMove =
+    allowMove && !(selectedFolderIds && selectedFolderIds.length > 0);
+
+  const fileCount = useMemo(
+    () =>
+      rows.reduce(
+        (count, row) => count + (row.entry.kind === "file" ? 1 : 0),
+        0,
+      ),
+    [rows],
+  );
+
+  const shown = rows.slice(0, FILES_PREVIEW_LIMIT);
   const rest = rows.length - shown.length;
   const hasFilter = (selectedFolderIds?.length ?? 0) > 0;
+
+  async function openFile(entry: EntityTabFileEntry) {
+    if (entry.kind !== "file") return;
+    setActionError(null);
+    setOpeningId(entry.id);
+    try {
+      if (entry.dataUrl) {
+        window.open(entry.dataUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+      if (!entry.storagePath) {
+        throw new Error("Файл недоступен");
+      }
+      const url = await getEntityFileDownloadUrl(entry.storagePath);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Не удалось открыть файл",
+      );
+    } finally {
+      setOpeningId(null);
+    }
+  }
+
+  async function moveFile(
+    entry: EntityTabFileEntry,
+    nextParentId: string | null,
+  ) {
+    if (entry.kind !== "file") return;
+    const currentParent = entry.parentId ?? null;
+    if (currentParent === nextParentId) return;
+
+    if (nextParentId) {
+      const target = byId.get(nextParentId);
+      if (!target || target.kind !== "folder") {
+        setActionError("Папка назначения не найдена");
+        return;
+      }
+    } else if (!allowRootMove) {
+      setActionError("В выбранных папках корень недоступен");
+      return;
+    }
+
+    const conflict = entries.some(
+      (item) =>
+        item.id !== entry.id &&
+        item.kind === "file" &&
+        (item.parentId ?? null) === nextParentId &&
+        item.name.trim().toLocaleLowerCase("ru") ===
+          entry.name.trim().toLocaleLowerCase("ru"),
+    );
+    if (conflict) {
+      setActionError("В этой папке уже есть файл с таким именем");
+      return;
+    }
+
+    setActionError(null);
+    setMovingId(entry.id);
+    try {
+      const nextEntries = entries.map((item) =>
+        item.id === entry.id ? { ...item, parentId: nextParentId } : item,
+      );
+      await updateEntityRecord(entity.id, record.id, {
+        ...record.values,
+        [valueKey]: serializeEntityTabFileEntries(nextEntries),
+      });
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Не удалось переместить файл",
+      );
+    } finally {
+      setMovingId(null);
+    }
+  }
 
   if (rows.length === 0) {
     return (
@@ -225,38 +394,139 @@ function FilesPreview({
   }
 
   return (
-    <ul className="flex flex-col gap-1.5">
-      {shown.map(({ entry, depth }) => (
-        <li
-          key={entry.id}
-          className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm"
-          style={depth > 0 ? { marginLeft: depth * 12 } : undefined}
-        >
-          {entry.kind === "folder" ? (
-            <Folder
-              className="size-4 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
-          ) : (
-            <FileText
-              className="size-4 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
-          )}
-          <span className="min-w-0 truncate font-medium text-foreground">
-            {entry.name}
-          </span>
-          <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
-            {entry.kind === "folder" ? "папка" : "файл"}
-          </span>
-        </li>
-      ))}
-      {rest > 0 ? (
-        <li className="text-center text-[11px] text-muted-foreground">
-          и ещё {rest}
-        </li>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <p className="text-[11px] text-muted-foreground">
+          {fileCount > 0
+            ? `${fileCount} ${pluralRu(fileCount, "файл", "файла", "файлов")}`
+            : "Только папки — файлов пока нет"}
+          {hasFilter ? " · выбранные папки" : ""}
+          {allowMove ? " · можно перемещать" : ""}
+        </p>
+      </div>
+      {actionError ? (
+        <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
+          {actionError}
+        </p>
       ) : null}
-    </ul>
+      <ul className="flex flex-col gap-1">
+        {shown.map(({ entry, depth }) => {
+          const isFile = entry.kind === "file";
+          const sizeLabel = isFile ? formatEntityFileSize(entry.size) : "";
+          const canOpen = isFile && Boolean(entry.dataUrl || entry.storagePath);
+          const indent = Math.min(depth, 6) * 14;
+          const folderValue = entry.parentId ?? FILES_ROOT_VALUE;
+          const currentFolderLabel = entry.parentId
+            ? folderPathLabel(byId, entry.parentId)
+            : "Корень";
+
+          if (isFile) {
+            return (
+              <li key={entry.id} style={{ paddingLeft: indent }}>
+                <div className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-background px-3 py-2">
+                  <button
+                    type="button"
+                    disabled={!canOpen || openingId === entry.id}
+                    onClick={() => void openFile(entry)}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 text-left text-sm transition-colors",
+                      canOpen ? "hover:text-primary" : "opacity-70",
+                    )}
+                  >
+                    <FileText
+                      className="size-4 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                      {entry.name}
+                    </span>
+                    {sizeLabel ? (
+                      <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                        {sizeLabel}
+                      </span>
+                    ) : null}
+                    {canOpen ? (
+                      <ExternalLink
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                        aria-hidden
+                      />
+                    ) : null}
+                  </button>
+                  {allowMove && (moveTargets.length > 0 || allowRootMove) ? (
+                    <div className="flex items-center gap-2 pl-6">
+                      <span className="shrink-0 text-[10px] tracking-wide text-muted-foreground uppercase">
+                        Папка
+                      </span>
+                      <Select
+                        value={folderValue}
+                        disabled={movingId === entry.id}
+                        onValueChange={(next) => {
+                          if (next == null) return;
+                          const parentId =
+                            String(next) === FILES_ROOT_VALUE
+                              ? null
+                              : String(next);
+                          void moveFile(entry, parentId);
+                        }}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          className="h-7 min-w-0 flex-1 bg-muted/20 text-xs"
+                        >
+                          <SelectValue placeholder="Папка">
+                            {currentFolderLabel}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent align="start">
+                          {allowRootMove ? (
+                            <SelectItem value={FILES_ROOT_VALUE}>
+                              Корень
+                            </SelectItem>
+                          ) : null}
+                          {moveTargets.map((folder) => (
+                            <SelectItem key={folder.id} value={folder.id}>
+                              {folder.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+                </div>
+              </li>
+            );
+          }
+
+          return (
+            <li
+              key={entry.id}
+              className="flex items-center gap-2.5 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-sm"
+              style={{ marginLeft: indent }}
+            >
+              <Folder
+                className={cn(
+                  "size-4 shrink-0",
+                  !entry.color && "text-muted-foreground",
+                )}
+                style={entry.color ? { color: entry.color } : undefined}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                {entry.name}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                папка
+              </span>
+            </li>
+          );
+        })}
+        {rest > 0 ? (
+          <li className="py-1 text-center text-[11px] text-muted-foreground">
+            и ещё {rest}
+          </li>
+        ) : null}
+      </ul>
+    </div>
   );
 }
 
@@ -532,12 +802,14 @@ function TabPreviewBody({
   record,
   tab,
   filesTabEntryIds,
+  filesTabAllowMove = false,
   depth = 0,
 }: {
   entity: Entity;
   record: EntityRecord;
   tab: EntityTab;
   filesTabEntryIds?: Record<string, string[]>;
+  filesTabAllowMove?: boolean;
   /** Prevent infinite mirror → mirror recursion. */
   depth?: number;
 }) {
@@ -547,9 +819,11 @@ function TabPreviewBody({
   if (isEntityFilesTab(tab)) {
     return (
       <FilesPreview
+        entity={entity}
         record={record}
         tab={tab}
         selectedFolderIds={filesTabEntryIds?.[tab.id]}
+        allowMove={filesTabAllowMove}
       />
     );
   }
@@ -583,6 +857,7 @@ export function TaskViewTabsPreview({
   record,
   tabIds,
   filesTabEntryIds,
+  filesTabAllowMove = false,
   fillSlot,
   fillBadge,
   className,
@@ -683,6 +958,7 @@ export function TaskViewTabsPreview({
             record={record}
             tab={item}
             filesTabEntryIds={filesTabEntryIds}
+            filesTabAllowMove={filesTabAllowMove}
           />
         </TabsContent>
       ))}

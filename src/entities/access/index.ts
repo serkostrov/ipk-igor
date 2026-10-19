@@ -10,6 +10,8 @@ export type {
   SettingsTabId,
 } from "./model/types";
 export {
+  DATA_SCOPE_DESCRIPTIONS,
+  DATA_SCOPE_LABELS,
   ROLE_ADMIN_ID,
   ROLE_EMPLOYEE_ID,
   SETTINGS_TAB_IDS,
@@ -17,6 +19,7 @@ export {
   createEmptyEntityAccess,
   createEmployeeRole,
   createFullEntityAccess,
+  isDataScope,
   isSettingsTabId,
 } from "./model/types";
 export {
@@ -32,6 +35,7 @@ export {
   canMenuItem,
   canSettingsTab,
   entityScope,
+  entityScopeFilter,
   getEntityAccess,
   isAdminRole,
 } from "./model/permissions";

@@ -2,11 +2,13 @@ import { useCallback, useMemo, useState } from "react";
 import { Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
+  automationOutcomeButtonStyle,
   automationRequiresTimeTracking,
   getAutomationUploadTarget,
   resolveAutomationGateError,
   type AutomationTask,
 } from "@/entities/automation";
+import { cn } from "@/shared/lib/cn";
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
 import { automationUploadTargetBlocksComplete } from "../lib/upload-to-files-tab";
 import { TaskUploadPanel } from "./TaskUploadPanel";
@@ -34,7 +36,6 @@ import {
   type EntityRecord,
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
-import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 import {
   applyAutomationSetFieldAutofill,
@@ -106,7 +107,6 @@ export function TaskWorkspace({
   task,
   onOpenRecord,
   onComplete,
-  onReturn,
   onCompleted,
 }: {
   task: AutomationTask;
@@ -115,7 +115,6 @@ export function TaskWorkspace({
     outcomeId: string,
     formValues?: Record<string, string>,
   ) => Promise<void>;
-  onReturn: () => Promise<void>;
   onCompleted: () => void;
 }) {
   const { entities } = useEntityConfig();
@@ -131,7 +130,6 @@ export function TaskWorkspace({
       entities={entities}
       onOpenRecord={onOpenRecord}
       onComplete={onComplete}
-      onReturn={onReturn}
       onCompleted={onCompleted}
     />
   );
@@ -144,7 +142,6 @@ function TaskWorkspaceBody({
   entities,
   onOpenRecord,
   onComplete,
-  onReturn,
   onCompleted,
 }: {
   task: AutomationTask;
@@ -156,7 +153,6 @@ function TaskWorkspaceBody({
     outcomeId: string,
     formValues?: Record<string, string>,
   ) => Promise<void>;
-  onReturn: () => Promise<void>;
   onCompleted: () => void;
 }) {
   const sessionUser = useSessionUser();
@@ -184,10 +180,7 @@ function TaskWorkspaceBody({
   const ask = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
-  const requiredIds = useMemo(
-    () => new Set(ask?.requiredFieldIds ?? []),
-    [ask?.requiredFieldIds],
-  );
+  const requiredIds = new Set(ask?.requiredFieldIds ?? []);
 
   const [values, setValues] = useState<Record<string, string>>(() => {
     if (!entity || !record) return {};
@@ -485,6 +478,7 @@ function TaskWorkspaceBody({
           record={{ ...record, values: mergedValues }}
           tabIds={earlyViewTabIds}
           filesTabEntryIds={taskAsk.viewFilesTabEntryIds}
+          filesTabAllowMove={taskAsk.viewFilesTabAllowMove}
           fillBadge={
             hasFillForm && missingRequiredCount > 0 ? (
               <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">
@@ -608,6 +602,8 @@ function TaskWorkspaceBody({
               <Button
                 type="button"
                 disabled={busy || !record || uploadBlocksComplete}
+                className={cn(selectedOutcome.color && "hover:opacity-90")}
+                style={automationOutcomeButtonStyle(selectedOutcome.color)}
                 onClick={() => void run(selectedOutcome.id)}
               >
                 {selectedOutcome.label}
@@ -637,34 +633,14 @@ function TaskWorkspaceBody({
                   (uploadBlocksComplete &&
                     !automationOutcomeNeedsInput(outcome))
                 }
+                className={cn(outcome.color && "hover:opacity-90")}
+                style={automationOutcomeButtonStyle(outcome.color)}
                 onClick={() => handleOutcomeClick(outcome.id)}
               >
                 {outcome.label}
               </Button>
             ))
           )}
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              setError(null);
-              void (async () => {
-                try {
-                  await persistValues();
-                  await onReturn();
-                  onCompleted();
-                } catch (err: unknown) {
-                  setError(getAutomationErrorMessage(err, "Ошибка возврата"));
-                } finally {
-                  setBusy(false);
-                }
-              })();
-            }}
-          >
-            На доработку
-          </Button>
         </div>
       </footer>
     </div>

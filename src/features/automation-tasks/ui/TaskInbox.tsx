@@ -5,7 +5,6 @@ import {
   completeAutomationTask,
   fetchAutomationTasks,
   registerOverdueAutomationTasksRpc,
-  returnAutomationTaskForRevision,
   subscribeAutomationTasks,
   type AutomationTask,
 } from "@/entities/automation";
@@ -135,13 +134,6 @@ export function TaskInbox({
             onOpenRecord={onOpenRecord}
             onCompleted={() => {
               setSelectedId(null);
-              reload();
-            }}
-            onReturn={async () => {
-              await returnAutomationTaskForRevision(
-                selected.id,
-                sessionUser?.id ?? null,
-              );
               reload();
             }}
             onComplete={async (outcomeId, formValues) => {

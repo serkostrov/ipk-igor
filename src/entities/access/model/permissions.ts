@@ -4,8 +4,10 @@ import {
   NOTIFICATIONS_ITEM_ID,
   SETTINGS_ITEM_ID,
 } from "@/entities/menu";
+import type { EntityCondition } from "@/entities/entity";
 import {
   ROLE_ADMIN_ID,
+  type DataScope,
   type EntityAccess,
   type EntityAction,
   type FieldAccessMode,
@@ -55,9 +57,20 @@ export function canEntity(
 export function entityScope(
   role: Role | null | undefined,
   entityId: string,
-): "all" | "own" {
+): DataScope {
   if (!role || isAdminRole(role)) return "all";
   return getEntityAccess(role.permissions, entityId)?.scope ?? "own";
+}
+
+/** Field conditions for `scope === "filter"`. Empty array when filter is set but empty. */
+export function entityScopeFilter(
+  role: Role | null | undefined,
+  entityId: string,
+): EntityCondition[] | null {
+  if (!role || isAdminRole(role)) return null;
+  const access = getEntityAccess(role.permissions, entityId);
+  if (!access || access.scope !== "filter") return null;
+  return access.scopeFilter ?? [];
 }
 
 export function canField(

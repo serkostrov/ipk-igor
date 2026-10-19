@@ -46,7 +46,6 @@ import {
   withOutcomeStageAction,
   withoutOutcomeStageAction,
   type AutomationLaunchPhase,
-  type AutomationNotificationEvent,
   type AutomationNotificationRule,
   type AutomationOutcome,
   type AutomationOutcomeFieldAccess,
@@ -67,36 +66,15 @@ import {
   unlockDragSelection,
 } from "@/shared/lib/drag-selection";
 import { ActionPipelineEditor } from "./ActionPipelineEditor";
+import { AutomationNotificationRuleEditor } from "./AutomationNotificationRuleEditor";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { OutcomeAutofillEditor } from "./OutcomeAutofillEditor";
+import { OutcomeButtonChip } from "./OutcomeButtonChip";
 import { OutcomeRouteBranchesEditor } from "./OutcomeRouteBranchesEditor";
 import { OutcomeStageSelect } from "./OutcomeStageSelect";
-import { renderTemplateText } from "../lib/template-text";
 import { TemplateFieldInput } from "./TemplateFieldInput";
 import { TemplateRichText } from "./TemplateRichText";
 import { cn } from "@/shared/lib/cn";
-
-const NOTIFICATION_EVENT_OPTIONS: Array<{
-  value: AutomationNotificationEvent;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: "assigned",
-    label: "Назначение",
-    description: "Когда задача появляется у исполнителя",
-  },
-  {
-    value: "completed",
-    label: "Завершение",
-    description: "Когда исполнитель завершил задачу",
-  },
-  {
-    value: "overdue",
-    label: "Просрочка",
-    description: "Когда истёк срок по SLA",
-  },
-];
 
 const OUTCOME_FIELD_MIME = "application/x-ipk-outcome-field";
 
@@ -433,6 +411,7 @@ function outcomesForKind(
           {
             id: createAutomationOutcomeId(),
             label: "Готово",
+            color: null,
             actions: [],
             fieldAccess: emptyAutomationOutcomeFieldAccess(),
             conditions: emptyAutomationConditions(),
@@ -927,6 +906,7 @@ export function TemplateInspector({
         {
           id,
           label: "Результат",
+          color: null,
           actions: [],
           fieldAccess: emptyAutomationOutcomeFieldAccess(),
           conditions: emptyAutomationConditions(),
@@ -1254,8 +1234,9 @@ export function TemplateInspector({
                   <div className="min-w-0">
                     <p className="text-xs font-medium">Кнопки результата</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                      Выберите кнопку слева — настройки ниже. Вкладки «Задание»,
-                      «Кто» и остальные относятся ко всему шагу, не к кнопке.
+                      Карандаш на кнопке — название и цвет. Ниже — действия
+                      выбранной кнопки. Вкладки «Задание» и «Кто» относятся ко
+                      всему шагу.
                     </p>
                   </div>
                   <Button
@@ -1277,24 +1258,17 @@ export function TemplateInspector({
                 ) : (
                   <>
                     <div className="flex flex-wrap gap-1.5">
-                      {draft.outcomes.map((outcome) => {
-                        const selected = outcome.id === activeOutcomeId;
-                        return (
-                          <button
-                            key={outcome.id}
-                            type="button"
-                            className={cn(
-                              "h-8 max-w-full truncate rounded-md border px-2.5 text-xs font-medium transition-colors",
-                              selected
-                                ? "border-primary/40 bg-primary/10 text-foreground ring-1 ring-primary/25"
-                                : "border-border/70 bg-card text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                            )}
-                            onClick={() => setSelectedOutcomeId(outcome.id)}
-                          >
-                            {outcome.label.trim() || "Без названия"}
-                          </button>
-                        );
-                      })}
+                      {draft.outcomes.map((outcome, index) => (
+                        <OutcomeButtonChip
+                          key={outcome.id}
+                          outcome={outcome}
+                          selected={outcome.id === activeOutcomeId}
+                          onSelect={() => setSelectedOutcomeId(outcome.id)}
+                          onChange={(patch) =>
+                            patchOutcome(index, { ...outcome, ...patch })
+                          }
+                        />
+                      ))}
                     </div>
 
                     {selectedOutcome && selectedOutcomeIndex >= 0 ? (
@@ -1322,20 +1296,7 @@ export function TemplateInspector({
                           ) : null}
                         </div>
 
-                        <Field title="Название кнопки">
-                          <Input
-                            value={selectedOutcome.label}
-                            placeholder="Да / Нет / Готово"
-                            onChange={(event) =>
-                              patchOutcome(selectedOutcomeIndex, {
-                                ...selectedOutcome,
-                                label: event.target.value,
-                              })
-                            }
-                          />
-                        </Field>
-
-                        <div className="mt-3 flex flex-col gap-2.5">
+                        <div className="flex flex-col gap-2.5">
                           <OutcomeStageSelect
                             value={selectedStageId}
                             stages={options}
@@ -1490,7 +1451,7 @@ export function TemplateInspector({
                 </p>
               ) : (
                 notificationRules.map((rule) => (
-                  <NotificationRuleEditor
+                  <AutomationNotificationRuleEditor
                     key={rule.id}
                     rule={rule}
                     entity={entity}
@@ -1512,177 +1473,6 @@ export function TemplateInspector({
           onClick={() => void handleSave()}
         >
           {saving ? "Сохранение…" : commitLabel}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function NotificationRuleEditor({
-  rule,
-  entity,
-  onSave,
-  onDelete,
-}: {
-  rule: AutomationNotificationRule;
-  entity: Entity;
-  onSave: (rule: AutomationNotificationRule) => void | Promise<void>;
-  onDelete: () => void;
-}) {
-  const [draft, setDraft] = useState(rule);
-  const [saving, setSaving] = useState(false);
-
-  const eventOption =
-    NOTIFICATION_EVENT_OPTIONS.find((item) => item.value === draft.event) ??
-    NOTIFICATION_EVENT_OPTIONS[0]!;
-
-  const dirty =
-    draft.event !== rule.event ||
-    draft.messageTemplate !== rule.messageTemplate ||
-    JSON.stringify(draft.recipients) !== JSON.stringify(rule.recipients) ||
-    JSON.stringify(draft.conditions) !== JSON.stringify(rule.conditions);
-
-  const previewValues = entity.records[0]?.values;
-  const previewMessage = useMemo(
-    () =>
-      renderTemplateText(
-        draft.messageTemplate,
-        previewValues ?? {},
-        "Текст уведомления",
-      ),
-    [draft.messageTemplate, previewValues],
-  );
-
-  async function handleSave() {
-    if (saving || !dirty) return;
-    setSaving(true);
-    try {
-      await onSave(draft);
-      toast.success("Правило уведомления сохранено");
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Не удалось сохранить уведомление";
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-3.5 rounded-xl border border-border/70 bg-card p-3.5">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <Field title="Когда отправлять" description={eventOption.description}>
-            <Select
-              value={draft.event}
-              onValueChange={(next) => {
-                if (
-                  next === "assigned" ||
-                  next === "completed" ||
-                  next === "overdue"
-                ) {
-                  setDraft((prev) => ({
-                    ...prev,
-                    event: next as AutomationNotificationEvent,
-                  }));
-                }
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue>{eventOption.label}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {NOTIFICATION_EVENT_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="mt-5 shrink-0 text-destructive"
-          aria-label="Удалить правило"
-          onClick={onDelete}
-        >
-          <Trash2 className="size-3.5" />
-        </Button>
-      </div>
-
-      <Field
-        title="Кому"
-        description="Кто получит сообщение. Можно взять человека из поля связи на записи, роль или конкретных пользователей."
-      >
-        <AssigneeEditor
-          mode="recipient"
-          value={draft.recipients}
-          fields={entity.fields}
-          onChange={(recipients) =>
-            setDraft((prev) => ({ ...prev, recipients }))
-          }
-          renderConditions={({ value, onChange }) => (
-            <ConditionGroupBuilder
-              entity={entity}
-              value={value}
-              onChange={onChange}
-            />
-          )}
-        />
-      </Field>
-
-      <TemplateFieldInput
-        id={`notify-message-${draft.id}`}
-        title="Текст"
-        value={draft.messageTemplate}
-        placeholder="Например: Согласовать смету по {{клиент}}"
-        fields={entity.fields}
-        multiline
-        onChange={(messageTemplate) =>
-          setDraft((prev) => ({ ...prev, messageTemplate }))
-        }
-      />
-
-      {draft.messageTemplate.trim() ? (
-        <div className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-2">
-          <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-            Превью
-          </p>
-          <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">
-            {previewMessage || "—"}
-          </p>
-        </div>
-      ) : null}
-
-      <Field
-        title="Условия"
-        description="Опционально. Уведомление уйдёт только если условия на записи выполнены."
-      >
-        <ConditionGroupBuilder
-          entity={entity}
-          value={draft.conditions}
-          onChange={(conditions) =>
-            setDraft((prev) => ({ ...prev, conditions }))
-          }
-        />
-      </Field>
-
-      <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-3">
-        <p className="text-[11px] text-muted-foreground">
-          {dirty ? "Есть несохранённые изменения" : "Сохранено"}
-        </p>
-        <Button
-          type="button"
-          size="sm"
-          disabled={!dirty || saving}
-          onClick={() => void handleSave()}
-        >
-          {saving ? "Сохранение…" : "Сохранить"}
         </Button>
       </div>
     </div>

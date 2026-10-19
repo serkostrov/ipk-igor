@@ -1,10 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { Copy, Pencil, Plus, Shield, Trash2 } from "lucide-react";
+import { Pencil, Plus, Shield, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import {
   ROLE_ADMIN_ID,
-  cloneRole,
   createEmployeeRole,
   normalizeRole,
   removeRole,
@@ -117,24 +116,6 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Клонировать роль"
-                    onClick={() => {
-                      const cloned = cloneRole(role.id);
-                      if (cloned) {
-                        setView({
-                          mode: "edit",
-                          draft: structuredClone(cloned),
-                          isNew: false,
-                        });
-                      }
-                    }}
-                  >
-                    <Copy />
-                  </Button>
                   <Button
                     type="button"
                     variant="ghost"

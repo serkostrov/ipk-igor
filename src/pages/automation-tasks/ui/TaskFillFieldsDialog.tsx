@@ -10,14 +10,15 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import {
+  automationOutcomeButtonStyle,
   completeAutomationTask,
   fetchAutomationTask,
   getAutomationUploadTarget,
   resolveAutomationGateError,
-  returnAutomationTaskForRevision,
   type AutomationOutcome,
   type AutomationTask,
 } from "@/entities/automation";
+import { cn } from "@/shared/lib/cn";
 import {
   applyEntityFieldValue,
   getCurrentUserRecordId,
@@ -389,21 +390,6 @@ function TaskFillFieldsDialogBody({
     });
   }
 
-  async function handleReturn() {
-    if (!task) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await persistValues();
-      await returnAutomationTaskForRevision(task.id, sessionUser?.id ?? null);
-      onOpenChange(false);
-    } catch (err: unknown) {
-      setError(getAutomationErrorMessage(err, "Ошибка возврата"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <>
       <DialogHeader>
@@ -447,6 +433,7 @@ function TaskFillFieldsDialogBody({
               record={{ ...record, values: { ...record.values, ...values } }}
               tabIds={ask?.viewTabIds ?? []}
               filesTabEntryIds={ask?.viewFilesTabEntryIds}
+              filesTabAllowMove={ask?.viewFilesTabAllowMove === true}
               fillBadge={
                 missingRequiredCount > 0 ? (
                   <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">
@@ -581,6 +568,8 @@ function TaskFillFieldsDialogBody({
               disabled={
                 busy || loading || !task || !record || uploadBlocksComplete
               }
+              className={cn(selectedOutcome.color && "hover:opacity-90")}
+              style={automationOutcomeButtonStyle(selectedOutcome.color)}
               onClick={() => void handleComplete(selectedOutcome.id)}
             >
               {selectedOutcome.label}
@@ -598,14 +587,6 @@ function TaskFillFieldsDialogBody({
                 Назад
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy || loading || !task}
-              onClick={() => void handleReturn()}
-            >
-              На доработку
-            </Button>
           </div>
         ) : (
           <div className="flex w-full flex-wrap gap-2">
@@ -621,19 +602,13 @@ function TaskFillFieldsDialogBody({
                   (uploadBlocksComplete &&
                     !automationOutcomeNeedsInput(outcome))
                 }
+                className={cn(outcome.color && "hover:opacity-90")}
+                style={automationOutcomeButtonStyle(outcome.color)}
                 onClick={() => handleOutcomeClick(outcome)}
               >
                 {outcome.label}
               </Button>
             ))}
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy || loading || !task}
-              onClick={() => void handleReturn()}
-            >
-              На доработку
-            </Button>
           </div>
         )}
         <div className="flex w-full flex-wrap gap-2">

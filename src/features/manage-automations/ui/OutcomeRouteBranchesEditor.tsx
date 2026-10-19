@@ -49,6 +49,7 @@ function normalizeBranches(outcomes: AutomationOutcome[]): AutomationOutcome[] {
       {
         id: createAutomationOutcomeId(),
         label: "Иначе",
+        color: null,
         actions: [],
         fieldAccess: emptyAutomationOutcomeFieldAccess(),
         conditions: emptyAutomationConditions(),
@@ -96,6 +97,7 @@ export function OutcomeRouteBranchesEditor({
     next.splice(Math.max(0, next.length - 1), 0, {
       id: createAutomationOutcomeId(),
       label: "Если",
+      color: null,
       actions: triggerFieldId
         ? [
             {

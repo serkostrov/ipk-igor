@@ -8,7 +8,6 @@ import {
   completeAutomationTask,
   deleteAutomationTask,
   fetchAutomationTask,
-  returnAutomationTaskForRevision,
   type AutomationTask,
 } from "@/entities/automation";
 import { useSessionUser } from "@/entities/session";
@@ -105,12 +104,6 @@ export function AutomationTaskPage({
             task={task}
             onOpenRecord={onOpenRecord}
             onCompleted={onBack}
-            onReturn={async () => {
-              await returnAutomationTaskForRevision(
-                task.id,
-                sessionUser?.id ?? null,
-              );
-            }}
             onComplete={async (outcomeId, formValues) => {
               await completeAutomationTask(
                 task.id,

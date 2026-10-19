@@ -12,6 +12,8 @@ export type AutomationAskFields = {
    * Missing / empty for a tab = show the whole tab.
    */
   viewFilesTabEntryIds: Record<string, string[]>;
+  /** Assignee may move files between folders on files tabs in the task. */
+  viewFilesTabAllowMove: boolean;
   requireAttachment: boolean;
 };
 
@@ -21,6 +23,7 @@ const EMPTY_ASK_FIELDS: AutomationAskFields = {
   viewFieldIds: [],
   viewTabIds: [],
   viewFilesTabEntryIds: {},
+  viewFilesTabAllowMove: false,
   requireAttachment: false,
 };
 
@@ -66,6 +69,7 @@ export function getAutomationOutcomeAskFields(
   const viewOnly: string[] = [];
   const viewTabs: string[] = [];
   const viewFilesTabEntryIds: Record<string, string[]> = {};
+  let viewFilesTabAllowMove = false;
 
   for (const action of outcome.actions) {
     if (action.kind === "viewField") {
@@ -78,6 +82,7 @@ export function getAutomationOutcomeAskFields(
         if (tabId.trim()) viewTabs.push(tabId);
       }
       mergeFilesTabEntryIds(viewFilesTabEntryIds, action.filesTabEntryIds);
+      if (action.filesTabAllowMove) viewFilesTabAllowMove = true;
     }
   }
 
@@ -92,6 +97,7 @@ export function getAutomationOutcomeAskFields(
     viewFieldIds,
     viewTabIds: uniquePreserveOrder(viewTabs),
     viewFilesTabEntryIds,
+    viewFilesTabAllowMove,
     requireAttachment: outcome.fieldAccess.requireAttachment === true,
   };
 }
@@ -105,6 +111,7 @@ export function getAutomationTaskAskFields(
   const viewOnly: string[] = [];
   const viewTabs: string[] = [];
   const viewFilesTabEntryIds: Record<string, string[]> = {};
+  let viewFilesTabAllowMove = false;
   let requireAttachment = false;
 
   for (const outcome of task.config.outcomes) {
@@ -114,6 +121,7 @@ export function getAutomationTaskAskFields(
     viewOnly.push(...ask.viewFieldIds);
     viewTabs.push(...ask.viewTabIds);
     mergeFilesTabEntryIds(viewFilesTabEntryIds, ask.viewFilesTabEntryIds);
+    if (ask.viewFilesTabAllowMove) viewFilesTabAllowMove = true;
     if (ask.requireAttachment) requireAttachment = true;
   }
 
@@ -128,6 +136,7 @@ export function getAutomationTaskAskFields(
     ),
     viewTabIds: uniquePreserveOrder(viewTabs),
     viewFilesTabEntryIds,
+    viewFilesTabAllowMove,
     requireAttachment,
   };
 }

@@ -1,4 +1,7 @@
-export type DataScope = "all" | "own";
+import type { EntityCondition } from "@/entities/entity";
+
+/** Record visibility for a role on an entity. */
+export type DataScope = "all" | "own" | "filter";
 
 export type FieldAccess = {
   view: boolean;
@@ -12,9 +15,30 @@ export type EntityAccess = {
   update: boolean;
   delete: boolean;
   scope: DataScope;
+  /**
+   * When `scope === "filter"`: record must match all conditions
+   * (same model as entity field filters / relation filters).
+   */
+  scopeFilter?: EntityCondition[];
   /** `"*"` — все поля; объект — явная матрица (нет ключа = запрет). */
   fields: Record<string, FieldAccess> | "*";
 };
+
+export const DATA_SCOPE_LABELS: Record<DataScope, string> = {
+  all: "Все записи",
+  own: "Только свои",
+  filter: "По полям",
+};
+
+export const DATA_SCOPE_DESCRIPTIONS: Record<DataScope, string> = {
+  all: "Все записи сущности",
+  own: "Только записи, где вы создатель",
+  filter: "Только записи, у которых поля совпадают с условиями",
+};
+
+export function isDataScope(value: string): value is DataScope {
+  return value === "all" || value === "own" || value === "filter";
+}
 
 export type SettingsTabId =
   "menu" | "entities" | "automations" | "notifications" | "roles";
