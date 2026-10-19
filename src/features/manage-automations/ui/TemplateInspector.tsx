@@ -1180,11 +1180,6 @@ export function TemplateInspector({
           </TabsContent>
 
           <TabsContent value="assignee" className="mt-0 flex flex-col gap-3.5">
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Кому создавать задачу. Можно назначить из поля, из связанной
-              записи или по условию — например, отдел РКО → РКО, отдел ЛИНК →
-              рук ЛИНК.
-            </p>
 
             <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-3.5">
               <Field
