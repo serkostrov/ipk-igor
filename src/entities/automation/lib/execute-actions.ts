@@ -271,12 +271,25 @@ export async function executeAutomationActions(
           const target = ctx.entities.find(
             (entity) => entity.id === action.entityId,
           );
-          if (!target) break;
-          const linkIds = new Set(
-            parseEntityRelationIds(ctx.values[action.linkFieldId]),
-          );
-          for (const record of target.records) {
-            if (!linkIds.has(record.id)) continue;
+          if (!target || !action.linkFieldId.trim()) break;
+          const linkMode =
+            action.linkMode === "backRelation" ? "backRelation" : "relation";
+          const matches =
+            linkMode === "backRelation"
+              ? target.records.filter((record) =>
+                  parseEntityRelationIds(
+                    record.values[action.linkFieldId],
+                  ).includes(ctx.triggerRecordId),
+                )
+              : (() => {
+                  const linkIds = new Set(
+                    parseEntityRelationIds(ctx.values[action.linkFieldId]),
+                  );
+                  return target.records.filter((record) =>
+                    linkIds.has(record.id),
+                  );
+                })();
+          for (const record of matches) {
             const patch = applyMappings(
               action.mappings,
               ctx,
@@ -285,7 +298,11 @@ export async function executeAutomationActions(
               target,
             );
             await updateEntityRecord(action.entityId, record.id, patch);
-            logs.push({ kind: "updateRecords", recordId: record.id });
+            logs.push({
+              kind: "updateRecords",
+              recordId: record.id,
+              linkMode,
+            });
           }
           break;
         }

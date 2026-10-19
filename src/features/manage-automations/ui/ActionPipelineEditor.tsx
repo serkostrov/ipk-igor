@@ -323,6 +323,164 @@ function ActionFields({
     );
   }
 
+  if (action.kind === "updateRecords") {
+    const target =
+      entities.find((entity) => entity.id === action.entityId) ?? null;
+    const sourceLabel = sourceEntity
+      ? getEntityDisplayName(sourceEntity)
+      : "текущей записи";
+    const targetLabel = target ? getEntityDisplayName(target) : "связанной";
+    const linkMode =
+      action.linkMode === "backRelation" ? "backRelation" : "relation";
+    const forwardLinkFields = fields.filter((field) => {
+      if (field.type !== "relation" && field.type !== "dependencies") {
+        return false;
+      }
+      if (!action.entityId) return true;
+      const targetId = getEntityRelationTargetId(field);
+      return !targetId || targetId === action.entityId;
+    });
+    const backLinkFields = (target?.fields ?? []).filter((field) => {
+      if (field.type !== "relation" && field.type !== "dependencies") {
+        return false;
+      }
+      if (!sourceEntity) return true;
+      const targetId = getEntityRelationTargetId(field);
+      return !targetId || targetId === sourceEntity.id;
+    });
+    const linkFields =
+      linkMode === "backRelation" ? backLinkFields : forwardLinkFields;
+
+    function pickDefaultLink(
+      nextEntityId: string,
+      preferredMode?: "relation" | "backRelation",
+    ): {
+      linkMode: "relation" | "backRelation";
+      linkFieldId: string;
+    } {
+      const forward = fields.filter((field) => {
+        if (field.type !== "relation" && field.type !== "dependencies") {
+          return false;
+        }
+        return getEntityRelationTargetId(field) === nextEntityId;
+      });
+      const nextTarget =
+        entities.find((entity) => entity.id === nextEntityId) ?? null;
+      const back = (nextTarget?.fields ?? []).filter((field) => {
+        if (field.type !== "relation" && field.type !== "dependencies") {
+          return false;
+        }
+        return (
+          !sourceEntity ||
+          getEntityRelationTargetId(field) === sourceEntity.id
+        );
+      });
+      if (preferredMode === "relation") {
+        return { linkMode: "relation", linkFieldId: forward[0]?.id ?? "" };
+      }
+      if (preferredMode === "backRelation") {
+        return {
+          linkMode: "backRelation",
+          linkFieldId: back[0]?.id ?? "",
+        };
+      }
+      if (forward[0]) {
+        return { linkMode: "relation", linkFieldId: forward[0].id };
+      }
+      if (back[0]) {
+        return { linkMode: "backRelation", linkFieldId: back[0].id };
+      }
+      return { linkMode: "relation", linkFieldId: "" };
+    }
+
+    return (
+      <div className="mt-2 flex flex-col gap-2.5">
+        <div className="flex flex-col gap-1">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            Сущность
+          </p>
+          <EntitySelect
+            entities={entities}
+            value={action.entityId}
+            onChange={(entityId) => {
+              const link = pickDefaultLink(entityId);
+              onChange({
+                ...action,
+                entityId,
+                linkMode: link.linkMode,
+                linkFieldId: link.linkFieldId,
+                mappings: [],
+              });
+            }}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/20 p-2">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            Какие записи обновить
+          </p>
+          <Select
+            value={linkMode}
+            onValueChange={(next) => {
+              if (next !== "relation" && next !== "backRelation") return;
+              const link = pickDefaultLink(action.entityId, next);
+              onChange({
+                ...action,
+                linkMode: next,
+                linkFieldId: link.linkFieldId,
+              });
+            }}
+          >
+            <SelectTrigger size="sm" className="h-8">
+              <SelectValue>
+                {linkMode === "backRelation"
+                  ? `Где на «${targetLabel}» указана текущая «${sourceLabel}»`
+                  : `По связи на «${sourceLabel}»`}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="relation">
+                По связи на «{sourceLabel}»
+              </SelectItem>
+              <SelectItem value="backRelation">
+                Где на «{targetLabel}» указана текущая «{sourceLabel}»
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <FieldSelect
+            fields={linkFields}
+            value={action.linkFieldId}
+            placeholder={
+              linkMode === "backRelation"
+                ? "Поле связи на целевой сущности"
+                : "Поле связи на текущей записи"
+            }
+            entities={entities}
+            showType
+            onChange={(linkFieldId) => onChange({ ...action, linkFieldId })}
+          />
+          <p className="text-[10px] leading-snug text-muted-foreground/90">
+            {linkMode === "backRelation"
+              ? `Обновятся все «${targetLabel}», у которых выбранное поле содержит текущую запись.`
+              : `Обновятся записи из выбранного поля связи на «${sourceLabel}».`}
+          </p>
+        </div>
+
+        <MappingsEditor
+          title="Поля для обновления"
+          mappings={action.mappings}
+          targetFields={target?.fields ?? []}
+          targetEntityName={targetLabel}
+          sourceFields={sourceEntity?.fields ?? []}
+          sourceEntityId={sourceEntity?.id}
+          sourceEntityName={sourceLabel}
+          entities={entities}
+          onChange={(mappings) => onChange({ ...action, mappings })}
+        />
+      </div>
+    );
+  }
+
   if (action.kind === "setRelation" || action.kind === "addRelation") {
     const selected =
       fields.find((field) => field.id === action.fieldId) ?? null;
@@ -880,6 +1038,7 @@ function MappingsEditor({
   sourceEntityId,
   sourceEntityName,
   entities,
+  title = "Поля новой записи",
   onChange,
 }: {
   mappings: Array<{ targetFieldId: string; source: string }>;
@@ -889,6 +1048,7 @@ function MappingsEditor({
   sourceEntityId?: string;
   sourceEntityName: string;
   entities: Entity[];
+  title?: string;
   onChange: (
     mappings: Array<{ targetFieldId: string; source: string }>,
   ) => void;
@@ -896,7 +1056,7 @@ function MappingsEditor({
   const writable = targetFields.filter(
     (field) => !isEntityComputedFieldType(field.type) && field.type !== "file",
   );
-  const targetLabel = targetEntityName.trim() || "Новая запись";
+  const targetLabel = targetEntityName.trim() || "Целевая запись";
   const sourceLabel = sourceEntityName.trim() || "Текущая запись";
   const usedTargetIds = new Set(
     mappings.map((mapping) => mapping.targetFieldId).filter(Boolean),
@@ -936,7 +1096,7 @@ function MappingsEditor({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[11px] font-medium text-muted-foreground">
-            Поля новой записи
+            {title}
           </p>
           <p className="truncate text-[10px] text-muted-foreground/80">
             «{sourceLabel}» → «{targetLabel}»

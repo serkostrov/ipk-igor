@@ -79,6 +79,11 @@ export type AutomationAction =
       id: string;
       kind: "updateRecords";
       entityId: string;
+      /**
+       * `relation` — IDs in trigger’s `linkFieldId` (points at entityId).
+       * `backRelation` — rows of entityId whose `linkFieldId` includes trigger.
+       */
+      linkMode?: "relation" | "backRelation";
       linkFieldId: string;
       mappings: AutomationFieldMapping[];
     }
@@ -151,7 +156,7 @@ export const AUTOMATION_ACTION_KIND_LABELS: Record<
   viewTabs: "Просмотреть вкладки",
   createRecord: "Создать запись",
   createRecordsFromMapping: "Создать записи по списку",
-  updateRecords: "Обновить связанные",
+  updateRecords: "Обновить поля",
   copyFields: "Скопировать поля",
   setRelation: "Установить связь",
   addRelation: "Добавить в связь",
@@ -198,7 +203,14 @@ export function defaultAutomationAction(
         mappings: [],
       };
     case "updateRecords":
-      return { id, kind, entityId: "", linkFieldId: "", mappings: [] };
+      return {
+        id,
+        kind,
+        entityId: "",
+        linkMode: "relation",
+        linkFieldId: "",
+        mappings: [],
+      };
     case "copyFields":
       return { id, kind, targetRelationFieldId: "self", mappings: [] };
     case "setRelation":
@@ -318,6 +330,8 @@ export function normalizeAutomationAction(
       return {
         ...withId,
         entityId: typeof raw.entityId === "string" ? raw.entityId : "",
+        linkMode:
+          raw.linkMode === "backRelation" ? "backRelation" : "relation",
         linkFieldId: typeof raw.linkFieldId === "string" ? raw.linkFieldId : "",
         mappings: normalizeMappings(raw.mappings),
       };
@@ -454,7 +468,9 @@ export function describeAutomationAction(
     case "createRecordsFromMapping":
       return `Создать записи в «${entity(action.entityId)}»`;
     case "updateRecords":
-      return `Обновить «${entity(action.entityId)}»`;
+      return action.mappings.length > 0
+        ? `Обновить «${entity(action.entityId)}» · ${action.mappings.length}`
+        : `Обновить «${entity(action.entityId)}»`;
     case "copyFields":
       return "Скопировать поля";
     case "setRelation":
