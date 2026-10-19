@@ -48,28 +48,18 @@ type ActionValueEditorProps = {
   sourceFields: EntityField[];
   entities: Entity[];
   className?: string;
-  /** Name of the entity that owns `sourceFields` (current record). */
-  sourceEntityName?: string;
   /** Value is written to another entity (createRecord mappings). */
   mapToOtherEntity?: boolean;
 };
 
-function valueSourceLabels(
-  sourceEntityName: string | undefined,
-  mapToOtherEntity: boolean | undefined,
-) {
-  const fromFieldLabel = mapToOtherEntity
-    ? sourceEntityName
-      ? `Из «${sourceEntityName}»`
-      : "Из этой записи"
-    : "Из другого поля";
+function valueSourceLabels(mapToOtherEntity: boolean | undefined) {
+  // When mapping onto another entity, entity names live in the parent header —
+  // keep mode labels short to avoid «Лиды» three times in one row.
+  const fromFieldLabel = mapToOtherEntity ? "Из поля" : "Из другого поля";
   const fromEntityLabel = mapToOtherEntity
     ? "Через связь"
     : "Из другой сущности";
-  const sourceFieldSuffix = mapToOtherEntity
-    ? sourceEntityName?.trim() || undefined
-    : undefined;
-  return { fromFieldLabel, fromEntityLabel, sourceFieldSuffix };
+  return { fromFieldLabel, fromEntityLabel };
 }
 
 type ValueMode =
@@ -228,7 +218,6 @@ function FromEntitySelects({
   entities,
   value,
   onChange,
-  sourceEntityName,
   mapToOtherEntity,
 }: {
   targetField: EntityField;
@@ -236,7 +225,6 @@ function FromEntitySelects({
   entities: Entity[];
   value: string;
   onChange: (next: string) => void;
-  sourceEntityName?: string;
   mapToOtherEntity?: boolean;
 }) {
   const path = parseAutomationEntityPathRef(value);
@@ -274,9 +262,6 @@ function FromEntitySelects({
           fields={relationFields}
           value={relationFieldId}
           placeholder="Поле связи"
-          entitySuffix={
-            mapToOtherEntity ? sourceEntityName?.trim() || undefined : undefined
-          }
           onChange={(nextRelationId) => {
             const nextRelation = relationFields.find(
               (field) => field.id === nextRelationId,
@@ -374,7 +359,6 @@ export function ActionValueEditor({
   sourceFields,
   entities,
   className,
-  sourceEntityName,
   mapToOtherEntity,
 }: ActionValueEditorProps) {
   if (!field) {
@@ -402,7 +386,6 @@ export function ActionValueEditor({
       sourceFields={sourceFields}
       entities={entities}
       className={className}
-      sourceEntityName={sourceEntityName}
       mapToOtherEntity={mapToOtherEntity}
     />
   );
@@ -415,7 +398,6 @@ function ActionValueEditorBody({
   sourceFields,
   entities,
   className,
-  sourceEntityName,
   mapToOtherEntity,
 }: {
   field: EntityField;
@@ -424,12 +406,11 @@ function ActionValueEditorBody({
   sourceFields: EntityField[];
   entities: Entity[];
   className?: string;
-  sourceEntityName?: string;
   mapToOtherEntity?: boolean;
 }) {
   const { mode, selectMode } = useEditorMode(value, field);
-  const { fromFieldLabel, fromEntityLabel, sourceFieldSuffix } =
-    valueSourceLabels(sourceEntityName, mapToOtherEntity);
+  const { fromFieldLabel, fromEntityLabel } =
+    valueSourceLabels(mapToOtherEntity);
   const excludeSourceFieldId = mapToOtherEntity ? undefined : field.id;
 
   const applyMode = (next: ValueMode, nextValue: string) => {
@@ -444,7 +425,6 @@ function ActionValueEditorBody({
         entities={entities}
         value={value}
         onChange={onChange}
-        sourceEntityName={sourceEntityName}
         mapToOtherEntity={mapToOtherEntity}
       />
     ) : null;
@@ -514,7 +494,6 @@ function ActionValueEditorBody({
             )}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
-            entitySuffix={sourceFieldSuffix}
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
@@ -563,7 +542,6 @@ function ActionValueEditorBody({
             )}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
-            entitySuffix={sourceFieldSuffix}
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
@@ -616,7 +594,6 @@ function ActionValueEditorBody({
             fields={sourceFields.filter((item) => item.type === "boolean")}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
-            entitySuffix={sourceFieldSuffix}
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
@@ -672,7 +649,6 @@ function ActionValueEditorBody({
             fields={sourceFields.filter((item) => item.type === "list")}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
-            entitySuffix={sourceFieldSuffix}
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
@@ -752,7 +728,6 @@ function ActionValueEditorBody({
             )}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
-            entitySuffix={sourceFieldSuffix}
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
@@ -800,7 +775,6 @@ function ActionValueEditorBody({
             fields={sourceFields}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
-            entitySuffix={sourceFieldSuffix}
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
         ) : null}
@@ -865,7 +839,6 @@ function ActionValueEditorBody({
           fields={sourceFields}
           value={fieldRefId(value)}
           excludeFieldId={excludeSourceFieldId}
-          entitySuffix={sourceFieldSuffix}
           onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
         />
       ) : null}

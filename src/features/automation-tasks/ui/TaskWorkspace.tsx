@@ -15,7 +15,6 @@ import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
   applyEntityFieldValue,
   getCurrentUserRecordId,
-  getEntityConfig,
   getEntityFieldDisplayName,
   getEntityListParentField,
   getEntityPreviewValueContext,
@@ -315,13 +314,8 @@ function TaskWorkspaceBody({
       patch[fieldId] = values[fieldId]!;
     }
     if (Object.keys(patch).length === 0) return;
-    const latestRecord = getEntityConfig()
-      .entities.find((item) => item.id === task.entityId)
-      ?.records.find((item) => item.id === task.recordId);
-    await updateEntityRecord(task.entityId, task.recordId, {
-      ...(latestRecord?.values ?? record.values),
-      ...patch,
-    });
+    // Partial patch — store merges into current values (keeps files tabs etc.).
+    await updateEntityRecord(task.entityId, task.recordId, patch);
   }
 
   function validateForOutcome(outcomeId: string) {

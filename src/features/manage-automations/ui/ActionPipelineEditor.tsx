@@ -694,16 +694,18 @@ function MappingsEditor({
   );
   const targetLabel = targetEntityName.trim() || "Новая запись";
   const sourceLabel = sourceEntityName.trim() || "Эта запись";
+  const showFlow =
+    Boolean(sourceEntityName.trim()) && Boolean(targetEntityName.trim());
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex min-w-0 items-baseline justify-between gap-2">
+      <div className="flex min-w-0 flex-col gap-0.5">
         <p className="text-[11px] font-medium text-muted-foreground">
           Заполнить поля
         </p>
-        {sourceEntityName.trim() && targetEntityName.trim() ? (
-          <p className="min-w-0 truncate text-[10px] text-muted-foreground/80">
-            {sourceLabel} → {targetLabel}
+        {showFlow ? (
+          <p className="truncate text-[10px] leading-snug text-muted-foreground/80">
+            Поле в «{targetLabel}» ← значение из «{sourceLabel}»
           </p>
         ) : null}
       </div>
@@ -713,54 +715,44 @@ function MappingsEditor({
         return (
           <div
             key={`${mapping.targetFieldId}-${index}`}
-            className="flex flex-col gap-2 rounded-md border border-border/50 p-2"
+            className="flex flex-col gap-1.5 rounded-md border border-border/50 p-2"
           >
-            <div className="flex flex-col gap-1">
-              <p className="text-[10px] font-medium text-muted-foreground">
-                {targetLabel}
-              </p>
-              <div className="flex items-center gap-1.5">
-                <FieldSelect
-                  fields={writable}
-                  value={mapping.targetFieldId}
-                  placeholder="Поле"
-                  onChange={(targetFieldId) => {
-                    const next = [...mappings];
-                    next[index] = { targetFieldId, source: "" };
-                    onChange(next);
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Удалить маппинг"
-                  onClick={() =>
-                    onChange(mappings.filter((_, i) => i !== index))
-                  }
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-            <div className="flex flex-col gap-1 border-t border-border/40 pt-2">
-              <p className="text-[10px] font-medium text-muted-foreground">
-                из {sourceLabel}
-              </p>
-              <ActionValueEditor
-                field={target}
-                value={mapping.source}
-                sourceFields={sourceFields}
-                sourceEntityName={sourceLabel}
-                mapToOtherEntity
-                entities={entities}
-                onChange={(source) => {
+            <div className="flex items-center gap-1.5">
+              <FieldSelect
+                fields={writable}
+                value={mapping.targetFieldId}
+                placeholder="Поле новой записи"
+                onChange={(targetFieldId) => {
                   const next = [...mappings];
-                  next[index] = { ...mapping, source };
+                  next[index] = { targetFieldId, source: "" };
                   onChange(next);
                 }}
               />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0"
+                aria-label="Удалить маппинг"
+                onClick={() =>
+                  onChange(mappings.filter((_, i) => i !== index))
+                }
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
             </div>
+            <ActionValueEditor
+              field={target}
+              value={mapping.source}
+              sourceFields={sourceFields}
+              mapToOtherEntity
+              entities={entities}
+              onChange={(source) => {
+                const next = [...mappings];
+                next[index] = { ...mapping, source };
+                onChange(next);
+              }}
+            />
           </div>
         );
       })}

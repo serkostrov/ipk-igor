@@ -22,6 +22,7 @@ import {
   getEntityFieldGroupName,
   getEntityFieldTabId,
   getEntityFileDownloadUrl,
+  getEntityConfig,
   getEntityTabFilesValueKey,
   getSystemUserNameByAuthId,
   groupEntityFields,
@@ -425,13 +426,19 @@ function FilesPreview({
     setActionError(null);
     setMoving(true);
     try {
-      const nextEntries = entries.map((item) =>
+      const latestValues =
+        getEntityConfig()
+          .entities.find((item) => item.id === entity.id)
+          ?.records.find((item) => item.id === record.id)?.values ??
+        record.values;
+      const latestEntries = parseEntityTabFileEntries(latestValues[valueKey]);
+      const nextEntries = latestEntries.map((item) =>
         item.kind === "file" && selectedSet.has(item.id)
           ? { ...item, parentId: nextParentId }
           : item,
       );
+      // Patch only the files tab key — store merges into existing values.
       await updateEntityRecord(entity.id, record.id, {
-        ...record.values,
         [valueKey]: serializeEntityTabFileEntries(nextEntries),
       });
       clearSelection();

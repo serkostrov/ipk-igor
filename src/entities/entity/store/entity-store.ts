@@ -2560,18 +2560,24 @@ async function saveRecord(
     await pendingInsert;
   }
 
-  const stillExists = config.entities
+  const existing = config.entities
     .find((item) => item.id === entityId)
-    ?.records.some((record) => record.id === recordId);
-  if (!stillExists) {
+    ?.records.find((record) => record.id === recordId);
+  if (!existing) {
     throw new Error("Запись не найдена");
   }
+
+  // Match SQL `update_entity_record_values`: callers may pass a partial patch
+  // (setField, files tab, upload). Replacing the whole local map wiped fields
+  // and broke task buttons / lost folder moves after reload.
+  const previousValues = existing.values;
+  const mergedValues = { ...previousValues, ...values };
 
   mapEntityLocal(entityId, (entity) => ({
     ...entity,
     records: entity.records.map((record) =>
       record.id === recordId
-        ? normalizeEntityRecord({ ...record, values })
+        ? normalizeEntityRecord({ ...record, values: mergedValues })
         : record,
     ),
   }));
@@ -2582,6 +2588,14 @@ async function saveRecord(
   try {
     await updateEntityRecordValues(recordId, values);
   } catch (error: unknown) {
+    mapEntityLocal(entityId, (entity) => ({
+      ...entity,
+      records: entity.records.map((record) =>
+        record.id === recordId
+          ? normalizeEntityRecord({ ...record, values: previousValues })
+          : record,
+      ),
+    }));
     handlePersistError(error, "Не удалось обновить запись");
     throw error;
   }

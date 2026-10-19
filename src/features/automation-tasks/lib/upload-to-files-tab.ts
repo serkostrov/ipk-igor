@@ -1,5 +1,6 @@
 import {
   DEFAULT_ENTITY_FOLDER_COLOR,
+  getEntityConfig,
   getEntityTabFilesValueKey,
   isEntityFilesTab,
   normalizeListColor,
@@ -145,7 +146,12 @@ export async function uploadFilesToAutomationTarget(input: {
   files: FileList | File[];
 }): Promise<{ uploadedCount: number; folderParentId: string | null }> {
   const valueKey = getEntityTabFilesValueKey(input.tab.id);
-  let entries = parseEntityTabFileEntries(input.record.values[valueKey]);
+  const latestValues =
+    getEntityConfig()
+      .entities.find((item) => item.id === input.entity.id)
+      ?.records.find((item) => item.id === input.record.id)?.values ??
+    input.record.values;
+  let entries = parseEntityTabFileEntries(latestValues[valueKey]);
 
   const ensured = ensureUploadTargetFolderId({
     entries,
@@ -215,7 +221,7 @@ export async function uploadFilesToAutomationTarget(input: {
     uploadedCount += 1;
   }
 
-  updateEntityRecord(input.entity.id, input.record.id, {
+  await updateEntityRecord(input.entity.id, input.record.id, {
     [valueKey]: serializeEntityTabFileEntries(entries),
   });
 

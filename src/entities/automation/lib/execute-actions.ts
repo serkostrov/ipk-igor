@@ -135,7 +135,7 @@ export async function executeAutomationActions(
             meta.fieldType,
             meta.datetimeWithTime,
           );
-          updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
+          await updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
             [action.fieldId]: resolved,
           });
           ctx.values[action.fieldId] = resolved;
@@ -144,7 +144,7 @@ export async function executeAutomationActions(
         }
         case "setFieldPrevious": {
           const prev = ctx.previousValues[action.fieldId] ?? "";
-          updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
+          await updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
             [action.fieldId]: prev,
           });
           ctx.values[action.fieldId] = prev;
@@ -168,11 +168,15 @@ export async function executeAutomationActions(
           if (record) {
             createdRecordIds.push(record.id);
             if (action.linkBackFieldId) {
-              updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
-                [action.linkBackFieldId]: serializeEntityRelationIds([
-                  record.id,
-                ]),
-              });
+              await updateEntityRecord(
+                ctx.triggerEntityId,
+                ctx.triggerRecordId,
+                {
+                  [action.linkBackFieldId]: serializeEntityRelationIds([
+                    record.id,
+                  ]),
+                },
+              );
               ctx.values[action.linkBackFieldId] = serializeEntityRelationIds([
                 record.id,
               ]);
@@ -223,7 +227,7 @@ export async function executeAutomationActions(
           for (const record of target.records) {
             if (!linkIds.has(record.id)) continue;
             const patch = applyMappings(action.mappings, ctx, createdRecordIds);
-            updateEntityRecord(action.entityId, record.id, patch);
+            await updateEntityRecord(action.entityId, record.id, patch);
             logs.push({ kind: "updateRecords", recordId: record.id });
           }
           break;
@@ -244,7 +248,7 @@ export async function executeAutomationActions(
             if (linked) targetEntityId = linked.id;
           }
           const patch = applyMappings(action.mappings, ctx, createdRecordIds);
-          updateEntityRecord(targetEntityId, targetRecordId, patch);
+          await updateEntityRecord(targetEntityId, targetRecordId, patch);
           logs.push({ kind: "copyFields", recordId: targetRecordId });
           break;
         }
@@ -254,7 +258,7 @@ export async function executeAutomationActions(
             ctx,
             createdRecordIds,
           );
-          updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
+          await updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
             [action.fieldId]: value.includes("[")
               ? value
               : serializeEntityRelationIds(value ? [value] : []),
@@ -276,7 +280,7 @@ export async function executeAutomationActions(
               ),
             ),
           ]);
-          updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
+          await updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {
             [action.fieldId]: next,
           });
           logs.push({ kind: "addRelation", fieldId: action.fieldId });
@@ -362,7 +366,7 @@ export async function executeAutomationActions(
                 if (linked) targetEntityId = linked.id;
               }
             }
-            updateEntityRecord(targetEntityId, targetRecordId, {
+            await updateEntityRecord(targetEntityId, targetRecordId, {
               [action.enterFieldId]: action.enterOptionId,
             });
             logs.push({
