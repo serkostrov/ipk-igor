@@ -1,5 +1,5 @@
 import {
-  defaultAssigneeResolver,
+  defaultWatcherResolver,
   normalizeAssigneeResolver,
   type AutomationAssigneeResolver,
 } from "./assignee";
@@ -580,7 +580,7 @@ export function normalizeAutomationTaskTemplate(
     ),
     assignee: normalizeAssigneeResolver(raw.assignee),
     watchers: normalizeAssigneeResolver(
-      raw.watchers ?? defaultAssigneeResolver(),
+      raw.watchers ?? defaultWatcherResolver(),
     ),
     outcomes:
       outcomes.length > 0

@@ -44,18 +44,25 @@ export function SettingSwitch({
   title,
   description,
   checked,
+  disabled,
   onCheckedChange,
 }: {
   id: string;
   title: string;
   description?: string;
   checked: boolean;
+  disabled?: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <SettingLabel htmlFor={id} title={title} description={description} />
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+      />
     </div>
   );
 }

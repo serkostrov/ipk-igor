@@ -55,3 +55,28 @@ export function getTemplateFieldLabel(
   const field = resolveTemplateField(fields, token);
   return field ? getEntityFieldDisplayName(field) : token;
 }
+
+/** Replace `{{fieldId}}` with record values (preview / client render). */
+export function renderTemplateText(
+  template: string,
+  values: Record<string, string | undefined>,
+  fallback = "",
+): string {
+  const source = template.trim() || fallback;
+  return source.replace(/\{\{([^}]+)\}\}/g, (_, rawId: string) => {
+    const fieldId = rawId.trim();
+    const value = values[fieldId];
+    if (value == null || value.trim() === "") return "";
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((item): item is string => typeof item === "string")
+          .join(", ");
+      }
+    } catch {
+      // plain string
+    }
+    return value;
+  });
+}

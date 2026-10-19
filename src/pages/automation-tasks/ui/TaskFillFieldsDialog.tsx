@@ -12,6 +12,7 @@ import {
 import {
   completeAutomationTask,
   fetchAutomationTask,
+  getAutomationUploadTarget,
   resolveAutomationGateError,
   returnAutomationTaskForRevision,
   type AutomationOutcome,
@@ -57,6 +58,8 @@ import {
   processTriggerFieldId,
 } from "@/features/automation-tasks/lib/task-form-persist";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
+import { automationUploadTargetBlocksComplete } from "@/features/automation-tasks/lib/upload-to-files-tab";
+import { TaskUploadPanel } from "@/features/automation-tasks/ui/TaskUploadPanel";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 
@@ -212,6 +215,15 @@ function TaskFillFieldsDialogBody({
       }).length
     : 0;
 
+  const uploadTarget = task
+    ? getAutomationUploadTarget(task.config.materials)
+    : null;
+  const uploadBlocksComplete = automationUploadTargetBlocksComplete(
+    entity ?? undefined,
+    record ?? undefined,
+    uploadTarget,
+  );
+
   const hasOutcomeForm =
     ask != null &&
     (fields.length > 0 || viewFields.length > 0 || ask.viewTabIds.length > 0);
@@ -302,6 +314,10 @@ function TaskFillFieldsDialogBody({
     const validationError = validateForOutcome(outcomeId);
     if (validationError) {
       setError(validationError);
+      return;
+    }
+    if (uploadBlocksComplete) {
+      setError("Прикрепите файлы в папку задания, чтобы завершить его.");
       return;
     }
     setBusy(true);
@@ -543,6 +559,16 @@ function TaskFillFieldsDialogBody({
             />
           ) : null}
 
+          {uploadTarget && entity && record ? (
+            <TaskUploadPanel
+              entity={entity}
+              record={record}
+              target={uploadTarget}
+              disabled={busy}
+              onError={(message) => setError(message)}
+            />
+          ) : null}
+
           {error ? (
             <p className="whitespace-pre-line rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {error}
@@ -556,7 +582,9 @@ function TaskFillFieldsDialogBody({
           <div className="flex w-full flex-wrap gap-2">
             <Button
               type="button"
-              disabled={busy || loading || !task || !record}
+              disabled={
+                busy || loading || !task || !record || uploadBlocksComplete
+              }
               onClick={() => void handleComplete(selectedOutcome.id)}
             >
               {selectedOutcome.label}
@@ -589,7 +617,14 @@ function TaskFillFieldsDialogBody({
               <Button
                 key={outcome.id}
                 type="button"
-                disabled={busy || loading || !task || !record}
+                disabled={
+                  busy ||
+                  loading ||
+                  !task ||
+                  !record ||
+                  (uploadBlocksComplete &&
+                    !automationOutcomeNeedsInput(outcome))
+                }
                 onClick={() => handleOutcomeClick(outcome)}
               >
                 {outcome.label}

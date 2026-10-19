@@ -3,10 +3,13 @@ import { Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
   automationRequiresTimeTracking,
+  getAutomationUploadTarget,
   resolveAutomationGateError,
   type AutomationTask,
 } from "@/entities/automation";
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
+import { automationUploadTargetBlocksComplete } from "../lib/upload-to-files-tab";
+import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
   applyEntityFieldValue,
   getCurrentUserRecordId,
@@ -204,6 +207,12 @@ function TaskWorkspaceBody({
   const [error, setError] = useState<string | null>(null);
   const [loggedSeconds, setLoggedSeconds] = useState(0);
   const requireTime = automationRequiresTimeTracking(task.config.materials);
+  const uploadTarget = getAutomationUploadTarget(task.config.materials);
+  const uploadBlocksComplete = automationUploadTargetBlocksComplete(
+    entity,
+    record,
+    uploadTarget,
+  );
   const onTotalSecondsChange = useCallback((seconds: number) => {
     setLoggedSeconds(seconds);
   }, []);
@@ -354,6 +363,10 @@ function TaskWorkspaceBody({
       );
       return;
     }
+    if (uploadBlocksComplete) {
+      setError("Прикрепите файлы в папку задания, чтобы завершить его.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -448,6 +461,16 @@ function TaskWorkspaceBody({
           required
           disabled={busy}
           onTotalSecondsChange={onTotalSecondsChange}
+          onError={(message) => setError(message)}
+        />
+      ) : null}
+
+      {uploadTarget && entity && record ? (
+        <TaskUploadPanel
+          entity={entity}
+          record={record}
+          target={uploadTarget}
+          disabled={busy}
           onError={(message) => setError(message)}
         />
       ) : null}
@@ -584,7 +607,7 @@ function TaskWorkspaceBody({
             <>
               <Button
                 type="button"
-                disabled={busy || !record}
+                disabled={busy || !record || uploadBlocksComplete}
                 onClick={() => void run(selectedOutcome.id)}
               >
                 {selectedOutcome.label}
@@ -608,7 +631,12 @@ function TaskWorkspaceBody({
               <Button
                 key={outcome.id}
                 type="button"
-                disabled={busy || !record}
+                disabled={
+                  busy ||
+                  !record ||
+                  (uploadBlocksComplete &&
+                    !automationOutcomeNeedsInput(outcome))
+                }
                 onClick={() => handleOutcomeClick(outcome.id)}
               >
                 {outcome.label}

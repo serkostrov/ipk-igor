@@ -1,4 +1,4 @@
-import { useEffect, useCallback, memo, useRef } from "react";
+import { useEffect, useCallback, memo, useMemo, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -34,31 +34,37 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
+  CircleCheck,
+  Cog,
   Eye,
   EyeOff,
   Flag,
   GitBranch,
   ListOrdered,
   Lock,
+  MousePointerClick,
   Plus,
+  Rows3,
   Timer,
   User,
   Zap,
 } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
+import { pluralRu } from "@/shared/lib/plural";
 import type {
   AutomationCanvasNodePositions,
   AutomationLaunchPhase,
   AutomationStageTaskRelease,
   AutomationStageTaskReleaseMap,
   AutomationStageTransition,
+  AutomationTaskKind,
   AutomationTaskTemplate,
 } from "@/entities/automation";
 import {
   AUTOMATION_ASSIGNEE_TYPE_LABELS,
   getStageTaskRelease,
 } from "@/entities/automation";
-import type { EntityField } from "@/entities/entity";
+import { isEntityListOptionFinal, type EntityField } from "@/entities/entity";
 import { TemplateRichText } from "./TemplateRichText";
 
 const COL_W = 220;
@@ -70,6 +76,38 @@ const ROW_GAP = 40;
 const TASK_H = 92;
 const TRIGGER_H = 72;
 const TRIGGER_H_WITH_RELEASE = 108;
+/** BPMN end-event footprint (circle + label). */
+const END_W = 96;
+
+/** BPMN activity markers by task kind (Camunda / bpmn.io style). */
+const TASK_KIND_BPMN: Record<
+  AutomationTaskKind,
+  {
+    label: string;
+    accent: string;
+    markerClass: string;
+    Icon: typeof User;
+  }
+> = {
+  decision: {
+    label: "Задача · решение",
+    accent: "border-l-sky-600",
+    markerClass: "bg-sky-600/10 text-sky-700 dark:text-sky-400",
+    Icon: User,
+  },
+  single: {
+    label: "Задача · кнопка",
+    accent: "border-l-violet-600",
+    markerClass: "bg-violet-600/10 text-violet-700 dark:text-violet-400",
+    Icon: MousePointerClick,
+  },
+  autofill: {
+    label: "Сервис",
+    accent: "border-l-slate-500",
+    markerClass: "bg-slate-500/10 text-slate-600 dark:text-slate-300",
+    Icon: Cog,
+  },
+};
 
 const HANDLE_CLASS =
   "!size-2 !border-2 !border-background !bg-muted-foreground/35 !opacity-0";
@@ -281,10 +319,12 @@ function FloatingEdge({
                   )}
                   onClick={(event) => {
                     event.stopPropagation();
-                    // Card top-left so the node sits on the «+» between neighbours.
+                    // New card takes the target's slot; target and below shift down.
+                    const sourceBounds = nodeBounds(sourceNode);
+                    const targetBounds = nodeBounds(targetNode);
                     edgeData.onAdd?.({
-                      x: labelX - COL_W / 2,
-                      y: labelY - TASK_H / 2,
+                      x: sourceBounds.x,
+                      y: targetBounds.y,
                     });
                   }}
                 >
@@ -375,6 +415,7 @@ function StageMapEdge({
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
         >
+          {/* BPMN exclusive gateway (◇) */}
           <button
             type="button"
             title={
@@ -388,12 +429,12 @@ function StageMapEdge({
                 : "Добавить условие перехода"
             }
             className={cn(
-              "flex size-7 items-center justify-center rounded-full border bg-card shadow-sm transition-all",
-              "hover:scale-105 hover:border-primary/50 hover:text-primary hover:shadow-md",
+              "flex size-8 items-center justify-center border bg-card shadow-sm transition-all",
+              "rotate-45 hover:scale-105 hover:border-primary/50 hover:text-primary hover:shadow-md",
               selected
                 ? "border-primary text-primary ring-2 ring-primary/25"
                 : configured
-                  ? "border-border text-foreground"
+                  ? "border-slate-500 text-foreground"
                   : "border-border/80 text-muted-foreground opacity-90 hover:opacity-100",
             )}
             onClick={(event) => {
@@ -401,16 +442,18 @@ function StageMapEdge({
               edgeData.onOpen?.();
             }}
           >
-            {configured ? (
-              <GitBranch className="size-3.5" aria-hidden />
-            ) : (
-              <Plus className="size-3.5" strokeWidth={2.25} aria-hidden />
-            )}
+            <span className="-rotate-45">
+              {configured ? (
+                <GitBranch className="size-3.5" aria-hidden />
+              ) : (
+                <Plus className="size-3.5" strokeWidth={2.25} aria-hidden />
+              )}
+            </span>
           </button>
           {configured ? (
             <span
               className={cn(
-                "max-w-[11rem] truncate rounded-md border bg-card px-1.5 py-0.5 text-[9px] font-semibold tracking-wide uppercase shadow-xs",
+                "max-w-[11rem] truncate rounded-sm border bg-card px-1.5 py-0.5 text-[9px] font-semibold tracking-wide uppercase shadow-xs",
                 selected
                   ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
                   : "border-border/70 text-muted-foreground",
@@ -499,14 +542,23 @@ const edgeTypes: EdgeTypes = {
   stageElse: memo(StageElseEdge),
 };
 
-type StageOption = { id: string; name: string; color?: string };
+type StageOption = {
+  id: string;
+  name: string;
+  color?: string;
+  /** List option «Завершающий» — BPMN end / no outgoing stage map. */
+  final?: boolean;
+};
 
 type StageData = {
   stage: StageOption;
   taskCount: number;
   active: boolean;
   collapsed: boolean;
+  isFinal: boolean;
   hasTransitionRule: boolean;
+  /** Saved outgoing rules that should be cleared (final stages). */
+  hasOrphanOutgoing: boolean;
   onToggleCollapse: () => void;
 };
 type TaskData = {
@@ -517,19 +569,32 @@ type TaskData = {
 function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
   const taskLabel =
     data.taskCount === 0
-      ? "Нет задач"
-      : data.taskCount === 1
-        ? "1 задача"
-        : `${data.taskCount} задач`;
+      ? "Нет заданий"
+      : `${data.taskCount} ${pluralRu(data.taskCount, "задание", "задания", "заданий")}`;
+  const stageColor = data.stage.color || "var(--primary)";
+  const isFinal = data.isFinal;
 
   return (
     <div
       className={cn(
-        "group/stage relative flex h-[56px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 pr-9 shadow-sm active:cursor-grabbing",
-        data.active ? "border-primary ring-2 ring-primary/20" : "border-border",
-        data.collapsed && "border-dashed bg-muted/30",
+        /* BPMN pool / list-option: sharp lane header, not a task card */
+        "group/stage relative flex h-[62px] w-[220px] cursor-grab items-stretch overflow-hidden rounded-sm border-2 bg-muted/40 active:cursor-grabbing",
+        isFinal
+          ? "border-emerald-700/80 bg-emerald-500/[0.06] dark:border-emerald-500/70"
+          : data.active
+            ? "border-primary shadow-[0_0_0_2px_color-mix(in_oklab,var(--primary)_22%,transparent)]"
+            : "border-slate-400/70 dark:border-slate-500/70",
+        data.active &&
+          isFinal &&
+          "shadow-[0_0_0_2px_color-mix(in_oklab,#059669_22%,transparent)]",
+        data.collapsed && "border-dashed bg-muted/20 opacity-80",
       )}
     >
+      <span
+        className="w-1.5 shrink-0 self-stretch"
+        style={{ backgroundColor: stageColor }}
+        aria-hidden
+      />
       {/* Layout-only ports for intra-column floating edges */}
       <Handle
         type="target"
@@ -545,7 +610,7 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
         isConnectable={false}
         className={HANDLE_CLASS}
       />
-      {/* Stage→stage connection ports */}
+      {/* Incoming only — final stages are BPMN end points (no then/else). */}
       <Handle
         type="target"
         position={Position.Left}
@@ -554,30 +619,56 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
         title="Входящий переход"
         className={STAGE_IN_HANDLE}
       />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="then"
-        isConnectable
-        title="Соединить «тогда»"
-        className={STAGE_THEN_HANDLE}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="else"
-        isConnectable
-        title="Соединить «иначе»"
-        className={cn(STAGE_ELSE_HANDLE, "!-bottom-1.5")}
-        style={{ left: "72%" }}
-      />
-      <div className="flex items-center gap-2">
+      {!isFinal ? (
+        <>
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="then"
+            isConnectable
+            title="Соединить «тогда»"
+            className={STAGE_THEN_HANDLE}
+          />
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            id="else"
+            isConnectable
+            title="Соединить «иначе»"
+            className={cn(STAGE_ELSE_HANDLE, "!-bottom-1.5")}
+            style={{ left: "72%" }}
+          />
+        </>
+      ) : null}
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-2.5 pr-9">
         <span
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: data.stage.color || "var(--primary)" }}
-        />
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-sm border bg-card",
+            isFinal
+              ? "border-emerald-600/40 text-emerald-700 dark:text-emerald-400"
+              : "border-slate-400/50 text-slate-600 dark:text-slate-300",
+          )}
+        >
+          {isFinal ? (
+            <CircleCheck className="size-3.5" aria-hidden />
+          ) : (
+            <Rows3 className="size-3.5" aria-hidden />
+          )}
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold">{data.stage.name}</p>
+          <p
+            className={cn(
+              "text-[9px] font-semibold tracking-wider uppercase",
+              isFinal
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-muted-foreground",
+            )}
+          >
+            {isFinal ? "Завершающая" : "Стадия списка"}
+          </p>
+          <p className="truncate text-xs font-semibold leading-tight">
+            {data.stage.name}
+          </p>
           <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <span className="truncate">
               {data.collapsed ? `${taskLabel} · скрыто` : taskLabel}
@@ -590,13 +681,21 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
                 <GitBranch className="size-2.5" aria-hidden />
               </span>
             ) : null}
+            {data.hasOrphanOutgoing ? (
+              <span
+                title="Есть устаревшие исходящие переходы — откройте стадию, чтобы убрать"
+                className="inline-flex shrink-0 items-center text-amber-600 dark:text-amber-400"
+              >
+                <GitBranch className="size-2.5" aria-hidden />
+              </span>
+            ) : null}
           </p>
         </div>
       </div>
       <button
         type="button"
         className={cn(
-          "nodrag nopan absolute top-1/2 right-1.5 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors",
+          "nodrag nopan absolute top-1/2 right-1.5 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground transition-colors",
           "hover:bg-muted hover:text-foreground",
           data.collapsed && "text-foreground",
         )}
@@ -639,7 +738,7 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
   const height = data.showReleaseToggle ? TRIGGER_H_WITH_RELEASE : TRIGGER_H;
   return (
     <div
-      className="flex w-[220px] cursor-grab flex-col justify-center gap-2 rounded-xl border border-amber-500/30 bg-card px-3 py-2.5 shadow-sm active:cursor-grabbing"
+      className="flex w-[220px] cursor-grab flex-col justify-center gap-2 rounded-md border border-transparent bg-transparent px-1 py-1 active:cursor-grabbing"
       style={{ minHeight: height }}
     >
       <Handle
@@ -670,11 +769,21 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
         isConnectable={false}
         className={HANDLE_CLASS}
       />
-      <div className="flex items-center gap-2.5">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600">
-          <Zap className="size-3.5" />
+      {/* BPMN start event: thin circle + label */}
+      <div className="flex items-center gap-3 px-1">
+        <span
+          className="flex size-11 shrink-0 items-center justify-center rounded-full border-[2.5px] border-slate-700 bg-card text-slate-700 shadow-sm dark:border-slate-300 dark:text-slate-200"
+          title="Стартовое событие"
+        >
+          <Zap
+            className="size-4 fill-amber-500/20 text-amber-600"
+            aria-hidden
+          />
         </span>
         <div className="min-w-0">
+          <p className="text-[9px] font-semibold tracking-wider text-muted-foreground uppercase">
+            Событие
+          </p>
           <p className="text-xs font-semibold">Старт</p>
           <p className="truncate text-[10px] text-muted-foreground">
             Попадание на стадию
@@ -683,7 +792,7 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
       </div>
       {data.showReleaseToggle ? (
         <div
-          className="nodrag nopan flex rounded-lg border border-border/80 bg-muted/40 p-0.5"
+          className="nodrag nopan flex rounded-md border border-border/80 bg-card/90 p-0.5 shadow-xs"
           role="group"
           aria-label="Порядок задач"
           onPointerDown={(event) => event.stopPropagation()}
@@ -693,9 +802,9 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
             title="Все задачи появляются сразу"
             aria-pressed={data.taskRelease === "parallel"}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
+              "flex flex-1 items-center justify-center gap-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors",
               data.taskRelease === "parallel"
-                ? "bg-card text-foreground shadow-sm"
+                ? "bg-muted text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={(event) => {
@@ -711,9 +820,9 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
             title="Следующая задача — после завершения предыдущей"
             aria-pressed={data.taskRelease === "sequential"}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
+              "flex flex-1 items-center justify-center gap-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors",
               data.taskRelease === "sequential"
-                ? "bg-card text-foreground shadow-sm"
+                ? "bg-muted text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={(event) => {
@@ -760,13 +869,22 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
 
 function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
   const { template, selected, fields } = data;
+  const kindMeta = TASK_KIND_BPMN[template.kind] ?? TASK_KIND_BPMN.decision;
+  const KindIcon = kindMeta.Icon;
+  const isService = template.kind === "autofill";
+
   return (
     <div
       className={cn(
-        "flex min-h-[92px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-shadow active:cursor-grabbing",
+        /* BPMN activity: rounded rectangle with kind marker + left accent */
+        "relative flex min-h-[92px] w-[220px] cursor-grab flex-col justify-center border border-l-[3px] bg-card px-3 py-2.5 shadow-sm transition-shadow active:cursor-grabbing",
+        "rounded-[10px]",
+        kindMeta.accent,
         selected
           ? "border-primary ring-2 ring-primary/25"
-          : "border-border hover:border-foreground/20",
+          : isService
+            ? "border-slate-300 border-dashed hover:border-slate-400 dark:border-slate-600"
+            : "border-slate-300 hover:border-slate-400 dark:border-slate-600",
       )}
     >
       <Handle
@@ -793,50 +911,68 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
         id="bottom"
         className={HANDLE_CLASS}
       />
-      <div className="flex items-start justify-between gap-1.5">
-        <div className="min-w-0 overflow-hidden">
-          <p className="truncate text-xs font-semibold leading-snug">
-            {template.name.trim() ? (
-              <TemplateRichText value={template.name} fields={fields} />
-            ) : (
-              "Без названия"
-            )}
-          </p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
-            #{template.stepOrder}
-            {(template.launchPhase ?? "onEnter") === "beforeEnter"
-              ? " · до старта"
-              : ""}
-            {template.kind === "decision"
-              ? " · решение"
-              : template.kind === "autofill"
-                ? " · автозаполнение"
-                : template.kind === "single"
-                  ? " · кнопка"
-                  : ""}
-          </p>
-        </div>
-        {template.isBlocking ? (
-          <Lock className="size-3 shrink-0 text-muted-foreground" />
-        ) : null}
-      </div>
-      <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] text-muted-foreground">
-        <span className="inline-flex items-center gap-0.5 rounded-md bg-muted px-1 py-0.5">
-          <User className="size-2.5" />
-          {AUTOMATION_ASSIGNEE_TYPE_LABELS[template.assignee.type]}
+      <div className="flex items-start gap-2">
+        <span
+          className={cn(
+            "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm",
+            kindMeta.markerClass,
+          )}
+          title={kindMeta.label}
+        >
+          <KindIcon className="size-3.5" aria-hidden />
         </span>
-        {template.sla ? (
-          <span className="inline-flex items-center gap-0.5 rounded-md bg-muted px-1 py-0.5">
-            <Timer className="size-2.5" />
-            {template.sla.hours}ч
-          </span>
-        ) : null}
-        {template.outcomes.length > 0 ? (
-          <span className="inline-flex items-center gap-0.5 rounded-md bg-muted px-1 py-0.5">
-            <Flag className="size-2.5" />
-            {template.outcomes.length}
-          </span>
-        ) : null}
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="min-w-0">
+              <p className="text-[9px] font-semibold tracking-wider text-muted-foreground uppercase">
+                {kindMeta.label}
+              </p>
+              <p className="truncate text-xs font-semibold leading-snug">
+                {template.name.trim() ? (
+                  <TemplateRichText value={template.name} fields={fields} />
+                ) : (
+                  "Без названия"
+                )}
+              </p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                #{template.stepOrder}
+                {(template.launchPhase ?? "onEnter") === "beforeEnter"
+                  ? " · до старта"
+                  : ""}
+              </p>
+            </div>
+            {template.isBlocking ? (
+              <Lock className="size-3 shrink-0 text-muted-foreground" />
+            ) : null}
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] text-muted-foreground">
+            {!isService ? (
+              <span className="inline-flex items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5">
+                <User className="size-2.5" />
+                {AUTOMATION_ASSIGNEE_TYPE_LABELS[template.assignee.type]}
+              </span>
+            ) : null}
+            {template.sla ? (
+              <span className="inline-flex items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5">
+                <Timer className="size-2.5" />
+                {template.sla.hours}ч
+              </span>
+            ) : null}
+            {template.outcomes.length > 0 ? (
+              <span className="inline-flex items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5">
+                {template.kind === "decision" ? (
+                  <span
+                    className="inline-block size-2 rotate-45 border border-current"
+                    aria-hidden
+                  />
+                ) : (
+                  <Flag className="size-2.5" />
+                )}
+                {template.outcomes.length}
+              </span>
+            ) : null}
+          </div>
+        </div>
       </div>
       <Handle
         type="source"
@@ -868,7 +1004,10 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
 
 function EndNode() {
   return (
-    <div className="relative flex h-10 w-[140px] cursor-grab items-center justify-center rounded-xl border border-emerald-500/30 bg-card text-[11px] font-semibold text-emerald-700 shadow-sm active:cursor-grabbing dark:text-emerald-400">
+    <div
+      className="relative flex cursor-grab flex-col items-center justify-center gap-1 active:cursor-grabbing"
+      style={{ width: END_W, height: 64 }}
+    >
       <Handle
         type="target"
         position={Position.Top}
@@ -893,7 +1032,18 @@ function EndNode() {
         id="bottom"
         className={HANDLE_CLASS}
       />
-      Готово
+      {/* BPMN end event: thick double ring */}
+      <span
+        className="flex size-10 items-center justify-center rounded-full border-[3.5px] border-emerald-700 bg-card p-0.5 shadow-sm dark:border-emerald-500"
+        title="Конечное событие"
+      >
+        <span className="flex size-full items-center justify-center rounded-full border-[2.5px] border-emerald-700 dark:border-emerald-500">
+          <span className="size-1.5 rounded-full bg-emerald-700 dark:bg-emerald-400" />
+        </span>
+      </span>
+      <span className="text-[10px] font-semibold tracking-wide text-emerald-800 uppercase dark:text-emerald-400">
+        Готово
+      </span>
     </div>
   );
 }
@@ -1096,7 +1246,10 @@ function buildLayout(input: {
     const stageNodeId = `stage:${stage.id}`;
     const stageTasks = templatesForStage(templates, stage.id);
     const collapsed = collapsedStageIds.has(stage.id);
-    const hasTransitionRule = stagesWithOutgoing.has(stage.id);
+    const isFinal = isEntityListOptionFinal(stage);
+    const hasOutgoing = stagesWithOutgoing.has(stage.id);
+    const hasTransitionRule = !isFinal && hasOutgoing;
+    const hasOrphanOutgoing = isFinal && hasOutgoing;
 
     nodes.push({
       id: stageNodeId,
@@ -1113,14 +1266,17 @@ function buildLayout(input: {
         taskCount: stageTasks.length,
         active: stage.id === activeStageId,
         collapsed,
+        isFinal,
         hasTransitionRule,
+        hasOrphanOutgoing,
         onToggleCollapse: () => onToggleStageCollapse(stage.id),
       } satisfies StageData,
     });
 
     // Placeholder link to the next list option only when nothing is configured yet.
+    // Final stages are process ends — no automatic «дальше».
     const nextStage = stages[index + 1];
-    if (nextStage && !stagesWithOutgoing.has(stage.id)) {
+    if (nextStage && !isFinal && !hasOutgoing) {
       const transitionKey = `${stage.id}\0${nextStage.id}`;
       edges.push({
         id: `map-${stage.id}-${nextStage.id}`,
@@ -1266,7 +1422,7 @@ function buildLayout(input: {
       deletable: false,
       position: resolvePosition(
         endId,
-        { x: colX + (COL_W - 140) / 2, y },
+        { x: colX + (COL_W - END_W) / 2, y },
         canvasPositions,
       ),
       data: { stageId: stage.id },
@@ -1275,9 +1431,15 @@ function buildLayout(input: {
   });
 
   // Only the configured «тогда» / «иначе» targets — never a second neighbour link.
+  // Outgoing from final stages are omitted (orphans cleared in the inspector).
   for (const transition of stageTransitions) {
     if (!stageIds.has(transition.fromOptionId)) continue;
     if (!stageIds.has(transition.toOptionId)) continue;
+    const fromStage = stages.find(
+      (stage) => stage.id === transition.fromOptionId,
+    );
+    if (isEntityListOptionFinal(fromStage)) continue;
+
     const transitionKey = `${transition.fromOptionId}\0${transition.toOptionId}`;
     const elseId = transition.elseOptionId.trim();
     const elseStage =
@@ -1416,6 +1578,7 @@ function FlowInner({
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
   /** When dragging a stage header, child column nodes move by the same delta. */
   const stageGroupDragRef = useRef<{
     stageId: string;
@@ -1468,7 +1631,7 @@ function FlowInner({
       onTaskReleaseChange,
       onAdd: (stageId, launchPhase, insertAt, position) => {
         onSelectStage(stageId);
-        // Open a gap at the «+»: push same-column nodes below the insert.
+        // Open a gap at the «+»: push same-column nodes at/below the insert.
         if (position) {
           const updates: AutomationCanvasNodePositions = {
             ...canvasPositionsRef.current,
@@ -1501,6 +1664,13 @@ function FlowInner({
             ...pendingPositionsRef.current,
             ...updates,
           };
+          // Apply immediately so the next layout pass cannot restore stale Y.
+          setNodes((current) =>
+            current.map((node) => {
+              const next = updates[node.id];
+              return next ? { ...node, position: next } : node;
+            }),
+          );
           onCanvasPositionsChange({
             ...canvasPositionsRef.current,
             ...pendingPositionsRef.current,
@@ -1510,42 +1680,11 @@ function FlowInner({
       },
     });
 
-    const previouslyCollapsed = collapsedStageIdsRef.current;
-    setNodes((current) => {
-      const livePos = new Map(
-        current.map((node) => [node.id, node.position] as const),
-      );
-      return layout.nodes.map((node) => {
-        // Compact / just-expanded «Готово» uses layout Y, not a stale drag pos.
-        if (node.type === "end") {
-          const stageId = (node.data as { stageId?: string }).stageId;
-          if (
-            stageId &&
-            (collapsedStageIds.has(stageId) || previouslyCollapsed.has(stageId))
-          ) {
-            return node;
-          }
-        }
-        // Fresh insert / nudge from pending must win over stale live coords.
-        if (pendingPositionsRef.current[node.id]) {
-          return node;
-        }
-        const live = livePos.get(node.id);
-        // Keep in-canvas positions for existing nodes so selection/data
-        // updates do not snap a just-dragged block back.
-        if (
-          live &&
-          (node.type === "task" ||
-            node.type === "stage" ||
-            node.type === "trigger" ||
-            node.type === "end")
-        ) {
-          return { ...node, position: live };
-        }
-        return node;
-      });
-    });
     collapsedStageIdsRef.current = collapsedStageIds;
+    // Layout (canvas + pending) is source of truth while not dragging.
+    // Preferring live RF coords here undid insert nudges: pending was cleared
+    // when canvas caught up, then stale live Y won over the pushed layout.
+    setNodes(layout.nodes);
     setEdges(layout.edges);
   }, [
     fitKey,
@@ -1597,16 +1736,29 @@ function FlowInner({
     [onSelectTransition],
   );
 
-  const isValidConnection = useCallback<IsValidConnection>((connection) => {
-    const from = parseStageNodeId(connection.source);
-    const to = parseStageNodeId(connection.target);
-    if (!from || !to || from === to) return false;
-    // Else handle may only land on a stage target handle.
-    if (isElseSourceHandle(connection.sourceHandle)) {
-      return connection.targetHandle === "in" || !connection.targetHandle;
+  const finalStageIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const stage of stages) {
+      if (isEntityListOptionFinal(stage)) ids.add(stage.id);
     }
-    return true;
-  }, []);
+    return ids;
+  }, [stages]);
+
+  const isValidConnection = useCallback<IsValidConnection>(
+    (connection) => {
+      const from = parseStageNodeId(connection.source);
+      const to = parseStageNodeId(connection.target);
+      if (!from || !to || from === to) return false;
+      // Final stages are process ends — no outgoing stage-map edges.
+      if (finalStageIds.has(from)) return false;
+      // Else handle may only land on a stage target handle.
+      if (isElseSourceHandle(connection.sourceHandle)) {
+        return connection.targetHandle === "in" || !connection.targetHandle;
+      }
+      return true;
+    },
+    [finalStageIds],
+  );
 
   const handleConnect = useCallback<OnConnect>(
     (connection: Connection) => {
@@ -1877,15 +2029,18 @@ function FlowInner({
         position="bottom-right"
         className="!overflow-hidden !rounded-lg !border !border-border !bg-card"
         style={{ width: 160, height: 100 }}
-        nodeColor={(node) =>
-          node.type === "stage"
-            ? "#64748b"
-            : node.type === "trigger"
-              ? "#f59e0b"
-              : node.type === "end"
-                ? "#10b981"
-                : "#94a3b8"
-        }
+        nodeColor={(node) => {
+          if (node.type === "stage") return "#475569";
+          if (node.type === "trigger") return "#f59e0b";
+          if (node.type === "end") return "#059669";
+          if (node.type === "task") {
+            const kind = (node.data as TaskData).template?.kind;
+            if (kind === "autofill") return "#64748b";
+            if (kind === "single") return "#7c3aed";
+            return "#0284c7";
+          }
+          return "#94a3b8";
+        }}
       />
     </ReactFlow>
   );

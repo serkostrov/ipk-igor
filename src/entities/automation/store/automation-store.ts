@@ -142,11 +142,19 @@ export async function saveScenario(scenario: AutomationScenario) {
 }
 
 export async function removeScenario(scenarioId: string) {
+  const removedTemplateIds = new Set(
+    config.templates
+      .filter((item) => item.scenarioId === scenarioId)
+      .map((item) => item.id),
+  );
   replaceConfig({
     ...config,
     scenarios: config.scenarios.filter((item) => item.id !== scenarioId),
     templates: config.templates.filter(
       (item) => item.scenarioId !== scenarioId,
+    ),
+    notificationRules: config.notificationRules.filter(
+      (item) => !removedTemplateIds.has(item.templateId),
     ),
   });
   if (!isSupabaseConfigured) return;

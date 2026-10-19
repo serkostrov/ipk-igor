@@ -292,11 +292,20 @@ export function NotificationRuleEditor({
         <Label className="text-xs">Получатели</Label>
         {entity ? (
           <AssigneeEditor
+            mode="recipient"
             value={draft.recipients}
             fields={entity.fields}
+            entities={entities}
             onChange={(recipients: AutomationAssigneeResolver) =>
               patch({ recipients })
             }
+            renderConditions={({ value, onChange }) => (
+              <ConditionGroupBuilder
+                entity={entity}
+                value={value}
+                onChange={onChange}
+              />
+            )}
           />
         ) : (
           <p className="text-xs text-muted-foreground">

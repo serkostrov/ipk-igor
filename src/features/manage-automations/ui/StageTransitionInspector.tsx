@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, GitBranch, Trash2 } from "lucide-react";
+import { ArrowRight, CircleCheck, GitBranch, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
 import {
@@ -16,9 +16,15 @@ import {
 } from "@/entities/automation";
 import type { Entity } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
+import { pluralRu } from "@/shared/lib/plural";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 
-type StageOption = { id: string; name: string; color?: string };
+type StageOption = {
+  id: string;
+  name: string;
+  color?: string;
+  final?: boolean;
+};
 
 type StageTransitionInspectorProps = {
   fromStage: StageOption;
@@ -75,6 +81,110 @@ function StageSelectValue({
       />
       <span className="truncate">{stage.name}</span>
     </span>
+  );
+}
+
+/** Terminal list option — no further stage-map (BPMN end). */
+export function FinalStageInspector({
+  stage,
+  orphanCount,
+  onClearOrphans,
+  onClose,
+}: {
+  stage: StageOption;
+  orphanCount: number;
+  onClearOrphans: () => void | Promise<void>;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function handleClear() {
+    if (busy || orphanCount === 0) return;
+    setBusy(true);
+    try {
+      await onClearOrphans();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border pb-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-400">
+              <CircleCheck className="size-4" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold">Завершающая стадия</h3>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {stage.name}
+              </p>
+            </div>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="shrink-0"
+          onClick={onClose}
+        >
+          Закрыть
+        </Button>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-auto pt-4">
+        <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2.5">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Вариант списка помечен как «Завершающий» — это конец процесса.
+            Исходящие переходы на другие стадии не нужны и не настраиваются. На
+            эту стадию по-прежнему можно приходить.
+          </p>
+        </div>
+
+        {orphanCount > 0 ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
+            <p className="text-[11px] leading-relaxed text-amber-900/90 dark:text-amber-200/90">
+              Осталось {orphanCount}{" "}
+              {pluralRu(
+                orphanCount,
+                "исходящее правило",
+                "исходящих правила",
+                "исходящих правил",
+              )}
+              , настроенных до включения «Завершающий». Их можно убрать — на
+              карте они уже не отображаются.
+            </p>
+          </div>
+        ) : (
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Исходящих переходов нет. Чтобы снова вести запись дальше, снимите
+            «Завершающий» в настройках поля списка.
+          </p>
+        )}
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border pt-3">
+        {orphanCount > 0 ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="text-destructive"
+            disabled={busy}
+            onClick={() => void handleClear()}
+          >
+            <Trash2 className="size-3.5" />
+            Убрать исходящие
+          </Button>
+        ) : null}
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+          Закрыть
+        </Button>
+      </div>
+    </div>
   );
 }
 

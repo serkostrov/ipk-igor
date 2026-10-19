@@ -1,7 +1,5 @@
 import {
-  SYSTEM_USERS_FIELD_ROLE_ID,
   addEntityRecord,
-  getSystemUsersEntity,
   parseEntityRelationIds,
   serializeEntityRelationIds,
   updateEntityRecord,
@@ -16,6 +14,7 @@ import type {
 } from "../model/actions";
 import { resolveAutomationActionValue } from "../model/action-values";
 import type { AutomationAssigneeResolver } from "../model/assignee";
+import { resolveAssigneeUserIds } from "./resolve-assignee";
 import { renderAutomationNameTemplate } from "./render-name-template";
 
 export type AutomationExecutionContext = {
@@ -93,32 +92,13 @@ function resolveUserIds(
   resolver: AutomationAssigneeResolver,
   ctx: AutomationExecutionContext,
 ): string[] {
-  switch (resolver.type) {
-    case "fixedUsers":
-      return resolver.userIds;
-    case "field": {
-      const ids = parseEntityRelationIds(ctx.values[resolver.fieldId]);
-      return ids[0] ? [ids[0]] : [];
-    }
-    case "relationFieldFanOut":
-      return parseEntityRelationIds(ctx.values[resolver.fieldId]);
-    case "role": {
-      const users = getSystemUsersEntity(ctx.entities);
-      if (!users) return [];
-      return users.records
-        .filter(
-          (record) =>
-            (record.values[SYSTEM_USERS_FIELD_ROLE_ID] ?? "").trim() ===
-            resolver.roleId,
-        )
-        .map((record) => record.id);
-    }
-    case "recordCreator":
-      return ctx.actorUserId ? [ctx.actorUserId] : [];
-    case "currentUser":
-    default:
-      return ctx.actorUserId ? [ctx.actorUserId] : [];
-  }
+  return resolveAssigneeUserIds(resolver, {
+    values: ctx.values,
+    previousValues: ctx.previousValues,
+    actorUserId: ctx.actorUserId,
+    entities: ctx.entities,
+    triggerEntityId: ctx.triggerEntityId,
+  });
 }
 
 /**

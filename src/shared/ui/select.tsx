@@ -266,7 +266,7 @@ function SelectItem({
       {trailing ? (
         <span
           data-slot="select-item-trailing"
-          className="pointer-events-none absolute top-1/2 right-2 flex size-4 -translate-y-1/2 items-center justify-center text-foreground group-data-[selected]/item:right-8"
+          className="absolute top-1/2 right-2 z-20 flex size-4 -translate-y-1/2 items-center justify-center text-foreground group-data-[selected]/item:right-8 [&_button]:pointer-events-auto"
         >
           {trailing}
         </span>

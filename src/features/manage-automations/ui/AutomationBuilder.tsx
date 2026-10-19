@@ -1,7 +1,25 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Filter, GitBranch, Plus, RotateCcw, Save, Undo2 } from "lucide-react";
+import {
+  Filter,
+  GitBranch,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
+import { Label } from "@/shared/ui/label";
 import {
   Select,
   SelectContent,
@@ -11,17 +29,21 @@ import {
 } from "@/shared/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import {
+  cloneAutomationScenario,
   createAutomationScenarioId,
   createAutomationStageTransitionId,
   createAutomationTemplateId,
   createDefaultProcess,
   defaultAssigneeResolver,
+  defaultWatcherResolver,
   defaultDecisionOutcomes,
   emptyAutomationCanvasLayout,
   emptyAutomationConditions,
   findStageTransition,
   type AutomationStageTaskRelease,
+  removeScenario,
   removeTemplate,
+  saveNotificationRule,
   saveProcess,
   saveScenario,
   saveTemplate,
@@ -38,12 +60,16 @@ import {
 } from "@/entities/automation";
 import {
   getEntityFieldDisplayName,
+  isEntityListOptionFinal,
   resolveEntityListFieldOptions,
   useEntityConfig,
 } from "@/entities/entity";
 import { AutomationFlowCanvas } from "./AutomationFlowCanvas";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
-import { StageTransitionInspector } from "./StageTransitionInspector";
+import {
+  FinalStageInspector,
+  StageTransitionInspector,
+} from "./StageTransitionInspector";
 import { TemplateInspector } from "./TemplateInspector";
 
 const controlTriggerClass = "h-9 w-[11.5rem]";
@@ -229,6 +255,13 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   const [inspectToOptionId, setInspectToOptionId] = useState<string | null>(
     null,
   );
+  const [createScenarioOpen, setCreateScenarioOpen] = useState(false);
+  const [createScenarioSourceId, setCreateScenarioSourceId] = useState<
+    string | "new"
+  >("new");
+  const [createScenarioBusy, setCreateScenarioBusy] = useState(false);
+  const [deleteScenarioTarget, setDeleteScenarioTarget] =
+    useState<AutomationScenario | null>(null);
   const canvasLayout = scenario?.canvasLayout ?? EMPTY_CANVAS_LAYOUT;
   const collapsedStageIds = useMemo(
     () => new Set(canvasLayout.collapsedStageIds),
@@ -239,6 +272,12 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     setSelectedTemplateId(null);
     setStageId(fromOptionId);
     setInspectStageId(fromOptionId);
+    const fromStage = stages.find((item) => item.id === fromOptionId);
+    // Final stages are process ends — no «переход дальше» editor.
+    if (isEntityListOptionFinal(fromStage)) {
+      setInspectToOptionId(null);
+      return;
+    }
     const fromIndex = stages.findIndex((item) => item.id === fromOptionId);
     const nextId = fromIndex >= 0 ? (stages[fromIndex + 1]?.id ?? null) : null;
     const existingFrom = (scenario?.stageTransitions ?? []).filter(
@@ -250,6 +289,30 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       existingFrom[0]?.toOptionId ??
       nextId;
     setInspectToOptionId(preferred);
+  }
+
+  function clearOutgoingFromStage(fromOptionId: string) {
+    if (!fromOptionId) return;
+    updateDraft((prev) => ({
+      ...prev,
+      scenario: {
+        ...prev.scenario,
+        stageTransitions: prev.scenario.stageTransitions.filter(
+          (item) => item.fromOptionId !== fromOptionId,
+        ),
+      },
+    }));
+  }
+
+  function assertCanMapFromStage(fromOptionId: string): boolean {
+    const fromStage = stages.find((item) => item.id === fromOptionId);
+    if (!isEntityListOptionFinal(fromStage)) return true;
+    toast.message("Завершающая стадия", {
+      description:
+        "С завершающей стадии переходы дальше не настраиваются — это конец процесса.",
+    });
+    openStageTransition(fromOptionId);
+    return false;
   }
 
   function closeStageInspector() {
@@ -508,27 +571,146 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     draft?.scenario.id,
   ]);
 
-  async function addScenario() {
+  function openCreateScenarioDialog() {
     if (!confirmDiscardIfDirty()) return;
-    const ensured = await ensureProcess();
-    if (!ensured) return;
-    const next: AutomationScenario = {
-      id: createAutomationScenarioId(),
-      processId: ensured.process.id,
-      name: `Сценарий ${processScenarios.length + 1}`,
-      isDefault: false,
-      entryConditions: emptyAutomationConditions(),
-      priority: 10,
-      canvasLayout: emptyAutomationCanvasLayout(),
-      stageTransitions: [],
-      stageTaskRelease: {},
-    };
-    await saveScenario(next);
-    setScenarioId(next.id);
-    const snap = makeSnap(next, []);
-    setDraft(snap);
-    setSaved(cloneSnap(snap));
-    setUndoStack([]);
+    setCreateScenarioSourceId("new");
+    setCreateScenarioOpen(true);
+  }
+
+  async function confirmCreateScenario() {
+    if (createScenarioBusy) return;
+    setCreateScenarioBusy(true);
+    try {
+      const ensured = await ensureProcess();
+      if (!ensured) return;
+
+      const nextName = `Сценарий ${processScenarios.length + 1}`;
+
+      if (createScenarioSourceId === "new") {
+        const next: AutomationScenario = {
+          id: createAutomationScenarioId(),
+          processId: ensured.process.id,
+          name: nextName,
+          isDefault: false,
+          entryConditions: emptyAutomationConditions(),
+          priority: 10,
+          canvasLayout: emptyAutomationCanvasLayout(),
+          stageTransitions: [],
+          stageTaskRelease: {},
+        };
+        await saveScenario(next);
+        setScenarioId(next.id);
+        const snap = makeSnap(next, []);
+        setDraft(snap);
+        setSaved(cloneSnap(snap));
+        setUndoStack([]);
+        setSelectedTemplateId(null);
+        setInspectStageId(null);
+        setEditorEpoch((epoch) => epoch + 1);
+        setCreateScenarioOpen(false);
+        return;
+      }
+
+      const source = processScenarios.find(
+        (item) => item.id === createScenarioSourceId,
+      );
+      if (!source) {
+        toast.error("Сценарий для копирования не найден");
+        return;
+      }
+
+      const sourceTemplates = templates.filter(
+        (item) => item.scenarioId === source.id,
+      );
+      const sourceRules = notificationRules.filter((rule) =>
+        sourceTemplates.some((template) => template.id === rule.templateId),
+      );
+      const cloned = cloneAutomationScenario({
+        source,
+        sourceTemplates,
+        sourceRules,
+        name: nextName,
+      });
+
+      await saveScenario(cloned.scenario);
+      for (const template of cloned.templates) {
+        await saveTemplate(template);
+      }
+      for (const rule of cloned.notificationRules) {
+        await saveNotificationRule(rule);
+      }
+
+      setScenarioId(cloned.scenario.id);
+      const snap = makeSnap(cloned.scenario, [
+        ...templates,
+        ...cloned.templates,
+      ]);
+      setDraft(snap);
+      setSaved(cloneSnap(snap));
+      setUndoStack([]);
+      setSelectedTemplateId(null);
+      setInspectStageId(null);
+      setEditorEpoch((epoch) => epoch + 1);
+      setCreateScenarioOpen(false);
+      toast.success(`Сценарий скопирован из «${source.name}»`);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Не удалось создать сценарий";
+      console.error("[automation] create scenario failed", error);
+      toast.error(message);
+    } finally {
+      setCreateScenarioBusy(false);
+    }
+  }
+
+  function requestDeleteScenario(item: AutomationScenario) {
+    if (item.isDefault) return;
+    const isActive = scenarioId === item.id || storeScenario?.id === item.id;
+    if (isActive && !confirmDiscardIfDirty()) return;
+    setDeleteScenarioTarget(item);
+  }
+
+  async function confirmDeleteScenario() {
+    const target = deleteScenarioTarget;
+    if (!target || target.isDefault) return;
+
+    const isActive =
+      scenarioId === target.id || storeScenario?.id === target.id;
+    const fallback =
+      processScenarios.find(
+        (item) => item.isDefault && item.id !== target.id,
+      ) ??
+      processScenarios.find((item) => item.id !== target.id) ??
+      null;
+
+    try {
+      await removeScenario(target.id);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Не удалось удалить сценарий";
+      toast.error(message);
+      throw error;
+    }
+
+    if (isActive) {
+      if (fallback) {
+        setScenarioId(fallback.id);
+        const snap = makeSnap(fallback, templates);
+        setDraft(snap);
+        setSaved(cloneSnap(snap));
+        setUndoStack([]);
+        setSelectedTemplateId(null);
+        setInspectStageId(null);
+        setEditorEpoch((epoch) => epoch + 1);
+      } else {
+        setScenarioId(null);
+        setDraft(null);
+        setSaved(null);
+        setUndoStack([]);
+      }
+    }
+
+    toast.success(`Сценарий «${target.name}» удалён`);
   }
 
   async function addTemplate(
@@ -589,7 +771,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         launchPhase,
         launchConditions: emptyAutomationConditions(),
         assignee: defaultAssigneeResolver(),
-        watchers: defaultAssigneeResolver(),
+        watchers: defaultWatcherResolver(),
         outcomes,
         sla: null,
         materials: [],
@@ -709,6 +891,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   }
 
   function applyStageTransition(transition: AutomationStageTransition) {
+    if (!assertCanMapFromStage(transition.fromOptionId)) return;
     updateDraft((prev) => {
       const current = prev.scenario.stageTransitions ?? [];
       const next = [
@@ -750,6 +933,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   /** Drag-connect «тогда»: create rule or open existing. */
   function connectThenStages(fromOptionId: string, toOptionId: string) {
     if (!fromOptionId || !toOptionId || fromOptionId === toOptionId) return;
+    if (!assertCanMapFromStage(fromOptionId)) return;
     const existing = findStageTransition(
       scenario?.stageTransitions ?? [],
       fromOptionId,
@@ -775,6 +959,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
    */
   function connectElseStages(fromOptionId: string, elseOptionId: string) {
     if (!fromOptionId || !elseOptionId || fromOptionId === elseOptionId) return;
+    if (!assertCanMapFromStage(fromOptionId)) return;
     const outgoing = (scenario?.stageTransitions ?? []).filter(
       (item) => item.fromOptionId === fromOptionId,
     );
@@ -835,6 +1020,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     ) {
       return;
     }
+    if (!assertCanMapFromStage(fromOptionId)) return;
     const existing = findStageTransition(
       scenario?.stageTransitions ?? [],
       fromOptionId,
@@ -892,6 +1078,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     ) {
       return;
     }
+    if (!assertCanMapFromStage(fromOptionId)) return;
     const existing = findStageTransition(
       scenario?.stageTransitions ?? [],
       fromOptionId,
@@ -1120,7 +1307,31 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                 ? ""
                 : " · нет условий";
             return (
-              <SelectItem key={item.id} value={item.id}>
+              <SelectItem
+                key={item.id}
+                value={item.id}
+                trailing={
+                  item.isDefault ? undefined : (
+                    <button
+                      type="button"
+                      aria-label={`Удалить сценарий «${item.name}»`}
+                      title="Удалить сценарий"
+                      className="flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-destructive"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        requestDeleteScenario(item);
+                      }}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  )
+                }
+              >
                 {item.name}
                 {suffix}
               </SelectItem>
@@ -1136,7 +1347,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         className="size-9 shrink-0"
         aria-label="Новый сценарий"
         disabled={!resolvedEntityId || !resolvedTriggerFieldId}
-        onClick={() => void addScenario()}
+        onClick={openCreateScenarioDialog}
       >
         <Plus className="size-4" />
       </Button>
@@ -1196,6 +1407,84 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <Dialog
+        open={createScenarioOpen}
+        onOpenChange={(open) => {
+          if (createScenarioBusy) return;
+          setCreateScenarioOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Новый сценарий</DialogTitle>
+            <DialogDescription>
+              Создайте пустой сценарий или скопируйте задачи и настройки из
+              существующего.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="create-scenario-source">Источник</Label>
+            <Select
+              value={createScenarioSourceId}
+              onValueChange={(next) => {
+                if (next == null) return;
+                setCreateScenarioSourceId(String(next) as string | "new");
+              }}
+            >
+              <SelectTrigger id="create-scenario-source" className="w-full">
+                <SelectValue>
+                  {createScenarioSourceId === "new"
+                    ? "Создать новый (пустой)"
+                    : (processScenarios.find(
+                        (item) => item.id === createScenarioSourceId,
+                      )?.name ?? "Сценарий")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="new">Создать новый (пустой)</SelectItem>
+                {processScenarios.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    Скопировать «{item.name}»
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={createScenarioBusy}
+              onClick={() => setCreateScenarioOpen(false)}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={createScenarioBusy}
+              onClick={() => void confirmCreateScenario()}
+            >
+              Создать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={deleteScenarioTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteScenarioTarget(null);
+        }}
+        title="Удалить сценарий?"
+        description={
+          deleteScenarioTarget
+            ? `Сценарий «${deleteScenarioTarget.name}» и все его задачи будут удалены. Это действие нельзя отменить.`
+            : ""
+        }
+        confirmLabel="Удалить"
+        onConfirm={confirmDeleteScenario}
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">{leading}</div>
         {toolbar}
@@ -1290,7 +1579,21 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="flex min-h-0 flex-1 flex-col p-4">
-                {inspectToStage ? (
+                {isEntityListOptionFinal(inspectFromStage) ? (
+                  <FinalStageInspector
+                    key={`final:${inspectFromStage.id}:${editorEpoch}`}
+                    stage={inspectFromStage}
+                    orphanCount={
+                      (scenario?.stageTransitions ?? []).filter(
+                        (item) => item.fromOptionId === inspectFromStage.id,
+                      ).length
+                    }
+                    onClearOrphans={() => {
+                      clearOutgoingFromStage(inspectFromStage.id);
+                    }}
+                    onClose={closeStageInspector}
+                  />
+                ) : inspectToStage ? (
                   <StageTransitionInspector
                     key={`${inspectFromStage.id}\0${inspectToStage.id}:${editorEpoch}`}
                     fromStage={inspectFromStage}

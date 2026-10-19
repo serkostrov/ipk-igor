@@ -22,8 +22,19 @@ import {
 } from "@/entities/automation";
 import {
   getEntityFieldDisplayName,
+  getEntityRelationTargetId,
   getEntityTabFilesValueKey,
+  getRelationRecordOptions,
   isEntityFilesTab,
+  parseEntityListValueIds,
+  parseEntityRelationIds,
+  ListSelect,
+  RelationSelect,
+  resolveEntityListFieldOptions,
+  resolveEntityListFieldPresentation,
+  serializeEntityListValueIds,
+  serializeEntityRelationIds,
+  useEntityConfig,
   type Entity,
   type EntityField,
   type EntityTab,
@@ -82,6 +93,37 @@ function findSource(
   return sources.find((source) => sourceId(source) === fieldId) ?? null;
 }
 
+const RELATION_LIST_OPERATORS: AutomationConditionOperator[] = [
+  "in",
+  "notIn",
+  "includesAny",
+  "includesAll",
+  "equals",
+  "notEquals",
+  "empty",
+  "notEmpty",
+];
+
+const BOOLEAN_OPERATORS: AutomationConditionOperator[] = [
+  "true",
+  "false",
+  "empty",
+  "notEmpty",
+  "fieldChanged",
+];
+
+const NUMBER_OPERATORS: AutomationConditionOperator[] = [
+  "equals",
+  "notEquals",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "empty",
+  "notEmpty",
+  "fieldChanged",
+];
+
 function operatorsForSource(
   source: ConditionSource | null,
 ): AutomationConditionOperator[] {
@@ -89,11 +131,59 @@ function operatorsForSource(
   if (source.kind === "filesTab") {
     return ["folderHasFiles", "folderEmpty"];
   }
-  if (source.field.type === "file") {
+  const type = source.field.type;
+  if (type === "file") {
     return ["folderHasFiles", "folderEmpty"];
+  }
+  if (type === "relation" || type === "list") {
+    return RELATION_LIST_OPERATORS;
+  }
+  if (type === "boolean") {
+    return BOOLEAN_OPERATORS;
+  }
+  if (type === "number" || type === "numberSum") {
+    return NUMBER_OPERATORS;
   }
   return AUTOMATION_CONDITION_OPERATORS.filter(
     (operator) => !isAutomationFolderFileOperator(operator),
+  );
+}
+
+function ruleSelectedIds(rule: AutomationConditionRule): string[] {
+  if (rule.values && rule.values.length > 0) return rule.values;
+  const single = rule.value?.trim();
+  return single ? [single] : [];
+}
+
+function withSelectedIds(
+  rule: AutomationConditionRule,
+  ids: string[],
+): AutomationConditionRule {
+  const next: AutomationConditionRule = {
+    kind: "rule",
+    id: rule.id,
+    fieldId: rule.fieldId,
+    operator: rule.operator,
+  };
+  if (ids.length === 0) return next;
+  if (rule.operator === "equals" || rule.operator === "notEquals") {
+    next.value = ids[0];
+    next.values = [ids[0]!];
+    return next;
+  }
+  next.values = ids;
+  next.value = ids[0];
+  return next;
+}
+
+function usesIdPicker(operator: AutomationConditionOperator) {
+  return (
+    operator === "in" ||
+    operator === "notIn" ||
+    operator === "includesAny" ||
+    operator === "includesAll" ||
+    operator === "equals" ||
+    operator === "notEquals"
   );
 }
 
@@ -109,6 +199,7 @@ export function ConditionGroupBuilder({
   className,
   allowNone = false,
 }: ConditionGroupBuilderProps) {
+  const { entities } = useEntityConfig();
   const sources = buildSources(entity);
   const [noneMode, setNoneMode] = useState(
     () => allowNone && value.rules.length === 0,
@@ -204,6 +295,7 @@ export function ConditionGroupBuilder({
               key={node.id}
               rule={node}
               sources={sources}
+              entities={entities}
               onChange={(rule) => {
                 const rules = [...value.rules];
                 rules[index] = rule;
@@ -316,21 +408,144 @@ export function ConditionGroupBuilder({
   );
 }
 
+function ConditionValueControl({
+  rule,
+  source,
+  entities,
+  onChange,
+}: {
+  rule: AutomationConditionRule;
+  source: ConditionSource | null;
+  entities: Entity[];
+  onChange: (rule: AutomationConditionRule) => void;
+}) {
+  const isFolderOp = isAutomationFolderFileOperator(rule.operator);
+  const folders = folderOptions(source);
+  const selectedIds = ruleSelectedIds(rule);
+
+  if (isFolderOp) {
+    return (
+      <div className="flex flex-col gap-1">
+        {folders.length > 0 ? (
+          <Select
+            value={rule.value || undefined}
+            onValueChange={(next) => {
+              if (next != null) onChange({ ...rule, value: String(next) });
+            }}
+          >
+            <SelectTrigger size="sm" className="w-full">
+              <SelectValue>
+                <span className="inline-flex items-center gap-1.5">
+                  <Folder
+                    className="size-3.5 text-muted-foreground"
+                    aria-hidden
+                  />
+                  {rule.value?.trim() || "Папка"}
+                </span>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {folders.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            className="h-8"
+            value={rule.value ?? ""}
+            placeholder="Название папки"
+            onChange={(event) =>
+              onChange({ ...rule, value: event.target.value })
+            }
+          />
+        )}
+        <p className="px-0.5 text-[10px] leading-snug text-muted-foreground">
+          Проверяются файлы прямо в этой папке (не во вложенных)
+        </p>
+      </div>
+    );
+  }
+
+  if (
+    source?.kind === "field" &&
+    source.field.type === "relation" &&
+    usesIdPicker(rule.operator)
+  ) {
+    const targetId = getEntityRelationTargetId(source.field);
+    const target = entities.find((item) => item.id === targetId) ?? null;
+    return (
+      <RelationSelect
+        multiple
+        options={getRelationRecordOptions(target)}
+        value={serializeEntityRelationIds(selectedIds)}
+        placeholder="Выберите записи"
+        aria-label="Значение условия"
+        className="h-8"
+        onChange={(next) =>
+          onChange(withSelectedIds(rule, parseEntityRelationIds(next)))
+        }
+      />
+    );
+  }
+
+  if (
+    source?.kind === "field" &&
+    source.field.type === "list" &&
+    usesIdPicker(rule.operator)
+  ) {
+    const options = resolveEntityListFieldOptions(source.field, entities);
+    const presentation = resolveEntityListFieldPresentation(
+      source.field,
+      entities,
+    );
+    return (
+      <ListSelect
+        multiple
+        options={options}
+        value={serializeEntityListValueIds(selectedIds)}
+        showColors={presentation.listUseColors}
+        emptyLabel="Выберите варианты"
+        aria-label="Значение условия"
+        className="h-8"
+        onChange={(next) =>
+          onChange(withSelectedIds(rule, parseEntityListValueIds(next)))
+        }
+      />
+    );
+  }
+
+  return (
+    <Input
+      className="h-8"
+      value={rule.value ?? ""}
+      placeholder={
+        rule.operator === "fieldTransition"
+          ? '{"from":"…","to":"…"}'
+          : "Значение"
+      }
+      onChange={(event) => onChange({ ...rule, value: event.target.value })}
+    />
+  );
+}
+
 function RuleRow({
   rule,
   sources,
+  entities,
   onChange,
   onRemove,
 }: {
   rule: AutomationConditionRule;
   sources: ConditionSource[];
+  entities: Entity[];
   onChange: (rule: AutomationConditionRule) => void;
   onRemove: () => void;
 }) {
   const source = findSource(sources, rule.fieldId);
   const operators = operatorsForSource(source);
-  const isFolderOp = isAutomationFolderFileOperator(rule.operator);
-  const folders = folderOptions(source);
   const needsValue = ![
     "empty",
     "notEmpty",
@@ -346,17 +561,36 @@ function RuleRow({
       ? rule.operator
       : (nextOperators[0] ?? "notEmpty");
     const nextFolders = folderOptions(next);
-    const nextValue = isAutomationFolderFileOperator(nextOperator)
-      ? (nextFolders.includes(rule.value ?? "")
-          ? rule.value
-          : nextFolders[0]) || ""
-      : rule.value;
-    onChange({
-      ...rule,
-      fieldId: nextId,
-      operator: nextOperator,
-      value: nextValue,
-    });
+    if (isAutomationFolderFileOperator(nextOperator)) {
+      onChange({
+        kind: "rule",
+        id: rule.id,
+        fieldId: nextId,
+        operator: nextOperator,
+        value:
+          (nextFolders.includes(rule.value ?? "")
+            ? rule.value
+            : nextFolders[0]) || "",
+      });
+      return;
+    }
+    const keepIds =
+      next?.kind === "field" &&
+      (next.field.type === "relation" || next.field.type === "list") &&
+      usesIdPicker(nextOperator)
+        ? ruleSelectedIds(rule)
+        : [];
+    onChange(
+      withSelectedIds(
+        {
+          kind: "rule",
+          id: rule.id,
+          fieldId: nextId,
+          operator: nextOperator,
+        },
+        keepIds,
+      ),
+    );
   }
 
   return (
@@ -409,17 +643,32 @@ function RuleRow({
             ) {
               const operator = String(next) as AutomationConditionOperator;
               const nextFolders = folderOptions(source);
-              onChange({
-                ...rule,
-                operator,
-                value: isAutomationFolderFileOperator(operator)
-                  ? (nextFolders.includes(rule.value ?? "")
+              if (isAutomationFolderFileOperator(operator)) {
+                onChange({
+                  kind: "rule",
+                  id: rule.id,
+                  fieldId: rule.fieldId,
+                  operator,
+                  value:
+                    (nextFolders.includes(rule.value ?? "")
                       ? rule.value
                       : nextFolders[0]) ||
                     rule.value ||
-                    ""
-                  : rule.value,
-              });
+                    "",
+                });
+                return;
+              }
+              onChange(
+                withSelectedIds(
+                  {
+                    kind: "rule",
+                    id: rule.id,
+                    fieldId: rule.fieldId,
+                    operator,
+                  },
+                  ruleSelectedIds(rule),
+                ),
+              );
             }
           }}
         >
@@ -448,62 +697,12 @@ function RuleRow({
         </Button>
       </div>
       {needsValue ? (
-        isFolderOp ? (
-          <div className="flex flex-col gap-1">
-            {folders.length > 0 ? (
-              <Select
-                value={rule.value || undefined}
-                onValueChange={(next) => {
-                  if (next != null) onChange({ ...rule, value: String(next) });
-                }}
-              >
-                <SelectTrigger size="sm" className="w-full">
-                  <SelectValue>
-                    <span className="inline-flex items-center gap-1.5">
-                      <Folder
-                        className="size-3.5 text-muted-foreground"
-                        aria-hidden
-                      />
-                      {rule.value?.trim() || "Папка"}
-                    </span>
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {folders.map((name) => (
-                    <SelectItem key={name} value={name}>
-                      {name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input
-                className="h-8"
-                value={rule.value ?? ""}
-                placeholder="Название папки"
-                onChange={(event) =>
-                  onChange({ ...rule, value: event.target.value })
-                }
-              />
-            )}
-            <p className="px-0.5 text-[10px] leading-snug text-muted-foreground">
-              Проверяются файлы прямо в этой папке (не во вложенных)
-            </p>
-          </div>
-        ) : (
-          <Input
-            className="h-8"
-            value={rule.value ?? ""}
-            placeholder={
-              rule.operator === "fieldTransition"
-                ? '{"from":"…","to":"…"}'
-                : "Значение"
-            }
-            onChange={(event) =>
-              onChange({ ...rule, value: event.target.value })
-            }
-          />
-        )
+        <ConditionValueControl
+          rule={rule}
+          source={source}
+          entities={entities}
+          onChange={onChange}
+        />
       ) : null}
     </div>
   );

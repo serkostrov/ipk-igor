@@ -27,11 +27,24 @@ export {
   toAutomationFieldRef,
 } from "./model/action-values";
 export {
+  AUTOMATION_ASSIGNEE_SOURCE_LABELS,
+  AUTOMATION_ASSIGNEE_SOURCE_ORDER,
   AUTOMATION_ASSIGNEE_TYPE_HINTS,
   AUTOMATION_ASSIGNEE_TYPE_LABELS,
+  AUTOMATION_RECIPIENT_TYPE_HINTS,
+  AUTOMATION_WATCHER_TYPE_HINTS,
+  assigneeSourceKind,
+  createAutomationAssigneeBranchId,
+  defaultAssigneeLeafResolver,
   defaultAssigneeResolver,
+  defaultWatcherResolver,
+  defaultConditionalAssigneeResolver,
   normalizeAssigneeResolver,
+  type AutomationAssigneeBranch,
+  type AutomationAssigneeEditorMode,
+  type AutomationAssigneeLeafResolver,
   type AutomationAssigneeResolver,
+  type AutomationAssigneeSourceKind,
 } from "./model/assignee";
 export {
   AUTOMATION_CONDITION_OPERATOR_LABELS,
@@ -54,6 +67,10 @@ export {
   folderHasFiles,
   folderIsEmpty,
 } from "./lib/folder-files-condition";
+export {
+  cloneAutomationScenario,
+  type ClonedAutomationScenario,
+} from "./lib/clone-scenario";
 export { IPK_NEW_AUTOMATION_MAPPING_VERSION } from "./model/ipk-new-mapping";
 export {
   AUTOMATION_TRIGGER_KIND_LABELS,
@@ -112,7 +129,14 @@ export {
   automationRequiresTimeTracking,
   setAutomationRequireTimeTracking,
 } from "./lib/require-time-tracking";
+export {
+  AUTOMATION_UPLOAD_TARGET_PREFIX,
+  getAutomationUploadTarget,
+  setAutomationUploadTarget,
+  type AutomationTaskUploadTarget,
+} from "./lib/upload-target";
 export { pickAutomationOutcome } from "./lib/pick-outcome";
+export { resolveAssigneeUserIds } from "./lib/resolve-assignee";
 export {
   getOutcomeStageOptionId,
   withOutcomeStageAction,
