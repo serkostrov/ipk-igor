@@ -102,6 +102,9 @@ function TaskFillFieldsDialogBody({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Init form only when the task opens — not when `entities` updates.
+  // Upload writes files to the record and refreshes the store; that must not
+  // wipe in-progress field values the user has not submitted yet.
   useEffect(() => {
     let cancelled = false;
 
@@ -117,7 +120,8 @@ function TaskFillFieldsDialogBody({
         }
         const defaultOutcomeId = getDefaultSelectedOutcomeId(next);
         setSelectedOutcomeId(defaultOutcomeId);
-        const entity = entities.find((item) => item.id === next.entityId);
+        const entitiesNow = getEntityConfig().entities;
+        const entity = entitiesNow.find((item) => item.id === next.entityId);
         const record = entity?.records.find(
           (item) => item.id === next.recordId,
         );
@@ -131,7 +135,7 @@ function TaskFillFieldsDialogBody({
             : raw;
         }
         let nextValues = entity
-          ? sanitizeEntityRelationDependencies(entity, draft, entities)
+          ? sanitizeEntityRelationDependencies(entity, draft, entitiesNow)
           : draft;
         if (entity && record) {
           const outcome =
@@ -142,7 +146,7 @@ function TaskFillFieldsDialogBody({
           if (actions.length > 0) {
             const filled = applyAutomationSetFieldAutofill({
               entity,
-              entities,
+              entities: entitiesNow,
               values: { ...record.values, ...nextValues },
               actions,
               actorUserId: getCurrentUserRecordId(),
@@ -170,7 +174,7 @@ function TaskFillFieldsDialogBody({
     return () => {
       cancelled = true;
     };
-  }, [taskId, entities]);
+  }, [taskId]);
 
   const entity = entities.find((item) => item.id === task?.entityId) ?? null;
   const record =
@@ -400,9 +404,6 @@ function TaskFillFieldsDialogBody({
     }
   }
 
-  const nameFieldId = entity?.fields.find((field) => field.locked)?.id ?? "";
-  const recordTitle = record?.values[nameFieldId]?.trim() || record?.id || "";
-
   return (
     <>
       <DialogHeader>
@@ -419,11 +420,6 @@ function TaskFillFieldsDialogBody({
               : entity
                 ? `Выберите результат, чтобы продолжить процесс «${entity.name}».`
                 : "Выберите результат и при необходимости заполните поля."}
-          {recordTitle ? (
-            <span className="mt-1 block text-foreground/80">
-              Запись: {recordTitle}
-            </span>
-          ) : null}
         </DialogDescription>
       </DialogHeader>
 

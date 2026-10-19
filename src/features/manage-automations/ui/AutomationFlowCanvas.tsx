@@ -79,32 +79,28 @@ const TRIGGER_H_WITH_RELEASE = 108;
 /** BPMN end-event footprint (circle + label). */
 const END_W = 96;
 
-/** BPMN activity markers by task kind (Camunda / bpmn.io style). */
-const TASK_KIND_BPMN: Record<
+/** Kind badge for assignment cards (no left accent strip). */
+const TASK_KIND_META: Record<
   AutomationTaskKind,
   {
     label: string;
-    accent: string;
     markerClass: string;
     Icon: typeof User;
   }
 > = {
   decision: {
-    label: "Задача · решение",
-    accent: "border-l-sky-600",
-    markerClass: "bg-sky-600/10 text-sky-700 dark:text-sky-400",
+    label: "Задание · решение",
+    markerClass: "bg-sky-500/10 text-sky-700 dark:text-sky-400",
     Icon: User,
   },
   single: {
-    label: "Задача · кнопка",
-    accent: "border-l-violet-600",
-    markerClass: "bg-violet-600/10 text-violet-700 dark:text-violet-400",
+    label: "Задание · кнопка",
+    markerClass: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
     Icon: MousePointerClick,
   },
   autofill: {
     label: "Сервис",
-    accent: "border-l-slate-500",
-    markerClass: "bg-slate-500/10 text-slate-600 dark:text-slate-300",
+    markerClass: "bg-muted text-muted-foreground",
     Icon: Cog,
   },
 };
@@ -267,8 +263,8 @@ function FloatingEdge({
   const chainHint = edgeData.chainHint ?? null;
   const addLabel =
     insert?.launchPhase === "beforeEnter"
-      ? "Добавить задачу до старта"
-      : "Добавить задачу";
+      ? "Добавить задание до старта"
+      : "Добавить задание";
 
   const edgeStyle = {
     ...style,
@@ -577,21 +573,18 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
   return (
     <div
       className={cn(
-        /* BPMN pool / list-option: sharp lane header, not a task card */
-        "group/stage relative flex h-[62px] w-[220px] cursor-grab items-stretch overflow-hidden rounded-sm border-2 bg-muted/40 active:cursor-grabbing",
+        /* List-option lane header — structural, not an assignment card */
+        "group/stage relative flex h-[64px] w-[220px] cursor-grab items-stretch overflow-hidden rounded-md border bg-muted/70 shadow-[inset_0_1px_0_0_color-mix(in_oklab,var(--foreground)_4%,transparent)] active:cursor-grabbing",
         isFinal
-          ? "border-emerald-700/80 bg-emerald-500/[0.06] dark:border-emerald-500/70"
+          ? "border-border/80 bg-muted/50"
           : data.active
-            ? "border-primary shadow-[0_0_0_2px_color-mix(in_oklab,var(--primary)_22%,transparent)]"
-            : "border-slate-400/70 dark:border-slate-500/70",
-        data.active &&
-          isFinal &&
-          "shadow-[0_0_0_2px_color-mix(in_oklab,#059669_22%,transparent)]",
-        data.collapsed && "border-dashed bg-muted/20 opacity-80",
+            ? "border-foreground/25 ring-2 ring-foreground/10"
+            : "border-border/90",
+        data.collapsed && "border-dashed opacity-75",
       )}
     >
       <span
-        className="w-1.5 shrink-0 self-stretch"
+        className="w-1 shrink-0 self-stretch"
         style={{ backgroundColor: stageColor }}
         aria-hidden
       />
@@ -610,7 +603,7 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
         isConnectable={false}
         className={HANDLE_CLASS}
       />
-      {/* Incoming only — final stages are BPMN end points (no then/else). */}
+      {/* Incoming only — final stages are process ends (no then/else). */}
       <Handle
         type="target"
         position={Position.Left}
@@ -640,13 +633,11 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
           />
         </>
       ) : null}
-      <div className="flex min-w-0 flex-1 items-center gap-2 px-2.5 pr-9">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 pr-9">
         <span
           className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-sm border bg-card",
-            isFinal
-              ? "border-emerald-600/40 text-emerald-700 dark:text-emerald-400"
-              : "border-slate-400/50 text-slate-600 dark:text-slate-300",
+            "flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background/80 text-muted-foreground",
+            isFinal && "text-foreground/70",
           )}
         >
           {isFinal ? (
@@ -656,27 +647,20 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              "text-[9px] font-semibold tracking-wider uppercase",
-              isFinal
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "text-muted-foreground",
-            )}
-          >
-            {isFinal ? "Завершающая" : "Стадия списка"}
+          <p className="text-[9px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
+            {isFinal ? "Конечная стадия" : "Стадия списка"}
           </p>
-          <p className="truncate text-xs font-semibold leading-tight">
+          <p className="truncate text-[13px] font-semibold leading-tight tracking-tight">
             {data.stage.name}
           </p>
-          <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <p className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
             <span className="truncate">
               {data.collapsed ? `${taskLabel} · скрыто` : taskLabel}
             </span>
             {data.hasTransitionRule ? (
               <span
                 title="Настроен переход дальше"
-                className="inline-flex shrink-0 items-center text-primary"
+                className="inline-flex shrink-0 items-center text-foreground/55"
               >
                 <GitBranch className="size-2.5" aria-hidden />
               </span>
@@ -695,8 +679,8 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
       <button
         type="button"
         className={cn(
-          "nodrag nopan absolute top-1/2 right-1.5 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground transition-colors",
-          "hover:bg-muted hover:text-foreground",
+          "nodrag nopan absolute top-1/2 right-1.5 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors",
+          "hover:bg-background/70 hover:text-foreground",
           data.collapsed && "text-foreground",
         )}
         aria-pressed={data.collapsed}
@@ -707,8 +691,8 @@ function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
         }
         title={
           data.collapsed
-            ? "Показать задачи, старт и «Готово»"
-            : "Скрыть задачи, старт и «Готово»"
+            ? "Показать задания, старт и конец"
+            : "Скрыть задания, старт и конец"
         }
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
@@ -738,7 +722,7 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
   const height = data.showReleaseToggle ? TRIGGER_H_WITH_RELEASE : TRIGGER_H;
   return (
     <div
-      className="flex w-[220px] cursor-grab flex-col justify-center gap-2 rounded-md border border-transparent bg-transparent px-1 py-1 active:cursor-grabbing"
+      className="flex w-[220px] cursor-grab flex-col justify-center gap-2 bg-transparent px-1 py-1 active:cursor-grabbing"
       style={{ minHeight: height }}
     >
       <Handle
@@ -769,42 +753,37 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
         isConnectable={false}
         className={HANDLE_CLASS}
       />
-      {/* BPMN start event: thin circle + label */}
       <div className="flex items-center gap-3 px-1">
         <span
-          className="flex size-11 shrink-0 items-center justify-center rounded-full border-[2.5px] border-slate-700 bg-card text-slate-700 shadow-sm dark:border-slate-300 dark:text-slate-200"
-          title="Стартовое событие"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full border-2 border-foreground/35 bg-background text-foreground/70"
+          title="Старт стадии"
         >
-          <Zap
-            className="size-4 fill-amber-500/20 text-amber-600"
-            aria-hidden
-          />
+          <Zap className="size-3.5 text-amber-600/90" aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="text-[9px] font-semibold tracking-wider text-muted-foreground uppercase">
-            Событие
+          <p className="text-[9px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
+            Старт
           </p>
-          <p className="text-xs font-semibold">Старт</p>
-          <p className="truncate text-[10px] text-muted-foreground">
+          <p className="truncate text-[11px] text-muted-foreground">
             Попадание на стадию
           </p>
         </div>
       </div>
       {data.showReleaseToggle ? (
         <div
-          className="nodrag nopan flex rounded-md border border-border/80 bg-card/90 p-0.5 shadow-xs"
+          className="nodrag nopan flex rounded-lg border border-border/70 bg-background/90 p-0.5"
           role="group"
-          aria-label="Порядок задач"
+          aria-label="Порядок заданий"
           onPointerDown={(event) => event.stopPropagation()}
         >
           <button
             type="button"
-            title="Все задачи появляются сразу"
+            title="Все задания появляются сразу"
             aria-pressed={data.taskRelease === "parallel"}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors",
+              "flex flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
               data.taskRelease === "parallel"
-                ? "bg-muted text-foreground shadow-sm"
+                ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={(event) => {
@@ -817,12 +796,12 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
           </button>
           <button
             type="button"
-            title="Следующая задача — после завершения предыдущей"
+            title="Следующее задание — после завершения предыдущего"
             aria-pressed={data.taskRelease === "sequential"}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors",
+              "flex flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
               data.taskRelease === "sequential"
-                ? "bg-muted text-foreground shadow-sm"
+                ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={(event) => {
@@ -869,22 +848,20 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
 
 function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
   const { template, selected, fields } = data;
-  const kindMeta = TASK_KIND_BPMN[template.kind] ?? TASK_KIND_BPMN.decision;
+  const kindMeta = TASK_KIND_META[template.kind] ?? TASK_KIND_META.decision;
   const KindIcon = kindMeta.Icon;
   const isService = template.kind === "autofill";
 
   return (
     <div
       className={cn(
-        /* BPMN activity: rounded rectangle with kind marker + left accent */
-        "relative flex min-h-[92px] w-[220px] cursor-grab flex-col justify-center border border-l-[3px] bg-card px-3 py-2.5 shadow-sm transition-shadow active:cursor-grabbing",
-        "rounded-[10px]",
-        kindMeta.accent,
+        /* Assignment card — white surface, no left stripe (stage keeps the rail) */
+        "relative flex min-h-[92px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 py-2.5 transition-[box-shadow,border-color] active:cursor-grabbing",
         selected
-          ? "border-primary ring-2 ring-primary/25"
+          ? "border-primary/50 shadow-sm ring-2 ring-primary/20"
           : isService
-            ? "border-slate-300 border-dashed hover:border-slate-400 dark:border-slate-600"
-            : "border-slate-300 hover:border-slate-400 dark:border-slate-600",
+            ? "border-dashed border-border/80 hover:border-border"
+            : "border-border/80 shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_4%,transparent)] hover:border-border",
       )}
     >
       <Handle
@@ -911,10 +888,10 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
         id="bottom"
         className={HANDLE_CLASS}
       />
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2.5">
         <span
           className={cn(
-            "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm",
+            "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg",
             kindMeta.markerClass,
           )}
           title={kindMeta.label}
@@ -924,10 +901,10 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="flex items-start justify-between gap-1.5">
             <div className="min-w-0">
-              <p className="text-[9px] font-semibold tracking-wider text-muted-foreground uppercase">
+              <p className="text-[9px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
                 {kindMeta.label}
               </p>
-              <p className="truncate text-xs font-semibold leading-snug">
+              <p className="truncate text-[13px] font-semibold leading-snug tracking-tight">
                 {template.name.trim() ? (
                   <TemplateRichText value={template.name} fields={fields} />
                 ) : (
@@ -942,24 +919,24 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
               </p>
             </div>
             {template.isBlocking ? (
-              <Lock className="size-3 shrink-0 text-muted-foreground" />
+              <Lock className="mt-0.5 size-3 shrink-0 text-muted-foreground/70" />
             ) : null}
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] text-muted-foreground">
+          <div className="mt-2 flex flex-wrap gap-1 border-t border-border/50 pt-1.5 text-[9px] text-muted-foreground">
             {!isService ? (
-              <span className="inline-flex items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5">
+              <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/70 px-1.5 py-0.5">
                 <User className="size-2.5" />
                 {AUTOMATION_ASSIGNEE_TYPE_LABELS[template.assignee.type]}
               </span>
             ) : null}
             {template.sla ? (
-              <span className="inline-flex items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5">
+              <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/70 px-1.5 py-0.5">
                 <Timer className="size-2.5" />
                 {template.sla.hours}ч
               </span>
             ) : null}
             {template.outcomes.length > 0 ? (
-              <span className="inline-flex items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5">
+              <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/70 px-1.5 py-0.5">
                 {template.kind === "decision" ? (
                   <span
                     className="inline-block size-2 rotate-45 border border-current"
@@ -1005,8 +982,9 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
 function EndNode() {
   return (
     <div
-      className="relative flex cursor-grab flex-col items-center justify-center gap-1 active:cursor-grabbing"
-      style={{ width: END_W, height: 64 }}
+      className="relative flex cursor-grab flex-col items-center justify-center gap-1 opacity-70 active:cursor-grabbing"
+      style={{ width: END_W, height: 56 }}
+      title="Конец колонки стадии"
     >
       <Handle
         type="target"
@@ -1032,17 +1010,11 @@ function EndNode() {
         id="bottom"
         className={HANDLE_CLASS}
       />
-      {/* BPMN end event: thick double ring */}
-      <span
-        className="flex size-10 items-center justify-center rounded-full border-[3.5px] border-emerald-700 bg-card p-0.5 shadow-sm dark:border-emerald-500"
-        title="Конечное событие"
-      >
-        <span className="flex size-full items-center justify-center rounded-full border-[2.5px] border-emerald-700 dark:border-emerald-500">
-          <span className="size-1.5 rounded-full bg-emerald-700 dark:bg-emerald-400" />
-        </span>
+      <span className="flex size-7 items-center justify-center rounded-full border-[2.5px] border-foreground/25 bg-background">
+        <span className="size-2 rounded-full bg-foreground/25" />
       </span>
-      <span className="text-[10px] font-semibold tracking-wide text-emerald-800 uppercase dark:text-emerald-400">
-        Готово
+      <span className="text-[9px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
+        Конец
       </span>
     </div>
   );
@@ -2030,14 +2002,14 @@ function FlowInner({
         className="!overflow-hidden !rounded-lg !border !border-border !bg-card"
         style={{ width: 160, height: 100 }}
         nodeColor={(node) => {
-          if (node.type === "stage") return "#475569";
-          if (node.type === "trigger") return "#f59e0b";
-          if (node.type === "end") return "#059669";
+          if (node.type === "stage") return "#64748b";
+          if (node.type === "trigger") return "#d97706";
+          if (node.type === "end") return "#cbd5e1";
           if (node.type === "task") {
             const kind = (node.data as TaskData).template?.kind;
-            if (kind === "autofill") return "#64748b";
-            if (kind === "single") return "#7c3aed";
-            return "#0284c7";
+            if (kind === "autofill") return "#94a3b8";
+            if (kind === "single") return "#8b5cf6";
+            return "#38bdf8";
           }
           return "#94a3b8";
         }}
