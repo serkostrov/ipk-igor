@@ -64,6 +64,7 @@ import {
   resolveEntityListFieldOptions,
   useEntityConfig,
 } from "@/entities/entity";
+import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { AutomationFlowCanvas } from "./AutomationFlowCanvas";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import {
@@ -75,6 +76,13 @@ import { TemplateInspector } from "./TemplateInspector";
 const controlTriggerClass = "h-9 w-[11.5rem]";
 const EMPTY_CANVAS_LAYOUT = emptyAutomationCanvasLayout();
 const UNDO_LIMIT = 40;
+const AUTOMATION_ENTITY_ID_KEY = "settings.automations.selectedEntityId";
+const AUTOMATION_TRIGGER_FIELD_ID_KEY =
+  "settings.automations.selectedTriggerFieldId";
+
+function parseStoredId(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 type AutomationEditSnapshot = {
   scenario: AutomationScenario;
@@ -149,11 +157,21 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     [entities],
   );
 
-  const [entityId, setEntityId] = useState("");
-  const [triggerFieldId, setTriggerFieldId] = useState("");
+  const [storedEntityId, setStoredEntityId] = useLocalStorageState(
+    AUTOMATION_ENTITY_ID_KEY,
+    parseStoredId,
+    null,
+  );
+  const [storedTriggerFieldId, setStoredTriggerFieldId] = useLocalStorageState(
+    AUTOMATION_TRIGGER_FIELD_ID_KEY,
+    parseStoredId,
+    null,
+  );
 
   const resolvedEntityId =
-    entityId ||
+    (storedEntityId && entities.some((item) => item.id === storedEntityId)
+      ? storedEntityId
+      : null) ||
     processes[0]?.entityId ||
     entitiesWithList[0]?.id ||
     entities[0]?.id ||
@@ -164,8 +182,9 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     [entity],
   );
   const resolvedTriggerFieldId =
-    (triggerFieldId && listFields.some((field) => field.id === triggerFieldId)
-      ? triggerFieldId
+    (storedTriggerFieldId &&
+    listFields.some((field) => field.id === storedTriggerFieldId)
+      ? storedTriggerFieldId
       : null) ||
     processes.find((item) => item.entityId === resolvedEntityId)
       ?.triggerFieldId ||
@@ -533,8 +552,8 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     });
     await saveProcess(created.process);
     await saveScenario(created.scenario);
-    setEntityId(resolvedEntityId);
-    setTriggerFieldId(resolvedTriggerFieldId);
+    setStoredEntityId(resolvedEntityId);
+    setStoredTriggerFieldId(resolvedTriggerFieldId || null);
     setScenarioId(created.scenario.id);
     const snap = makeSnap(created.scenario, []);
     setDraft(snap);
@@ -1142,13 +1161,13 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
 
   function selectEntity(nextId: string) {
     if (!confirmDiscardIfDirty()) return;
-    setEntityId(nextId);
+    setStoredEntityId(nextId);
     const nextEntity = entities.find((item) => item.id === nextId);
     const nextLists =
       nextEntity?.fields.filter((field) => field.type === "list") ?? [];
     const existing = processes.find((item) => item.entityId === nextId);
     const nextField = existing?.triggerFieldId ?? nextLists[0]?.id ?? "";
-    setTriggerFieldId(nextField);
+    setStoredTriggerFieldId(nextField || null);
     setScenarioId(null);
     setStageId(null);
     setSelectedTemplateId(null);
@@ -1160,7 +1179,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
 
   function selectField(nextFieldId: string) {
     if (!confirmDiscardIfDirty()) return;
-    setTriggerFieldId(nextFieldId);
+    setStoredTriggerFieldId(nextFieldId);
     setScenarioId(null);
     setStageId(null);
     setSelectedTemplateId(null);

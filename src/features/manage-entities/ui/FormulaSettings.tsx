@@ -2,6 +2,13 @@ import { useRef, useState } from "react";
 import { SquareFunction } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
 import {
   compileFormulaText,
@@ -90,6 +97,8 @@ export function FormulaSettings({
 }: FormulaSettingsProps) {
   const valueContext = useEntityValueContext();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /** Remount select after insert so the same field can be picked again. */
+  const [fieldPickKey, setFieldPickKey] = useState(0);
   const operands = entity ? getEntityFormulaOperands(entity, fieldId) : [];
   const compiled = text.trim() ? compileFormulaText(text, operands) : null;
   const sample = entity?.records[0] ?? null;
@@ -150,18 +159,38 @@ export function FormulaSettings({
         </p>
       ) : null}
       {operands.length > 0 ? (
-        <div className="flex max-h-[4.25rem] flex-wrap gap-1 overflow-y-auto">
-          {operands.map((operand) => (
-            <button
-              key={operand.id}
-              type="button"
-              className="inline-flex h-6 max-w-[10rem] items-center rounded-md bg-background px-1.5 text-[11px] font-medium text-foreground ring-1 ring-border/70 transition-colors hover:bg-primary/10 hover:text-primary hover:ring-primary/30"
-              title={`Вставить [${operand.name}]`}
-              onClick={() => insert(`[${operand.name}]`)}
+        <div className="flex flex-col gap-1.5 pt-0.5">
+          <SettingLabel
+            htmlFor="entity-field-formula-operand"
+            title="Поле"
+            description="Выберите, чтобы вставить [имя] в формулу"
+          />
+          <Select
+            key={fieldPickKey}
+            onValueChange={(next) => {
+              if (next == null) return;
+              const operand = operands.find((item) => item.id === String(next));
+              if (!operand) return;
+              insert(`[${operand.name}]`);
+              setFieldPickKey((value) => value + 1);
+            }}
+          >
+            <SelectTrigger
+              id="entity-field-formula-operand"
+              className="w-full bg-background"
             >
-              <span className="truncate">{operand.name}</span>
-            </button>
-          ))}
+              <SelectValue placeholder="Вставить поле…">
+                Вставить поле…
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start">
+              {operands.map((operand) => (
+                <SelectItem key={operand.id} value={operand.id}>
+                  {operand.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       ) : null}
     </div>

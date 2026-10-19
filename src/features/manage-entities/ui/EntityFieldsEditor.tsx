@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -75,6 +76,7 @@ import {
   removeEntityField,
   removeEntityTab,
   renameEntityFieldGroup,
+  reorderEntityFields,
   reorderEntityTabs,
   resolveEntityFieldGroups,
   resolvePrimaryEntityFieldGroups,
@@ -2474,29 +2476,127 @@ function FieldCardStatic({
   );
 }
 
-/** Flat field row for internal entities — no drag, resize, or groups. */
+const SIMPLE_FIELD_MIME = "application/x-ipk-simple-field";
+
+type SimpleFieldDragPayload = { fieldId: string };
+
+function readSimpleFieldDrag(
+  event: ReactDragEvent,
+): SimpleFieldDragPayload | null {
+  const raw = event.dataTransfer.getData(SIMPLE_FIELD_MIME);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as SimpleFieldDragPayload;
+  } catch {
+    return null;
+  }
+}
+
+function simpleFieldDropEdge(
+  event: ReactDragEvent<HTMLElement>,
+): "before" | "after" {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+}
+
+/** Red grab rail to the left of a flat field row (internal entities). */
+function SimpleFieldDragHandle({
+  label,
+  active = false,
+}: {
+  label: string;
+  active?: boolean;
+}) {
+  return (
+    <span
+      data-drag-handle
+      className={cn(
+        "relative z-10 flex w-2.5 shrink-0 touch-none items-center justify-center self-stretch select-none",
+        active ? "cursor-grabbing" : "cursor-grab",
+      )}
+      aria-label={label}
+      title={label}
+      onPointerDown={() => {
+        window.getSelection()?.removeAllRanges();
+      }}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "my-1.5 h-[calc(100%-0.75rem)] min-h-7 w-1 shrink-0 rounded-full bg-primary transition-[opacity,transform,box-shadow] duration-150",
+          active
+            ? "scale-y-105 opacity-100 shadow-[0_0_0_3px] shadow-primary/20"
+            : "opacity-50 group-hover/field:opacity-95 group-focus-within/field:opacity-95",
+        )}
+      />
+    </span>
+  );
+}
+
+function SimpleFieldDropLine({ edge }: { edge: "before" | "after" }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute right-0 left-0 z-20 flex items-center",
+        edge === "before"
+          ? "top-0 -translate-y-1/2"
+          : "bottom-0 translate-y-1/2",
+      )}
+    >
+      <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+      <span className="h-0.5 min-w-0 flex-1 rounded-full bg-primary" />
+    </span>
+  );
+}
+
+/** Flat field row for internal entities — reorder via red left rail. */
 function SimpleFieldRow({
   field,
   entityId,
   allowEdit,
   allowDelete,
+  draggable = false,
+  isDragging = false,
+  dropEdge = null,
   onEdit,
   onDelete,
   onConfigureList,
+  onPrepareDrag,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
 }: {
   field: EntityField;
   entityId?: string;
   allowEdit: boolean;
   allowDelete: boolean;
+  draggable?: boolean;
+  isDragging?: boolean;
+  dropEdge?: "before" | "after" | null;
   onEdit?: () => void;
   onDelete?: () => void;
   onConfigureList?: () => void;
+  onPrepareDrag?: (event: { target: EventTarget | null }) => void;
+  onDragStart?: (event: ReactDragEvent) => void;
+  onDragEnd?: (event?: ReactDragEvent) => void;
+  onDragOver?: (event: ReactDragEvent<HTMLElement>) => void;
+  onDrop?: (event: ReactDragEvent<HTMLElement>) => void;
 }) {
   const name = getEntityFieldDisplayName(field);
   const isName = isEntityNameField(field);
 
-  return (
-    <li className="group/field relative flex min-w-0 items-center gap-2 px-3.5 py-2.5">
+  const card = (
+    <div
+      data-simple-field-card
+      className={cn(
+        "group/field relative flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-transparent bg-card px-3 py-2.5 transition-colors",
+        isDragging && "opacity-40",
+        dropEdge && "border-primary/20",
+      )}
+    >
+      {dropEdge ? <SimpleFieldDropLine edge={dropEdge} /> : null}
       <div className="min-w-0 flex-1">
         <FieldCardMeta field={field} entityId={entityId} />
       </div>
@@ -2543,7 +2643,204 @@ function SimpleFieldRow({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+
+  if (!draggable) {
+    return (
+      <li className="relative flex min-w-0 items-stretch gap-0.5 px-1.5 py-0.5">
+        <span className="w-2.5 shrink-0" aria-hidden />
+        {card}
+      </li>
+    );
+  }
+
+  return (
+    <li
+      className="group/field relative flex min-w-0 items-stretch gap-0.5 px-1.5 py-0.5"
+      draggable
+      onMouseDown={onPrepareDrag}
+      onDragStart={(event) => {
+        const preview = event.currentTarget.querySelector<HTMLElement>(
+          "[data-simple-field-card]",
+        );
+        if (preview) {
+          const rect = preview.getBoundingClientRect();
+          event.dataTransfer.setDragImage(
+            preview,
+            Math.min(Math.max(event.clientX - rect.left, 12), rect.width - 12),
+            Math.min(Math.max(event.clientY - rect.top, 12), rect.height - 12),
+          );
+        }
+        onDragStart?.(event);
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      <SimpleFieldDragHandle
+        label={`Перетащить поле «${name}»`}
+        active={isDragging}
+      />
+      {card}
     </li>
+  );
+}
+
+function SimpleFieldsList({
+  entityId,
+  fields,
+  readOnly,
+  protectedFieldIds,
+  onEdit,
+  onDelete,
+  onConfigureList,
+}: {
+  entityId: string;
+  fields: EntityField[];
+  readOnly: boolean;
+  protectedFieldIds: ReadonlySet<string>;
+  onEdit: (field: EntityField) => void;
+  onDelete: (field: EntityField) => void;
+  onConfigureList: (field: EntityField) => void;
+}) {
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropBeforeId, setDropBeforeId] = useState<string | null | undefined>(
+    undefined,
+  );
+  const allowDragRef = useRef(false);
+
+  const nameFields = fields.filter((field) => isEntityNameField(field));
+  const movableFields = fields.filter((field) => !isEntityNameField(field));
+  const canReorder = !readOnly && movableFields.length > 1;
+
+  function prepareDrag(event: { target: EventTarget | null }) {
+    allowDragRef.current = Boolean(
+      event.target instanceof Element &&
+      event.target.closest("[data-drag-handle]"),
+    );
+    if (allowDragRef.current) {
+      window.getSelection()?.removeAllRanges();
+    }
+  }
+
+  function clearDrag() {
+    allowDragRef.current = false;
+    setDraggingId(null);
+    setDropBeforeId(undefined);
+    unlockDragSelection();
+  }
+
+  function commitReorder(fieldId: string, beforeFieldId: string | null) {
+    const order = movableFields.map((field) => field.id);
+    if (!order.includes(fieldId)) return;
+    const without = order.filter((id) => id !== fieldId);
+    let insertAt = without.length;
+    if (beforeFieldId) {
+      const before = without.indexOf(beforeFieldId);
+      if (before >= 0) insertAt = before;
+    }
+    const next = [...without];
+    next.splice(insertAt, 0, fieldId);
+    if (next.every((id, index) => id === order[index])) return;
+    reorderEntityFields(entityId, next);
+  }
+
+  return (
+    <ul className="flex flex-col gap-0.5 overflow-hidden rounded-xl border border-border bg-muted/20 p-1.5">
+      {nameFields.map((field) => (
+        <SimpleFieldRow
+          key={field.id}
+          field={field}
+          entityId={entityId}
+          allowEdit={!readOnly}
+          allowDelete={false}
+          onEdit={readOnly ? undefined : () => onEdit(field)}
+        />
+      ))}
+      {movableFields.map((field, index) => {
+        const locked = protectedFieldIds.has(field.id);
+        const nextId = movableFields[index + 1]?.id ?? null;
+        const hintMatches =
+          canReorder &&
+          draggingId != null &&
+          draggingId !== field.id &&
+          dropBeforeId !== undefined;
+        const dropEdge: "before" | "after" | null = !hintMatches
+          ? null
+          : dropBeforeId === field.id
+            ? "before"
+            : dropBeforeId == null && index === movableFields.length - 1
+              ? "after"
+              : null;
+
+        return (
+          <SimpleFieldRow
+            key={field.id}
+            field={field}
+            entityId={entityId}
+            allowEdit={!readOnly}
+            allowDelete={!readOnly && !locked}
+            draggable={canReorder}
+            isDragging={draggingId === field.id}
+            dropEdge={dropEdge}
+            onEdit={readOnly ? undefined : () => onEdit(field)}
+            onDelete={readOnly || locked ? undefined : () => onDelete(field)}
+            onConfigureList={
+              readOnly || field.type !== "list" || field.listSourceFieldId
+                ? undefined
+                : () => onConfigureList(field)
+            }
+            onPrepareDrag={prepareDrag}
+            onDragStart={(event) => {
+              if (!allowDragRef.current) {
+                event.preventDefault();
+                return;
+              }
+              lockDragSelection();
+              const payload: SimpleFieldDragPayload = { fieldId: field.id };
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(
+                SIMPLE_FIELD_MIME,
+                JSON.stringify(payload),
+              );
+              event.dataTransfer.setData("text/plain", field.id);
+              setDraggingId(field.id);
+              setDropBeforeId(undefined);
+            }}
+            onDragEnd={() => clearDrag()}
+            onDragOver={(event) => {
+              if (draggingId == null || draggingId === field.id) return;
+              if (
+                ![...event.dataTransfer.types].includes(SIMPLE_FIELD_MIME) &&
+                ![...event.dataTransfer.types].includes("text/plain")
+              ) {
+                return;
+              }
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              const edge = simpleFieldDropEdge(event);
+              setDropBeforeId(edge === "before" ? field.id : nextId);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              const payload =
+                readSimpleFieldDrag(event) ??
+                (draggingId ? { fieldId: draggingId } : null);
+              const activeId = payload?.fieldId ?? draggingId;
+              if (!activeId || activeId === field.id) {
+                clearDrag();
+                return;
+              }
+              const edge = simpleFieldDropEdge(event);
+              const beforeId = edge === "before" ? field.id : nextId;
+              commitReorder(activeId, beforeId);
+              clearDrag();
+            }}
+          />
+        );
+      })}
+    </ul>
   );
 }
 
@@ -3516,7 +3813,7 @@ export function EntityFieldsEditor({
           : null
       : null;
 
-  // Internal entities: flat field list — no tabs, groups, drag, or resize.
+  // Internal entities: flat field list — reorder by red left rail (no tabs/groups).
   if (isEntityInternal(entity)) {
     const simpleFields = entity.fields.filter(
       (field) => !tabLinkFieldIds.has(field.id),
@@ -3556,36 +3853,15 @@ export function EntityFieldsEditor({
             </p>
           </div>
         ) : (
-          <ul className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
-            {orderedFields.map((field) => {
-              const locked = protectedFieldIds.has(field.id);
-              const isName = isEntityNameField(field);
-              return (
-                <SimpleFieldRow
-                  key={field.id}
-                  field={field}
-                  entityId={entity.id}
-                  allowEdit={!readOnly}
-                  allowDelete={!readOnly && !locked && !isName}
-                  onEdit={
-                    readOnly
-                      ? undefined
-                      : () => setDialog({ mode: "edit", field })
-                  }
-                  onDelete={
-                    readOnly || locked || isName
-                      ? undefined
-                      : () => setPendingDeleteField(field)
-                  }
-                  onConfigureList={
-                    readOnly || field.type !== "list" || field.listSourceFieldId
-                      ? undefined
-                      : () => setListSettingsFieldId(field.id)
-                  }
-                />
-              );
-            })}
-          </ul>
+          <SimpleFieldsList
+            entityId={entity.id}
+            fields={orderedFields}
+            readOnly={readOnly}
+            protectedFieldIds={protectedFieldIds}
+            onEdit={(field) => setDialog({ mode: "edit", field })}
+            onDelete={setPendingDeleteField}
+            onConfigureList={(field) => setListSettingsFieldId(field.id)}
+          />
         )}
 
         <EntityFieldsOverviewDialog
