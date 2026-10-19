@@ -1,4 +1,10 @@
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import {
+  createElement,
+  Fragment,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -11,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { cn } from "@/shared/lib/cn";
 import {
   DATA_SCOPE_LABELS,
   SETTINGS_TAB_IDS,
@@ -33,9 +40,11 @@ import {
 import {
   flattenMenuGroupItems,
   getMenuEntityTree,
+  getMenuIcon,
   useMenuConfig,
   type MenuEntityTreeNode,
   type MenuEntry,
+  type MenuIconName,
   type MenuItem,
 } from "@/entities/menu";
 
@@ -123,9 +132,7 @@ function ToggleRow({
   );
 }
 
-function collectMenuItems(
-  entries: ReturnType<typeof useMenuConfig>["entries"],
-): MenuItem[] {
+function collectMenuItems(entries: MenuEntry[]): MenuItem[] {
   const items: MenuItem[] = [];
   for (const entry of entries) {
     if (entry.type === "item") {
@@ -139,6 +146,241 @@ function collectMenuItems(
     items.push(...flattenMenuGroupItems(entry));
   }
   return items;
+}
+
+type MenuAccessViewMode = "tree" | "flat";
+
+type MenuAccessRow =
+  | {
+      type: "group";
+      id: string;
+      title: string;
+      icon: MenuIconName;
+      depth: number;
+      internal: boolean;
+      itemIds: string[];
+    }
+  | {
+      type: "item";
+      item: MenuItem;
+      depth: number;
+    };
+
+function buildMenuAccessRows(
+  entries: MenuEntry[],
+  depth: number,
+  mode: MenuAccessViewMode,
+): MenuAccessRow[] {
+  if (mode === "flat") {
+    return collectMenuItems(entries).map((item) => ({
+      type: "item" as const,
+      item,
+      depth: 0,
+    }));
+  }
+
+  const rows: MenuAccessRow[] = [];
+  for (const entry of entries) {
+    if (entry.type === "item") {
+      rows.push({ type: "item", item: entry, depth });
+      continue;
+    }
+    const itemIds = flattenMenuGroupItems(entry).map((item) => item.id);
+    rows.push({
+      type: "group",
+      id: entry.id,
+      title: entry.title,
+      icon: entry.icon,
+      depth,
+      internal: entry.internal === true,
+      itemIds,
+    });
+    rows.push(...buildMenuAccessRows(entry.entries, depth + 1, "tree"));
+  }
+  return rows;
+}
+
+function MenuAccessIcon({
+  name,
+  className,
+}: {
+  name: MenuIconName;
+  className?: string;
+}) {
+  return createElement(getMenuIcon(name), {
+    className: cn("size-3.5 shrink-0", className),
+    "aria-hidden": true,
+  });
+}
+
+function MenuAccessList({
+  entries,
+  menuAll,
+  selectedIds,
+  onToggleAll,
+  onToggleItem,
+  onToggleItems,
+}: {
+  entries: MenuEntry[];
+  menuAll: boolean;
+  selectedIds: string[];
+  onToggleAll: (checked: boolean) => void;
+  onToggleItem: (itemId: string, checked: boolean) => void;
+  onToggleItems: (itemIds: string[], checked: boolean) => void;
+}) {
+  const [viewMode, setViewMode] = useState<MenuAccessViewMode>("tree");
+  const rows = useMemo(
+    () => buildMenuAccessRows(entries, 0, viewMode),
+    [entries, viewMode],
+  );
+  const allItems = useMemo(() => collectMenuItems(entries), [entries]);
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/20 px-3 py-2">
+        <p className="text-[11px] text-muted-foreground">
+          {viewMode === "tree"
+            ? "Как в боковом меню — папки и пункты"
+            : "Плоский список без папок"}
+        </p>
+        <div
+          className="inline-flex rounded-lg border border-border/80 bg-background p-0.5"
+          role="group"
+          aria-label="Вид списка разделов"
+        >
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+              viewMode === "tree"
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-pressed={viewMode === "tree"}
+            onClick={() => setViewMode("tree")}
+          >
+            Как в меню
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+              viewMode === "flat"
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-pressed={viewMode === "flat"}
+            onClick={() => setViewMode("flat")}
+          >
+            Без папок
+          </button>
+        </div>
+      </div>
+
+      <div className="divide-y divide-border px-3.5">
+        <ToggleRow
+          label="Все пункты меню"
+          description="Иначе отметьте пункты ниже"
+          checked={menuAll}
+          onCheckedChange={onToggleAll}
+        />
+
+        {!menuAll
+          ? rows.map((row) => {
+              if (row.type === "group") {
+                const enabledCount = row.itemIds.filter((id) =>
+                  selectedIds.includes(id),
+                ).length;
+                const allOn =
+                  row.itemIds.length > 0 && enabledCount === row.itemIds.length;
+                const someOn = enabledCount > 0 && !allOn;
+                return (
+                  <div
+                    key={`group-${row.id}`}
+                    className="flex items-center justify-between gap-3 py-2"
+                    style={{
+                      paddingLeft: 4 + Math.min(row.depth, 4) * 14,
+                    }}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={cn(
+                          "flex size-7 shrink-0 items-center justify-center rounded-md border",
+                          row.internal
+                            ? "border-dashed border-border/70 bg-muted/30 text-muted-foreground"
+                            : "border-border/70 bg-muted/40 text-muted-foreground",
+                        )}
+                      >
+                        <MenuAccessIcon name={row.icon} />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {row.title}
+                          </p>
+                          {row.internal ? (
+                            <span className="rounded px-1 py-px text-[9px] font-medium tracking-wide text-muted-foreground uppercase">
+                              служ.
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Папка · {row.itemIds.length}{" "}
+                          {row.itemIds.length === 1
+                            ? "пункт"
+                            : row.itemIds.length < 5
+                              ? "пункта"
+                              : "пунктов"}
+                          {someOn ? ` · выбрано ${enabledCount}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={allOn}
+                      disabled={row.itemIds.length === 0}
+                      onCheckedChange={(checked) =>
+                        onToggleItems(row.itemIds, checked)
+                      }
+                    />
+                  </div>
+                );
+              }
+
+              const checked = selectedIds.includes(row.item.id);
+              return (
+                <div
+                  key={row.item.id}
+                  className="flex items-center justify-between gap-3 py-2"
+                  style={{
+                    paddingLeft: 4 + Math.min(row.depth, 4) * 14,
+                  }}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-card text-muted-foreground">
+                      <MenuAccessIcon name={row.item.icon} />
+                    </span>
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {row.item.label}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={checked}
+                    onCheckedChange={(next) => onToggleItem(row.item.id, next)}
+                  />
+                </div>
+              );
+            })
+          : null}
+
+        {menuAll ? (
+          <p className="py-3 text-xs text-muted-foreground">
+            Доступны все {allItems.length} пунктов меню
+            {viewMode === "tree" ? " (включая вложенные в папки)" : ""}.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function patchPermissions(
@@ -409,41 +651,50 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             Что видит пользователь в меню и системных разделах
           </p>
         </div>
+
+        <MenuAccessList
+          entries={entries}
+          menuAll={menuAll}
+          selectedIds={
+            role.permissions.menuItemIds === "*"
+              ? menuItems.map((item) => item.id)
+              : role.permissions.menuItemIds
+          }
+          onToggleAll={(checked) =>
+            onChange(
+              patchPermissions(role, {
+                menuItemIds: checked ? "*" : menuItems.map((item) => item.id),
+              }),
+            )
+          }
+          onToggleItem={(itemId, checked) => {
+            const current =
+              role.permissions.menuItemIds === "*"
+                ? menuItems.map((item) => item.id)
+                : [...role.permissions.menuItemIds];
+            const ids = checked
+              ? [...new Set([...current, itemId])]
+              : current.filter((id) => id !== itemId);
+            onChange(patchPermissions(role, { menuItemIds: ids }));
+          }}
+          onToggleItems={(itemIds, checked) => {
+            const current =
+              role.permissions.menuItemIds === "*"
+                ? menuItems.map((item) => item.id)
+                : [...role.permissions.menuItemIds];
+            const ids = checked
+              ? [...new Set([...current, ...itemIds])]
+              : current.filter((id) => !itemIds.includes(id));
+            onChange(patchPermissions(role, { menuItemIds: ids }));
+          }}
+        />
+
         <div className="divide-y divide-border rounded-xl border border-border px-4">
-          <ToggleRow
-            label="Все пункты меню"
-            description="Иначе отметьте пункты ниже"
-            checked={menuAll}
-            onCheckedChange={(checked) =>
-              onChange(
-                patchPermissions(role, {
-                  menuItemIds: checked ? "*" : menuItems.map((item) => item.id),
-                }),
-              )
-            }
-          />
-          {!menuAll
-            ? menuItems.map((item) => {
-                const checked = role.permissions.menuItemIds.includes(item.id);
-                return (
-                  <ToggleRow
-                    key={item.id}
-                    label={item.label}
-                    checked={checked}
-                    onCheckedChange={(next) => {
-                      const current =
-                        role.permissions.menuItemIds === "*"
-                          ? []
-                          : [...role.permissions.menuItemIds];
-                      const ids = next
-                        ? [...new Set([...current, item.id])]
-                        : current.filter((id) => id !== item.id);
-                      onChange(patchPermissions(role, { menuItemIds: ids }));
-                    }}
-                  />
-                );
-              })
-            : null}
+          <div className="py-2.5">
+            <p className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+              Системные
+            </p>
+          </div>
           <ToggleRow
             label="История изменений"
             checked={role.permissions.canAccessHistory}

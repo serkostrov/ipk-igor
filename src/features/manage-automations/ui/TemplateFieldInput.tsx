@@ -8,10 +8,14 @@ import {
   type MouseEvent,
   type SyntheticEvent,
 } from "react";
-import { Braces } from "lucide-react";
-import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { getEntityFieldDisplayName, type EntityField } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
 import {
@@ -52,7 +56,8 @@ export function TemplateFieldInput({
   id?: string;
   multiline?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  /** Remount select after insert so the same field can be picked again. */
+  const [fieldPickKey, setFieldPickKey] = useState(0);
   const parts = ensureTrailingText(parseTemplateParts(value));
   const activeTextIndexRef = useRef(0);
   const caretRef = useRef(0);
@@ -111,7 +116,7 @@ export function TemplateFieldInput({
       ];
       focusAfterRenderRef.current = { index: next.length - 1, caret: 0 };
       commit(next);
-      setOpen(false);
+      setFieldPickKey((key) => key + 1);
       return;
     }
 
@@ -127,7 +132,7 @@ export function TemplateFieldInput({
     ];
     focusAfterRenderRef.current = { index: index + 2, caret: 0 };
     commit(next);
-    setOpen(false);
+    setFieldPickKey((key) => key + 1);
   }
 
   const showPlaceholder =
@@ -181,56 +186,9 @@ export function TemplateFieldInput({
 
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <div className="flex h-5 items-center justify-between gap-2">
-        <Label htmlFor={id} className="text-xs font-medium text-foreground">
-          {title}
-        </Label>
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="Вставить поле"
-                title="Вставить поле"
-              />
-            }
-          >
-            <Braces className="size-3.5" />
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            sideOffset={6}
-            className="w-64 gap-0 overflow-hidden p-1"
-          >
-            <p className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
-              Поле записи
-            </p>
-            <div className="max-h-56 overflow-y-auto">
-              {fields.length === 0 ? (
-                <p className="px-2 py-2 text-xs text-muted-foreground">
-                  Нет полей
-                </p>
-              ) : (
-                fields.map((field) => (
-                  <button
-                    key={field.id}
-                    type="button"
-                    className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/70"
-                    onClick={() => insertField(field)}
-                  >
-                    <span className="truncate">
-                      {getEntityFieldDisplayName(field)}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+      <Label htmlFor={id} className="text-xs font-medium text-foreground">
+        {title}
+      </Label>
 
       <div
         className={cn(
@@ -310,6 +268,34 @@ export function TemplateFieldInput({
           );
         })}
       </div>
+
+      {fields.length > 0 ? (
+        <Select
+          key={fieldPickKey}
+          onValueChange={(next) => {
+            if (next == null) return;
+            const field = fields.find((item) => item.id === String(next));
+            if (!field) return;
+            insertField(field);
+          }}
+        >
+          <SelectTrigger
+            id={id ? `${id}-field` : undefined}
+            className="h-8 w-full bg-background"
+          >
+            <SelectValue placeholder="Вставить поле…">
+              Вставить поле…
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent align="start">
+            {fields.map((field) => (
+              <SelectItem key={field.id} value={field.id}>
+                {getEntityFieldDisplayName(field)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
     </div>
   );
 }
