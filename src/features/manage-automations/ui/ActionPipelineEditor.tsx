@@ -19,6 +19,7 @@ import {
 import {
   getEntityDisplayName,
   getEntityFieldDisplayName,
+  getEntityRelationTargetId,
   getEntityTabKindLabel,
   isEntityComputedFieldType,
   isEntityFilesTab,
@@ -204,13 +205,49 @@ function ActionFields({
   ) {
     const target =
       entities.find((entity) => entity.id === action.entityId) ?? null;
+    const sourceLabel = sourceEntity
+      ? getEntityDisplayName(sourceEntity)
+      : "текущей записи";
+    const targetLabel = target
+      ? getEntityDisplayName(target)
+      : "новой записи";
+    const parentLinked =
+      Boolean(target?.parentEntityId) &&
+      target?.parentEntityId === sourceEntity?.id;
+    const linkBackFields = fields.filter((field) => {
+      if (field.type !== "relation" && field.type !== "dependencies") {
+        return false;
+      }
+      if (!target) return true;
+      const targetId = getEntityRelationTargetId(field);
+      return !targetId || targetId === target.id;
+    });
     return (
-      <div className="mt-2 flex flex-col gap-2">
-        <EntitySelect
-          entities={entities}
-          value={action.entityId}
-          onChange={(entityId) => onChange({ ...action, entityId })}
-        />
+      <div className="mt-2 flex flex-col gap-2.5">
+        <div className="flex flex-col gap-1">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            Создать в сущности
+          </p>
+          <EntitySelect
+            entities={entities}
+            value={action.entityId}
+            onChange={(entityId) =>
+              onChange({
+                ...action,
+                entityId,
+                ...(action.kind === "createRecord"
+                  ? { linkBackFieldId: undefined }
+                  : {}),
+              })
+            }
+          />
+          {parentLinked ? (
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              Новая запись автоматически привяжется к текущей «{sourceLabel}»
+              как к родителю
+            </p>
+          ) : null}
+        </div>
         {action.kind === "createRecordsFromMapping" ? (
           <>
             <FieldSelect
@@ -234,14 +271,49 @@ function ActionFields({
             />
           </>
         ) : null}
+        {action.kind === "createRecord" && linkBackFields.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            <p className="text-[11px] font-medium text-muted-foreground">
+              Записать связь обратно в «{sourceLabel}»
+            </p>
+            <Select
+              value={action.linkBackFieldId || "__none__"}
+              onValueChange={(next) => {
+                if (next == null) return;
+                const linkBackFieldId =
+                  String(next) === "__none__" ? undefined : String(next);
+                onChange({ ...action, linkBackFieldId });
+              }}
+            >
+              <SelectTrigger size="sm" className="h-8">
+                <SelectValue>
+                  {(() => {
+                    const selected = linkBackFields.find(
+                      (field) => field.id === action.linkBackFieldId,
+                    );
+                    return selected
+                      ? getEntityFieldDisplayName(selected)
+                      : "Не записывать";
+                  })()}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Не записывать</SelectItem>
+                {linkBackFields.map((field) => (
+                  <SelectItem key={field.id} value={field.id}>
+                    {getEntityFieldDisplayName(field)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         <MappingsEditor
           mappings={action.mappings}
           targetFields={target?.fields ?? []}
-          targetEntityName={target ? getEntityDisplayName(target) : ""}
+          targetEntityName={targetLabel}
           sourceFields={sourceEntity?.fields ?? []}
-          sourceEntityName={
-            sourceEntity ? getEntityDisplayName(sourceEntity) : ""
-          }
+          sourceEntityName={sourceLabel}
           entities={entities}
           onChange={(mappings) => onChange({ ...action, mappings })}
         />
@@ -693,21 +765,23 @@ function MappingsEditor({
     (field) => !isEntityComputedFieldType(field.type) && field.type !== "file",
   );
   const targetLabel = targetEntityName.trim() || "Новая запись";
-  const sourceLabel = sourceEntityName.trim() || "Эта запись";
-  const showFlow =
-    Boolean(sourceEntityName.trim()) && Boolean(targetEntityName.trim());
+  const sourceLabel = sourceEntityName.trim() || "Текущая запись";
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex min-w-0 flex-col gap-0.5">
+    <div className="flex flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-1">
         <p className="text-[11px] font-medium text-muted-foreground">
-          Заполнить поля
+          Заполнить поля новой записи
         </p>
-        {showFlow ? (
-          <p className="truncate text-[10px] leading-snug text-muted-foreground/80">
-            Поле в «{targetLabel}» ← значение из «{sourceLabel}»
-          </p>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/60 bg-muted/25 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+          <span className="font-medium text-foreground/80">Откуда</span>
+          <span className="truncate">«{sourceLabel}»</span>
+          <span className="text-muted-foreground/70" aria-hidden>
+            →
+          </span>
+          <span className="font-medium text-foreground/80">Куда</span>
+          <span className="truncate">«{targetLabel}»</span>
+        </div>
       </div>
       {mappings.map((mapping, index) => {
         const target =
@@ -715,42 +789,54 @@ function MappingsEditor({
         return (
           <div
             key={`${mapping.targetFieldId}-${index}`}
-            className="flex flex-col gap-1.5 rounded-md border border-border/50 p-2"
+            className="flex flex-col gap-2 rounded-md border border-border/60 bg-background p-2.5"
           >
-            <div className="flex items-center gap-1.5">
-              <FieldSelect
-                fields={writable}
-                value={mapping.targetFieldId}
-                placeholder="Поле новой записи"
-                onChange={(targetFieldId) => {
-                  const next = [...mappings];
-                  next[index] = { targetFieldId, source: "" };
-                  onChange(next);
-                }}
-              />
+            <div className="flex items-start gap-1.5">
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                  Куда · поле в «{targetLabel}»
+                </p>
+                <FieldSelect
+                  fields={writable}
+                  value={mapping.targetFieldId}
+                  placeholder="Выберите поле"
+                  onChange={(targetFieldId) => {
+                    const next = [...mappings];
+                    next[index] = { targetFieldId, source: "" };
+                    onChange(next);
+                  }}
+                />
+              </div>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="shrink-0"
+                className="mt-4 shrink-0"
                 aria-label="Удалить маппинг"
-                onClick={() => onChange(mappings.filter((_, i) => i !== index))}
+                onClick={() =>
+                  onChange(mappings.filter((_, i) => i !== index))
+                }
               >
                 <Trash2 className="size-3.5" />
               </Button>
             </div>
-            <ActionValueEditor
-              field={target}
-              value={mapping.source}
-              sourceFields={sourceFields}
-              mapToOtherEntity
-              entities={entities}
-              onChange={(source) => {
-                const next = [...mappings];
-                next[index] = { ...mapping, source };
-                onChange(next);
-              }}
-            />
+            <div className="space-y-1 border-t border-border/50 pt-2">
+              <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                Откуда · значение из «{sourceLabel}»
+              </p>
+              <ActionValueEditor
+                field={target}
+                value={mapping.source}
+                sourceFields={sourceFields}
+                mapToOtherEntity
+                entities={entities}
+                onChange={(source) => {
+                  const next = [...mappings];
+                  next[index] = { ...mapping, source };
+                  onChange(next);
+                }}
+              />
+            </div>
           </div>
         );
       })}

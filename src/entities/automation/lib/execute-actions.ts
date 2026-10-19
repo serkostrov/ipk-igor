@@ -1,13 +1,16 @@
 import {
   addEntityRecord,
+  getEntityParentLinkField,
   parseEntityRelationIds,
   serializeEntityRelationIds,
   updateEntityRecord,
+  waitForEntityRecordInsert,
   type Entity,
   type EntityFieldType,
 } from "@/entities/entity";
 import { createNotification } from "@/entities/notification/api/notifications-api";
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
+import { getErrorMessage } from "@/shared/lib/error-message";
 import type {
   AutomationAction,
   AutomationFieldMapping,
@@ -76,16 +79,65 @@ function applyMappings(
   ctx: AutomationExecutionContext,
   createdRecordIds: string[],
   extra?: Record<string, string>,
+  targetEntity?: Entity | null,
 ): Record<string, string> {
   const result: Record<string, string> = { ...(extra ?? {}) };
   for (const mapping of mappings) {
+    if (!mapping.targetFieldId.trim()) continue;
+    const targetField = targetEntity?.fields.find(
+      (field) => field.id === mapping.targetFieldId,
+    );
     result[mapping.targetFieldId] = resolveTemplateValue(
       mapping.source,
       ctx,
       createdRecordIds,
+      targetField?.type,
+      targetField?.datetimeWithTime !== false,
     );
   }
   return result;
+}
+
+/**
+ * When creating a sub-entity row under the trigger record, link the parent
+ * relation automatically unless the mapping already sets it.
+ */
+function withParentLink(
+  values: Record<string, string>,
+  target: Entity | null | undefined,
+  ctx: AutomationExecutionContext,
+): Record<string, string> {
+  if (!target) return values;
+  if (target.parentEntityId?.trim() !== ctx.triggerEntityId) return values;
+  const parentLink = getEntityParentLinkField(target);
+  if (!parentLink) return values;
+  if (values[parentLink.id]?.trim()) return values;
+  return {
+    ...values,
+    [parentLink.id]: serializeEntityRelationIds([ctx.triggerRecordId]),
+  };
+}
+
+async function createMappedRecord(
+  entityId: string,
+  mappings: AutomationFieldMapping[],
+  ctx: AutomationExecutionContext,
+  createdRecordIds: string[],
+  extra?: Record<string, string>,
+) {
+  const target =
+    ctx.entities.find((entity) => entity.id === entityId) ?? null;
+  const values = withParentLink(
+    applyMappings(mappings, ctx, createdRecordIds, extra, target),
+    target,
+    ctx,
+  );
+  const record = addEntityRecord(entityId, values);
+  if (!record) {
+    throw new Error("Не удалось создать запись");
+  }
+  await waitForEntityRecordInsert(record.id);
+  return record;
 }
 
 function resolveUserIds(
@@ -163,38 +215,42 @@ export async function executeAutomationActions(
           });
           break;
         case "createRecord": {
-          const values = applyMappings(action.mappings, ctx, createdRecordIds);
-          const record = addEntityRecord(action.entityId, values);
-          if (record) {
-            createdRecordIds.push(record.id);
-            if (action.linkBackFieldId) {
-              await updateEntityRecord(
-                ctx.triggerEntityId,
-                ctx.triggerRecordId,
-                {
-                  [action.linkBackFieldId]: serializeEntityRelationIds([
-                    record.id,
-                  ]),
-                },
-              );
-              ctx.values[action.linkBackFieldId] = serializeEntityRelationIds([
-                record.id,
-              ]);
-            }
-            logs.push({
-              kind: "createRecord",
-              entityId: action.entityId,
-              recordId: record.id,
-            });
+          if (!action.entityId.trim()) {
+            throw new Error("Не выбрана сущность для создания записи");
           }
+          const record = await createMappedRecord(
+            action.entityId,
+            action.mappings,
+            ctx,
+            createdRecordIds,
+          );
+          createdRecordIds.push(record.id);
+          if (action.linkBackFieldId) {
+            const linked = serializeEntityRelationIds([record.id]);
+            await updateEntityRecord(
+              ctx.triggerEntityId,
+              ctx.triggerRecordId,
+              { [action.linkBackFieldId]: linked },
+            );
+            ctx.values[action.linkBackFieldId] = linked;
+          }
+          logs.push({
+            kind: "createRecord",
+            entityId: action.entityId,
+            recordId: record.id,
+          });
           break;
         }
         case "createRecordsFromMapping": {
+          if (!action.entityId.trim()) {
+            throw new Error("Не выбрана сущность для создания записей");
+          }
           const fanOut = parseEntityRelationIds(
             ctx.values[action.fanOutFieldId],
           );
           for (const itemId of fanOut) {
-            const values = applyMappings(
+            const record = await createMappedRecord(
+              action.entityId,
               action.mappings,
               ctx,
               createdRecordIds,
@@ -204,15 +260,12 @@ export async function executeAutomationActions(
                 ]),
               },
             );
-            const record = addEntityRecord(action.entityId, values);
-            if (record) {
-              createdRecordIds.push(record.id);
-              logs.push({
-                kind: "createRecordsFromMapping",
-                recordId: record.id,
-                fanOutId: itemId,
-              });
-            }
+            createdRecordIds.push(record.id);
+            logs.push({
+              kind: "createRecordsFromMapping",
+              recordId: record.id,
+              fanOutId: itemId,
+            });
           }
           break;
         }
@@ -226,7 +279,13 @@ export async function executeAutomationActions(
           );
           for (const record of target.records) {
             if (!linkIds.has(record.id)) continue;
-            const patch = applyMappings(action.mappings, ctx, createdRecordIds);
+            const patch = applyMappings(
+              action.mappings,
+              ctx,
+              createdRecordIds,
+              undefined,
+              target,
+            );
             await updateEntityRecord(action.entityId, record.id, patch);
             logs.push({ kind: "updateRecords", recordId: record.id });
           }
@@ -247,7 +306,15 @@ export async function executeAutomationActions(
             );
             if (linked) targetEntityId = linked.id;
           }
-          const patch = applyMappings(action.mappings, ctx, createdRecordIds);
+          const targetEntity =
+            ctx.entities.find((entity) => entity.id === targetEntityId) ?? null;
+          const patch = applyMappings(
+            action.mappings,
+            ctx,
+            createdRecordIds,
+            undefined,
+            targetEntity,
+          );
           await updateEntityRecord(targetEntityId, targetRecordId, patch);
           logs.push({ kind: "copyFields", recordId: targetRecordId });
           break;
@@ -378,10 +445,10 @@ export async function executeAutomationActions(
           break;
       }
     } catch (error: unknown) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Ошибка действия автоматизации";
+      const message = getErrorMessage(
+        error,
+        "Ошибка действия автоматизации",
+      );
       errors.push(message);
       logs.push({ kind: action.kind, error: message });
     }
