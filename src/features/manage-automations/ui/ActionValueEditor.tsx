@@ -18,6 +18,7 @@ import {
   getEntityRelationTargetId,
   getRelationRecordOptions,
   isEntityComputedFieldType,
+  isEntityRelationLikeFieldType,
   ListSelect,
   normalizeEntityDecimalInput,
   RelationSelect,
@@ -182,7 +183,7 @@ function SourceFieldSelect({
   const optionLabel = (field: EntityField) => {
     const name = getEntityFieldDisplayName(field);
     if (entitySuffix) return `${name} · ${entitySuffix}`;
-    if (field.type === "relation") {
+    if (isEntityRelationLikeFieldType(field.type)) {
       const targetId = getEntityRelationTargetId(field);
       if (targetId === SYSTEM_USERS_ENTITY_ID) return `${name} · пользователь`;
     }
@@ -245,9 +246,9 @@ function compatibleNestedFields(
     if (target.type === "time") {
       return item.type === "time" || item.type === "text";
     }
-    if (target.type === "relation") {
+    if (isEntityRelationLikeFieldType(target.type)) {
       if (item.type === "text" || item.type === "dependencies") return true;
-      if (item.type !== "relation") return false;
+      if (!isEntityRelationLikeFieldType(item.type)) return false;
       const targetId = getEntityRelationTargetId(target);
       const itemTarget = getEntityRelationTargetId(item);
       return !targetId || !itemTarget || targetId === itemTarget;
@@ -300,7 +301,7 @@ function FromEntitySelects({
   const relationFields = sourceFields.filter(
     (field) =>
       (mapToOtherEntity || field.id !== targetField.id) &&
-      field.type === "relation" &&
+      isEntityRelationLikeFieldType(field.type) &&
       Boolean(getEntityRelationTargetId(field)),
   );
   const relationFieldId = path?.relationFieldId ?? "";
@@ -773,7 +774,7 @@ function ActionValueEditorBody({
     );
   }
 
-  if (field.type === "relation") {
+  if (isEntityRelationLikeFieldType(field.type)) {
     const targetId = getEntityRelationTargetId(field);
     const target = entities.find((entity) => entity.id === targetId) ?? null;
     const isUsers = targetId === SYSTEM_USERS_ENTITY_ID;

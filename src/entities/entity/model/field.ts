@@ -17,6 +17,7 @@ export type EntityFieldType =
   | "url"
   | "list"
   | "relation"
+  | "template"
   | "dependencies"
   | "file"
   | "formula"
@@ -38,6 +39,7 @@ export const ENTITY_FIELD_TYPE_OPTIONS: Array<{
   { value: "url", label: "Ссылка" },
   { value: "list", label: "Список" },
   { value: "relation", label: "Связь" },
+  { value: "template", label: "По шаблону" },
   { value: "file", label: "Файлы" },
   { value: "dependencies", label: "Предшественники" },
   { value: "formula", label: "Формула" },
@@ -65,9 +67,17 @@ export const ENTITY_FIELD_TYPE_GROUPS: Array<{
       "file",
     ],
   },
-  { label: "Списки и связи", types: ["list", "relation", "dependencies"] },
+  {
+    label: "Списки и связи",
+    types: ["list", "relation", "template", "dependencies"],
+  },
   { label: "Вычисляемые", types: ["formula", "rollup", "lookup"] },
 ];
+
+/** Stored as relation ids (`relation` or `template`). */
+export function isEntityRelationLikeFieldType(type: EntityFieldType) {
+  return type === "relation" || type === "template";
+}
 
 /** Read-only types whose value is derived from other data. */
 export function isEntityComputedFieldType(type: EntityFieldType) {
@@ -222,7 +232,7 @@ export function getEntityRelationTargetId(field: {
   type: EntityFieldType;
   relationEntityId?: string | null;
 }) {
-  if (field.type !== "relation") return null;
+  if (!isEntityRelationLikeFieldType(field.type)) return null;
   const id =
     typeof field.relationEntityId === "string"
       ? field.relationEntityId.trim()

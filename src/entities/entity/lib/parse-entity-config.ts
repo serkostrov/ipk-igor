@@ -2,6 +2,7 @@ import { normalizeEntityConditions } from "../model/condition";
 import { defaultEntityConfig } from "../model/defaults";
 import {
   isEntityComputedFieldType,
+  isEntityRelationLikeFieldType,
   isEntityUnitFieldType,
 } from "../model/field";
 import type {
@@ -16,6 +17,7 @@ import type {
   EntityFormulaConfig,
   EntityListOption,
   EntityLookupConfig,
+  EntityTemplateConfig,
   EntityNumberDecimals,
   EntityNumberSignColor,
   EntityRecord,
@@ -184,6 +186,16 @@ function normalizeLookupConfig(value: unknown): EntityLookupConfig | undefined {
   return { relationFieldId, targetFieldId };
 }
 
+function normalizeTemplateConfig(
+  value: unknown,
+): EntityTemplateConfig | undefined {
+  if (!isRecord(value)) return undefined;
+  const bridgeFieldId = normalizeId(value.bridgeFieldId);
+  const sourceFieldId = normalizeId(value.sourceFieldId);
+  if (!bridgeFieldId || !sourceFieldId) return undefined;
+  return { bridgeFieldId, sourceFieldId };
+}
+
 function normalizeDependenciesConfig(value: unknown): EntityDependenciesConfig {
   return {
     sameFieldId: isRecord(value) ? normalizeId(value.sameFieldId) : null,
@@ -202,7 +214,9 @@ function normalizeDefaultValue(
     return type === "datetime" || type === "time" ? { kind: "now" } : undefined;
   }
   if (value.kind === "currentUser") {
-    return type === "relation" ? { kind: "currentUser" } : undefined;
+    return isEntityRelationLikeFieldType(type)
+      ? { kind: "currentUser" }
+      : undefined;
   }
   if (
     value.kind === "value" &&
@@ -333,13 +347,14 @@ export function normalizeEntityField(field: EntityField): EntityField {
   const systemKey = normalizeSystemKey(field.systemKey);
   const type = field.type;
   const relationEntityId =
-    type === "relation" &&
+    isEntityRelationLikeFieldType(type) &&
     typeof field.relationEntityId === "string" &&
     field.relationEntityId.trim().length > 0
       ? field.relationEntityId.trim()
       : null;
-  const relationMultiple =
-    type === "relation" ? Boolean(field.relationMultiple) : false;
+  const relationMultiple = isEntityRelationLikeFieldType(type)
+    ? Boolean(field.relationMultiple)
+    : false;
   const unitSuffix = isEntityUnitFieldType(type)
     ? normalizeEntityUnitSuffix(field.unitSuffix)
     : null;
@@ -416,6 +431,8 @@ export function normalizeEntityField(field: EntityField): EntityField {
       type === "formula" ? normalizeFormulaConfig(field.formula) : undefined,
     rollup: type === "rollup" ? normalizeRollupConfig(field.rollup) : undefined,
     lookup: type === "lookup" ? normalizeLookupConfig(field.lookup) : undefined,
+    template:
+      type === "template" ? normalizeTemplateConfig(field.template) : undefined,
     dependencies:
       type === "dependencies"
         ? normalizeDependenciesConfig(field.dependencies)
@@ -471,6 +488,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     formula: undefined,
     rollup: undefined,
     lookup: undefined,
+    template: undefined,
     dependencies: undefined,
     defaultValue: undefined,
     relationFilter: undefined,
@@ -575,6 +593,7 @@ function parseField(value: unknown): EntityField | null {
     formula: normalizeFormulaConfig(value.formula),
     rollup: normalizeRollupConfig(value.rollup),
     lookup: normalizeLookupConfig(value.lookup),
+    template: normalizeTemplateConfig(value.template),
     dependencies: normalizeDependenciesConfig(value.dependencies),
     defaultValue: normalizeDefaultValue(
       value.defaultValue,

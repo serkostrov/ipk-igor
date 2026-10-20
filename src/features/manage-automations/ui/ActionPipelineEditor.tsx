@@ -254,7 +254,9 @@ function ActionFields({
             <FieldSelect
               fields={fields.filter(
                 (field) =>
-                  field.type === "relation" || field.type === "dependencies",
+                  field.type === "relation" ||
+                  field.type === "template" ||
+                  field.type === "dependencies",
               )}
               value={action.fanOutFieldId}
               placeholder="Поле со списком записей"
@@ -513,7 +515,9 @@ function ActionFields({
         <FieldSelect
           fields={fields.filter(
             (field) =>
-              field.type === "relation" || field.type === "dependencies",
+              field.type === "relation" ||
+              field.type === "template" ||
+              field.type === "dependencies",
           )}
           value={action.fieldId}
           placeholder="Поле связи"
@@ -652,7 +656,7 @@ function fieldMappingTypeHint(
   field: EntityField,
   entities: Entity[] = [],
 ): string {
-  if (field.type === "relation") {
+  if (field.type === "relation" || field.type === "template") {
     const targetId = getEntityRelationTargetId(field);
     if (targetId === SYSTEM_USERS_ENTITY_ID) return "Пользователь";
     const target = entities.find((item) => item.id === targetId);
@@ -674,12 +678,12 @@ function sortFieldsForMapping(
 ): EntityField[] {
   return [...fields].sort((left, right) => {
     const leftUsers =
-      left.type === "relation" &&
+      (left.type === "relation" || left.type === "template") &&
       getEntityRelationTargetId(left) === SYSTEM_USERS_ENTITY_ID
         ? 0
         : 1;
     const rightUsers =
-      right.type === "relation" &&
+      (right.type === "relation" || right.type === "template") &&
       getEntityRelationTargetId(right) === SYSTEM_USERS_ENTITY_ID
         ? 0
         : 1;
@@ -1018,12 +1022,15 @@ function fieldsCompatibleForAutoMap(
   if (isEntityComputedFieldType(source.type) || source.type === "file") {
     return false;
   }
+  if (
+    (target.type === "relation" || target.type === "template") &&
+    (source.type === "relation" || source.type === "template")
+  ) {
+    const targetId = getEntityRelationTargetId(target);
+    const sourceId = getEntityRelationTargetId(source);
+    return !targetId || !sourceId || targetId === sourceId;
+  }
   if (target.type === source.type) {
-    if (target.type === "relation") {
-      const targetId = getEntityRelationTargetId(target);
-      const sourceId = getEntityRelationTargetId(source);
-      return !targetId || !sourceId || targetId === sourceId;
-    }
     return true;
   }
   if (

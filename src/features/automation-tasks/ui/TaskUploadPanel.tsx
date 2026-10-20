@@ -274,10 +274,7 @@ export function TaskUploadPanel({
                       {entry.name}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {[
-                        nested ? relativePath : null,
-                        sizeLabel || null,
-                      ]
+                      {[nested ? relativePath : null, sizeLabel || null]
                         .filter(Boolean)
                         .join(" · ") || "Файл"}
                     </span>

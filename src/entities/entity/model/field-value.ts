@@ -18,6 +18,7 @@ import {
   getEntityRelationTargetId,
   isEntityComputedFieldType,
   isEntityListOtherValue,
+  isEntityRelationLikeFieldType,
   normalizeEntitySumFieldIds,
   parseEntityDecimal,
   parseEntityDependencies,
@@ -297,6 +298,7 @@ export function getEntityFieldValueKind(
     case "list":
       return "list";
     case "relation":
+    case "template":
       return "relation";
     case "boolean":
       return "boolean";
@@ -443,7 +445,7 @@ export function getRecordFieldIds(
   if (field.type === "list") {
     return parseEntityListValueIds(record.values[field.id]);
   }
-  if (field.type === "relation") {
+  if (isEntityRelationLikeFieldType(field.type)) {
     return parseEntityRelationIds(record.values[field.id]);
   }
   if (field.type === "lookup") {
@@ -496,7 +498,8 @@ export function getRecordFieldFormulaValue(
       )[0];
       return option?.name ?? null;
     }
-    case "relation": {
+    case "relation":
+    case "template": {
       const id = parseEntityRelationIds(record.values[field.id])[0];
       return id ? getRelationLabel(ctx, field, id) : null;
     }
@@ -741,7 +744,8 @@ export function formatRecordFieldValue(
         record.values[field.id],
         ctx.entities,
       );
-    case "relation": {
+    case "relation":
+    case "template": {
       const target = ctx.entityById.get(getEntityRelationTargetId(field) ?? "");
       return resolveRelationRecordLabel(target, record.values[field.id]) ?? "—";
     }
@@ -1134,9 +1138,154 @@ export function getRelationFieldOptions(
 }
 
 /**
- * Copy relation ids from a lookup (e.g. «Отдел» → Users.Руководитель) into the
- * single sibling relation field that targets the same entity (e.g.
- * «Руководители отделов»). Used by create forms and automation task fills.
+ * Option ids for a `template` field: values of `sourceField` on the record(s)
+ * selected in `bridgeField` (e.g. Stage.Departments via Lead.Stage).
+ */
+export function getTemplateSourceIds(
+  ctx: EntityValueContext,
+  entity: Entity,
+  values: Record<string, string | undefined>,
+  field: EntityField,
+): string[] {
+  const config = field.template;
+  if (field.type !== "template" || !config) return [];
+  const bridge = findField(entity, config.bridgeFieldId);
+  if (!bridge || bridge.type !== "relation") return [];
+  const bridgeTarget = ctx.entityById.get(
+    getEntityRelationTargetId(bridge) ?? "",
+  );
+  if (!bridgeTarget) return [];
+  const source = findField(bridgeTarget, config.sourceFieldId);
+  if (!source) return [];
+  const bridgeIds = parseEntityRelationIds(values[bridge.id]);
+  if (bridgeIds.length === 0) return [];
+
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const bridgeId of bridgeIds) {
+    const related = bridgeTarget.records.find((item) => item.id === bridgeId);
+    if (!related) continue;
+    for (const id of getRecordFieldIds(ctx, bridgeTarget, related, source)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/** Picker options for a `template` field (labels from the target entity). */
+export function getTemplateFieldOptions(
+  ctx: EntityValueContext,
+  entity: Entity,
+  values: Record<string, string | undefined>,
+  field: EntityField,
+): RelationRecordOption[] {
+  if (field.type !== "template") return [];
+  const target = ctx.entityById.get(getEntityRelationTargetId(field) ?? "");
+  if (!target) return [];
+  const nameField = target.fields.find((item) => isEntityNameField(item));
+  const allowed = getTemplateSourceIds(ctx, entity, values, field);
+  return allowed.map((id) => {
+    const related = target.records.find((item) => item.id === id);
+    const label = nameField ? (related?.values[nameField.id] ?? "").trim() : "";
+    return {
+      id,
+      label: label || "Без названия",
+    };
+  });
+}
+
+/**
+ * Soft-fill `template` fields from their bridge (stage → departments).
+ * Additive on bridge change; seeds empty destinations on form open.
+ */
+function syncTemplateFields(
+  entity: Entity,
+  values: Record<string, string>,
+  entities: readonly Entity[],
+  changedFieldId: string | null,
+): Record<string, string> {
+  const templates = entity.fields.filter((field) => {
+    if (field.type !== "template" || !field.template) return false;
+    if (changedFieldId && field.template.bridgeFieldId !== changedFieldId) {
+      return false;
+    }
+    return true;
+  });
+  if (templates.length === 0) return values;
+
+  const ctx = getEntityValueContext(entities);
+  let next = values;
+
+  for (const field of templates) {
+    const fromTemplate = getTemplateSourceIds(ctx, entity, next, field);
+    if (fromTemplate.length === 0) continue;
+
+    const existing = parseEntityRelationIds(next[field.id]);
+    if (changedFieldId == null && existing.length > 0) continue;
+
+    let merged: string[];
+    if (!field.relationMultiple) {
+      if (existing.length > 0) continue;
+      merged = fromTemplate.slice(0, 1);
+    } else {
+      const seen = new Set(existing);
+      merged = [...existing];
+      for (const id of fromTemplate) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        merged.push(id);
+      }
+    }
+
+    const serialized = serializeEntityRelationIds(merged);
+    if ((next[field.id] ?? "") === serialized) continue;
+    if (next === values) next = { ...values };
+    next[field.id] = serialized;
+  }
+
+  return next;
+}
+
+/** Drop template values that are no longer in the bridge template. */
+function sanitizeTemplateFieldValues(
+  entity: Entity,
+  values: Record<string, string>,
+  entities: readonly Entity[],
+  changedFieldId?: string,
+): Record<string, string> {
+  const templates = entity.fields.filter((field) => {
+    if (field.type !== "template" || !field.template) return false;
+    // Editing the template field itself — keep the user's pick.
+    if (changedFieldId && field.id === changedFieldId) return false;
+    // A specific other field changed — only if it is this template's bridge.
+    if (changedFieldId && field.template.bridgeFieldId !== changedFieldId) {
+      return false;
+    }
+    return true;
+  });
+  if (templates.length === 0) return values;
+
+  const ctx = getEntityValueContext(entities);
+  let next = values;
+  for (const field of templates) {
+    const allowed = new Set(getTemplateSourceIds(ctx, entity, next, field));
+    const kept = parseEntityRelationIds(next[field.id]).filter((id) =>
+      allowed.has(id),
+    );
+    const serialized = serializeEntityRelationIds(kept);
+    if ((next[field.id] ?? "") === serialized) continue;
+    if (next === values) next = { ...values };
+    next[field.id] = serialized;
+  }
+  return next;
+}
+
+/**
+ * Soft-fill a sibling relation from a lookup (e.g. «Отдел» → Users.Руководитель
+ * → «Руководители»). Prefills / adds ids from the lookup; never wipes values the
+ * user already chose — they can keep editing and add more.
  */
 function syncRelationsFromLookups(
   entity: Entity,
@@ -1196,14 +1345,31 @@ function syncRelationsFromLookups(
             : [];
     if (pool.length !== 1) continue;
     const dest = pool[0]!;
-    const ids = getRecordFieldIds(ctx, entity, record, lookup);
-    const limited = dest.relationMultiple ? ids : ids.slice(0, 1);
-    const serialized = serializeEntityRelationIds(limited);
-    if ((next[dest.id] ?? "") === serialized) continue;
-    // On form open only fill empty destinations; on bridge change always sync.
-    if (changedFieldId == null && (next[dest.id] ?? "").trim().length > 0) {
-      continue;
+    const fromLookup = getRecordFieldIds(ctx, entity, record, lookup);
+    if (fromLookup.length === 0) continue;
+
+    const existing = parseEntityRelationIds(next[dest.id]);
+    // Form open / sanitize: only seed empty destinations.
+    if (changedFieldId == null && existing.length > 0) continue;
+
+    let merged: string[];
+    if (!dest.relationMultiple) {
+      // Single: keep an existing pick; otherwise take the first lookup id.
+      if (existing.length > 0) continue;
+      merged = fromLookup.slice(0, 1);
+    } else {
+      // Multiple: union — lookup suggests, user can add more or remove.
+      const seen = new Set(existing);
+      merged = [...existing];
+      for (const id of fromLookup) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        merged.push(id);
+      }
     }
+
+    const serialized = serializeEntityRelationIds(merged);
+    if ((next[dest.id] ?? "") === serialized) continue;
     if (next === values) next = { ...values };
     next[dest.id] = serialized;
   }
@@ -1214,7 +1380,7 @@ function syncRelationsFromLookups(
 /**
  * Set a field value and clear dependent values that became invalid:
  * child lists filtered by this field and relations filtered by it.
- * Also mirrors lookup→relation autofill (department → managers).
+ * Also soft-fills lookup→relation and template fields (additive).
  */
 export function applyEntityFieldValue(
   entity: Entity,
@@ -1250,9 +1416,17 @@ export function applyEntityFieldValue(
     entities,
     fieldId,
   );
-  return mirrored === sanitized
-    ? sanitized
-    : sanitizeDependentRelationValues(entity, mirrored, entities);
+  const afterLookup =
+    mirrored === sanitized
+      ? sanitized
+      : sanitizeDependentRelationValues(entity, mirrored, entities);
+  const withTemplates = syncTemplateFields(
+    entity,
+    afterLookup,
+    entities,
+    fieldId,
+  );
+  return sanitizeTemplateFieldValues(entity, withTemplates, entities, fieldId);
 }
 
 /** Drop relation values that no longer match filters / nested parent scope. */
@@ -1304,7 +1478,7 @@ function sanitizeDependentRelationValues(
   return next;
 }
 
-/** Align relation values with nested parent scope (e.g. on form open). */
+/** Align relation / template values with parent scope (e.g. on form open). */
 export function sanitizeEntityRelationDependencies(
   entity: Entity,
   values: Record<string, string>,
@@ -1312,9 +1486,12 @@ export function sanitizeEntityRelationDependencies(
 ): Record<string, string> {
   const sanitized = sanitizeDependentRelationValues(entity, values, entities);
   const mirrored = syncRelationsFromLookups(entity, sanitized, entities, null);
-  return mirrored === sanitized
-    ? sanitized
-    : sanitizeDependentRelationValues(entity, mirrored, entities);
+  const afterLookup =
+    mirrored === sanitized
+      ? sanitized
+      : sanitizeDependentRelationValues(entity, mirrored, entities);
+  const withTemplates = syncTemplateFields(entity, afterLookup, entities, null);
+  return sanitizeTemplateFieldValues(entity, withTemplates, entities);
 }
 
 /** Stored default for a new record (`null` — no default). */
@@ -1333,7 +1510,7 @@ export function resolveEntityFieldDefaultValue(
         ? `${todayIsoDate()}T${nowTimeHHmm()}`
         : null;
     case "currentUser":
-      return field.type === "relation" && currentUserRecordId
+      return isEntityRelationLikeFieldType(field.type) && currentUserRecordId
         ? serializeEntityRelationIds([currentUserRecordId])
         : null;
     case "value":

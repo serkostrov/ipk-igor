@@ -10,6 +10,7 @@ import {
   type EntityFieldDefaultValue,
   type EntityFieldType,
   type EntityLookupConfig,
+  type EntityTemplateConfig,
   type EntityNumberDecimals,
   type EntityNumberSignColor,
   type EntityRelationFilter,
@@ -23,6 +24,7 @@ export type EntityFieldTypeSettings = Pick<
   | "formula"
   | "rollup"
   | "lookup"
+  | "template"
   | "dependencies"
   | "defaultValue"
   | "relationFilter"
@@ -38,6 +40,7 @@ export type FieldTypeSettingsDraft = {
   formulaDecimals: EntityNumberDecimals;
   rollup: EntityRollupConfig | null;
   lookup: EntityLookupConfig | null;
+  template: EntityTemplateConfig | null;
   dependencies: EntityDependenciesConfig;
   defaultValue: EntityFieldDefaultValue | null;
   relationFilter: EntityRelationFilter | null;
@@ -70,19 +73,21 @@ export function canShowFieldAsProgress(type: EntityFieldType) {
   return PROGRESS_TYPES.has(type);
 }
 
-/** Relations default only to the current user; lists need saved options. */
+/** Lists need saved options; relations need a target entity. */
 export function canHaveDefaultValue(
   type: EntityFieldType,
   {
-    relationToUsers,
     hasListOptions,
+    hasRelationTarget,
   }: {
-    relationToUsers: boolean;
+    /** @deprecated kept for call-site compat; ignored. */
+    relationToUsers?: boolean;
     hasListOptions: boolean;
+    hasRelationTarget?: boolean;
   },
 ) {
   if (!DEFAULT_VALUE_TYPES.has(type)) return false;
-  if (type === "relation") return relationToUsers;
+  if (type === "relation") return Boolean(hasRelationTarget);
   if (type === "list") return hasListOptions;
   return true;
 }
@@ -108,6 +113,7 @@ export function createFieldTypeSettingsDraft(
     formulaDecimals: field?.formula?.decimals ?? 2,
     rollup: field?.rollup ?? null,
     lookup: field?.lookup ?? null,
+    template: field?.template ?? null,
     dependencies: field?.dependencies ?? { sameFieldId: null },
     defaultValue: field?.defaultValue ?? null,
     relationFilter: field?.relationFilter ?? null,
@@ -154,6 +160,12 @@ export function getFieldTypeSettingsError(
   ) {
     return "Выберите связь и поле";
   }
+  if (
+    type === "template" &&
+    (!draft.template?.bridgeFieldId || !draft.template.sourceFieldId)
+  ) {
+    return "Выберите связь и поле шаблона";
+  }
   return null;
 }
 
@@ -172,6 +184,7 @@ export function resolveFieldTypeSettings(
       : undefined,
     rollup: type === "rollup" ? (draft.rollup ?? undefined) : undefined,
     lookup: type === "lookup" ? (draft.lookup ?? undefined) : undefined,
+    template: type === "template" ? (draft.template ?? undefined) : undefined,
     dependencies: type === "dependencies" ? draft.dependencies : undefined,
     defaultValue: draft.defaultValue ?? undefined,
     relationFilter:

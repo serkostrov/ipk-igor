@@ -16,8 +16,10 @@ import {
   getRelationFieldOptions,
   getRelationNestedParentField,
   getRelationRecordOptions,
+  getTemplateFieldOptions,
   isEntityComputedFieldType,
   isEntityNameField,
+  isEntityRelationLikeFieldType,
   isValidEntityEmail,
   normalizeEntityDecimalInput,
   normalizeEntityPhoneValue,
@@ -159,17 +161,30 @@ export function RecordFieldControl({
   const target = targetId
     ? (entities.find((item) => item.id === targetId) ?? null)
     : null;
-  const relationUnavailable = field.type === "relation" && !target;
+  const relationUnavailable =
+    isEntityRelationLikeFieldType(field.type) && !target;
   const nestedParentField =
     field.type === "relation"
       ? getRelationNestedParentField(entity, field, entities)
       : null;
+  const templateBridgeField =
+    field.type === "template" && field.template
+      ? (entity.fields.find(
+          (item) => item.id === field.template!.bridgeFieldId,
+        ) ?? null)
+      : null;
+  const templateBridgeEmpty =
+    templateBridgeField != null &&
+    parseEntityRelationIds(values[templateBridgeField.id]).length === 0;
   const relationParentEmpty =
-    nestedParentField != null &&
-    parseEntityRelationIds(values[nestedParentField.id]).length === 0;
-  const relationDisabledHint = nestedParentField
-    ? `Сначала выберите «${getEntityFieldDisplayName(nestedParentField)}»`
-    : undefined;
+    (nestedParentField != null &&
+      parseEntityRelationIds(values[nestedParentField.id]).length === 0) ||
+    templateBridgeEmpty;
+  const relationDisabledHint = templateBridgeField
+    ? `Сначала выберите «${getEntityFieldDisplayName(templateBridgeField)}»`
+    : nestedParentField
+      ? `Сначала выберите «${getEntityFieldDisplayName(nestedParentField)}»`
+      : undefined;
 
   const labelNode = (
     <Label htmlFor={id}>
@@ -284,7 +299,19 @@ export function RecordFieldControl({
     );
   }
 
-  if (field.type === "relation") {
+  if (field.type === "relation" || field.type === "template") {
+    const options =
+      field.type === "template"
+        ? getTemplateFieldOptions(ctx, entity, values, field)
+        : getRelationControlOptions(
+            ctx,
+            entity,
+            field,
+            values,
+            recordId,
+            target,
+            entities,
+          );
     return (
       <div className="flex flex-col gap-2">
         {labelNode}
@@ -302,15 +329,7 @@ export function RecordFieldControl({
         ) : (
           <RelationSelect
             id={id}
-            options={getRelationControlOptions(
-              ctx,
-              entity,
-              field,
-              values,
-              recordId,
-              target,
-              entities,
-            )}
+            options={options}
             value={relationParentEmpty ? "" : value}
             multiple={field.relationMultiple}
             disabled={relationParentEmpty}

@@ -43,6 +43,7 @@ import {
   isEntityUnitFieldType,
   isSystemEntityField,
   normalizeEntitySumFieldIds,
+  getRelationRecordOptions,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
   SYSTEM_ENTITY_KEY_USERS,
@@ -71,6 +72,7 @@ import { DefaultValueSettings } from "./DefaultValueSettings";
 import { FormulaSettings } from "./FormulaSettings";
 import { LookupSettings } from "./LookupSettings";
 import { RelationFilterSettings } from "./RelationFilterSettings";
+import { TemplateSettings } from "./TemplateSettings";
 import {
   RollupCalculationSettings,
   RollupConditionsSettings,
@@ -1117,7 +1119,7 @@ function buildEntityFieldFormData({
   const columnTotal = Math.max(1, tableColumnCount);
   const minPosition = Math.min(tablePositionMin, columnTotal);
   const resolvedRelationEntityId =
-    resolvedType === "relation"
+    resolvedType === "relation" || resolvedType === "template"
       ? relationBindingLocked
         ? (field?.relationEntityId ?? (relationEntityId.trim() || null))
         : relationEntityId.trim() || null
@@ -1136,7 +1138,7 @@ function buildEntityFieldFormData({
     tablePosition: Math.min(columnTotal, Math.max(minPosition, tablePosition)),
     relationEntityId: resolvedRelationEntityId,
     relationMultiple:
-      resolvedType === "relation"
+      resolvedType === "relation" || resolvedType === "template"
         ? relationBindingLocked
           ? Boolean(field?.relationMultiple)
           : relationMultiple
@@ -1326,7 +1328,7 @@ function EntityFieldForm({
   const effectiveType: EntityFieldType =
     isNumberType && useAsSum ? "numberSum" : type;
   const relationTarget =
-    type === "relation"
+    type === "relation" || type === "template"
       ? (entities.find((item) => item.id === relationEntityId) ?? null)
       : null;
   const listDefaultOptions =
@@ -1338,12 +1340,18 @@ function EntityFieldForm({
     field?.type === "list"
       ? resolveEntityListFieldPresentation(field, entities)
       : null;
+  const relationToUsers = relationTarget?.systemKey === SYSTEM_ENTITY_KEY_USERS;
+  const relationDefaultOptions = useMemo(
+    () => (relationTarget ? getRelationRecordOptions(relationTarget) : []),
+    [relationTarget],
+  );
   const showDefaultValue =
     !systemBindingLocked &&
     !relationBindingLocked &&
     canHaveDefaultValue(effectiveType, {
-      relationToUsers: relationTarget?.systemKey === SYSTEM_ENTITY_KEY_USERS,
+      relationToUsers,
       hasListOptions: listDefaultOptions.length > 0,
+      hasRelationTarget: Boolean(relationTarget),
     });
   const dependencyScopeOptions = (currentEntity?.fields ?? [])
     .filter(
@@ -1356,7 +1364,8 @@ function EntityFieldForm({
       label: getEntityFieldDisplayName(item),
     }));
   const canSubmit =
-    (type !== "relation" || relationEntityId.trim().length > 0) &&
+    ((type !== "relation" && type !== "template") ||
+      relationEntityId.trim().length > 0) &&
     !(isNumberType && useAsSum && sumFieldIds.length === 0) &&
     !(
       isEntityUnitFieldType(effectiveType) &&
@@ -1470,7 +1479,7 @@ function EntityFieldForm({
       setUseUnit(false);
       setUnitSuffix("");
     }
-    if (resolved !== "relation") {
+    if (resolved !== "relation" && resolved !== "template") {
       setRelationEntityId("");
       setRelationMultiple(false);
     }
@@ -1487,6 +1496,20 @@ function EntityFieldForm({
       if (!relationEntityId && entityOptions.length === 1) {
         setRelationEntityId(entityOptions[0]!.id);
       }
+    }
+    if (resolved === "template") {
+      setRelationMultiple(true);
+      patchTypeSettings({
+        template: typeSettings.template ?? {
+          bridgeFieldId: "",
+          sourceFieldId: "",
+        },
+        defaultValue: null,
+        relationFilter: null,
+      });
+    }
+    if (resolved !== "template") {
+      patchTypeSettings({ template: null });
     }
   }
 
@@ -1614,14 +1637,16 @@ function EntityFieldForm({
                     onChange={handleRelationEntityChange}
                   />
                 ) : null}
-                {type === "relation" ? (
+                {type === "relation" || type === "template" ? (
                   <RelationMultipleControl
                     multiple={relationMultiple}
                     disabled={relationBindingLocked}
                     onMultipleChange={setRelationMultiple}
                   />
                 ) : null}
-                {relationTarget && !relationBindingLocked ? (
+                {type === "relation" &&
+                relationTarget &&
+                !relationBindingLocked ? (
                   <RelationFilterSettings
                     entity={currentEntity}
                     fieldId={field?.id ?? null}
@@ -1631,6 +1656,19 @@ function EntityFieldForm({
                     onChange={(relationFilter) =>
                       patchTypeSettings({ relationFilter })
                     }
+                  />
+                ) : null}
+                {type === "template" ? (
+                  <TemplateSettings
+                    entity={currentEntity}
+                    entities={entities}
+                    fieldId={field?.id ?? null}
+                    value={typeSettings.template}
+                    onChange={(template) => patchTypeSettings({ template })}
+                    onTargetEntityIdChange={(entityId) => {
+                      setRelationEntityId(entityId ?? "");
+                      patchTypeSettings({ defaultValue: null });
+                    }}
                   />
                 ) : null}
                 {type === "formula" ? (
@@ -1811,9 +1849,18 @@ function EntityFieldForm({
                     type={effectiveType}
                     datetimeWithTime={datetimeWithTime}
                     listOptions={listDefaultOptions}
-                    listMultiple={listPresentation?.listMultiple ?? false}
+                    listMultiple={
+                      effectiveType === "list"
+                        ? (listPresentation?.listMultiple ??
+                          field?.listMultiple ??
+                          false)
+                        : false
+                    }
                     listAllowOther={field?.listAllowOther ?? false}
                     listUseColors={listPresentation?.listUseColors ?? false}
+                    relationOptions={relationDefaultOptions}
+                    relationMultiple={relationMultiple}
+                    relationToUsers={relationToUsers}
                     value={typeSettings.defaultValue}
                     onChange={(defaultValue) =>
                       patchTypeSettings({ defaultValue })

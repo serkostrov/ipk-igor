@@ -1457,7 +1457,7 @@ function FieldCardMeta({
       ? listFromEntity
         ? null
         : `${typeLabel} · Новый${listFixedHint ? ` · ${listFixedHint}` : ""}`
-      : field.type === "relation"
+      : field.type === "relation" || field.type === "template"
         ? null
         : typeLabel;
 
@@ -1499,16 +1499,26 @@ function FieldCardMeta({
         )}
       >
         {nameDuplicatesGroup ? statusBadges : null}
-        {field.type === "relation" ? (
+        {field.type === "relation" || field.type === "template" ? (
           <FieldLinkBadge
             kind={isTabLink ? "tab" : "relation"}
-            label={relationTargetLabel ?? "Сущность не выбрана"}
+            label={
+              field.type === "template"
+                ? relationTargetLabel
+                  ? `По шаблону · ${relationTargetLabel}`
+                  : "По шаблону"
+                : (relationTargetLabel ?? "Сущность не выбрана")
+            }
             title={
               isTabLink
                 ? `Создано для связи вкладки с «${relationTargetLabel ?? "сущностью"}» — нельзя удалить или сменить цель`
-                : relationTargetLabel
-                  ? `Поле связи с «${relationTargetLabel}»`
-                  : "Выберите сущность для связи"
+                : field.type === "template"
+                  ? relationTargetLabel
+                    ? `Варианты из шаблона «${relationTargetLabel}»`
+                    : "Настройте связь и поле шаблона"
+                  : relationTargetLabel
+                    ? `Поле связи с «${relationTargetLabel}»`
+                    : "Выберите сущность для связи"
             }
           />
         ) : listFromEntity ? (

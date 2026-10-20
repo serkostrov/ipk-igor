@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { GitBranch, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -84,7 +84,9 @@ export function OutcomeRouteBranchesEditor({
   const branches = normalizeBranches(outcomes);
   /** Latest branches for sync multi-patches (actions + fieldAccess). */
   const branchesRef = useRef(branches);
-  branchesRef.current = branches;
+  useEffect(() => {
+    branchesRef.current = branches;
+  }, [branches]);
 
   function commit(next: AutomationOutcome[]) {
     const normalized = normalizeBranches(next);

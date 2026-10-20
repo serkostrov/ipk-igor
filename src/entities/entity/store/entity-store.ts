@@ -713,13 +713,18 @@ export function addEntityField(
     includeInTotal: Boolean(data?.includeInTotal),
     tableOrder: data?.tableOrder ?? 0,
     relationEntityId:
-      type === "relation" ? data?.relationEntityId?.trim() || null : null,
+      type === "relation" || type === "template"
+        ? data?.relationEntityId?.trim() || null
+        : null,
     relationMultiple:
-      type === "relation" ? Boolean(data?.relationMultiple) : false,
+      type === "relation" || type === "template"
+        ? Boolean(data?.relationMultiple)
+        : false,
     unitSuffix: data?.unitSuffix?.trim() || null,
     formula: data?.formula,
     rollup: data?.rollup,
     lookup: data?.lookup,
+    template: data?.template,
     dependencies: data?.dependencies,
     defaultValue: data?.defaultValue,
     relationFilter: data?.relationFilter,

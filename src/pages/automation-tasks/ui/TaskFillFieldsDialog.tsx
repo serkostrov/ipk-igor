@@ -237,10 +237,7 @@ function TaskFillFieldsDialogBody({
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
           .filter((field): field is EntityField => field != null);
 
-  const mergedValues = useMemo(
-    () => ({ ...(record?.values ?? {}), ...values }),
-    [record?.values, values],
-  );
+  const mergedValues = { ...(record?.values ?? {}), ...values };
 
   const missingRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {

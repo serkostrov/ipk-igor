@@ -3,9 +3,12 @@ import {
   ListSelect,
   normalizeEntityDecimalInput,
   parseEntityListValueIds,
+  parseEntityRelationIds,
+  RelationSelect,
   type EntityFieldDefaultValue,
   type EntityFieldType,
   type EntityListOption,
+  type RelationRecordOption,
 } from "@/entities/entity";
 import {
   SettingLabel,
@@ -20,19 +23,24 @@ type DefaultValueSettingsProps = {
   listMultiple: boolean;
   listAllowOther?: boolean;
   listUseColors?: boolean;
+  /** Relation target options (records of the linked entity). */
+  relationOptions?: RelationRecordOption[];
+  relationMultiple?: boolean;
+  /** Target is Users — offer «Текущий пользователь». */
+  relationToUsers?: boolean;
   value: EntityFieldDefaultValue | null;
   onChange: (value: EntityFieldDefaultValue | null) => void;
 };
 
 const TITLE = "По умолчанию";
-const DESCRIPTION = "Подставляется в новую запись";
+const DESCRIPTION = "Подставляется в новую запись — можно изменить";
 
 function constantOf(value: EntityFieldDefaultValue | null) {
   return value?.kind === "value" ? value.value : "";
 }
 
 function toConstant(value: string): EntityFieldDefaultValue | null {
-  return value ? { kind: "value", value } : null;
+  return value.trim().length > 0 ? { kind: "value", value } : null;
 }
 
 /** Default for new records, by field type. */
@@ -43,6 +51,9 @@ export function DefaultValueSettings({
   listMultiple,
   listAllowOther = false,
   listUseColors = false,
+  relationOptions = [],
+  relationMultiple = false,
+  relationToUsers = false,
   value,
   onChange,
 }: DefaultValueSettingsProps) {
@@ -82,16 +93,68 @@ export function DefaultValueSettings({
   }
 
   if (type === "relation") {
+    const mode =
+      value?.kind === "currentUser"
+        ? "currentUser"
+        : value?.kind === "value"
+          ? "value"
+          : null;
+    const selectedCount = parseEntityRelationIds(constantOf(value)).length;
+
     return (
-      <SettingSwitch
-        id="entity-field-default"
-        title="Текущий пользователь"
-        description="Подставлять в новую запись"
-        checked={value?.kind === "currentUser"}
-        onCheckedChange={(checked) =>
-          onChange(checked ? { kind: "currentUser" } : null)
-        }
-      />
+      <div className="flex flex-col gap-1.5">
+        <SettingSelect
+          id="entity-field-default"
+          title={TITLE}
+          description={
+            relationMultiple
+              ? "Предзаполняются в новой карточке — можно добавить или убрать"
+              : DESCRIPTION
+          }
+          value={mode}
+          options={[
+            ...(relationToUsers
+              ? [{ value: "currentUser", label: "Текущий пользователь" }]
+              : []),
+            {
+              value: "value",
+              label: relationMultiple ? "Выбранные записи" : "Выбранная запись",
+            },
+          ]}
+          emptyLabel="Не заполнять"
+          onChange={(next) => {
+            if (next === "currentUser") {
+              onChange({ kind: "currentUser" });
+              return;
+            }
+            if (next === "value") {
+              onChange(
+                value?.kind === "value" ? value : { kind: "value", value: "" },
+              );
+              return;
+            }
+            onChange(null);
+          }}
+        />
+        {mode === "value" ? (
+          <RelationSelect
+            options={relationOptions}
+            value={constantOf(value)}
+            multiple={relationMultiple}
+            placeholder={
+              relationMultiple ? "Выберите записи" : "Выберите запись"
+            }
+            aria-label={TITLE}
+            className="min-h-8"
+            onChange={(next) => onChange(toConstant(next))}
+          />
+        ) : null}
+        {mode === "value" && relationMultiple && selectedCount > 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            Выбрано: {selectedCount}
+          </p>
+        ) : null}
+      </div>
     );
   }
 
@@ -111,29 +174,36 @@ export function DefaultValueSettings({
 
   if (type === "list") {
     const raw = constantOf(value);
-    const selectedId = listMultiple
-      ? (parseEntityListValueIds(raw)[0] ?? "")
-      : raw;
 
     return (
       <div className="flex flex-col gap-1.5">
         <SettingLabel
           htmlFor="entity-field-default"
           title={TITLE}
-          description={DESCRIPTION}
+          description={
+            listMultiple
+              ? "Предзаполняются в новой записи — можно добавить или убрать"
+              : DESCRIPTION
+          }
         />
         <ListSelect
           options={listOptions}
-          value={selectedId}
-          multiple={false}
+          value={raw}
+          multiple={listMultiple}
+          allowEmpty
           allowOther={listAllowOther && !listMultiple}
           showColors={listUseColors}
           size="sm"
           emptyLabel="Не заполнять"
           aria-label={TITLE}
-          className="h-8 rounded-md border-input font-normal"
+          className="min-h-8 rounded-md border-input font-normal"
           onChange={(next) => onChange(toConstant(next))}
         />
+        {listMultiple && parseEntityListValueIds(raw).length > 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            Выбрано: {parseEntityListValueIds(raw).length}
+          </p>
+        ) : null}
       </div>
     );
   }

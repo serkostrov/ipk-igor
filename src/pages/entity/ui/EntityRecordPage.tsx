@@ -589,7 +589,7 @@ function RecordHeaderField({
     );
   }
 
-  if (field.type === "relation") {
+  if (field.type === "relation" || field.type === "template") {
     const targetId = getEntityRelationTargetId(field);
     const target = targetId
       ? (entities.find((item) => item.id === targetId) ?? null)
@@ -796,7 +796,7 @@ function RecordFieldDisplay({
     </p>
   ) : null;
 
-  if (field.type === "relation") {
+  if (field.type === "relation" || field.type === "template") {
     const targetId = getEntityRelationTargetId(field);
     const target = targetId
       ? (entities.find((item) => item.id === targetId) ?? null)

@@ -25,6 +25,7 @@ import {
   ENTITY_LIST_OTHER_OPTION_ID,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
+  isEntityRelationLikeFieldType,
   normalizeEntityDecimalInput,
 } from "../model/field";
 import {
@@ -139,10 +140,11 @@ function getRecordMatchFields(
     entities,
   );
   // Prefer same value-kind; for relations also same related entity.
-  const preferredTargetId =
-    targetSource?.field.type === "relation"
+  const preferredTargetId = targetSource?.field
+    ? isEntityRelationLikeFieldType(targetSource.field.type)
       ? getEntityRelationTargetId(targetSource.field)
-      : null;
+      : null
+    : null;
 
   return sourceEntity.fields
     .filter((item) => {
@@ -157,7 +159,7 @@ function getRecordMatchFields(
         if (kind === targetKind) points += 2;
         if (
           preferredTargetId &&
-          item.type === "relation" &&
+          isEntityRelationLikeFieldType(item.type) &&
           getEntityRelationTargetId(item) === preferredTargetId
         ) {
           points += 4;
@@ -219,7 +221,7 @@ function ConditionValueEditor({
         />
       );
     }
-    if (source?.field.type === "relation") {
+    if (source?.field && isEntityRelationLikeFieldType(source.field.type)) {
       const target =
         entities.find(
           (item) => item.id === getEntityRelationTargetId(source.field),
