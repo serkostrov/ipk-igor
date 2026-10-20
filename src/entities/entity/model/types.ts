@@ -1,6 +1,7 @@
 import type { EntityCondition } from "./condition";
 import type { EntityFieldType } from "./field";
 import {
+  formatEntityFieldScalarValue,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   isEntityListOtherValue,

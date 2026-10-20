@@ -400,6 +400,7 @@ function ActionFields({
       const first = options[0];
       onChange({
         ...action,
+        kind: "updateRecords",
         entityId,
         linkMode: first?.linkMode ?? "relation",
         linkFieldId: first?.linkFieldId ?? "",

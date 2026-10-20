@@ -246,6 +246,7 @@ export function createSystemUsersEntity(): Entity {
     name: "Пользователь",
     namePlural: "Пользователи",
     description: "Системная сущность аккаунтов. Можно добавлять свои поля.",
+    nameTemplate: "",
     views: ["table"],
     defaultView: null,
     fields: [
