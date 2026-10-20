@@ -208,7 +208,7 @@ function SourceFieldSelect({
             }}
           </SelectValue>
         </SelectTrigger>
-        <SelectContent className="max-h-72">
+        <SelectContent searchable={false} className="max-h-72">
           {options.length === 0 ? (
             <div className="px-2 py-3 text-center text-xs text-muted-foreground">
               Нет совместимых полей на исходной записи

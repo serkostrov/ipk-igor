@@ -150,16 +150,24 @@ export function OutcomeAutofillEditor({
         <div className="mt-2 flex flex-col gap-2">
           {setFields.map((action, index) => {
             const selected =
-              writable.find((field) => field.id === action.fieldId) ?? null;
+              writable.find((field) => field.id === action.fieldId) ??
+              sourceEntity.fields.find(
+                (field) => field.id === action.fieldId,
+              ) ??
+              null;
+            const fieldOptions =
+              selected && !writable.some((field) => field.id === selected.id)
+                ? [selected, ...writable]
+                : writable;
             const toComments = access.commentFieldIds.includes(action.fieldId);
             return (
               <div
-                key={action.id}
+                key={action.id || `set-field-${index}`}
                 className="flex flex-col gap-1.5 rounded-md border border-border/50 p-2"
               >
                 <div className="flex items-center gap-1.5">
                   <FieldSelect
-                    fields={writable}
+                    fields={fieldOptions}
                     value={action.fieldId}
                     placeholder="Поле"
                     onChange={(fieldId) => {
@@ -183,8 +191,11 @@ export function OutcomeAutofillEditor({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
+                    className="shrink-0"
                     aria-label="Удалить поле"
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
                       const next = setFields.filter((_, i) => i !== index);
                       updateSetFields(
                         next,
@@ -273,7 +284,6 @@ function FieldSelect({
   onChange: (fieldId: string) => void;
   placeholder?: string;
 }) {
-  const selected = fields.find((field) => field.id === value);
   return (
     <Select
       value={value || undefined}
@@ -281,21 +291,30 @@ function FieldSelect({
         if (next != null) onChange(String(next));
       }}
     >
-      <SelectTrigger size="sm" className="h-8 min-w-0 flex-1">
-        <SelectValue>
-          {selected ? getEntityFieldDisplayName(selected) : placeholder}
+      <SelectTrigger
+        size="sm"
+        className="h-8 w-full min-w-0 flex-1 overflow-hidden"
+      >
+        <SelectValue className="min-w-0">
+          {(selected) => {
+            const field = fields.find((item) => item.id === selected);
+            return (
+              <span className="block truncate">
+                {field ? getEntityFieldDisplayName(field) : placeholder}
+              </span>
+            );
+          }}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent className="max-h-64">
-        {fields.map((field) => (
-          <SelectItem
-            key={field.id}
-            value={field.id}
-            label={getEntityFieldDisplayName(field)}
-          >
-            {getEntityFieldDisplayName(field)}
-          </SelectItem>
-        ))}
+      <SelectContent searchable={false} className="max-h-64">
+        {fields.map((field) => {
+          const label = getEntityFieldDisplayName(field);
+          return (
+            <SelectItem key={field.id} value={field.id} label={label}>
+              {label}
+            </SelectItem>
+          );
+        })}
       </SelectContent>
     </Select>
   );

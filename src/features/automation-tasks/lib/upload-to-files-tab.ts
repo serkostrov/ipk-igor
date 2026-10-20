@@ -88,17 +88,12 @@ export function ensureUploadTargetFolderId(input: {
   return { entries: [...input.entries, created], parentId: created.id };
 }
 
-/** Count files under a folder (direct + nested). Root = all files when parentId is null. */
-export function countFilesUnderFolder(
+/** Folder ids under `parentId` (inclusive). Root (`null`) → all folders. */
+function folderScopeIds(
   entries: EntityTabFileEntry[],
   parentId: string | null,
-): number {
-  if (parentId === null) {
-    return entries.reduce(
-      (count, entry) => (entry.kind === "file" ? count + 1 : count),
-      0,
-    );
-  }
+): Set<string> | null {
+  if (parentId === null) return null;
 
   const allowed = new Set<string>([parentId]);
   let grew = true;
@@ -116,12 +111,62 @@ export function countFilesUnderFolder(
       }
     }
   }
+  return allowed;
+}
 
+/** Count files under a folder (direct + nested). Root = all files when parentId is null. */
+export function countFilesUnderFolder(
+  entries: EntityTabFileEntry[],
+  parentId: string | null,
+): number {
+  const scope = folderScopeIds(entries, parentId);
   return entries.reduce((count, entry) => {
     if (entry.kind !== "file") return count;
-    if (entry.parentId && allowed.has(entry.parentId)) return count + 1;
+    if (scope === null) return count + 1;
+    if (entry.parentId && scope.has(entry.parentId)) return count + 1;
     return count;
   }, 0);
+}
+
+export type UploadTargetFileItem = {
+  entry: EntityTabFileEntry;
+  /** Path relative to the upload folder, e.g. `docs/spec.pdf`. */
+  relativePath: string;
+};
+
+/** Files under the upload target, newest first, with a display path. */
+export function listFilesUnderFolder(
+  entries: EntityTabFileEntry[],
+  parentId: string | null,
+): UploadTargetFileItem[] {
+  const scope = folderScopeIds(entries, parentId);
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+
+  function relativePath(file: EntityTabFileEntry): string {
+    const parts: string[] = [file.name];
+    let cursor = file.parentId;
+    while (cursor) {
+      if (parentId != null && cursor === parentId) break;
+      const folder = byId.get(cursor);
+      if (!folder || folder.kind !== "folder") break;
+      parts.unshift(folder.name);
+      cursor = folder.parentId;
+    }
+    return parts.join("/");
+  }
+
+  return entries
+    .filter((entry) => {
+      if (entry.kind !== "file") return false;
+      if (scope === null) return true;
+      return Boolean(entry.parentId && scope.has(entry.parentId));
+    })
+    .map((entry) => ({ entry, relativePath: relativePath(entry) }))
+    .sort((a, b) => {
+      const at = a.entry.createdAt.localeCompare(b.entry.createdAt);
+      if (at !== 0) return -at;
+      return a.relativePath.localeCompare(b.relativePath, "ru");
+    });
 }
 
 function fileRelativePath(file: File): string {

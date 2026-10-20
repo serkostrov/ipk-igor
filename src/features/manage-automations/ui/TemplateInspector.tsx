@@ -862,10 +862,13 @@ export function TemplateInspector({
     commitDraft((prev) => ({ ...prev, ...partial }));
   }
 
-  function patchOutcome(index: number, outcome: AutomationOutcome) {
+  /** Merge into the latest outcome — never replace from a stale render snapshot. */
+  function patchOutcome(index: number, patch: Partial<AutomationOutcome>) {
     commitDraft((prev) => {
+      const current = prev.outcomes[index];
+      if (!current) return prev;
       const outcomes = [...prev.outcomes];
-      outcomes[index] = outcome;
+      outcomes[index] = { ...current, ...patch };
       return { ...prev, outcomes };
     });
   }
@@ -1264,9 +1267,7 @@ export function TemplateInspector({
                           outcome={outcome}
                           selected={outcome.id === activeOutcomeId}
                           onSelect={() => setSelectedOutcomeId(outcome.id)}
-                          onChange={(patch) =>
-                            patchOutcome(index, { ...outcome, ...patch })
-                          }
+                          onChange={(patch) => patchOutcome(index, patch)}
                         />
                       ))}
                     </div>
@@ -1303,7 +1304,6 @@ export function TemplateInspector({
                             triggerFieldId={triggerFieldId}
                             onChange={(nextStageId) =>
                               patchOutcome(selectedOutcomeIndex, {
-                                ...selectedOutcome,
                                 actions: withOutcomeStageAction(
                                   selectedActionsWithoutStage,
                                   triggerFieldId,
@@ -1319,7 +1319,6 @@ export function TemplateInspector({
                             hasRecordsTab={hasRecordsTab}
                             onChange={(fieldAccess) =>
                               patchOutcome(selectedOutcomeIndex, {
-                                ...selectedOutcome,
                                 fieldAccess,
                               })
                             }
@@ -1337,7 +1336,6 @@ export function TemplateInspector({
                             hint="Автоматически выставить значения; «комм.» — дублировать во «Записи»"
                             onChange={(actions) =>
                               patchOutcome(selectedOutcomeIndex, {
-                                ...selectedOutcome,
                                 actions: withOutcomeStageAction(
                                   actions,
                                   triggerFieldId,
@@ -1347,7 +1345,6 @@ export function TemplateInspector({
                             }
                             onFieldAccessChange={(fieldAccess) =>
                               patchOutcome(selectedOutcomeIndex, {
-                                ...selectedOutcome,
                                 fieldAccess,
                               })
                             }
@@ -1364,7 +1361,6 @@ export function TemplateInspector({
                               addKind="createRecord"
                               onChange={(actions) =>
                                 patchOutcome(selectedOutcomeIndex, {
-                                  ...selectedOutcome,
                                   actions: withOutcomeStageAction(
                                     actions,
                                     triggerFieldId,

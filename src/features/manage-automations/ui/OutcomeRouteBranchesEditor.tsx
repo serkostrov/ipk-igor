@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { GitBranch, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -81,14 +82,21 @@ export function OutcomeRouteBranchesEditor({
   stages,
 }: OutcomeRouteBranchesEditorProps) {
   const branches = normalizeBranches(outcomes);
+  /** Latest branches for sync multi-patches (actions + fieldAccess). */
+  const branchesRef = useRef(branches);
+  branchesRef.current = branches;
 
   function commit(next: AutomationOutcome[]) {
-    onChange(normalizeBranches(next));
+    const normalized = normalizeBranches(next);
+    branchesRef.current = normalized;
+    onChange(normalized);
   }
 
   function patchBranch(index: number, patch: Partial<AutomationOutcome>) {
     commit(
-      branches.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+      branchesRef.current.map((item, i) =>
+        i === index ? { ...item, ...patch } : item,
+      ),
     );
   }
 
