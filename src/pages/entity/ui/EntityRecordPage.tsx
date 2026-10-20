@@ -50,6 +50,7 @@ import {
   isEntityFilesTab,
   isEntityHistoryTab,
   isEntityMirrorTab,
+  getEntityRecordTitle,
   isEntityNameField,
   isEntityRecordsTab,
   isEntityFieldGroupTitleHidden,
@@ -1120,10 +1121,20 @@ export function EntityRecordPage({
     go(recordLocation(entity.id, record.id, tabId));
   }
 
-  const pageTitle = nameField
-    ? formatRecordFieldValue(valueContext, entity, record, nameField)
-    : "Без названия";
-  const title = pageTitle === "—" ? "Без названия" : pageTitle;
+  const rawName = nameField ? (record.values[nameField.id] ?? "").trim() : "";
+  const pageTitle = getEntityRecordTitle(
+    valueContext,
+    entity,
+    record,
+    "",
+  ).trim();
+  const title =
+    !pageTitle ||
+    pageTitle === "—" ||
+    pageTitle === record.id ||
+    rawName === record.id
+      ? "Без названия"
+      : pageTitle;
 
   function handleDelete() {
     removeEntityRecord(entity.id, record.id);

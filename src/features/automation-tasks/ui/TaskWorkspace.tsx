@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from "react";
-import { Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
   automationOutcomeButtonStyle,
@@ -14,18 +13,23 @@ import { automationUploadTargetBlocksComplete } from "../lib/upload-to-files-tab
 import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
   applyEntityFieldValue,
+  createEntityDraftRecord,
+  formatRecordFieldValue,
   getCurrentUserRecordId,
   getEntityFieldDisplayName,
   getEntityListParentField,
   getEntityPreviewValueContext,
+  getEntityRecordTitle,
   getVisibleListOptions,
   isEntityComputedFieldType,
   isEntityNameField,
   normalizeEntityFieldInputValue,
   parseEntityFieldFileValue,
   parseEntityListValueIds,
+  parseEntityRelationIds,
   RecordValue,
   resolveEntityListFieldPresentation,
+  resolveRelationRecordLabel,
   sanitizeEntityRelationDependencies,
   updateEntityRecord,
   useEntityConfig,
@@ -33,6 +37,7 @@ import {
   type Entity,
   type EntityField,
   type EntityRecord,
+  type EntityValueContext,
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
@@ -59,19 +64,60 @@ import {
 import { resumePendingRecordListChange } from "../model/pending-list-change";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
-function isFieldFilled(field: EntityField, value: string) {
+function isFieldFilled(
+  field: EntityField,
+  value: string,
+  options?: {
+    ctx: EntityValueContext;
+    entity: Entity;
+    values: Record<string, string>;
+    recordId: string;
+  },
+) {
   if (field.type === "boolean") return true;
   if (field.type === "file") return parseEntityFieldFileValue(value) != null;
+  if (isEntityComputedFieldType(field.type) && options) {
+    const text = formatRecordFieldValue(
+      options.ctx,
+      options.entity,
+      createEntityDraftRecord(options.values, options.recordId),
+      field,
+    );
+    return text !== "—" && text.trim().length > 0;
+  }
   return value.trim().length > 0;
 }
 
 function recordTitle(
-  entity: { fields: EntityField[] } | undefined,
-  values: Record<string, string>,
+  ctx: EntityValueContext,
+  entity: Entity | undefined,
+  record: EntityRecord | undefined,
 ) {
-  const nameField = entity?.fields.find((field) => isEntityNameField(field));
-  const title = nameField ? (values[nameField.id] ?? "").trim() : "";
-  return title || null;
+  if (!entity || !record) return null;
+  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  if (!nameField) return null;
+  const raw = (record.values[nameField.id] ?? "").trim();
+  // Corrupted name: automation wrote a raw record id into the text title.
+  if (raw === record.id) return "Без названия";
+  const asRelationIds = parseEntityRelationIds(raw);
+  if (
+    asRelationIds.length > 0 &&
+    asRelationIds.every((id) => id.startsWith("record-")) &&
+    (raw === asRelationIds[0] ||
+      raw === asRelationIds.join(",") ||
+      raw === JSON.stringify(asRelationIds))
+  ) {
+    const resolved = resolveRelationRecordLabel(entity, raw)?.trim() ?? "";
+    if (
+      resolved &&
+      resolved !== "Без названия" &&
+      !resolved.startsWith("record-")
+    ) {
+      return resolved;
+    }
+    return "Без названия";
+  }
+  return getEntityRecordTitle(ctx, entity, record);
 }
 
 function buildTaskFormValues(
@@ -97,6 +143,7 @@ function buildTaskFormValues(
     values: merged,
     actions: setFieldActions,
     actorUserId,
+    triggerRecordId: record.id,
   });
   return mergeAutofillIntoFormValues(
     base,
@@ -241,6 +288,7 @@ function TaskWorkspaceBody({
         values: merged,
         actions,
         actorUserId,
+        triggerRecordId: record.id,
       });
       return mergeAutofillIntoFormValues(
         current,
@@ -256,8 +304,7 @@ function TaskWorkspaceBody({
       ? []
       : ask.visibleFieldIds
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-          .filter((field): field is EntityField => field != null)
-          .filter((field) => !isEntityComputedFieldType(field.type));
+          .filter((field): field is EntityField => field != null);
 
   const viewFields =
     !entity || !ask
@@ -271,7 +318,7 @@ function TaskWorkspaceBody({
     [record?.values, values],
   );
 
-  const title = recordTitle(entity, mergedValues);
+  const title = recordTitle(valueContext, entity, record);
   /** View tabs from any outcome — shown before a result is chosen. */
   const earlyViewTabIds = taskAsk.viewTabIds;
   const hasFillForm =
@@ -279,8 +326,13 @@ function TaskWorkspaceBody({
   const missingRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {
         const field = entity?.fields.find((item) => item.id === fieldId);
-        if (!field) return true;
-        return !isFieldFilled(field, values[fieldId] ?? "");
+        if (!field || !entity || !record) return true;
+        return !isFieldFilled(field, values[fieldId] ?? "", {
+          ctx: previewContext,
+          entity,
+          values: mergedValues,
+          recordId: record.id,
+        });
       }).length
     : 0;
 
@@ -304,6 +356,7 @@ function TaskWorkspaceBody({
         values: merged,
         actions: setFieldActions,
         actorUserId,
+        triggerRecordId: record?.id,
         changedFieldId: fieldId,
       });
       return mergeAutofillIntoFormValues(
@@ -340,8 +393,13 @@ function TaskWorkspaceBody({
 
     const missing = outcome.fieldAccess.requiredFieldIds.filter((fieldId) => {
       const field = entity.fields.find((item) => item.id === fieldId);
-      if (!field) return true;
-      return !isFieldFilled(field, values[fieldId] ?? "");
+      if (!field || !record) return true;
+      return !isFieldFilled(field, values[fieldId] ?? "", {
+        ctx: previewContext,
+        entity,
+        values: mergedValues,
+        recordId: record.id,
+      });
     });
     if (missing.length > 0) {
       const labels = missing.map((fieldId) => {
@@ -572,13 +630,7 @@ function TaskWorkspaceBody({
                       const required = requiredIds.has(field.id);
 
                       return (
-                        <div key={field.id} className="relative">
-                          {required ? (
-                            <span className="absolute top-0 right-0 z-10 inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                              <Lock className="size-3" aria-hidden />
-                              обяз.
-                            </span>
-                          ) : null}
+                        <div key={field.id}>
                           <RecordFieldControl
                             ctx={previewContext}
                             entity={entity}

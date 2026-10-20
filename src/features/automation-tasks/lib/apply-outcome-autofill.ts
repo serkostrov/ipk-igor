@@ -46,6 +46,8 @@ export function applyAutomationSetFieldAutofill(input: {
   values: Record<string, string>;
   actions: readonly AutomationAction[];
   actorUserId?: string | null;
+  /** Trigger record id — needed for «Текущая запись» and label resolution. */
+  triggerRecordId?: string | null;
   changedFieldId?: string;
 }): Record<string, string> {
   const {
@@ -54,6 +56,7 @@ export function applyAutomationSetFieldAutofill(input: {
     values,
     actions,
     actorUserId = null,
+    triggerRecordId = null,
     changedFieldId,
   } = input;
 
@@ -83,6 +86,7 @@ export function applyAutomationSetFieldAutofill(input: {
     const resolved = resolveAutomationActionValue(raw, next, {
       entities,
       triggerEntityId: entity.id,
+      triggerRecordId: triggerRecordId?.trim() || undefined,
       values: next,
       fieldType: field?.type,
       datetimeWithTime: field?.datetimeWithTime,

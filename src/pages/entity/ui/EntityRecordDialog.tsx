@@ -176,6 +176,8 @@ function EntityRecordForm({
       }),
     [entity.fields, entity.id, hiddenFieldIds, isEdit, role],
   );
+  // UI: honour «При создании». Values still include all editable fields so
+  // lookups / formulas can resolve through hidden sources.
   const visibleFields = useMemo(
     () =>
       editableFields.filter((field) => {
@@ -190,7 +192,7 @@ function EntityRecordForm({
       sanitizeEntityRelationDependencies(
         entity,
         buildRecordValues(
-          visibleFields,
+          editableFields,
           record?.values,
           presetValues,
           currentUserRecordId,
@@ -200,7 +202,7 @@ function EntityRecordForm({
     [
       entity,
       entities,
-      visibleFields,
+      editableFields,
       record,
       presetValues,
       currentUserRecordId,
@@ -415,7 +417,7 @@ function EntityRecordForm({
                 presetValues,
                 currentUserRecordId,
               ),
-              ...normalizeRecordValues(visibleFields, values),
+              ...normalizeRecordValues(editableFields, values),
             };
             const meta: EntityRecordSubmitMeta = needsPassword
               ? { password }

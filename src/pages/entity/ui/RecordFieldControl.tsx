@@ -10,32 +10,78 @@ import {
   RelationSelect,
   entityFieldInputType,
   formatRecordFieldValue,
+  getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   getRelationFieldOptions,
   getRelationNestedParentField,
   getRelationRecordOptions,
   isEntityComputedFieldType,
+  isEntityNameField,
   isValidEntityEmail,
   normalizeEntityDecimalInput,
   normalizeEntityPhoneValue,
   parseEntityRelationIds,
+  resolveEntityLookupTarget,
   type Entity,
   type EntityField,
-  type EntityFieldType,
   type EntityListOption,
   type EntityValueContext,
 } from "@/entities/entity";
+import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
 import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
 import { DependenciesFieldControl } from "./DependenciesFieldControl";
 import { FileFieldControl } from "./FileFieldControl";
 
-const COMPUTED_FIELD_HINTS: Partial<Record<EntityFieldType, string>> = {
-  numberSum: "Считается как сумма выбранных числовых полей",
-  formula: "Считается по формуле",
-  rollup: "Считается по связанным записям",
-  lookup: "Берётся из связанной записи",
-};
+/**
+ * Where a computed value comes from — shown next to the field title.
+ * Lookup: из записи «Отдел».
+ */
+function getComputedSourceCaption(
+  entity: Entity,
+  field: EntityField,
+  entities: readonly Entity[],
+): string {
+  switch (field.type) {
+    case "lookup": {
+      const target = resolveEntityLookupTarget(entity, field, entities);
+      if (target) {
+        return `из записи «${getEntityFieldDisplayName(target.relationField)}»`;
+      }
+      const relationField = field.lookup?.relationFieldId
+        ? entity.fields.find(
+            (item) => item.id === field.lookup?.relationFieldId,
+          )
+        : null;
+      if (relationField) {
+        return `из записи «${getEntityFieldDisplayName(relationField)}»`;
+      }
+      return "из записи";
+    }
+    case "formula":
+      return "рассчитывается по формуле";
+    case "rollup": {
+      const sourceId = field.rollup?.sourceEntityId;
+      const source = sourceId
+        ? entities.find((item) => item.id === sourceId)
+        : null;
+      return source
+        ? `считается по «${getEntityDisplayName(source)}»`
+        : "считается по связанным записям";
+    }
+    case "numberSum": {
+      const names = field.sumFieldIds
+        .map((id) => entity.fields.find((item) => item.id === id))
+        .filter((item): item is EntityField => item != null)
+        .map((item) => getEntityFieldDisplayName(item));
+      if (names.length === 0) return "сумма полей";
+      if (names.length <= 3) return `сумма: ${names.join(" + ")}`;
+      return `сумма ${names.length} полей`;
+    }
+    default:
+      return "авто";
+  }
+}
 
 function RequiredMark({ required }: { required?: boolean }) {
   if (!required) return null;
@@ -139,9 +185,17 @@ export function RecordFieldControl({
       createEntityDraftRecord(values, recordId),
       field,
     );
+    const sourceCaption = getComputedSourceCaption(entity, field, entities);
     return (
       <div className="flex flex-col gap-2">
-        <Label htmlFor={id}>{label}</Label>
+        <div className="flex min-w-0 items-baseline gap-x-1.5 gap-y-0.5">
+          <Label htmlFor={id} className="shrink-0">
+            {label}
+          </Label>
+          <span className="min-w-0 truncate text-[11px] leading-snug text-muted-foreground">
+            {sourceCaption}
+          </span>
+        </div>
         <div
           id={id}
           className="flex h-9 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-sm tabular-nums text-foreground"
@@ -157,9 +211,6 @@ export function RecordFieldControl({
             авто
           </span>
         </div>
-        <span className="text-xs text-muted-foreground">
-          {hint || COMPUTED_FIELD_HINTS[field.type]}
-        </span>
       </div>
     );
   }
@@ -294,6 +345,20 @@ export function RecordFieldControl({
     );
   }
 
+  if (isEntityNameField(field)) {
+    return (
+      <TemplateFieldInput
+        id={id}
+        title={label}
+        headerInsert
+        value={value}
+        placeholder={hint || "Текст и поля записи"}
+        fields={entity.fields.filter((item) => !isEntityNameField(item))}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (field.type === "textarea") {
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
@@ -389,6 +454,8 @@ export function RecordFieldControl({
 
   if (field.type === "number") {
     const unit = field.unitSuffix?.trim() || null;
+    // Keep placeholder/value clear of the unit suffix (e.g. «раб. дн.»).
+    const unitPadCh = unit ? Math.max(5, unit.length + 2.5) : 0;
     return (
       <div className="flex flex-col gap-2">
         {labelNode}
@@ -399,14 +466,15 @@ export function RecordFieldControl({
             inputMode="decimal"
             value={value}
             placeholder={hint || "0,00"}
-            className={unit ? "pr-12" : undefined}
+            style={unit ? { paddingRight: `${unitPadCh}ch` } : undefined}
             onChange={(event) =>
               onChange(normalizeEntityDecimalInput(event.target.value))
             }
           />
           {unit ? (
             <span
-              className="pointer-events-none absolute top-1/2 right-3 max-w-[40%] -translate-y-1/2 truncate text-sm text-muted-foreground"
+              className="pointer-events-none absolute top-1/2 right-3 max-w-[45%] -translate-y-1/2 truncate text-sm text-muted-foreground"
+              title={unit}
               aria-hidden
             >
               {unit}

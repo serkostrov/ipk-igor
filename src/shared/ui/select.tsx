@@ -297,16 +297,20 @@ function SelectSeparator({
 
 function SelectScrollUpButton({
   className,
+  style,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.ScrollUpArrow>) {
   return (
     <SelectPrimitive.ScrollUpArrow
       data-slot="select-scroll-up-button"
       className={cn(
-        "top-0 z-10 flex w-full cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
+        "z-10 flex w-full shrink-0 cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
+      // Base UI defaults to absolute overlay — keep arrows in flex flow
+      // so the last/first items stay fully visible.
+      style={{ ...style, position: "relative" }}
     >
       <ChevronUpIcon />
     </SelectPrimitive.ScrollUpArrow>
@@ -315,16 +319,18 @@ function SelectScrollUpButton({
 
 function SelectScrollDownButton({
   className,
+  style,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.ScrollDownArrow>) {
   return (
     <SelectPrimitive.ScrollDownArrow
       data-slot="select-scroll-down-button"
       className={cn(
-        "bottom-0 z-10 flex w-full cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
+        "z-10 flex w-full shrink-0 cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
+      style={{ ...style, position: "relative" }}
     >
       <ChevronDownIcon />
     </SelectPrimitive.ScrollDownArrow>

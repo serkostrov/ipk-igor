@@ -70,7 +70,9 @@ export function RecordValue({
     );
   }
 
-  const numeric = isEntityNumericFieldType(field.type);
+  // Formula keeps proportional digits (same look as lookups / plain text).
+  const numeric =
+    isEntityNumericFieldType(field.type) && field.type !== "formula";
   const signClass = field.numberSignColor
     ? getSignClass(
         field.numberSignColor,

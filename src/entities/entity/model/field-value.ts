@@ -162,23 +162,106 @@ export function getEntityLinkedRecords(
   return index.get(parentRecordId) ?? [];
 }
 
+/**
+ * Entity reached by a relation, or by a lookup whose value is itself a
+ * relation (e.g. «Отдел» = lookup via «Руководитель» → Users.Отделы).
+ */
+export function resolveEntityRelationBridgeTarget<
+  T extends Pick<Entity, "id" | "fields">,
+>(entity: T, bridge: EntityField, entities: readonly T[]): T | null {
+  if (bridge.type === "relation") {
+    const targetId = getEntityRelationTargetId(bridge);
+    return entities.find((item) => item.id === targetId) ?? null;
+  }
+  if (bridge.type !== "lookup") return null;
+  const source = resolveEntityFieldSource(entity, bridge, entities);
+  if (!source || source.field.type !== "relation") return null;
+  const targetId = getEntityRelationTargetId(source.field);
+  return entities.find((item) => item.id === targetId) ?? null;
+}
+
+/** Relation field, or a lookup that resolves to relation ids. */
+export function isEntityLookupBridgeField<
+  T extends Pick<Entity, "id" | "fields">,
+>(entity: T, field: EntityField, entities: readonly T[]): boolean {
+  if (field.type === "relation") return true;
+  if (field.type !== "lookup") return false;
+  const source = resolveEntityFieldSource(entity, field, entities);
+  return source?.field.type === "relation";
+}
+
+/**
+ * Follow a lookup that uses only relation bridges until a non-lookup field.
+ * Used when nesting lookups (lookup → lookup → relation) without recursion
+ * through `resolveEntityLookupTarget`.
+ */
+function resolveLookupChainLeaf<T extends Pick<Entity, "id" | "fields">>(
+  entity: T,
+  field: EntityField,
+  entities: readonly T[],
+): { entity: T; field: EntityField } | null {
+  let currentEntity = entity;
+  let currentField = field;
+  const seen = new Set<string>();
+  for (let depth = 0; depth < LOOKUP_DEPTH_LIMIT; depth += 1) {
+    if (seen.has(`${currentEntity.id}:${currentField.id}`)) return null;
+    seen.add(`${currentEntity.id}:${currentField.id}`);
+    if (currentField.type !== "lookup") {
+      return { entity: currentEntity, field: currentField };
+    }
+    if (!currentField.lookup) return null;
+    const bridge = findField(
+      currentEntity,
+      currentField.lookup.relationFieldId,
+    );
+    // Nested lookup bridges are resolved at runtime via record cells; for
+    // static target resolution the inner bridge must be a direct relation.
+    if (!bridge || bridge.type !== "relation") return null;
+    const relatedId = getEntityRelationTargetId(bridge);
+    const related = entities.find((item) => item.id === relatedId);
+    if (!related) return null;
+    const next = findField(related, currentField.lookup.targetFieldId);
+    if (!next) return null;
+    currentEntity = related;
+    currentField = next;
+  }
+  return null;
+}
+
 /** Target entity + field of a lookup (settings and runtime). */
 export function resolveEntityLookupTarget<
   T extends Pick<Entity, "id" | "fields">,
 >(
-  entity: Pick<Entity, "fields">,
+  entity: T,
   field: Pick<EntityField, "type" | "lookup">,
   entities: readonly T[],
 ): { relationField: EntityField; entity: T; field: EntityField } | null {
   if (field.type !== "lookup" || !field.lookup) return null;
-  const relationField = findField(entity, field.lookup.relationFieldId);
-  if (!relationField || relationField.type !== "relation") return null;
-  const targetId = getEntityRelationTargetId(relationField);
-  const target = entities.find((item) => item.id === targetId);
-  if (!target) return null;
-  const targetField = findField(target, field.lookup.targetFieldId);
-  if (!targetField) return null;
-  return { relationField, entity: target, field: targetField };
+  const bridge = findField(entity, field.lookup.relationFieldId);
+  if (!bridge) return null;
+
+  if (bridge.type === "relation") {
+    const targetId = getEntityRelationTargetId(bridge);
+    const target = entities.find((item) => item.id === targetId);
+    if (!target) return null;
+    const targetField = findField(target, field.lookup.targetFieldId);
+    if (!targetField) return null;
+    return { relationField: bridge, entity: target, field: targetField };
+  }
+
+  // Bridge is a lookup of relation ids (e.g. «Отдел» via «Руководитель»).
+  if (bridge.type === "lookup") {
+    const leaf = resolveLookupChainLeaf(entity, bridge, entities);
+    if (!leaf || leaf.field.type !== "relation") return null;
+    const targetId = getEntityRelationTargetId(leaf.field);
+    const target = entities.find((item) => item.id === targetId);
+    if (!target) return null;
+    const targetField = findField(target, field.lookup.targetFieldId);
+    if (!targetField) return null;
+    return { relationField: bridge, entity: target, field: targetField };
+  }
+
+  return null;
 }
 
 /** Stored field behind a chain of lookups (the field itself otherwise). */
@@ -205,7 +288,7 @@ export function resolveEntityFieldSource<
 
 /** Value family (lookups take the family of their target field). */
 export function getEntityFieldValueKind(
-  entity: Pick<Entity, "fields">,
+  entity: Pick<Entity, "id" | "fields">,
   field: EntityField,
   entities: ReadonlyArray<Pick<Entity, "id" | "fields">>,
   depth = 0,
@@ -243,6 +326,34 @@ export function getEntityFieldValueKind(
   }
 }
 
+/**
+ * Related record ids for a lookup bridge: stored on a relation, or pulled
+ * from a relation-valued lookup (so nested lookups work when the bridge is
+ * hidden on create and never written into `values`).
+ */
+function getLookupBridgeRelationIds(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  bridge: EntityField,
+  depth: number,
+): string[] {
+  if (bridge.type === "relation") {
+    return parseEntityRelationIds(record.values[bridge.id]);
+  }
+  if (bridge.type !== "lookup") return [];
+  return [
+    ...new Set(
+      resolveRecordFieldCells(ctx, entity, record, bridge, depth + 1).flatMap(
+        (cell) =>
+          cell.field.type === "relation"
+            ? parseEntityRelationIds(cell.record.values[cell.field.id])
+            : [],
+      ),
+    ),
+  ];
+}
+
 /** Cells that hold the value of `field` for `record` (one for plain fields). */
 export function resolveRecordFieldCells(
   ctx: EntityValueContext,
@@ -255,19 +366,23 @@ export function resolveRecordFieldCells(
   if (depth >= LOOKUP_DEPTH_LIMIT) return [];
   const target = resolveEntityLookupTarget(entity, field, ctx.entities);
   if (!target) return [];
-  return parseEntityRelationIds(record.values[target.relationField.id]).flatMap(
-    (recordId) => {
-      const ref = ctx.recordById.get(recordId);
-      if (!ref || ref.entity.id !== target.entity.id) return [];
-      return resolveRecordFieldCells(
-        ctx,
-        ref.entity,
-        ref.record,
-        target.field,
-        depth + 1,
-      );
-    },
-  );
+  return getLookupBridgeRelationIds(
+    ctx,
+    entity,
+    record,
+    target.relationField,
+    depth,
+  ).flatMap((recordId) => {
+    const ref = ctx.recordById.get(recordId);
+    if (!ref || ref.entity.id !== target.entity.id) return [];
+    return resolveRecordFieldCells(
+      ctx,
+      ref.entity,
+      ref.record,
+      target.field,
+      depth + 1,
+    );
+  });
 }
 
 function sumOrNull(values: Array<number | null>): number | null {
@@ -643,8 +758,29 @@ export function formatRecordFieldValue(
       );
       return parts.length > 0 ? parts.join(", ") : "—";
     }
-    default:
+    default: {
+      if (isEntityNameField(field)) {
+        const raw = (record.values[field.id] ?? "").trim();
+        if (!raw) return "—";
+        if (!/\{\{[^}]+\}\}/.test(raw)) return raw;
+        const text = raw
+          .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
+            const ref = entity.fields.find((item) => item.id === rawId.trim());
+            if (!ref || isEntityNameField(ref)) return "";
+            const part = formatRecordFieldValue(
+              ctx,
+              entity,
+              record,
+              ref,
+            ).trim();
+            return !part || part === "—" ? "" : part;
+          })
+          .replace(/\s+/g, " ")
+          .trim();
+        return text || "—";
+      }
       return formatEntityFieldScalarValue(field, record.values[field.id]);
+    }
   }
 }
 
@@ -998,8 +1134,87 @@ export function getRelationFieldOptions(
 }
 
 /**
+ * Copy relation ids from a lookup (e.g. «Отдел» → Users.Руководитель) into the
+ * single sibling relation field that targets the same entity (e.g.
+ * «Руководители отделов»). Used by create forms and automation task fills.
+ */
+function syncRelationsFromLookups(
+  entity: Entity,
+  values: Record<string, string>,
+  entities: readonly Entity[],
+  changedFieldId: string | null,
+): Record<string, string> {
+  const lookups = entity.fields.filter((field) => {
+    if (field.type !== "lookup" || !field.lookup) return false;
+    if (changedFieldId && field.lookup.relationFieldId !== changedFieldId) {
+      return false;
+    }
+    return true;
+  });
+  if (lookups.length === 0) return values;
+
+  const ctx = getEntityValueContext(entities);
+  const record = createEntityDraftRecord(values);
+  let next = values;
+
+  for (const lookup of lookups) {
+    const target = resolveEntityLookupTarget(entity, lookup, entities);
+    if (!target || target.field.type !== "relation") continue;
+    const relatedTargetId = getEntityRelationTargetId(target.field);
+    if (!relatedTargetId) continue;
+
+    const bridgeId = lookup.lookup?.relationFieldId ?? null;
+    const candidates = entity.fields.filter(
+      (field) =>
+        field.type === "relation" &&
+        field.id !== bridgeId &&
+        getEntityRelationTargetId(field) === relatedTargetId,
+    );
+    // Prefer relations filtered by this bridge, then fields present on the form.
+    const filtered = candidates.filter((field) => {
+      const filter = field.relationFilter;
+      if (!bridgeId || !filter) return false;
+      if (filter.matches.some((match) => match.sourceFieldId === bridgeId)) {
+        return true;
+      }
+      return filter.conditions.some(
+        (condition) =>
+          condition.operator === "equalsRecordField" &&
+          condition.value === bridgeId,
+      );
+    });
+    const onForm = candidates.filter((field) =>
+      Object.prototype.hasOwnProperty.call(values, field.id),
+    );
+    const pool =
+      filtered.length === 1
+        ? filtered
+        : onForm.length === 1
+          ? onForm
+          : candidates.length === 1
+            ? candidates
+            : [];
+    if (pool.length !== 1) continue;
+    const dest = pool[0]!;
+    const ids = getRecordFieldIds(ctx, entity, record, lookup);
+    const limited = dest.relationMultiple ? ids : ids.slice(0, 1);
+    const serialized = serializeEntityRelationIds(limited);
+    if ((next[dest.id] ?? "") === serialized) continue;
+    // On form open only fill empty destinations; on bridge change always sync.
+    if (changedFieldId == null && (next[dest.id] ?? "").trim().length > 0) {
+      continue;
+    }
+    if (next === values) next = { ...values };
+    next[dest.id] = serialized;
+  }
+
+  return next;
+}
+
+/**
  * Set a field value and clear dependent values that became invalid:
  * child lists filtered by this field and relations filtered by it.
+ * Also mirrors lookup→relation autofill (department → managers).
  */
 export function applyEntityFieldValue(
   entity: Entity,
@@ -1023,7 +1238,21 @@ export function applyEntityFieldValue(
     );
   }
 
-  return sanitizeDependentRelationValues(entity, next, entities, fieldId);
+  const sanitized = sanitizeDependentRelationValues(
+    entity,
+    next,
+    entities,
+    fieldId,
+  );
+  const mirrored = syncRelationsFromLookups(
+    entity,
+    sanitized,
+    entities,
+    fieldId,
+  );
+  return mirrored === sanitized
+    ? sanitized
+    : sanitizeDependentRelationValues(entity, mirrored, entities);
 }
 
 /** Drop relation values that no longer match filters / nested parent scope. */
@@ -1081,7 +1310,11 @@ export function sanitizeEntityRelationDependencies(
   values: Record<string, string>,
   entities: readonly Entity[],
 ): Record<string, string> {
-  return sanitizeDependentRelationValues(entity, values, entities);
+  const sanitized = sanitizeDependentRelationValues(entity, values, entities);
+  const mirrored = syncRelationsFromLookups(entity, sanitized, entities, null);
+  return mirrored === sanitized
+    ? sanitized
+    : sanitizeDependentRelationValues(entity, mirrored, entities);
 }
 
 /** Stored default for a new record (`null` — no default). */

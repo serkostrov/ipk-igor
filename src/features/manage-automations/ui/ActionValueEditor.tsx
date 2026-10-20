@@ -255,6 +255,26 @@ function compatibleNestedFields(
     if (target.type === "number") {
       return item.type === "number" || item.type === "text";
     }
+    // Text-like targets: never copy raw relation ids into a title/text field.
+    if (
+      target.type === "text" ||
+      target.type === "textarea" ||
+      target.type === "url" ||
+      target.type === "email" ||
+      target.type === "phone"
+    ) {
+      return (
+        item.type === "text" ||
+        item.type === "textarea" ||
+        item.type === "url" ||
+        item.type === "email" ||
+        item.type === "phone" ||
+        item.type === "number" ||
+        item.type === "datetime" ||
+        item.type === "time" ||
+        item.type === "list"
+      );
+    }
     return true;
   });
 }
@@ -918,7 +938,7 @@ function ActionValueEditorBody({
         {textMode === "fromField" ? (
           <SourceFieldSelect
             className={valueGrowClass}
-            fields={sourceFields}
+            fields={compatibleNestedFields(field, sourceFields)}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
@@ -984,7 +1004,7 @@ function ActionValueEditorBody({
       {textMode === "fromField" ? (
         <SourceFieldSelect
           className={valueGrowClass}
-          fields={sourceFields}
+          fields={compatibleNestedFields(field, sourceFields)}
           value={fieldRefId(value)}
           excludeFieldId={excludeSourceFieldId}
           onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}

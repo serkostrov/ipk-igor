@@ -27,7 +27,7 @@ import {
   getEntityPathLabel,
   getEntityRelationTargetId,
   getEntityTabLinkFieldIds,
-  isEntityComputedFieldType,
+  canEntityFieldToggleShowOnCreate,
   isEntityFieldVisibleOnCreate,
   isEntityFieldsHostTab,
   isEntityNameField,
@@ -77,11 +77,10 @@ function fieldMatchesCreateFilter(field: EntityField, filter: CreateFilter) {
   return filter === "onCreate" ? onCreate : !onCreate;
 }
 
-/** Fields that can use the «При создании» toggle (not title / computed). */
+/** Fields that can use the «При создании» toggle (not title / non-lookup computed). */
 function canToggleShowOnCreate(field: EntityField) {
   if (isEntityNameField(field)) return false;
-  if (isEntityComputedFieldType(field.type)) return false;
-  return true;
+  return canEntityFieldToggleShowOnCreate(field.type);
 }
 
 function tabLabel(entity: Entity, tabId: string) {

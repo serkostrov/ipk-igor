@@ -640,6 +640,7 @@ export function updateEntity(
       | "name"
       | "namePlural"
       | "description"
+      | "nameTemplate"
       | "views"
       | "defaultView"
       | "recordColumns"

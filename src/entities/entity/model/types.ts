@@ -458,6 +458,11 @@ export type Entity = {
   name: string;
   namePlural: string;
   description: string;
+  /**
+   * Title template for records: plain text + `{{fieldId}}` tokens from this
+   * entity's fields. Empty — title is entered manually in the name field.
+   */
+  nameTemplate: string;
   views: EntityView[];
   /**
    * Browse view opened by default on the entity page.
@@ -1504,19 +1509,58 @@ export function formatEntityListFieldValue(
   return getEntityListOption(options, value)?.name ?? "—";
 }
 
+/** Expand `{{fieldId}}` in a record name using sibling field values (no formula ctx). */
+function resolveRecordNameLabel(
+  entity: Pick<Entity, "fields">,
+  values: Record<string, string>,
+  entities?: readonly Entity[],
+): string {
+  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  if (!nameField) return "Без названия";
+  const raw = (values[nameField.id] ?? "").trim();
+  if (!raw) return "Без названия";
+  if (!/\{\{[^}]+\}\}/.test(raw)) return raw;
+
+  const text = raw
+    .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
+      const fieldId = rawId.trim();
+      const field = entity.fields.find((item) => item.id === fieldId);
+      if (!field || isEntityNameField(field)) return "";
+      if (field.type === "list") {
+        const label = formatEntityListFieldValue(
+          field,
+          values[field.id],
+          entities,
+        );
+        return !label || label === "—" ? "" : label;
+      }
+      if (field.type === "relation") {
+        const targetId = getEntityRelationTargetId(field);
+        const target = targetId
+          ? entities?.find((item) => item.id === targetId)
+          : null;
+        return resolveRelationRecordLabel(target, values[field.id]) ?? "";
+      }
+      const label = formatEntityFieldScalarValue(field, values[field.id]);
+      return !label || label === "—" ? "" : label;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+  return text || "Без названия";
+}
+
 export function resolveRelationRecordLabel(
   target: Pick<Entity, "fields" | "records"> | null | undefined,
   value: string | undefined,
+  entities?: readonly Entity[],
 ) {
   if (!target) return null;
   const ids = parseEntityRelationIds(value);
   if (ids.length === 0) return null;
-  const nameField = target.fields.find((field) => isEntityNameField(field));
   const labels = ids.map((recordId) => {
     const record = target.records.find((item) => item.id === recordId);
-    if (!record || !nameField) return "Без названия";
-    const label = (record.values[nameField.id] ?? "").trim();
-    return label.length > 0 ? label : "Без названия";
+    if (!record) return "Без названия";
+    return resolveRecordNameLabel(target, record.values, entities);
   });
   return labels.length > 0 ? labels.join(", ") : null;
 }
@@ -1528,17 +1572,14 @@ export type RelationRecordOption = {
 
 export function getRelationRecordOptions(
   target: Pick<Entity, "fields" | "records"> | null | undefined,
+  entities?: readonly Entity[],
 ): RelationRecordOption[] {
   if (!target) return [];
-  const nameField = target.fields.find((field) => isEntityNameField(field));
 
-  return target.records.map((record) => {
-    const label = nameField ? (record.values[nameField.id] ?? "").trim() : "";
-    return {
-      id: record.id,
-      label: label.length > 0 ? label : "Без названия",
-    };
-  });
+  return target.records.map((record) => ({
+    id: record.id,
+    label: resolveRecordNameLabel(target, record.values, entities),
+  }));
 }
 
 export function getEntityFieldListOptions(

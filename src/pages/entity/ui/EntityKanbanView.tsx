@@ -29,6 +29,7 @@ import {
   ENTITY_KANBAN_CARD_FIELD_LIMIT,
   ENTITY_KANBAN_EMPTY_COLUMN_ID,
   formatRecordFieldValue,
+  getEntityRecordTitle,
   getEntityFieldDisplayName,
   getEntityFieldTypeLabel,
   getEntityKanbanCardFieldCandidates,
@@ -36,7 +37,6 @@ import {
   getEntityKanbanGroupFields,
   getEntityListOption,
   getEntityRecordKanbanColumnId,
-  isEntityNameField,
   isRecordValueDecorated,
   RecordValue,
   normalizeEntityKanbanCardFieldIds,
@@ -139,10 +139,7 @@ function getRecordTitle(
   entity: Entity,
   record: EntityRecord,
 ) {
-  const nameField = entity.fields.find((field) => isEntityNameField(field));
-  if (!nameField) return "Без названия";
-  const label = formatRecordFieldValue(ctx, entity, record, nameField);
-  return !label.trim() || label === "—" ? "Без названия" : label;
+  return getEntityRecordTitle(ctx, entity, record);
 }
 
 function KanbanCardFieldValue({

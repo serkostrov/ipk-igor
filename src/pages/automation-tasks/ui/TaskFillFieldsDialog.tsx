@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Lock } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -21,6 +20,8 @@ import {
 import { cn } from "@/shared/lib/cn";
 import {
   applyEntityFieldValue,
+  createEntityDraftRecord,
+  formatRecordFieldValue,
   getCurrentUserRecordId,
   getEntityConfig,
   getEntityFieldDisplayName,
@@ -37,7 +38,9 @@ import {
   updateEntityRecord,
   useEntityConfig,
   useEntityValueContext,
+  type Entity,
   type EntityField,
+  type EntityValueContext,
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import {
@@ -76,9 +79,27 @@ type TaskFillFieldsDialogProps = {
   onOpenRecord?: (entityId: string, recordId: string) => void;
 };
 
-function isFieldFilled(field: EntityField, value: string) {
+function isFieldFilled(
+  field: EntityField,
+  value: string,
+  options?: {
+    ctx: EntityValueContext;
+    entity: Entity;
+    values: Record<string, string>;
+    recordId: string;
+  },
+) {
   if (field.type === "boolean") return true;
   if (field.type === "file") return parseEntityFieldFileValue(value) != null;
+  if (isEntityComputedFieldType(field.type) && options) {
+    const text = formatRecordFieldValue(
+      options.ctx,
+      options.entity,
+      createEntityDraftRecord(options.values, options.recordId),
+      field,
+    );
+    return text !== "—" && text.trim().length > 0;
+  }
   return value.trim().length > 0;
 }
 
@@ -155,6 +176,7 @@ function TaskFillFieldsDialogBody({
               values: { ...record.values, ...nextValues },
               actions,
               actorUserId: getCurrentUserRecordId(),
+              triggerRecordId: record.id,
             });
             nextValues = mergeAutofillIntoFormValues(
               nextValues,
@@ -207,8 +229,7 @@ function TaskFillFieldsDialogBody({
       ? []
       : ask.visibleFieldIds
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-          .filter((field): field is EntityField => field != null)
-          .filter((field) => !isEntityComputedFieldType(field.type));
+          .filter((field): field is EntityField => field != null);
   const viewFields =
     !entity || !ask
       ? []
@@ -216,11 +237,21 @@ function TaskFillFieldsDialogBody({
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
           .filter((field): field is EntityField => field != null);
 
+  const mergedValues = useMemo(
+    () => ({ ...(record?.values ?? {}), ...values }),
+    [record?.values, values],
+  );
+
   const missingRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {
         const field = entity?.fields.find((item) => item.id === fieldId);
-        if (!field) return true;
-        return !isFieldFilled(field, values[fieldId] ?? "");
+        if (!field || !entity || !record) return true;
+        return !isFieldFilled(field, values[fieldId] ?? "", {
+          ctx: previewContext,
+          entity,
+          values: mergedValues,
+          recordId: record.id,
+        });
       }).length
     : 0;
 
@@ -269,6 +300,7 @@ function TaskFillFieldsDialogBody({
         values: merged,
         actions: setFieldActions,
         actorUserId,
+        triggerRecordId: record?.id,
         changedFieldId: fieldId,
       });
       return mergeAutofillIntoFormValues(
@@ -310,8 +342,13 @@ function TaskFillFieldsDialogBody({
 
     const missing = outcome.fieldAccess.requiredFieldIds.filter((fieldId) => {
       const field = entity.fields.find((item) => item.id === fieldId);
-      if (!field) return true;
-      return !isFieldFilled(field, values[fieldId] ?? "");
+      if (!field || !record) return true;
+      return !isFieldFilled(field, values[fieldId] ?? "", {
+        ctx: previewContext,
+        entity,
+        values: mergedValues,
+        recordId: record.id,
+      });
     });
     if (missing.length > 0) {
       const labels = missing.map((fieldId) => {
@@ -390,6 +427,7 @@ function TaskFillFieldsDialogBody({
         values: merged,
         actions,
         actorUserId,
+        triggerRecordId: record.id,
       });
       return mergeAutofillIntoFormValues(
         current,
@@ -524,13 +562,7 @@ function TaskFillFieldsDialogBody({
                           const required = requiredIds.has(field.id);
 
                           return (
-                            <div key={field.id} className="relative">
-                              {required ? (
-                                <span className="absolute top-0 right-0 z-10 inline-flex items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                                  <Lock className="size-3" aria-hidden />
-                                  обязательно
-                                </span>
-                              ) : null}
+                            <div key={field.id}>
                               <RecordFieldControl
                                 ctx={previewContext}
                                 entity={entity}

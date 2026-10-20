@@ -8,6 +8,7 @@ import {
   type MouseEvent,
   type SyntheticEvent,
 } from "react";
+import { Braces } from "lucide-react";
 import { Label } from "@/shared/ui/label";
 import {
   Select,
@@ -47,6 +48,7 @@ export function TemplateFieldInput({
   placeholder,
   id,
   multiline = false,
+  headerInsert = false,
 }: {
   title: string;
   value: string;
@@ -55,6 +57,8 @@ export function TemplateFieldInput({
   placeholder?: string;
   id?: string;
   multiline?: boolean;
+  /** Put «Вставить поле» next to the title instead of below the editor. */
+  headerInsert?: boolean;
 }) {
   /** Remount select after insert so the same field can be picked again. */
   const [fieldPickKey, setFieldPickKey] = useState(0);
@@ -184,11 +188,64 @@ export function TemplateFieldInput({
     };
   }
 
+  const fieldPicker =
+    fields.length > 0 ? (
+      <Select
+        key={fieldPickKey}
+        onValueChange={(next) => {
+          if (next == null) return;
+          const field = fields.find((item) => item.id === String(next));
+          if (!field) return;
+          insertField(field);
+        }}
+      >
+        <SelectTrigger
+          id={id ? `${id}-field` : undefined}
+          size="sm"
+          aria-label="Вставить поле"
+          title="Вставить поле"
+          className={cn(
+            "shrink-0 bg-background",
+            headerInsert
+              ? "h-6 w-6 justify-center gap-0 rounded-md p-0 shadow-none data-[size=sm]:h-6 data-[size=sm]:w-6 [&>svg:last-child]:hidden"
+              : "h-7 w-full",
+          )}
+        >
+          {headerInsert ? (
+            <Braces className="size-3 text-muted-foreground" aria-hidden />
+          ) : (
+            <SelectValue placeholder="Вставить поле">Вставить поле</SelectValue>
+          )}
+        </SelectTrigger>
+        <SelectContent align="end">
+          {fields.map((field) => (
+            <SelectItem key={field.id} value={field.id}>
+              {getEntityFieldDisplayName(field)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    ) : null;
+
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <Label htmlFor={id} className="text-xs font-medium text-foreground">
-        {title}
-      </Label>
+      {title.trim() || headerInsert ? (
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          {title.trim() ? (
+            <Label
+              htmlFor={id}
+              className={
+                headerInsert ? undefined : "text-xs font-medium text-foreground"
+              }
+            >
+              {title}
+            </Label>
+          ) : (
+            <span className="min-w-0" />
+          )}
+          {headerInsert ? fieldPicker : null}
+        </div>
+      ) : null}
 
       <div
         className={cn(
@@ -269,33 +326,7 @@ export function TemplateFieldInput({
         })}
       </div>
 
-      {fields.length > 0 ? (
-        <Select
-          key={fieldPickKey}
-          onValueChange={(next) => {
-            if (next == null) return;
-            const field = fields.find((item) => item.id === String(next));
-            if (!field) return;
-            insertField(field);
-          }}
-        >
-          <SelectTrigger
-            id={id ? `${id}-field` : undefined}
-            className="h-8 w-full bg-background"
-          >
-            <SelectValue placeholder="Вставить поле…">
-              Вставить поле…
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent align="start">
-            {fields.map((field) => (
-              <SelectItem key={field.id} value={field.id}>
-                {getEntityFieldDisplayName(field)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : null}
+      {!headerInsert ? fieldPicker : null}
     </div>
   );
 }

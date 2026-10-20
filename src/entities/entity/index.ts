@@ -226,11 +226,22 @@ export {
   resolveEntityFieldDefaultValue,
   resolveEntityFieldSource,
   resolveEntityLookupTarget,
+  resolveEntityRelationBridgeTarget,
+  isEntityLookupBridgeField,
   resolveRecordFieldCells,
   type EntityConditionSource,
   type EntityFieldCell,
   type EntityValueContext,
 } from "./model/field-value";
+export {
+  entityNameValueHasTemplate,
+  fieldNameTemplateToken,
+  getEntityRecordTitle,
+  parseEntityNameTemplateParts,
+  renderEntityNameTemplate,
+  serializeEntityNameTemplateParts,
+  type EntityNameTemplatePart,
+} from "./model/name-template";
 export {
   ENTITY_DEPENDENCY_TYPES,
   ENTITY_DEPENDENCY_TYPE_LABELS,
@@ -238,6 +249,7 @@ export {
   formatEntityDependencyLag,
   getEntityFieldOptions,
   isEntityComputedFieldType,
+  canEntityFieldToggleShowOnCreate,
   isEntityNumericFieldType,
   isEntityUnitFieldType,
   parseEntityDependencies,

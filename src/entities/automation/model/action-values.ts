@@ -1,7 +1,9 @@
 import {
   getCurrentUserRecordId,
   getEntityRelationTargetId,
+  isEntityNameField,
   parseEntityRelationIds,
+  resolveRelationRecordLabel,
   serializeEntityRelationIds,
   type Entity,
   type EntityField,
@@ -12,6 +14,75 @@ import {
   nowTimeHHmm,
   todayIsoDate,
 } from "@/shared/lib/business-days";
+
+function wantsRelationIds(fieldType: EntityFieldType | undefined) {
+  return fieldType === "relation" || fieldType === "dependencies";
+}
+
+/** Human label for a trigger record (name field), never a raw id. */
+function resolveTriggerRecordLabel(
+  options: ResolveAutomationActionValueOptions,
+  recordId: string,
+): string {
+  const entity = options.entities?.find(
+    (item) => item.id === options.triggerEntityId,
+  );
+  if (!entity) return "";
+  const label = resolveRelationRecordLabel(entity, recordId)?.trim() ?? "";
+  if (!label || label === "Без названия" || label === recordId) return "";
+  return label;
+}
+
+/**
+ * When copying a relation field into text, resolve ids to labels.
+ * Relation/dependencies targets keep raw ids.
+ */
+function resolveCopiedFieldValue(
+  sourceFieldId: string,
+  rawValue: string,
+  options: ResolveAutomationActionValueOptions,
+): string {
+  if (!rawValue || wantsRelationIds(options.fieldType)) return rawValue;
+  const trigger = options.entities?.find(
+    (item) => item.id === options.triggerEntityId,
+  );
+  const sourceField = trigger?.fields.find((item) => item.id === sourceFieldId);
+  if (sourceField?.type !== "relation") return rawValue;
+  const targetId = getEntityRelationTargetId(sourceField);
+  const target = targetId
+    ? (options.entities?.find((item) => item.id === targetId) ?? null)
+    : null;
+  const label = resolveRelationRecordLabel(target, rawValue)?.trim() ?? "";
+  if (!label || label === "Без названия") return "";
+  return label;
+}
+
+/** Nested relation → text: resolve the nested field if it stores relation ids. */
+function resolveNestedFieldDisplayValue(
+  relatedEntity: Entity,
+  nestedFieldId: string,
+  rawValue: string,
+  options: ResolveAutomationActionValueOptions,
+): string {
+  if (!rawValue || wantsRelationIds(options.fieldType)) return rawValue;
+  const nestedField = relatedEntity.fields.find(
+    (item) => item.id === nestedFieldId,
+  );
+  if (nestedField?.type === "relation") {
+    const targetId = getEntityRelationTargetId(nestedField);
+    const target = targetId
+      ? (options.entities?.find((item) => item.id === targetId) ?? null)
+      : null;
+    const label = resolveRelationRecordLabel(target, rawValue)?.trim() ?? "";
+    if (!label || label === "Без названия") return "";
+    return label;
+  }
+  if (isEntityNameField(nestedField ?? { locked: false })) {
+    const trimmed = rawValue.trim();
+    if (trimmed.startsWith("record-")) return "";
+  }
+  return rawValue;
+}
 
 /** Dynamic tokens stored in `setField.value` / mappings — resolved at runtime. */
 export const AUTOMATION_VALUE_TODAY = "__today__";
@@ -83,12 +154,35 @@ function resolveRelatedFieldValue(
   nestedFieldId: string,
   options: ResolveAutomationActionValueOptions,
 ): string {
-  if (options.getRelatedFieldValue) {
-    return options.getRelatedFieldValue(relationFieldId, nestedFieldId);
-  }
   const values = options.values;
   const entities = options.entities;
   const triggerEntityId = options.triggerEntityId;
+
+  if (options.getRelatedFieldValue) {
+    const rawValue = options.getRelatedFieldValue(
+      relationFieldId,
+      nestedFieldId,
+    );
+    if (!entities || !triggerEntityId) return rawValue;
+    const trigger = entities.find((entity) => entity.id === triggerEntityId);
+    const relationField = trigger?.fields.find(
+      (field) => field.id === relationFieldId && field.type === "relation",
+    );
+    const targetId = relationField
+      ? getEntityRelationTargetId(relationField)
+      : null;
+    const relatedEntity = targetId
+      ? (entities.find((entity) => entity.id === targetId) ?? null)
+      : null;
+    if (!relatedEntity) return rawValue;
+    return resolveNestedFieldDisplayValue(
+      relatedEntity,
+      nestedFieldId,
+      rawValue,
+      options,
+    );
+  }
+
   if (!values || !entities || !triggerEntityId) return "";
 
   const trigger = entities.find((entity) => entity.id === triggerEntityId);
@@ -97,20 +191,42 @@ function resolveRelatedFieldValue(
   );
   if (!relationField) return "";
 
-  const relatedId = parseEntityRelationIds(values[relationFieldId])[0];
-  if (!relatedId) return "";
+  const relatedIds = parseEntityRelationIds(values[relationFieldId]);
+  if (relatedIds.length === 0) return "";
 
   const targetId = getEntityRelationTargetId(relationField);
   const relatedEntity =
     (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
     entities.find((entity) =>
-      entity.records.some((record) => record.id === relatedId),
+      entity.records.some((record) => record.id === relatedIds[0]),
     );
   if (!relatedEntity) return "";
-  const relatedRecord = relatedEntity.records.find(
-    (record) => record.id === relatedId,
-  );
-  return relatedRecord?.values[nestedFieldId] ?? "";
+
+  // Union nested values across every selected related record (multi-relations).
+  const nestedParts: string[] = [];
+  for (const relatedId of relatedIds) {
+    const relatedRecord = relatedEntity.records.find(
+      (record) => record.id === relatedId,
+    );
+    const rawValue = relatedRecord?.values[nestedFieldId] ?? "";
+    const part = resolveNestedFieldDisplayValue(
+      relatedEntity,
+      nestedFieldId,
+      rawValue,
+      options,
+    );
+    if (!part) continue;
+    if (wantsRelationIds(options.fieldType)) {
+      nestedParts.push(...parseEntityRelationIds(part));
+    } else {
+      nestedParts.push(part);
+    }
+  }
+  if (nestedParts.length === 0) return "";
+  if (wantsRelationIds(options.fieldType)) {
+    return serializeEntityRelationIds([...new Set(nestedParts)]);
+  }
+  return [...new Set(nestedParts)].join(", ");
 }
 
 /** Resolve literal / `{{fieldId}}` / `{{rel.field}}` / dynamic tokens. */
@@ -147,13 +263,10 @@ export function resolveAutomationActionValue(
   if (raw === AUTOMATION_VALUE_CURRENT_RECORD) {
     const recordId = options.triggerRecordId?.trim() || "";
     if (!recordId) return "";
-    if (
-      options.fieldType === "relation" ||
-      options.fieldType === "dependencies"
-    ) {
+    if (wantsRelationIds(options.fieldType)) {
       return serializeEntityRelationIds([recordId]);
     }
-    return recordId;
+    return resolveTriggerRecordLabel(options, recordId);
   }
   if (raw === "{{created}}" || raw === "created") {
     const ids = options.createdRecordIds ?? [];
@@ -170,7 +283,8 @@ export function resolveAutomationActionValue(
 
   const match = raw.match(/^\{\{([^}]+)\}\}$/);
   if (match) {
-    return values[match[1]!.trim()] ?? "";
+    const fieldId = match[1]!.trim();
+    return resolveCopiedFieldValue(fieldId, values[fieldId] ?? "", options);
   }
 
   // Partial templates: replace every {{fieldId}} occurrence (not dotted paths).
@@ -181,7 +295,7 @@ export function resolveAutomationActionValue(
         const ids = options.createdRecordIds ?? [];
         return ids[ids.length - 1] ?? "";
       }
-      return values[key] ?? "";
+      return resolveCopiedFieldValue(key, values[key] ?? "", options);
     });
   }
 

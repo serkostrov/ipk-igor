@@ -708,7 +708,8 @@ function migrateLegacyListOptionsToFields(
 }
 
 export function normalizeEntity(
-  entity: Entity & {
+  entity: Omit<Entity, "nameTemplate"> & {
+    nameTemplate?: string;
     listOptions?: EntityListOption[];
     statuses?: EntityListOption[];
     listFixed?: boolean;
@@ -757,6 +758,8 @@ export function normalizeEntity(
     name: entity.name.trim(),
     namePlural: entity.namePlural.trim(),
     description: entity.description.trim(),
+    nameTemplate:
+      typeof entity.nameTemplate === "string" ? entity.nameTemplate.trim() : "",
     views,
     defaultView: normalizeEntityDefaultView(
       views,
@@ -800,6 +803,7 @@ export function toEntityStructure(entity: Entity) {
     name: entity.name.trim(),
     namePlural: entity.namePlural.trim(),
     description: entity.description.trim(),
+    nameTemplate: entity.nameTemplate?.trim() ?? "",
     views,
     defaultView: normalizeEntityDefaultView(views, entity.defaultView),
     fields: entity.fields.map((field) => normalizeEntityField(field)),
@@ -873,6 +877,12 @@ export function parseEntityConfig(value: unknown): EntityConfig {
         name: item.name,
         namePlural: item.namePlural,
         description,
+        nameTemplate:
+          typeof item.nameTemplate === "string"
+            ? item.nameTemplate
+            : typeof item.name_template === "string"
+              ? item.name_template
+              : "",
         views: parseViews(item.views),
         defaultView: isEntityBrowseView(item.defaultView)
           ? item.defaultView

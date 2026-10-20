@@ -256,12 +256,32 @@ function taskRecordTitle(
 ) {
   const entity = entities.find((item) => item.id === task.entityId);
   if (!entity) return null;
-  const fromRelation = resolveRelationRecordLabel(entity, task.recordId);
-  if (fromRelation) return fromRelation;
   const record = entity.records.find((item) => item.id === task.recordId);
   const nameField = entity.fields.find((field) => isEntityNameField(field));
-  const title = nameField ? (record?.values[nameField.id] ?? "").trim() : "";
-  return title || null;
+  const raw = nameField ? (record?.values[nameField.id] ?? "").trim() : "";
+  if (raw && raw !== task.recordId && !raw.startsWith("record-")) {
+    return raw;
+  }
+  if (raw && raw !== task.recordId && raw.startsWith("record-")) {
+    const resolved = resolveRelationRecordLabel(entity, raw)?.trim() ?? "";
+    if (
+      resolved &&
+      resolved !== "Без названия" &&
+      !resolved.startsWith("record-")
+    ) {
+      return resolved;
+    }
+  }
+  const fromRelation = resolveRelationRecordLabel(entity, task.recordId);
+  if (
+    fromRelation &&
+    fromRelation !== "Без названия" &&
+    fromRelation !== task.recordId &&
+    !fromRelation.startsWith("record-")
+  ) {
+    return fromRelation;
+  }
+  return raw ? "Без названия" : null;
 }
 
 function StatusBadge({ status }: { status: AutomationTaskStatus }) {

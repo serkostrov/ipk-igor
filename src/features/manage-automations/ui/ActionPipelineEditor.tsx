@@ -329,145 +329,168 @@ function ActionFields({
     const sourceLabel = sourceEntity
       ? getEntityDisplayName(sourceEntity)
       : "текущей записи";
+    const sourceOne =
+      sourceEntity?.name.trim() || sourceLabel || "текущая запись";
     const targetLabel = target ? getEntityDisplayName(target) : "связанной";
+    const targetOne = target?.name.trim() || targetLabel || "запись";
     const linkMode =
       action.linkMode === "backRelation" ? "backRelation" : "relation";
-    const forwardLinkFields = fields.filter((field) => {
-      if (field.type !== "relation" && field.type !== "dependencies") {
-        return false;
-      }
-      if (!action.entityId) return true;
-      const targetId = getEntityRelationTargetId(field);
-      return !targetId || targetId === action.entityId;
-    });
-    const backLinkFields = (target?.fields ?? []).filter((field) => {
-      if (field.type !== "relation" && field.type !== "dependencies") {
-        return false;
-      }
-      if (!sourceEntity) return true;
-      const targetId = getEntityRelationTargetId(field);
-      return !targetId || targetId === sourceEntity.id;
-    });
-    const linkFields =
-      linkMode === "backRelation" ? backLinkFields : forwardLinkFields;
 
-    function pickDefaultLink(
-      nextEntityId: string,
-      preferredMode?: "relation" | "backRelation",
-    ): {
+    type UpdateLinkOption = {
+      key: string;
       linkMode: "relation" | "backRelation";
       linkFieldId: string;
-    } {
-      const forward = fields.filter((field) => {
-        if (field.type !== "relation" && field.type !== "dependencies") {
-          return false;
-        }
-        return getEntityRelationTargetId(field) === nextEntityId;
-      });
+      title: string;
+      hint: string;
+    };
+
+    function buildLinkOptions(entityId: string): UpdateLinkOption[] {
+      if (!entityId) return [];
       const nextTarget =
-        entities.find((entity) => entity.id === nextEntityId) ?? null;
-      const back = (nextTarget?.fields ?? []).filter((field) => {
+        entities.find((entity) => entity.id === entityId) ?? null;
+      const nextTargetOne =
+        nextTarget?.name.trim() ||
+        (nextTarget ? getEntityDisplayName(nextTarget) : "запись");
+      const options: UpdateLinkOption[] = [];
+      for (const field of fields) {
         if (field.type !== "relation" && field.type !== "dependencies") {
-          return false;
+          continue;
         }
-        return (
-          !sourceEntity ||
-          getEntityRelationTargetId(field) === sourceEntity.id
-        );
-      });
-      if (preferredMode === "relation") {
-        return { linkMode: "relation", linkFieldId: forward[0]?.id ?? "" };
+        if (getEntityRelationTargetId(field) !== entityId) continue;
+        const name = getEntityFieldDisplayName(field);
+        options.push({
+          key: `relation:${field.id}`,
+          linkMode: "relation",
+          linkFieldId: field.id,
+          title: `Из поля «${name}»`,
+          hint: `На этом «${sourceOne}» → записи «${nextTargetOne}»`,
+        });
       }
-      if (preferredMode === "backRelation") {
-        return {
+      for (const field of nextTarget?.fields ?? []) {
+        if (field.type !== "relation" && field.type !== "dependencies") {
+          continue;
+        }
+        if (!sourceEntity) continue;
+        if (getEntityRelationTargetId(field) !== sourceEntity.id) continue;
+        const name = getEntityFieldDisplayName(field);
+        options.push({
+          key: `backRelation:${field.id}`,
           linkMode: "backRelation",
-          linkFieldId: back[0]?.id ?? "",
-        };
+          linkFieldId: field.id,
+          title: `Где «${name}» = эта запись`,
+          hint: `Все «${nextTargetOne}» с полем «${name}» на этот «${sourceOne}»`,
+        });
       }
-      if (forward[0]) {
-        return { linkMode: "relation", linkFieldId: forward[0].id };
-      }
-      if (back[0]) {
-        return { linkMode: "backRelation", linkFieldId: back[0].id };
-      }
-      return { linkMode: "relation", linkFieldId: "" };
+      return options;
+    }
+
+    const linkOptions = buildLinkOptions(action.entityId);
+    const selectedLinkKey =
+      action.linkFieldId.trim().length > 0
+        ? `${linkMode}:${action.linkFieldId}`
+        : "";
+    const selectedLink =
+      linkOptions.find((option) => option.key === selectedLinkKey) ??
+      linkOptions.find((option) => option.linkFieldId === action.linkFieldId) ??
+      linkOptions[0] ??
+      null;
+
+    function applyEntity(entityId: string) {
+      const options = buildLinkOptions(entityId);
+      const first = options[0];
+      onChange({
+        ...action,
+        entityId,
+        linkMode: first?.linkMode ?? "relation",
+        linkFieldId: first?.linkFieldId ?? "",
+        mappings: [],
+      });
     }
 
     return (
       <div className="mt-2 flex flex-col gap-2.5">
         <div className="flex flex-col gap-1">
           <p className="text-[11px] font-medium text-muted-foreground">
-            Сущность
+            Что обновляем
           </p>
           <EntitySelect
             entities={entities}
             value={action.entityId}
-            onChange={(entityId) => {
-              const link = pickDefaultLink(entityId);
-              onChange({
-                ...action,
-                entityId,
-                linkMode: link.linkMode,
-                linkFieldId: link.linkFieldId,
-                mappings: [],
-              });
-            }}
+            onChange={applyEntity}
           />
         </div>
 
-        <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/20 p-2">
+        <div className="flex flex-col gap-1.5">
           <p className="text-[11px] font-medium text-muted-foreground">
-            Какие записи обновить
+            Какие именно записи
           </p>
-          <Select
-            value={linkMode}
-            onValueChange={(next) => {
-              if (next !== "relation" && next !== "backRelation") return;
-              const link = pickDefaultLink(action.entityId, next);
-              onChange({
-                ...action,
-                linkMode: next,
-                linkFieldId: link.linkFieldId,
-              });
-            }}
-          >
-            <SelectTrigger size="sm" className="h-8">
-              <SelectValue>
-                {linkMode === "backRelation"
-                  ? `Где на «${targetLabel}» указана текущая «${sourceLabel}»`
-                  : `По связи на «${sourceLabel}»`}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="relation">
-                По связи на «{sourceLabel}»
-              </SelectItem>
-              <SelectItem value="backRelation">
-                Где на «{targetLabel}» указана текущая «{sourceLabel}»
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <FieldSelect
-            fields={linkFields}
-            value={action.linkFieldId}
-            placeholder={
-              linkMode === "backRelation"
-                ? "Поле связи на целевой сущности"
-                : "Поле связи на текущей записи"
-            }
-            entities={entities}
-            showType
-            onChange={(linkFieldId) => onChange({ ...action, linkFieldId })}
-          />
-          <p className="text-[10px] leading-snug text-muted-foreground/90">
-            {linkMode === "backRelation"
-              ? `Обновятся все «${targetLabel}», у которых выбранное поле содержит текущую запись.`
-              : `Обновятся записи из выбранного поля связи на «${sourceLabel}».`}
-          </p>
+          {!action.entityId ? (
+            <p className="text-[11px] text-muted-foreground">
+              Сначала выберите сущность.
+            </p>
+          ) : linkOptions.length === 0 ? (
+            <p className="rounded-md border border-dashed border-border/70 px-2.5 py-2 text-[11px] leading-snug text-muted-foreground">
+              Нет связи между «{sourceOne}» и «{targetOne}». Добавьте поле-связь
+              на одной из сущностей.
+            </p>
+          ) : linkOptions.length === 1 && selectedLink ? (
+            <div className="rounded-md border border-border/70 bg-muted/25 px-2.5 py-2">
+              <p className="text-sm font-medium text-foreground">
+                {selectedLink.title}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                {selectedLink.hint}
+              </p>
+            </div>
+          ) : (
+            <Select
+              value={selectedLink?.key}
+              onValueChange={(next) => {
+                const option = linkOptions.find((item) => item.key === next);
+                if (!option) return;
+                onChange({
+                  ...action,
+                  linkMode: option.linkMode,
+                  linkFieldId: option.linkFieldId,
+                });
+              }}
+            >
+              <SelectTrigger size="sm" className="h-auto min-h-8 py-1.5">
+                <SelectValue>
+                  {selectedLink ? (
+                    <span className="flex min-w-0 flex-col items-start gap-0.5 text-left">
+                      <span className="truncate">{selectedLink.title}</span>
+                      <span className="truncate text-[11px] font-normal text-muted-foreground">
+                        {selectedLink.hint}
+                      </span>
+                    </span>
+                  ) : (
+                    "Выберите связь"
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent searchable={false}>
+                {linkOptions.map((option) => (
+                  <SelectItem
+                    key={option.key}
+                    value={option.key}
+                    label={`${option.title} ${option.hint}`}
+                  >
+                    <span className="flex flex-col gap-0.5 py-0.5 text-left">
+                      <span>{option.title}</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">
+                        {option.hint}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         <MappingsEditor
-          title="Поля для обновления"
+          title="Какие поля заполнить"
           mappings={action.mappings}
           targetFields={target?.fields ?? []}
           targetEntityName={targetLabel}

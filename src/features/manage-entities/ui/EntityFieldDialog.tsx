@@ -36,6 +36,7 @@ import {
   getEntityFieldDisplayName,
   getEntityFieldTypeLabel,
   getEntityListSourceCandidates,
+  canEntityFieldToggleShowOnCreate,
   isEntityComputedFieldType,
   isEntityNameField,
   isEntityNumericFieldType,
@@ -1546,7 +1547,7 @@ function EntityFieldForm({
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Например, Контакты"
-            autoFocus
+            autoFocus={!isNameField}
           />
         </div>
 
@@ -1885,8 +1886,8 @@ function EntityFieldForm({
                   />
                 </div>
 
-                {isEntityComputedFieldType(effectiveType) ||
-                isNameField ? null : (
+                {isNameField ||
+                !canEntityFieldToggleShowOnCreate(effectiveType) ? null : (
                   <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
                     <div className="flex min-w-0 flex-col gap-0.5">
                       <Label htmlFor="entity-field-show-on-create">

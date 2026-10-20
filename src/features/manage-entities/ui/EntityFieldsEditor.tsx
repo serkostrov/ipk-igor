@@ -2646,16 +2646,20 @@ function SimpleFieldRow({
 }) {
   const name = getEntityFieldDisplayName(field);
   const isName = isEntityNameField(field);
+  const canToggleRecordVisibility = !isName && allowEdit && entityId != null;
 
   const card = (
     <div
       data-simple-field-card
-      className="group/field relative flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-transparent bg-card px-3 py-2.5"
+      className={cn(
+        "group/field relative flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-transparent bg-card px-3 py-2.5",
+        field.showOnRecord === false && "opacity-60",
+      )}
     >
       <div className="min-w-0 flex-1">
         <FieldCardMeta field={field} entityId={entityId} />
       </div>
-      {allowEdit || allowDelete ? (
+      {allowEdit || allowDelete || canToggleRecordVisibility ? (
         <div className={fieldActionsClass}>
           <div className={fieldActionsInnerClass}>
             {allowEdit && field.type === "list" && onConfigureList ? (
@@ -2682,6 +2686,16 @@ function SimpleFieldRow({
               >
                 <Pencil />
               </Button>
+            ) : null}
+            {canToggleRecordVisibility ? (
+              <FieldRecordVisibilityToggle
+                visible={field.showOnRecord !== false}
+                onToggle={() =>
+                  updateEntityField(entityId, field.id, {
+                    showOnRecord: field.showOnRecord === false,
+                  })
+                }
+              />
             ) : null}
             {allowDelete && !isName && onDelete ? (
               <Button

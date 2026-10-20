@@ -330,8 +330,7 @@ export function normalizeAutomationAction(
       return {
         ...withId,
         entityId: typeof raw.entityId === "string" ? raw.entityId : "",
-        linkMode:
-          raw.linkMode === "backRelation" ? "backRelation" : "relation",
+        linkMode: raw.linkMode === "backRelation" ? "backRelation" : "relation",
         linkFieldId: typeof raw.linkFieldId === "string" ? raw.linkFieldId : "",
         mappings: normalizeMappings(raw.mappings),
       };

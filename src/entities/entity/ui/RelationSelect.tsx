@@ -28,13 +28,21 @@ function RelationChip({
   option,
   removable = false,
   onRemove,
+  expand = false,
 }: {
   option: RelationRecordOption;
   removable?: boolean;
   onRemove?: (optionId: string) => void;
+  /** Single select: use full trigger width instead of a fixed chip max. */
+  expand?: boolean;
 }) {
   return (
-    <span className="inline-flex h-5 max-w-[9.5rem] shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-xs font-medium leading-none text-primary">
+    <span
+      className={cn(
+        "inline-flex h-5 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-xs font-medium leading-none text-primary",
+        expand ? "min-w-0 max-w-full" : "max-w-[9.5rem] shrink-0",
+      )}
+    >
       <span className="truncate">{option.label}</span>
       {removable ? (
         <span
@@ -284,9 +292,10 @@ export function RelationSelect({
         ) : multiple ? (
           <RelationOverflowChips options={selectedOptions} onRemove={remove} />
         ) : (
-          <span className="flex w-0 min-w-0 flex-1 items-center overflow-hidden">
+          <span className="flex min-w-0 flex-1 items-center overflow-hidden">
             <RelationChip
               option={selectedOptions[0]!}
+              expand
               removable
               onRemove={remove}
             />
