@@ -37,6 +37,7 @@ import {
   formatRecordFieldValue,
   getEntityFieldDisplayName,
   getEntityTableFields,
+  isEntityFieldVisibleOnRecord,
   isEntityInternal,
   getRecordFieldNumber,
   getRelationRecordOptions,
@@ -96,7 +97,8 @@ function getRecordCardFields(entity: Entity, parentLinkFieldId: string | null) {
   return entity.fields.filter(
     (field) =>
       !isEntityNameField(field) &&
-      !isEntityParentLinkField(field, parentLinkFieldId),
+      !isEntityParentLinkField(field, parentLinkFieldId) &&
+      isEntityFieldVisibleOnRecord(field),
   );
 }
 
