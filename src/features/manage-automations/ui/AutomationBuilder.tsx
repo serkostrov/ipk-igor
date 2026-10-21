@@ -1234,7 +1234,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   ) : null;
 
   const toolbar = (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <Select
         value={resolvedEntityId || undefined}
         onValueChange={(next) => {
@@ -1416,8 +1416,10 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   if (status === "idle" || status === "loading") {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">{leading}</div>
+        <div className="relative flex min-w-0 items-center">
+          <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {leading}
+          </div>
         </div>
         <div className="h-64 animate-pulse rounded-xl border border-border bg-muted/30" />
       </div>
@@ -1504,9 +1506,13 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         onConfirm={confirmDeleteScenario}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">{leading}</div>
-        {toolbar}
+      <div className="flex min-h-9 min-w-0 items-center">
+        <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {leading}
+        </div>
+        <div className="relative z-10 shrink-0 bg-background pl-2">
+          {toolbar}
+        </div>
       </div>
 
       {!resolvedEntityId ||

@@ -44,25 +44,27 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
   if (view.mode === "edit") {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            {leading}
-            <h2 className="mt-3 text-lg font-semibold tracking-tight">
-              {view.isNew ? "Новая роль" : view.draft.name}
-            </h2>
+        <div className="flex flex-col gap-3">
+          <div className="flex min-h-9 min-w-0 items-center">
+            <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {leading}
+            </div>
+            <div className="relative z-10 flex shrink-0 items-center gap-2 bg-background pl-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setView({ mode: "list" })}
+              >
+                Отмена
+              </Button>
+              <Button type="button" onClick={handleSave}>
+                Сохранить
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setView({ mode: "list" })}
-            >
-              Отмена
-            </Button>
-            <Button type="button" onClick={handleSave}>
-              Сохранить
-            </Button>
-          </div>
+          <h2 className="text-lg font-semibold tracking-tight">
+            {view.isNew ? "Новая роль" : view.draft.name}
+          </h2>
         </div>
         <div className="min-h-0 flex-1 overflow-auto pb-8">
           <RoleEditor
@@ -76,16 +78,20 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">{leading}</div>
-        <Button
-          type="button"
-          size="icon"
-          aria-label="Добавить роль"
-          onClick={openCreate}
-        >
-          <Plus />
-        </Button>
+      <div className="flex min-h-9 min-w-0 items-center">
+        <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {leading}
+        </div>
+        <div className="relative z-10 shrink-0 bg-background pl-2">
+          <Button
+            type="button"
+            size="icon"
+            aria-label="Добавить роль"
+            onClick={openCreate}
+          >
+            <Plus />
+          </Button>
+        </div>
       </div>
 
       {status === "idle" || status === "loading" ? (

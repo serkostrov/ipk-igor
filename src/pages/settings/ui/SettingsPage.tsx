@@ -28,23 +28,25 @@ function parseStoredId(value: unknown): string | null {
 
 function SettingsTabsList({ tabs }: { tabs: SettingsTabId[] }) {
   return (
-    <TabsList variant="line">
-      {tabs.includes("menu") ? (
-        <TabsTrigger value="menu">Меню</TabsTrigger>
-      ) : null}
-      {tabs.includes("entities") ? (
-        <TabsTrigger value="entities">Сущности</TabsTrigger>
-      ) : null}
-      {tabs.includes("automations") ? (
-        <TabsTrigger value="automations">Автоматизации</TabsTrigger>
-      ) : null}
-      {tabs.includes("notifications") ? (
-        <TabsTrigger value="notifications">Уведомления</TabsTrigger>
-      ) : null}
-      {tabs.includes("roles") ? (
-        <TabsTrigger value="roles">Роли</TabsTrigger>
-      ) : null}
-    </TabsList>
+    <div className="min-w-0 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <TabsList variant="line" className="w-max max-w-none">
+        {tabs.includes("menu") ? (
+          <TabsTrigger value="menu">Меню</TabsTrigger>
+        ) : null}
+        {tabs.includes("entities") ? (
+          <TabsTrigger value="entities">Сущности</TabsTrigger>
+        ) : null}
+        {tabs.includes("automations") ? (
+          <TabsTrigger value="automations">Автоматизации</TabsTrigger>
+        ) : null}
+        {tabs.includes("notifications") ? (
+          <TabsTrigger value="notifications">Уведомления</TabsTrigger>
+        ) : null}
+        {tabs.includes("roles") ? (
+          <TabsTrigger value="roles">Роли</TabsTrigger>
+        ) : null}
+      </TabsList>
+    </div>
   );
 }
 

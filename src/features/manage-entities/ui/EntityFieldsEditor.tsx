@@ -4462,10 +4462,11 @@ export function EntityFieldsEditor({
             {!nested ? (
               <div
                 data-entity-tabs=""
-                className="flex h-9 w-full items-stretch rounded-lg bg-muted p-1"
+                className="flex h-9 w-full min-w-0 items-stretch rounded-lg bg-muted p-1"
               >
-                <TabsList className="!h-auto min-h-0 w-auto flex-none items-stretch justify-start gap-0.5 self-stretch bg-transparent p-0">
-                  {entityTabs.map((tab, tabIndex) => {
+                <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsList className="!h-auto min-h-0 w-max max-w-none flex-none items-stretch justify-start gap-0.5 self-stretch bg-transparent p-0">
+                    {entityTabs.map((tab, tabIndex) => {
                     const isOverview = isEntityOverviewTab(tab);
                     const dropActive =
                       dropHighlight?.type === "tab" &&
@@ -4579,18 +4580,24 @@ export function EntityFieldsEditor({
                           unlockDragSelection();
                         }}
                         className={cn(
-                          "group/tab !h-auto relative min-h-0 flex-none gap-1 self-stretch rounded-md py-0 pr-3 pl-3 text-sm font-medium transition-[color,background-color,box-shadow,padding] duration-150 data-active:shadow-sm hover:pr-1.5 focus-within:pr-1.5",
+                          "group/tab !h-auto relative min-h-0 flex-none gap-1 self-stretch rounded-md py-0 pr-3 pl-3 text-sm font-medium transition-[color,background-color,box-shadow,padding] duration-150 data-active:shadow-sm",
+                          !readOnly && "hover:pr-1.5 focus-within:pr-1.5",
                           dropActive &&
                             "bg-primary/10 text-primary ring-2 ring-primary/20",
                           isTabDragging && "opacity-40",
-                          !isOverview && draggingId == null && "cursor-grab",
-                          tabHint === "before" &&
+                          !readOnly &&
+                            !isOverview &&
+                            draggingId == null &&
+                            "cursor-grab",
+                          !readOnly &&
+                            tabHint === "before" &&
                             "before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
-                          tabHint === "after" &&
+                          !readOnly &&
+                            tabHint === "after" &&
                             "after:absolute after:inset-y-1 after:right-0 after:w-0.5 after:rounded-full after:bg-primary",
                         )}
                       >
-                        {!isOverview ? (
+                        {!readOnly && !isOverview ? (
                           <span
                             aria-hidden
                             className={cn(
@@ -4683,13 +4690,14 @@ export function EntityFieldsEditor({
                       </TabsTrigger>
                     );
                   })}
-                </TabsList>
+                  </TabsList>
+                </div>
                 {readOnly ? null : (
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="ml-0.5 !h-auto w-7 shrink-0 self-stretch rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
+                    className="relative z-10 ml-0.5 !h-auto w-7 shrink-0 self-stretch rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
                     aria-label="Добавить вкладку"
                     title="Добавить вкладку"
                     onClick={() => setTabDialog({ mode: "create" })}

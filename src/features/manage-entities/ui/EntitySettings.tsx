@@ -281,7 +281,7 @@ export function EntitySettings({
   }
 
   const toolbar = (
-    <div className="flex shrink-0 items-center gap-2">
+    <>
       <EntityMenuSelect
         entities={entities}
         menuEntries={entries}
@@ -330,14 +330,18 @@ export function EntitySettings({
       >
         <Plus />
       </Button>
-    </div>
+    </>
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">{leading}</div>
-        {toolbar}
+      <div className="flex min-h-9 min-w-0 items-center">
+        <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {leading}
+        </div>
+        <div className="relative z-10 flex shrink-0 items-center gap-2 bg-background pl-2">
+          {toolbar}
+        </div>
       </div>
 
       {selected ? (
