@@ -21,6 +21,7 @@ import {
   normalizeEntitySumFieldIds,
   parseEntityDecimal,
   parseEntityDependencies,
+  parseEntityRelationGroups,
   parseEntityListValueIds,
   parseEntityRelationIds,
   serializeEntityRelationIds,
@@ -520,6 +521,7 @@ export function getRecordFieldFormulaValue(
         : null;
     }
     case "dependencies":
+    case "relationGroups":
     case "file":
       return null;
     default: {
@@ -758,6 +760,28 @@ export function formatRecordFieldValue(
       );
       return parts.length > 0 ? parts.join(", ") : "—";
     }
+    case "relationGroups": {
+      const config = field.relationGroups;
+      const itemEntity = ctx.entityById.get(config?.itemEntityId ?? "");
+      const nestedEntity = ctx.entityById.get(config?.nestedEntityId ?? "");
+      const parts = parseEntityRelationGroups(record.values[field.id]).map(
+        (group) => {
+          const itemLabel =
+            resolveRelationRecordLabel(itemEntity, group.itemId) ??
+            "Без названия";
+          const nestedLabels = group.nestedIds
+            .map(
+              (id) =>
+                resolveRelationRecordLabel(nestedEntity, id) ?? "Без названия",
+            )
+            .filter(Boolean);
+          return nestedLabels.length > 0
+            ? `${itemLabel}: ${nestedLabels.join(", ")}`
+            : itemLabel;
+        },
+      );
+      return parts.length > 0 ? parts.join("; ") : "—";
+    }
     default: {
       if (isEntityNameField(field)) {
         const entityTemplate = entity.nameTemplate.trim();
@@ -800,6 +824,9 @@ export function isRecordFieldEmpty(
   }
   if (field.type === "dependencies") {
     return parseEntityDependencies(record.values[field.id]).length === 0;
+  }
+  if (field.type === "relationGroups") {
+    return parseEntityRelationGroups(record.values[field.id]).length === 0;
   }
   return formatRecordFieldValue(ctx, entity, record, field) === "—";
 }
@@ -1368,7 +1395,8 @@ export function isRecordValueDecorated(field: EntityField) {
     field.type === "formula" ||
     field.type === "rollup" ||
     field.type === "lookup" ||
-    field.type === "dependencies"
+    field.type === "dependencies" ||
+    field.type === "relationGroups"
   );
 }
 
@@ -1444,7 +1472,8 @@ export function getEntityFormulaOperands(
       (field) =>
         field.id !== fieldId &&
         field.type !== "file" &&
-        field.type !== "dependencies",
+        field.type !== "dependencies" &&
+        field.type !== "relationGroups",
     )
     .map((field) => ({ id: field.id, name: getEntityFieldDisplayName(field) }));
 }

@@ -20,6 +20,7 @@ import type {
   EntityNumberSignColor,
   EntityRecord,
   EntityRelationFilter,
+  EntityRelationGroupsConfig,
   EntityRollupConfig,
   EntityTab,
   EntityTimelineConfig,
@@ -189,6 +190,23 @@ function normalizeLookupConfig(value: unknown): EntityLookupConfig | undefined {
 function normalizeDependenciesConfig(value: unknown): EntityDependenciesConfig {
   return {
     sameFieldId: isRecord(value) ? normalizeId(value.sameFieldId) : null,
+  };
+}
+
+function normalizeRelationGroupsConfig(
+  value: unknown,
+): EntityRelationGroupsConfig {
+  if (!isRecord(value)) {
+    return {
+      itemEntityId: null,
+      nestedEntityId: null,
+      nestedSourceFieldId: null,
+    };
+  }
+  return {
+    itemEntityId: normalizeId(value.itemEntityId),
+    nestedEntityId: normalizeId(value.nestedEntityId),
+    nestedSourceFieldId: normalizeId(value.nestedSourceFieldId),
   };
 }
 
@@ -422,6 +440,10 @@ export function normalizeEntityField(field: EntityField): EntityField {
       type === "dependencies"
         ? normalizeDependenciesConfig(field.dependencies)
         : undefined,
+    relationGroups:
+      type === "relationGroups"
+        ? normalizeRelationGroupsConfig(field.relationGroups)
+        : undefined,
     defaultValue: normalizeDefaultValue(field.defaultValue, type),
     relationFilter:
       type === "relation"
@@ -474,6 +496,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     rollup: undefined,
     lookup: undefined,
     dependencies: undefined,
+    relationGroups: undefined,
     defaultValue: undefined,
     relationFilter: undefined,
     deadline: undefined,
@@ -578,6 +601,7 @@ function parseField(value: unknown): EntityField | null {
     rollup: normalizeRollupConfig(value.rollup),
     lookup: normalizeLookupConfig(value.lookup),
     dependencies: normalizeDependenciesConfig(value.dependencies),
+    relationGroups: normalizeRelationGroupsConfig(value.relationGroups),
     defaultValue: normalizeDefaultValue(
       value.defaultValue,
       parseEntityFieldType(value.type),

@@ -1015,7 +1015,11 @@ function fieldsCompatibleForAutoMap(
   target: EntityField,
   source: EntityField,
 ): boolean {
-  if (isEntityComputedFieldType(source.type) || source.type === "file") {
+  if (
+    isEntityComputedFieldType(source.type) ||
+    source.type === "file" ||
+    source.type === "relationGroups"
+  ) {
     return false;
   }
   if (target.type === source.type) {
@@ -1078,7 +1082,11 @@ function MappingsEditor({
   ) => void;
 }) {
   const writable = targetFields.filter(
-    (field) => !isEntityComputedFieldType(field.type) && field.type !== "file",
+    (field) =>
+      !isEntityComputedFieldType(field.type) &&
+      field.type !== "file" &&
+      field.type !== "dependencies" &&
+      field.type !== "relationGroups",
   );
   const targetLabel = targetEntityName.trim() || "Целевая запись";
   const sourceLabel = sourceEntityName.trim() || "Текущая запись";

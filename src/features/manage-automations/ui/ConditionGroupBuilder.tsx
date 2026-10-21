@@ -63,7 +63,10 @@ function isRule(
 function buildSources(entity: Entity | null): ConditionSource[] {
   if (!entity) return [];
   const fields = entity.fields
-    .filter((field) => field.type !== "dependencies")
+    .filter(
+      (field) =>
+        field.type !== "dependencies" && field.type !== "relationGroups",
+    )
     .map((field): ConditionSource => ({ kind: "field", field }));
   const filesTabs = entity.tabs
     .filter((tab) => isEntityFilesTab(tab))

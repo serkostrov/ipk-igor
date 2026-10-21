@@ -774,6 +774,7 @@ export function addEntityField(
     rollup: data?.rollup,
     lookup: data?.lookup,
     dependencies: data?.dependencies,
+    relationGroups: data?.relationGroups,
     defaultValue: data?.defaultValue,
     relationFilter: data?.relationFilter,
     deadline: data?.deadline,
@@ -810,7 +811,7 @@ export function addEntityField(
     datetimeWithTime:
       type === "datetime" ? Boolean(data?.datetimeWithTime) : false,
     booleanInline: type === "boolean" ? Boolean(data?.booleanInline) : false,
-    colSpan: data?.colSpan ?? 1,
+    colSpan: data?.colSpan ?? (type === "relationGroups" ? 4 : 1),
     rowSpan: data?.rowSpan ?? 1,
   });
 

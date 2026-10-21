@@ -32,6 +32,7 @@ import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFie
 import { TemplateRichText } from "@/features/manage-automations/ui/TemplateRichText";
 import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
 import { DependenciesFieldControl } from "./DependenciesFieldControl";
+import { RelationGroupsFieldControl } from "./RelationGroupsFieldControl";
 import { FileFieldControl } from "./FileFieldControl";
 
 /**
@@ -231,6 +232,24 @@ export function RecordFieldControl({
           value={value}
           values={values}
           recordId={recordId}
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
+
+  if (field.type === "relationGroups") {
+    return (
+      <div className="flex flex-col gap-2">
+        {labelNode}
+        {hint ? (
+          <span className="text-xs text-muted-foreground">{hint}</span>
+        ) : null}
+        <RelationGroupsFieldControl
+          id={id}
+          ctx={ctx}
+          field={field}
+          value={value}
           onChange={onChange}
         />
       </div>

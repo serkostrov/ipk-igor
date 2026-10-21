@@ -108,7 +108,10 @@ function getOperandKind(operator: EntityConditionOperator): OperandKind {
 
 function getConditionFields(entity: Entity) {
   return entity.fields.filter(
-    (field) => field.type !== "file" && field.type !== "dependencies",
+    (field) =>
+      field.type !== "file" &&
+      field.type !== "dependencies" &&
+      field.type !== "relationGroups",
   );
 }
 

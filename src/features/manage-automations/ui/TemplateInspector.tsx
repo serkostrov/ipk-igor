@@ -22,6 +22,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -90,12 +91,13 @@ function createAskRelatedFieldId() {
   return `arel-${crypto.randomUUID()}`;
 }
 
-/** Writable fields for related-entity ask (no computed / file / dependencies). */
+/** Writable fields for related-entity ask (no computed / structured JSON). */
 function isAskRelatedTargetField(field: EntityField) {
   return (
     !isEntityComputedFieldType(field.type) &&
     field.type !== "file" &&
-    field.type !== "dependencies"
+    field.type !== "dependencies" &&
+    field.type !== "relationGroups"
   );
 }
 
@@ -748,7 +750,7 @@ function OutcomeAskFieldsEditor({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-72 min-w-52">
               {available.length > 0 ? (
-                <>
+                <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
                     Эта сущность
                   </DropdownMenuLabel>
@@ -773,13 +775,13 @@ function OutcomeAskFieldsEditor({
                       {getEntityFieldDisplayName(field)}
                     </DropdownMenuItem>
                   ))}
-                </>
+                </DropdownMenuGroup>
               ) : null}
               {available.length > 0 && relatedPickers.length > 0 ? (
                 <DropdownMenuSeparator />
               ) : null}
               {relatedPickers.length > 0 ? (
-                <>
+                <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
                     Через связь
                   </DropdownMenuLabel>
@@ -790,24 +792,26 @@ function OutcomeAskFieldsEditor({
                           {getEntityFieldDisplayName(relation)}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="max-h-64 min-w-44">
-                          <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
-                            {target.name}
-                          </DropdownMenuLabel>
-                          {availableFields.map((field) => (
-                            <DropdownMenuItem
-                              key={field.id}
-                              onClick={() =>
-                                addRelatedField(relation.id, field.id)
-                              }
-                            >
-                              {getEntityFieldDisplayName(field)}
-                            </DropdownMenuItem>
-                          ))}
+                          <DropdownMenuGroup>
+                            <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+                              {target.name}
+                            </DropdownMenuLabel>
+                            {availableFields.map((field) => (
+                              <DropdownMenuItem
+                                key={field.id}
+                                onClick={() =>
+                                  addRelatedField(relation.id, field.id)
+                                }
+                              >
+                                {getEntityFieldDisplayName(field)}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuGroup>
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                     ),
                   )}
-                </>
+                </DropdownMenuGroup>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>

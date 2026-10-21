@@ -143,6 +143,22 @@ export type EntityDependenciesConfig = {
   sameFieldId: string | null;
 };
 
+/**
+ * `relationGroups` field: several primary records, each with its own nested
+ * multi-relation (e.g. project stages → departments on a lead).
+ */
+export type EntityRelationGroupsConfig = {
+  /** Entity of the primary row (e.g. stage catalog). */
+  itemEntityId: string | null;
+  /** Entity of the nested multi-select (e.g. departments). */
+  nestedEntityId: string | null;
+  /**
+   * Optional `relation` field on the item entity that lists allowed nested
+   * records. When set, the nested picker is limited to those ids.
+   */
+  nestedSourceFieldId: string | null;
+};
+
 export type EntityFieldDefaultValue =
   | { kind: "today" }
   | { kind: "now" }
@@ -244,6 +260,7 @@ export type EntityField = {
   rollup?: EntityRollupConfig;
   lookup?: EntityLookupConfig;
   dependencies?: EntityDependenciesConfig;
+  relationGroups?: EntityRelationGroupsConfig;
   /** Value prefilled for new records. */
   defaultValue?: EntityFieldDefaultValue;
   /** `relation` fields: which target records can be chosen. */

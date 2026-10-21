@@ -17,6 +17,7 @@ export type EntityFieldType =
   | "url"
   | "list"
   | "relation"
+  | "relationGroups"
   | "dependencies"
   | "file"
   | "formula"
@@ -38,6 +39,7 @@ export const ENTITY_FIELD_TYPE_OPTIONS: Array<{
   { value: "url", label: "Ссылка" },
   { value: "list", label: "Список" },
   { value: "relation", label: "Связь" },
+  { value: "relationGroups", label: "Наборы связей" },
   { value: "file", label: "Файлы" },
   { value: "dependencies", label: "Предшественники" },
   { value: "formula", label: "Формула" },
@@ -65,9 +67,22 @@ export const ENTITY_FIELD_TYPE_GROUPS: Array<{
       "file",
     ],
   },
-  { label: "Списки и связи", types: ["list", "relation", "dependencies"] },
+  {
+    label: "Списки и связи",
+    types: ["list", "relation", "relationGroups", "dependencies"],
+  },
   { label: "Вычисляемые", types: ["formula", "rollup", "lookup"] },
 ];
+
+/**
+ * Types that store structured JSON (not a scalar / simple id list).
+ * Excluded from formulas, conditions, lookup targets, etc.
+ */
+export function isEntityStructuredFieldType(type: EntityFieldType) {
+  return (
+    type === "file" || type === "dependencies" || type === "relationGroups"
+  );
+}
 
 /** Read-only types whose value is derived from other data. */
 export function isEntityComputedFieldType(type: EntityFieldType) {
@@ -163,6 +178,56 @@ export function serializeEntityDependencies(
 export function formatEntityDependencyLag(lag: number) {
   if (!lag) return "";
   return `${lag > 0 ? "+" : "−"}${Math.abs(lag)} р.д.`;
+}
+
+/**
+ * One row of a `relationGroups` field: primary record + nested multi-select.
+ * Stored as JSON on the parent record (e.g. lead stages → departments).
+ */
+export type EntityRelationGroupItem = {
+  itemId: string;
+  nestedIds: string[];
+};
+
+export function parseEntityRelationGroups(
+  value: string | undefined,
+): EntityRelationGroupItem[] {
+  const raw = value?.trim() ?? "";
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    const result: EntityRelationGroupItem[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      const itemId =
+        typeof record.itemId === "string" ? record.itemId.trim() : "";
+      if (!itemId || seen.has(itemId)) continue;
+      seen.add(itemId);
+      const nestedRaw = record.nestedIds;
+      const nestedIds = Array.isArray(nestedRaw)
+        ? [
+            ...new Set(
+              nestedRaw
+                .map((id) => (typeof id === "string" ? id.trim() : ""))
+                .filter((id) => id.length > 0),
+            ),
+          ]
+        : [];
+      result.push({ itemId, nestedIds });
+    }
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+export function serializeEntityRelationGroups(
+  groups: readonly EntityRelationGroupItem[],
+): string {
+  return groups.length > 0 ? JSON.stringify(groups) : "";
 }
 
 /** Stored type kept for computed number fields; not shown in the type picker. */

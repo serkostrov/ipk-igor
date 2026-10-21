@@ -1452,12 +1452,21 @@ function FieldCardMeta({
     field.type === "list" && listSource
       ? `${getEntityPathLabel(listSource.entity.id, entities)} · ${getEntityFieldDisplayName(listSource.field)}`
       : null;
+  const relationGroupsMeta =
+    field.type === "relationGroups"
+      ? (() => {
+          const itemId = field.relationGroups?.itemEntityId;
+          const nestedId = field.relationGroups?.nestedEntityId;
+          if (!itemId || !nestedId) return `${typeLabel} · не настроено`;
+          return `${getEntityPathLabel(itemId, entities)} → ${getEntityPathLabel(nestedId, entities)}`;
+        })()
+      : null;
   const plainMeta =
     field.type === "list"
       ? listFromEntity
         ? null
         : `${typeLabel} · Новый${listFixedHint ? ` · ${listFixedHint}` : ""}`
-      : field.type === "relation"
+      : field.type === "relation" || field.type === "relationGroups"
         ? null
         : typeLabel;
 
@@ -1509,6 +1518,16 @@ function FieldCardMeta({
                 : relationTargetLabel
                   ? `Поле связи с «${relationTargetLabel}»`
                   : "Выберите сущность для связи"
+            }
+          />
+        ) : field.type === "relationGroups" ? (
+          <FieldLinkBadge
+            kind="relation"
+            label={relationGroupsMeta ?? typeLabel}
+            title={
+              relationGroupsMeta
+                ? `Наборы связей: ${relationGroupsMeta}`
+                : "Настройте сущности строк и вложенных"
             }
           />
         ) : listFromEntity ? (

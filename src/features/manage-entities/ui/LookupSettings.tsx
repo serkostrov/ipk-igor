@@ -68,7 +68,10 @@ export function LookupSettings({
       : null;
   const targetFields =
     target?.fields.filter(
-      (field) => field.type !== "file" && field.type !== "dependencies",
+      (field) =>
+        field.type !== "file" &&
+        field.type !== "dependencies" &&
+        field.type !== "relationGroups",
     ) ?? [];
 
   const selectedRelation = relationField

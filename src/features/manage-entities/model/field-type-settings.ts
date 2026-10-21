@@ -13,6 +13,7 @@ import {
   type EntityNumberDecimals,
   type EntityNumberSignColor,
   type EntityRelationFilter,
+  type EntityRelationGroupsConfig,
   type EntityRollupAggregation,
   type EntityRollupConfig,
 } from "@/entities/entity";
@@ -24,6 +25,7 @@ export type EntityFieldTypeSettings = Pick<
   | "rollup"
   | "lookup"
   | "dependencies"
+  | "relationGroups"
   | "defaultValue"
   | "relationFilter"
   | "deadline"
@@ -39,6 +41,7 @@ export type FieldTypeSettingsDraft = {
   rollup: EntityRollupConfig | null;
   lookup: EntityLookupConfig | null;
   dependencies: EntityDependenciesConfig;
+  relationGroups: EntityRelationGroupsConfig;
   defaultValue: EntityFieldDefaultValue | null;
   relationFilter: EntityRelationFilter | null;
   deadline: EntityDeadlineConfig | null;
@@ -111,6 +114,11 @@ export function createFieldTypeSettingsDraft(
     rollup: field?.rollup ?? null,
     lookup: field?.lookup ?? null,
     dependencies: field?.dependencies ?? { sameFieldId: null },
+    relationGroups: field?.relationGroups ?? {
+      itemEntityId: null,
+      nestedEntityId: null,
+      nestedSourceFieldId: null,
+    },
     defaultValue: field?.defaultValue ?? null,
     relationFilter: field?.relationFilter ?? null,
     deadline: field?.deadline ?? null,
@@ -156,6 +164,14 @@ export function getFieldTypeSettingsError(
   ) {
     return "Выберите связь и поле";
   }
+  if (type === "relationGroups") {
+    if (!draft.relationGroups.itemEntityId) {
+      return "Выберите сущность строк";
+    }
+    if (!draft.relationGroups.nestedEntityId) {
+      return "Выберите вложенную сущность";
+    }
+  }
   return null;
 }
 
@@ -175,6 +191,8 @@ export function resolveFieldTypeSettings(
     rollup: type === "rollup" ? (draft.rollup ?? undefined) : undefined,
     lookup: type === "lookup" ? (draft.lookup ?? undefined) : undefined,
     dependencies: type === "dependencies" ? draft.dependencies : undefined,
+    relationGroups:
+      type === "relationGroups" ? draft.relationGroups : undefined,
     defaultValue: draft.defaultValue ?? undefined,
     relationFilter:
       type === "relation" ? (draft.relationFilter ?? undefined) : undefined,

@@ -9,6 +9,7 @@ export type {
   EntityListDependencyParentValue,
   EntityDeadlineConfig,
   EntityDependenciesConfig,
+  EntityRelationGroupsConfig,
   EntityFieldDefaultValue,
   EntityFormulaConfig,
   EntityKanbanColumn,
@@ -249,13 +250,17 @@ export {
   formatEntityDependencyLag,
   getEntityFieldOptions,
   isEntityComputedFieldType,
+  isEntityStructuredFieldType,
   canEntityFieldToggleShowOnCreate,
   isEntityNumericFieldType,
   isEntityUnitFieldType,
   parseEntityDependencies,
   serializeEntityDependencies,
+  parseEntityRelationGroups,
+  serializeEntityRelationGroups,
   type EntityDependency,
   type EntityDependencyType,
+  type EntityRelationGroupItem,
 } from "./model/field";
 export { ENTITY_ROLLUP_AGGREGATIONS } from "./model/types";
 export {

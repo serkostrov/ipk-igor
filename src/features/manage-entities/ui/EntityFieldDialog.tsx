@@ -73,6 +73,7 @@ import { DefaultValueSettings } from "./DefaultValueSettings";
 import { FormulaSettings } from "./FormulaSettings";
 import { LookupSettings } from "./LookupSettings";
 import { RelationFilterSettings } from "./RelationFilterSettings";
+import { RelationGroupsSettings } from "./RelationGroupsSettings";
 import {
   RollupCalculationSettings,
   RollupConditionsSettings,
@@ -1789,6 +1790,16 @@ function EntityFieldForm({
                     emptyLabel="Любые записи"
                     onChange={(sameFieldId) =>
                       patchTypeSettings({ dependencies: { sameFieldId } })
+                    }
+                  />
+                ) : null}
+                {type === "relationGroups" ? (
+                  <RelationGroupsSettings
+                    entities={entities}
+                    entityOptions={entityOptions}
+                    value={typeSettings.relationGroups}
+                    onChange={(relationGroups) =>
+                      patchTypeSettings({ relationGroups })
                     }
                   />
                 ) : null}

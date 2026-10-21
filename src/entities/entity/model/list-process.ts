@@ -2,6 +2,7 @@ import {
   isEntityListOtherValue,
   parseEntityFieldFileValue,
   parseEntityListOtherText,
+  parseEntityRelationGroups,
 } from "./field";
 import type { EntityField, EntityListOption } from "./types";
 
@@ -30,6 +31,9 @@ export function isEntityFieldValueFilled(
 ) {
   const raw = value ?? "";
   if (field.type === "file") return parseEntityFieldFileValue(raw) != null;
+  if (field.type === "relationGroups") {
+    return parseEntityRelationGroups(raw).length > 0;
+  }
   if (field.type === "boolean") return raw === "true";
   if (
     field.type === "list" &&
