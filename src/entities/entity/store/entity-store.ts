@@ -443,7 +443,7 @@ function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-/** Tab link fields: not required; empty name → parent entity label. */
+/** Tab link fields: empty name → parent entity label (required stays as set). */
 function withOptionalTabLinkFields(entities: Entity[]): Entity[] {
   return entities.map((entity) => {
     const linkIds = getEntityTabLinkFieldIds(entity.id, entities);
@@ -452,19 +452,17 @@ function withOptionalTabLinkFields(entities: Entity[]): Entity[] {
     let changed = false;
     const fields = entity.fields.map((field) => {
       if (!linkIds.has(field.id)) return field;
+      if (field.name.trim()) return field;
       const targetId = getEntityRelationTargetId(field);
       const parent = targetId
         ? entities.find((item) => item.id === targetId)
         : null;
       const fallbackName =
         parent?.name.trim() || parent?.namePlural.trim() || "Связь";
-      const nextName = field.name.trim() || fallbackName;
-      if (!field.required && field.name.trim() === nextName) return field;
       changed = true;
       return normalizeEntityField({
         ...field,
-        required: false,
-        name: nextName,
+        name: fallbackName,
       });
     });
     return changed ? normalizeEntity({ ...entity, fields }) : entity;
@@ -593,10 +591,7 @@ export async function initEntityConfig() {
           if (!linkIds.has(field.id)) return false;
           const next = after.fields.find((item) => item.id === field.id);
           if (!next) return false;
-          return (
-            Boolean(field.required) !== Boolean(next.required) ||
-            field.name.trim() !== next.name.trim()
-          );
+          return field.name.trim() !== next.name.trim();
         });
       });
 
@@ -1363,15 +1358,14 @@ export function addEntityTabWithExistingEntity(
       recordsDisplay,
       recordColumns,
     });
-  } else if (existingLink.required || !existingLink.name.trim()) {
+  } else if (!existingLink.name.trim()) {
     nextLinked = normalizeEntity({
       ...linked,
       fields: linked.fields.map((field) =>
         field.id === existingLink.id
           ? normalizeEntityField({
               ...field,
-              required: false,
-              name: field.name.trim() || parentLabel,
+              name: parentLabel,
             })
           : field,
       ),
