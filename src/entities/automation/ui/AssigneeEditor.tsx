@@ -10,6 +10,7 @@ import {
   createAutomationAssigneeBranchId,
   defaultAssigneeLeafResolver,
   defaultConditionalAssigneeResolver,
+  relatedFieldRelationPath,
   type AutomationAssigneeBranch,
   type AutomationAssigneeEditorMode,
   type AutomationAssigneeLeafResolver,
@@ -22,9 +23,6 @@ import {
 } from "../model/conditions";
 import { useRoles } from "@/entities/access";
 import {
-  SYSTEM_USERS_ENTITY_ID,
-  getEntityDisplayName,
-  getEntityFieldDisplayName,
   getEntityRelationTargetId,
   getRelationRecordOptions,
   getSystemUsersEntity,
@@ -46,35 +44,16 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/lib/cn";
-
-/** Relation fields that store users (Менеджер, ГИП, наблюдатели…). */
-function userRelationFields(fields: EntityField[]) {
-  return fields.filter(
-    (field) =>
-      field.type === "relation" &&
-      getEntityRelationTargetId(field) === SYSTEM_USERS_ENTITY_ID,
-  );
-}
-
-/**
- * Relations to other entities (Лид, РКО…) — for «through related record».
- * Excludes user links: those belong in «поле с пользователем».
- */
-function bridgeRelationFields(fields: EntityField[]) {
-  return fields.filter((field) => {
-    if (field.type !== "relation") return false;
-    const targetId = getEntityRelationTargetId(field);
-    return Boolean(targetId) && targetId !== SYSTEM_USERS_ENTITY_ID;
-  });
-}
+import {
+  bridgeRelationFields,
+  pathFromAssigneeSelection,
+  userRelationFields,
+  type UserFieldPath,
+} from "../lib/user-field-path";
+import { UserFieldPathPicker } from "./UserFieldPathPicker";
 
 function firstUserRelationFieldId(fields: EntityField[]) {
   return userRelationFields(fields)[0]?.id ?? "";
-}
-
-function firstUserFieldIdOnEntity(entity: Entity | null) {
-  if (!entity) return "";
-  return userRelationFields(entity.fields)[0]?.id ?? "";
 }
 
 function relationTargetEntity(
@@ -86,9 +65,37 @@ function relationTargetEntity(
   return entities.find((item) => item.id === targetId) ?? null;
 }
 
-function formatUserFieldOption(field: EntityField) {
-  const name = getEntityFieldDisplayName(field);
-  return field.relationMultiple ? `${name} · несколько` : name;
+function firstRelatedDefault(
+  fields: EntityField[],
+  entities: Entity[],
+): Extract<AutomationAssigneeLeafResolver, { type: "relatedField" }> | null {
+  const bridges = bridgeRelationFields(fields);
+  for (const bridge of bridges) {
+    const target = relationTargetEntity(bridge, entities);
+    const nested = firstUserRelationFieldId(target?.fields ?? []);
+    if (nested) {
+      return {
+        type: "relatedField",
+        relationFieldId: bridge.id,
+        fieldId: nested,
+      };
+    }
+  }
+  return null;
+}
+
+function defaultFromFieldResolver(
+  fields: EntityField[],
+  entities: Entity[],
+  preferFanOut = false,
+): AutomationAssigneeLeafResolver {
+  const direct = firstUserRelationFieldId(fields);
+  if (direct) {
+    return preferFanOut
+      ? { type: "relationFieldFanOut", fieldId: direct }
+      : { type: "field", fieldId: direct };
+  }
+  return firstRelatedDefault(fields, entities) ?? { type: "currentUser" };
 }
 
 function hintsForMode(mode: AutomationAssigneeEditorMode) {
@@ -129,6 +136,35 @@ function asLeaf(
   return value;
 }
 
+function pathToResolver(
+  path: UserFieldPath,
+  preferFanOut: boolean,
+): AutomationAssigneeLeafResolver {
+  if (path.kind === "direct") {
+    return preferFanOut
+      ? { type: "relationFieldFanOut", fieldId: path.fieldId }
+      : { type: "field", fieldId: path.fieldId };
+  }
+  const [relationFieldId, ...via] = path.relationPath;
+  if (!relationFieldId) {
+    return preferFanOut
+      ? { type: "relationFieldFanOut", fieldId: path.fieldId }
+      : { type: "field", fieldId: path.fieldId };
+  }
+  return via.length > 0
+    ? {
+        type: "relatedField",
+        relationFieldId,
+        via,
+        fieldId: path.fieldId,
+      }
+    : {
+        type: "relatedField",
+        relationFieldId,
+        fieldId: path.fieldId,
+      };
+}
+
 type ConditionsSlot = (args: {
   value: AutomationConditions;
   onChange: (next: AutomationConditions) => void;
@@ -143,6 +179,8 @@ type LeafEditorProps = {
   mode: AutomationAssigneeEditorMode;
   /** When true, parent already shows the source select. */
   hideSourceSelect?: boolean;
+  /** Root entity for field path labels (optional; inferred from fields). */
+  rootEntity?: Entity | null;
 };
 
 function LeafAssigneeEditor({
@@ -153,6 +191,7 @@ function LeafAssigneeEditor({
   compact,
   mode,
   hideSourceSelect,
+  rootEntity: rootEntityProp,
 }: LeafEditorProps) {
   const roles = useRoles();
   const usersEntity = getSystemUsersEntity(entities);
@@ -163,29 +202,46 @@ function LeafAssigneeEditor({
   const sourceLabels = AUTOMATION_ASSIGNEE_SOURCE_LABELS[mode];
   const hints = hintsForMode(mode);
   const fanOut = fanOutLabels(mode);
-  const selectedUserField =
-    value.type === "field" || value.type === "relationFieldFanOut"
-      ? (userFields.find((field) => field.id === value.fieldId) ?? null)
-      : null;
 
-  const relatedRelationField =
-    value.type === "relatedField"
-      ? (bridgeFields.find((field) => field.id === value.relationFieldId) ??
-        null)
-      : null;
-  const relatedEntity = relationTargetEntity(relatedRelationField, entities);
-  const relatedUserFields = userRelationFields(relatedEntity?.fields ?? []);
-  const selectedRelatedUserField =
-    value.type === "relatedField"
-      ? (relatedUserFields.find((field) => field.id === value.fieldId) ?? null)
-      : null;
-  const relatedEntityLabel = relatedEntity
-    ? getEntityDisplayName(relatedEntity)
-    : null;
+  const rootEntity =
+    rootEntityProp ??
+    entities.find(
+      (entity) =>
+        fields.length > 0 &&
+        fields.every((field) =>
+          entity.fields.some((item) => item.id === field.id),
+        ),
+    ) ??
+    (fields.length > 0
+      ? {
+          id: "__assignee-root",
+          name: "Запись",
+          namePlural: "Записи",
+          fields,
+        }
+      : null);
+
+  const pathValue =
+    value.type === "field" || value.type === "relationFieldFanOut"
+      ? pathFromAssigneeSelection({
+          type: value.type,
+          fieldId: value.fieldId,
+        })
+      : value.type === "relatedField"
+        ? pathFromAssigneeSelection({
+            type: "relatedField",
+            fieldId: value.fieldId,
+            relationFieldId: value.relationFieldId,
+            via: relatedFieldRelationPath(value).slice(1),
+          })
+        : null;
+
+  const canPickFromField = userFields.length > 0 || bridgeFields.length > 0;
+  const showFanOut =
+    value.type === "field" || value.type === "relationFieldFanOut";
 
   const sourceOptions = AUTOMATION_ASSIGNEE_SOURCE_ORDER.filter((kind) => {
     if (kind === "conditional") return false;
-    // «Никто» — только для наблюдателей и получателей уведомлений.
     if (kind === "none") return mode === "watcher" || mode === "recipient";
     return true;
   });
@@ -195,36 +251,15 @@ function LeafAssigneeEditor({
       onChange({ type: "none" });
       return;
     }
-    if (kind === "fromField") {
-      const keep =
-        (value.type === "field" || value.type === "relationFieldFanOut") &&
-        userFields.some((field) => field.id === value.fieldId)
-          ? value.fieldId
-          : firstUserRelationFieldId(fields);
-      onChange({
-        type:
-          value.type === "relationFieldFanOut"
-            ? "relationFieldFanOut"
-            : "field",
-        fieldId: keep,
-      });
-      return;
-    }
-    if (kind === "fromRelated") {
-      const relationFieldId =
-        value.type === "relatedField" &&
-        bridgeFields.some((field) => field.id === value.relationFieldId)
-          ? value.relationFieldId
-          : (bridgeFields[0]?.id ?? "");
-      const bridge = bridgeFields.find((field) => field.id === relationFieldId);
-      const target = relationTargetEntity(bridge, entities);
-      const nestedCandidates = userRelationFields(target?.fields ?? []);
-      const nested =
-        value.type === "relatedField" &&
-        nestedCandidates.some((field) => field.id === value.fieldId)
-          ? value.fieldId
-          : (nestedCandidates[0]?.id ?? "");
-      onChange({ type: "relatedField", relationFieldId, fieldId: nested });
+    if (kind === "fromField" || kind === "fromRelated") {
+      if (
+        value.type === "field" ||
+        value.type === "relationFieldFanOut" ||
+        value.type === "relatedField"
+      ) {
+        return;
+      }
+      onChange(defaultFromFieldResolver(fields, entities));
       return;
     }
     if (kind === "fixedUsers") {
@@ -288,52 +323,35 @@ function LeafAssigneeEditor({
       {source === "fromField" ? (
         <div className="flex flex-col gap-2.5 rounded-lg border border-border/70 bg-muted/15 p-2.5">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-medium text-foreground">
-              Кто на этой записи
-            </Label>
-            {userFields.length === 0 ? (
+            <Label className="text-xs font-medium text-foreground">Кто</Label>
+            {!canPickFromField ? (
               <p className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                Нет полей связи с пользователями (Менеджер, ГИП, наблюдатели…).
-                Добавьте такое поле в настройках сущности или выберите способ
-                «Через связанную запись».
+                Нет полей с пользователями и связей с другими сущностями.
+                Добавьте поле «Связь» (Менеджер, ГИП…) или связь с Лид / РКО в
+                настройках сущности.
               </p>
             ) : (
-              <Select
-                value={
-                  value.type === "field" || value.type === "relationFieldFanOut"
-                    ? selectedUserField?.id
-                    : undefined
+              <UserFieldPathPicker
+                rootEntity={rootEntity}
+                entities={entities}
+                value={pathValue}
+                placeholder="Поле или связь → поле"
+                onChange={(next) =>
+                  onChange(
+                    pathToResolver(next, value.type === "relationFieldFanOut"),
+                  )
                 }
-                onValueChange={(next) => {
-                  if (next == null) return;
-                  onChange({
-                    type:
-                      value.type === "relationFieldFanOut"
-                        ? "relationFieldFanOut"
-                        : "field",
-                    fieldId: String(next),
-                  });
-                }}
-              >
-                <SelectTrigger className="w-full bg-background">
-                  <SelectValue placeholder="Выберите поле">
-                    {selectedUserField
-                      ? formatUserFieldOption(selectedUserField)
-                      : "Выберите поле"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {userFields.map((field) => (
-                    <SelectItem key={field.id} value={field.id}>
-                      {formatUserFieldOption(field)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             )}
+            {canPickFromField && !compact ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Поле на этой записи или через связанные / вложенные (Лид →
+                Менеджер, РКО → ГИП…).
+              </p>
+            ) : null}
           </div>
 
-          {userFields.length > 0 ? (
+          {showFanOut && userFields.length > 0 ? (
             <div className="flex flex-col gap-1.5">
               <Label className="text-xs font-medium text-foreground">
                 Если в поле несколько человек
@@ -351,8 +369,10 @@ function LeafAssigneeEditor({
                     onChange({
                       type: "field",
                       fieldId:
-                        selectedUserField?.id ??
-                        firstUserRelationFieldId(fields),
+                        value.type === "field" ||
+                        value.type === "relationFieldFanOut"
+                          ? value.fieldId
+                          : firstUserRelationFieldId(fields),
                     })
                   }
                 >
@@ -375,8 +395,10 @@ function LeafAssigneeEditor({
                     onChange({
                       type: "relationFieldFanOut",
                       fieldId:
-                        selectedUserField?.id ??
-                        firstUserRelationFieldId(fields),
+                        value.type === "field" ||
+                        value.type === "relationFieldFanOut"
+                          ? value.fieldId
+                          : firstUserRelationFieldId(fields),
                     })
                   }
                 >
@@ -388,107 +410,6 @@ function LeafAssigneeEditor({
                   </span>
                 </button>
               </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {source === "fromRelated" && value.type === "relatedField" ? (
-        <div className="flex flex-col gap-2.5 rounded-lg border border-border/70 bg-muted/15 p-2.5">
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-medium text-foreground">
-              1. Связанная запись
-            </Label>
-            {bridgeFields.length === 0 ? (
-              <p className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                Нет связей с другими сущностями (Лид, РКО…). Если человек уже
-                указан на этой записи — выберите «Поле с пользователем».
-              </p>
-            ) : (
-              <Select
-                value={relatedRelationField?.id}
-                onValueChange={(next) => {
-                  if (next == null) return;
-                  const relationFieldId = String(next);
-                  const bridge = bridgeFields.find(
-                    (field) => field.id === relationFieldId,
-                  );
-                  const target = relationTargetEntity(bridge, entities);
-                  const nested = firstUserFieldIdOnEntity(target);
-                  onChange({
-                    type: "relatedField",
-                    relationFieldId,
-                    fieldId: nested,
-                  });
-                }}
-              >
-                <SelectTrigger className="w-full bg-background">
-                  <SelectValue placeholder="Выберите связь">
-                    {relatedRelationField
-                      ? `${getEntityFieldDisplayName(relatedRelationField)}${
-                          relatedEntityLabel ? ` → ${relatedEntityLabel}` : ""
-                        }`
-                      : "Выберите связь"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {bridgeFields.map((field) => {
-                    const target = relationTargetEntity(field, entities);
-                    const targetLabel = target
-                      ? getEntityDisplayName(target)
-                      : null;
-                    return (
-                      <SelectItem key={field.id} value={field.id}>
-                        {getEntityFieldDisplayName(field)}
-                        {targetLabel ? ` → ${targetLabel}` : ""}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          {bridgeFields.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium text-foreground">
-                2. Кто на
-                {relatedEntityLabel ? ` «${relatedEntityLabel}»` : " записи"}
-              </Label>
-              {relatedUserFields.length === 0 ? (
-                <p className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                  {relatedEntityLabel
-                    ? `У «${relatedEntityLabel}» нет полей с пользователями (Менеджер, ГИП, РОП…). Добавьте их в настройках этой сущности.`
-                    : "Сначала выберите связанную запись."}
-                </p>
-              ) : (
-                <Select
-                  value={selectedRelatedUserField?.id}
-                  onValueChange={(next) => {
-                    if (next == null) return;
-                    onChange({
-                      type: "relatedField",
-                      relationFieldId: value.relationFieldId,
-                      fieldId: String(next),
-                    });
-                  }}
-                >
-                  <SelectTrigger className="w-full bg-background">
-                    <SelectValue placeholder="Менеджер, ГИП…">
-                      {selectedRelatedUserField
-                        ? formatUserFieldOption(selectedRelatedUserField)
-                        : "Менеджер, ГИП…"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent align="start">
-                    {relatedUserFields.map((field) => (
-                      <SelectItem key={field.id} value={field.id}>
-                        {formatUserFieldOption(field)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
             </div>
           ) : null}
         </div>
@@ -562,6 +483,7 @@ function ConditionalAssigneeEditor({
   onChange,
   mode,
   renderConditions,
+  rootEntity,
 }: {
   value: Extract<AutomationAssigneeResolver, { type: "conditional" }>;
   fields: Entity["fields"];
@@ -569,6 +491,7 @@ function ConditionalAssigneeEditor({
   onChange: (value: AutomationAssigneeResolver) => void;
   mode: AutomationAssigneeEditorMode;
   renderConditions?: ConditionsSlot;
+  rootEntity?: Entity | null;
 }) {
   const branches = value.branches;
 
@@ -694,6 +617,7 @@ function ConditionalAssigneeEditor({
                   value={branch.resolver}
                   fields={fields}
                   entities={entities}
+                  rootEntity={rootEntity}
                   onChange={(resolver) => patchBranch(index, { resolver })}
                 />
               </div>
@@ -716,6 +640,7 @@ function ConditionalAssigneeEditor({
               value={value.elseResolver}
               fields={fields}
               entities={entities}
+              rootEntity={rootEntity}
               onChange={(elseResolver) => commit({ ...value, elseResolver })}
             />
           </div>
@@ -745,6 +670,7 @@ export function AssigneeEditor({
   entities: entitiesProp,
   allowConditional = true,
   renderConditions,
+  entityId,
 }: {
   value: AutomationAssigneeResolver;
   fields: Entity["fields"];
@@ -755,9 +681,21 @@ export function AssigneeEditor({
   allowConditional?: boolean;
   /** Slot for condition builder (kept out of entity layer for FSD). */
   renderConditions?: ConditionsSlot;
+  /** Prefer this entity as the path-picker root when provided. */
+  entityId?: string;
 }) {
   const { entities: storeEntities } = useEntityConfig();
   const entities = entitiesProp ?? storeEntities;
+  const rootEntity =
+    (entityId ? entities.find((entity) => entity.id === entityId) : null) ??
+    entities.find(
+      (entity) =>
+        fields.length > 0 &&
+        fields.every((field) =>
+          entity.fields.some((item) => item.id === field.id),
+        ),
+    ) ??
+    null;
   const source = assigneeSourceKind(value);
   const sourceLabels = AUTOMATION_ASSIGNEE_SOURCE_LABELS[mode];
   const sourceOptions = AUTOMATION_ASSIGNEE_SOURCE_ORDER.filter((kind) => {
@@ -776,32 +714,16 @@ export function AssigneeEditor({
       return;
     }
     const leaf = asLeaf(value);
-    if (kind === "fromField") {
-      const users = userRelationFields(fields);
-      const keep =
-        (leaf.type === "field" || leaf.type === "relationFieldFanOut") &&
-        users.some((field) => field.id === leaf.fieldId)
-          ? leaf.fieldId
-          : firstUserRelationFieldId(fields);
-      onChange({ type: "field", fieldId: keep });
-      return;
-    }
-    if (kind === "fromRelated") {
-      const bridges = bridgeRelationFields(fields);
-      const relationFieldId =
-        leaf.type === "relatedField" &&
-        bridges.some((field) => field.id === leaf.relationFieldId)
-          ? leaf.relationFieldId
-          : (bridges[0]?.id ?? "");
-      const bridge = bridges.find((field) => field.id === relationFieldId);
-      const target = relationTargetEntity(bridge, entities);
-      const nestedCandidates = userRelationFields(target?.fields ?? []);
-      const nested =
-        leaf.type === "relatedField" &&
-        nestedCandidates.some((field) => field.id === leaf.fieldId)
-          ? leaf.fieldId
-          : (nestedCandidates[0]?.id ?? "");
-      onChange({ type: "relatedField", relationFieldId, fieldId: nested });
+    if (kind === "fromField" || kind === "fromRelated") {
+      if (
+        leaf.type === "field" ||
+        leaf.type === "relationFieldFanOut" ||
+        leaf.type === "relatedField"
+      ) {
+        onChange(leaf);
+        return;
+      }
+      onChange(defaultFromFieldResolver(fields, entities));
       return;
     }
     if (kind === "fixedUsers") {
@@ -858,6 +780,7 @@ export function AssigneeEditor({
           fields={fields}
           entities={entities}
           mode={mode}
+          rootEntity={rootEntity}
           onChange={onChange}
           renderConditions={renderConditions}
         />
@@ -903,6 +826,7 @@ export function AssigneeEditor({
         value={value}
         fields={fields}
         entities={entities}
+        rootEntity={rootEntity}
         onChange={onChange}
       />
     </div>

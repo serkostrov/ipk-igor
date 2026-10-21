@@ -4467,212 +4467,186 @@ export function EntityFieldsEditor({
                 <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <TabsList className="!h-auto min-h-0 w-max max-w-none flex-none items-stretch justify-start gap-0.5 self-stretch bg-transparent p-0">
                     {entityTabs.map((tab, tabIndex) => {
-                    const isOverview = isEntityOverviewTab(tab);
-                    const dropActive =
-                      dropHighlight?.type === "tab" &&
-                      dropHighlight.tabId === tab.id &&
-                      draggingId != null &&
-                      getEntityFieldTabId(
-                        allLayoutFields.find(
-                          (field) => field.id === draggingId,
-                        ) ?? { tabId: "" },
-                      ) !== tab.id;
-                    const isTabDragging = draggingTabId === tab.id;
-                    const tabHint =
-                      tabDropHint?.tabId === tab.id ? tabDropHint.edge : null;
+                      const isOverview = isEntityOverviewTab(tab);
+                      const dropActive =
+                        dropHighlight?.type === "tab" &&
+                        dropHighlight.tabId === tab.id &&
+                        draggingId != null &&
+                        getEntityFieldTabId(
+                          allLayoutFields.find(
+                            (field) => field.id === draggingId,
+                          ) ?? { tabId: "" },
+                        ) !== tab.id;
+                      const isTabDragging = draggingTabId === tab.id;
+                      const tabHint =
+                        tabDropHint?.tabId === tab.id ? tabDropHint.edge : null;
 
-                    const acceptsFields = isEntityFieldsHostTab(tab);
+                      const acceptsFields = isEntityFieldsHostTab(tab);
 
-                    return (
-                      <TabsTrigger
-                        key={tab.id}
-                        value={tab.id}
-                        data-entity-tab-drop={
-                          acceptsFields ? tab.id : undefined
-                        }
-                        draggable={
-                          !readOnly && !isOverview && draggingId == null
-                        }
-                        onDragStart={(event) => {
-                          if (readOnly || isOverview || draggingId != null) {
-                            event.preventDefault();
-                            return;
+                      return (
+                        <TabsTrigger
+                          key={tab.id}
+                          value={tab.id}
+                          data-entity-tab-drop={
+                            acceptsFields ? tab.id : undefined
                           }
-                          event.dataTransfer.effectAllowed = "move";
-                          event.dataTransfer.setData(
-                            "application/x-entity-tab",
-                            JSON.stringify({
-                              tabId: tab.id,
-                              fromIndex: tabIndex,
-                            }),
-                          );
-                          lockDragSelection();
-                          setDraggingTabId(tab.id);
-                        }}
-                        onDragEnd={() => {
-                          unlockDragSelection();
-                          setDraggingTabId(null);
-                          setTabDropHint(null);
-                        }}
-                        onDragOver={(event) => {
-                          if (draggingId != null) return;
-                          if (
-                            !event.dataTransfer.types.includes(
+                          draggable={
+                            !readOnly && !isOverview && draggingId == null
+                          }
+                          onDragStart={(event) => {
+                            if (readOnly || isOverview || draggingId != null) {
+                              event.preventDefault();
+                              return;
+                            }
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData(
                               "application/x-entity-tab",
-                            )
-                          ) {
-                            return;
-                          }
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = "move";
-                          const rect =
-                            event.currentTarget.getBoundingClientRect();
-                          const edge =
-                            event.clientX < rect.left + rect.width / 2
-                              ? "before"
-                              : "after";
-                          setTabDropHint({ tabId: tab.id, edge });
-                        }}
-                        onDragLeave={(event) => {
-                          if (
-                            event.currentTarget.contains(
-                              event.relatedTarget as Node | null,
-                            )
-                          ) {
-                            return;
-                          }
-                          setTabDropHint((current) =>
-                            current?.tabId === tab.id ? null : current,
-                          );
-                        }}
-                        onDrop={(event) => {
-                          if (draggingId != null) return;
-                          const raw = event.dataTransfer.getData(
-                            "application/x-entity-tab",
-                          );
-                          if (!raw) return;
-                          event.preventDefault();
-                          event.stopPropagation();
-                          try {
-                            const payload = JSON.parse(raw) as {
-                              tabId: string;
-                              fromIndex: number;
-                            };
+                              JSON.stringify({
+                                tabId: tab.id,
+                                fromIndex: tabIndex,
+                              }),
+                            );
+                            lockDragSelection();
+                            setDraggingTabId(tab.id);
+                          }}
+                          onDragEnd={() => {
+                            unlockDragSelection();
+                            setDraggingTabId(null);
+                            setTabDropHint(null);
+                          }}
+                          onDragOver={(event) => {
+                            if (draggingId != null) return;
+                            if (
+                              !event.dataTransfer.types.includes(
+                                "application/x-entity-tab",
+                              )
+                            ) {
+                              return;
+                            }
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
                             const rect =
                               event.currentTarget.getBoundingClientRect();
                             const edge =
                               event.clientX < rect.left + rect.width / 2
                                 ? "before"
                                 : "after";
-                            let insertAt =
-                              edge === "after" ? tabIndex + 1 : tabIndex;
-                            if (isOverview) insertAt = Math.max(insertAt, 1);
-                            reorderEntityTabs(
-                              entity.id,
-                              payload.fromIndex,
-                              insertAt,
+                            setTabDropHint({ tabId: tab.id, edge });
+                          }}
+                          onDragLeave={(event) => {
+                            if (
+                              event.currentTarget.contains(
+                                event.relatedTarget as Node | null,
+                              )
+                            ) {
+                              return;
+                            }
+                            setTabDropHint((current) =>
+                              current?.tabId === tab.id ? null : current,
                             );
-                          } catch {
-                            // ignore invalid payload
-                          }
-                          setDraggingTabId(null);
-                          setTabDropHint(null);
-                          unlockDragSelection();
-                        }}
-                        className={cn(
-                          "group/tab !h-auto relative min-h-0 flex-none gap-1 self-stretch rounded-md py-0 pr-3 pl-3 text-sm font-medium transition-[color,background-color,box-shadow,padding] duration-150 data-active:shadow-sm",
-                          !readOnly && "hover:pr-1.5 focus-within:pr-1.5",
-                          dropActive &&
-                            "bg-primary/10 text-primary ring-2 ring-primary/20",
-                          isTabDragging && "opacity-40",
-                          !readOnly &&
-                            !isOverview &&
-                            draggingId == null &&
-                            "cursor-grab",
-                          !readOnly &&
-                            tabHint === "before" &&
-                            "before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
-                          !readOnly &&
-                            tabHint === "after" &&
-                            "after:absolute after:inset-y-1 after:right-0 after:w-0.5 after:rounded-full after:bg-primary",
-                        )}
-                      >
-                        {!readOnly && !isOverview ? (
-                          <span
-                            aria-hidden
-                            className={cn(
-                              "pointer-events-none absolute inset-y-1.5 left-1 w-0.5 rounded-full bg-primary transition-opacity duration-150",
-                              isTabDragging
-                                ? "opacity-100"
-                                : "opacity-0 group-hover/tab:opacity-55",
-                            )}
-                          />
-                        ) : null}
-                        <span className="truncate">{tab.name}</span>
-                        {readOnly ? null : (
-                          <span
-                            className={cn(
-                              "grid transition-[grid-template-columns,opacity] duration-150 ease-out",
-                              "grid-cols-[0fr] opacity-0",
-                              "group-hover/tab:grid-cols-[1fr] group-hover/tab:opacity-100",
-                              "group-focus-within/tab:grid-cols-[1fr] group-focus-within/tab:opacity-100",
-                            )}
-                          >
-                            <span className="flex min-w-0 items-center gap-0.5 overflow-hidden">
-                              <span
-                                role="button"
-                                tabIndex={-1}
-                                className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                aria-label={
-                                  isEntityTabWithLinkedEntity(tab)
-                                    ? `Настройки вкладки «${tab.name}»`
-                                    : `Редактировать вкладку «${tab.name}»`
-                                }
-                                title={
-                                  isEntityTabWithLinkedEntity(tab)
-                                    ? "Настройки вкладки"
-                                    : "Редактировать"
-                                }
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  if (
-                                    isEntityTabWithLinkedEntity(tab) &&
-                                    tab.linkedEntityId
-                                  ) {
-                                    setSubEntitySettings({
-                                      tabId: tab.id,
-                                      linkedEntityId: tab.linkedEntityId,
-                                    });
-                                    return;
-                                  }
-                                  setTabDialog({ mode: "edit", tab });
-                                }}
-                                onPointerDown={(event) =>
-                                  event.stopPropagation()
-                                }
-                                onMouseDown={(event) => event.stopPropagation()}
-                              >
-                                <Pencil className="size-3" />
-                              </span>
-                              {!canDeleteTab ? null : (
+                          }}
+                          onDrop={(event) => {
+                            if (draggingId != null) return;
+                            const raw = event.dataTransfer.getData(
+                              "application/x-entity-tab",
+                            );
+                            if (!raw) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            try {
+                              const payload = JSON.parse(raw) as {
+                                tabId: string;
+                                fromIndex: number;
+                              };
+                              const rect =
+                                event.currentTarget.getBoundingClientRect();
+                              const edge =
+                                event.clientX < rect.left + rect.width / 2
+                                  ? "before"
+                                  : "after";
+                              let insertAt =
+                                edge === "after" ? tabIndex + 1 : tabIndex;
+                              if (isOverview) insertAt = Math.max(insertAt, 1);
+                              reorderEntityTabs(
+                                entity.id,
+                                payload.fromIndex,
+                                insertAt,
+                              );
+                            } catch {
+                              // ignore invalid payload
+                            }
+                            setDraggingTabId(null);
+                            setTabDropHint(null);
+                            unlockDragSelection();
+                          }}
+                          className={cn(
+                            "group/tab !h-auto relative min-h-0 flex-none gap-1 self-stretch rounded-md py-0 pr-3 pl-3 text-sm font-medium transition-[color,background-color,box-shadow,padding] duration-150 data-active:shadow-sm",
+                            !readOnly && "hover:pr-1.5 focus-within:pr-1.5",
+                            dropActive &&
+                              "bg-primary/10 text-primary ring-2 ring-primary/20",
+                            isTabDragging && "opacity-40",
+                            !readOnly &&
+                              !isOverview &&
+                              draggingId == null &&
+                              "cursor-grab",
+                            !readOnly &&
+                              tabHint === "before" &&
+                              "before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
+                            !readOnly &&
+                              tabHint === "after" &&
+                              "after:absolute after:inset-y-1 after:right-0 after:w-0.5 after:rounded-full after:bg-primary",
+                          )}
+                        >
+                          {!readOnly && !isOverview ? (
+                            <span
+                              aria-hidden
+                              className={cn(
+                                "pointer-events-none absolute inset-y-1.5 left-1 w-0.5 rounded-full bg-primary transition-opacity duration-150",
+                                isTabDragging
+                                  ? "opacity-100"
+                                  : "opacity-0 group-hover/tab:opacity-55",
+                              )}
+                            />
+                          ) : null}
+                          <span className="truncate">{tab.name}</span>
+                          {readOnly ? null : (
+                            <span
+                              className={cn(
+                                "grid transition-[grid-template-columns,opacity] duration-150 ease-out",
+                                "grid-cols-[0fr] opacity-0",
+                                "group-hover/tab:grid-cols-[1fr] group-hover/tab:opacity-100",
+                                "group-focus-within/tab:grid-cols-[1fr] group-focus-within/tab:opacity-100",
+                              )}
+                            >
+                              <span className="flex min-w-0 items-center gap-0.5 overflow-hidden">
                                 <span
                                   role="button"
                                   tabIndex={-1}
-                                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                                  aria-label={`Удалить вкладку «${tab.name}»`}
-                                  title="Удалить"
+                                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                  aria-label={
+                                    isEntityTabWithLinkedEntity(tab)
+                                      ? `Настройки вкладки «${tab.name}»`
+                                      : `Редактировать вкладку «${tab.name}»`
+                                  }
+                                  title={
+                                    isEntityTabWithLinkedEntity(tab)
+                                      ? "Настройки вкладки"
+                                      : "Редактировать"
+                                  }
                                   onClick={(event) => {
                                     event.preventDefault();
                                     event.stopPropagation();
-                                    const fallbackId =
-                                      entityTabs.find(
-                                        (item) => item.id !== tab.id,
-                                      )?.id ?? ENTITY_OVERVIEW_TAB_ID;
-                                    if (activeTabId === tab.id) {
-                                      setActiveTabId(fallbackId);
+                                    if (
+                                      isEntityTabWithLinkedEntity(tab) &&
+                                      tab.linkedEntityId
+                                    ) {
+                                      setSubEntitySettings({
+                                        tabId: tab.id,
+                                        linkedEntityId: tab.linkedEntityId,
+                                      });
+                                      return;
                                     }
-                                    removeEntityTab(entity.id, tab.id);
+                                    setTabDialog({ mode: "edit", tab });
                                   }}
                                   onPointerDown={(event) =>
                                     event.stopPropagation()
@@ -4681,15 +4655,43 @@ export function EntityFieldsEditor({
                                     event.stopPropagation()
                                   }
                                 >
-                                  <X className="size-3.5" />
+                                  <Pencil className="size-3" />
                                 </span>
-                              )}
+                                {!canDeleteTab ? null : (
+                                  <span
+                                    role="button"
+                                    tabIndex={-1}
+                                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                    aria-label={`Удалить вкладку «${tab.name}»`}
+                                    title="Удалить"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      const fallbackId =
+                                        entityTabs.find(
+                                          (item) => item.id !== tab.id,
+                                        )?.id ?? ENTITY_OVERVIEW_TAB_ID;
+                                      if (activeTabId === tab.id) {
+                                        setActiveTabId(fallbackId);
+                                      }
+                                      removeEntityTab(entity.id, tab.id);
+                                    }}
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onMouseDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                  >
+                                    <X className="size-3.5" />
+                                  </span>
+                                )}
+                              </span>
                             </span>
-                          </span>
-                        )}
-                      </TabsTrigger>
-                    );
-                  })}
+                          )}
+                        </TabsTrigger>
+                      );
+                    })}
                   </TabsList>
                 </div>
                 {readOnly ? null : (

@@ -1403,6 +1403,10 @@ function EntityFieldForm({
       relationToUsers,
       hasListOptions: listDefaultOptions.length > 0,
       hasRelationTarget: Boolean(relationTarget),
+      hasRelationGroupsConfig: Boolean(
+        typeSettings.relationGroups.itemEntityId &&
+        typeSettings.relationGroups.nestedEntityId,
+      ),
     });
   const dependencyScopeOptions = (currentEntity?.fields ?? [])
     .filter(
@@ -1918,6 +1922,12 @@ function EntityFieldForm({
                     relationOptions={relationDefaultOptions}
                     relationMultiple={relationMultiple}
                     relationToUsers={relationToUsers}
+                    relationGroups={
+                      effectiveType === "relationGroups"
+                        ? typeSettings.relationGroups
+                        : null
+                    }
+                    entities={entities}
                     value={typeSettings.defaultValue}
                     onChange={(defaultValue) =>
                       patchTypeSettings({ defaultValue })

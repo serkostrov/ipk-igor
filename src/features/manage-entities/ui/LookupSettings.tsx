@@ -47,14 +47,14 @@ function RelationLinkLabel({
   );
 }
 
-/** Relation of this entity → field of the related entity. */
+/** Bridge of this entity → field of the related / nested entity. */
 export function LookupSettings({
   entity,
   entities,
   value,
   onChange,
 }: LookupSettingsProps) {
-  // Relations, plus lookups that themselves yield relation ids (nested lookup).
+  // Relations, relationGroups (nested), lookups that yield relation ids.
   const relationFields =
     entity?.fields.filter((field) =>
       isEntityLookupBridgeField(entity, field, entities),
@@ -74,6 +74,7 @@ export function LookupSettings({
         field.type !== "relationGroups",
     ) ?? [];
 
+  const isGroupsBridge = relationField?.type === "relationGroups";
   const selectedRelation = relationField
     ? {
         name: getEntityFieldDisplayName(relationField),
@@ -87,11 +88,11 @@ export function LookupSettings({
         <SettingLabel
           htmlFor="entity-field-lookup-relation"
           title="Связь"
-          description="Поле связи этой сущности"
+          description="Поле связи или наборов связей этой сущности"
         />
         {relationFields.length === 0 ? (
           <div className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-center text-[11px] leading-snug text-muted-foreground">
-            Сначала добавьте поле типа «Связь»
+            Сначала добавьте «Связь» или «Наборы связей»
           </div>
         ) : (
           <Select
@@ -151,7 +152,9 @@ export function LookupSettings({
           title="Поле"
           description={
             target
-              ? `Значение из «${entityLabel(target)}»`
+              ? isGroupsBridge
+                ? `Из вложенных «${entityLabel(target)}» в наборах`
+                : `Значение из «${entityLabel(target)}»`
               : "Значение связанной записи"
           }
           value={value?.targetFieldId || null}
@@ -159,7 +162,11 @@ export function LookupSettings({
             value: field.id,
             label: getEntityFieldDisplayName(field),
           }))}
-          noOptionsLabel="У связанной сущности нет полей"
+          noOptionsLabel={
+            isGroupsBridge
+              ? "У вложенной сущности нет полей"
+              : "У связанной сущности нет полей"
+          }
           onChange={(next) => {
             if (next && value) onChange({ ...value, targetFieldId: next });
           }}

@@ -1,19 +1,21 @@
 import { Plus, X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
-  getEntityDisplayName,
-  getRelationRecordOptions,
   parseEntityRelationGroups,
   parseEntityRelationIds,
-  RelationSelect,
   serializeEntityRelationGroups,
   serializeEntityRelationIds,
-  type Entity,
-  type EntityField,
   type EntityRelationGroupItem,
   type EntityRelationGroupsMode,
-  type EntityValueContext,
-} from "@/entities/entity";
+} from "../model/field";
+import type { EntityValueContext } from "../model/field-value";
+import {
+  getEntityDisplayName,
+  getRelationRecordOptions,
+  type Entity,
+  type EntityField,
+} from "../model/types";
+import { RelationSelect } from "./RelationSelect";
 
 type RelationGroupsFieldControlProps = {
   id: string;
@@ -70,10 +72,7 @@ export function RelationGroupsFieldControl({
   const itemOptions = getRelationRecordOptions(itemEntity, ctx.entities).filter(
     (option) => !usedItemIds.has(option.id),
   );
-  const allNestedOptions = getRelationRecordOptions(
-    nestedEntity,
-    ctx.entities,
-  );
+  const allNestedOptions = getRelationRecordOptions(nestedEntity, ctx.entities);
 
   const itemLabel = itemEntity ? getEntityDisplayName(itemEntity) : "Запись";
   const nestedLabel = nestedEntity
@@ -235,7 +234,6 @@ export function RelationGroupsFieldControl({
     );
   }
 
-  // full
   return (
     <div className="flex flex-col gap-2">
       {groups.length > 0 ? (

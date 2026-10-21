@@ -12,7 +12,14 @@ export type AutomationAssigneeLeafResolver =
   | { type: "relationFieldFanOut"; fieldId: string }
   | {
       type: "relatedField";
+      /** First relation hop from the trigger record. */
       relationFieldId: string;
+      /**
+       * Extra relation hops after `relationFieldId` (deep nesting).
+       * Empty / omitted = one hop: trigger → related → user field.
+       */
+      via?: string[];
+      /** User field on the entity reached by the relation path. */
       fieldId: string;
     }
   | { type: "role"; roleId: string }
@@ -58,11 +65,11 @@ export const AUTOMATION_ASSIGNEE_TYPE_HINTS: Record<
   none: "Исполнитель не назначается.",
   fixedUsers: "Задача уйдёт выбранным пользователям.",
   field:
-    "Исполнитель — человек из поля на этой записи (Менеджер, ГИП…). Если в поле несколько — только первый.",
+    "Человек из поля этой записи или через связь / вложенность (Менеджер, ГИП…). Если в поле несколько — только первый.",
   relationFieldFanOut:
     "Отдельная задача на каждого из поля на этой записи (например всех наблюдателей).",
   relatedField:
-    "Сначала связанная запись (Лид, РКО…), затем человек из её поля (Менеджер, ГИП…).",
+    "Через связь или вложенность: связанная запись → … → поле с человеком (Менеджер, ГИП…).",
   role: "Задача появится у всех пользователей с выбранной ролью.",
   currentUser: "Исполнитель — тот, кто вызвал переход или изменение стадии.",
   recordCreator: "Исполнитель — автор записи (если он известен).",
@@ -75,11 +82,11 @@ export const AUTOMATION_WATCHER_TYPE_HINTS: Record<
   none: "Наблюдатели не назначаются — уведомления о задаче никому дополнительно не уходят.",
   fixedUsers: "Уведомления получат выбранные пользователи.",
   field:
-    "Наблюдатель — человек из поля на этой записи. Если в поле несколько — только первый.",
+    "Человек из поля этой записи или через связь / вложенность. Если в поле несколько — только первый.",
   relationFieldFanOut:
     "Наблюдателем станет каждый из поля на этой записи (уведомления, без обязанности выполнять).",
   relatedField:
-    "Сначала связанная запись, затем человек из её поля (Менеджер, ГИП…).",
+    "Через связь или вложенность: связанная запись → … → поле с человеком.",
   role: "Наблюдатели — все пользователи с выбранной ролью.",
   currentUser: "Наблюдатель — тот, кто вызвал переход или изменение стадии.",
   recordCreator: "Наблюдатель — автор записи (если он известен).",
@@ -92,9 +99,10 @@ export const AUTOMATION_RECIPIENT_TYPE_HINTS: Record<
   none: "Получатели не назначаются — уведомление никому не уходит.",
   fixedUsers: "Уведомление получат выбранные пользователи.",
   field:
-    "Получатель — человек из поля на этой записи. Если в поле несколько — берётся первый.",
+    "Человек из поля этой записи или через связь / вложенность. Если в поле несколько — берётся первый.",
   relationFieldFanOut: "Отдельное уведомление каждому из поля на этой записи.",
-  relatedField: "Сначала связанная запись, затем человек из её поля.",
+  relatedField:
+    "Через связь или вложенность: связанная запись → … → поле с человеком.",
   role: "Уведомление всем пользователям с выбранной ролью.",
   currentUser:
     "Получатель — тот, кто вызвал действие (назначение / завершение).",
@@ -119,7 +127,7 @@ export const AUTOMATION_ASSIGNEE_SOURCE_ORDER: AutomationAssigneeSourceKind[] =
     "none",
     "conditional",
     "fromField",
-    "fromRelated",
+    // fromRelated kept in the type for legacy payloads; UI maps it to fromField.
     "fixedUsers",
     "role",
     "currentUser",
@@ -133,8 +141,8 @@ export const AUTOMATION_ASSIGNEE_SOURCE_LABELS: Record<
   assignee: {
     none: "Никто",
     conditional: "По условию",
-    fromField: "Поле с пользователем",
-    fromRelated: "Через связанную запись",
+    fromField: "Из поля записи",
+    fromRelated: "Из поля записи",
     fixedUsers: "Выбранные пользователи",
     role: "Все с ролью",
     currentUser: "Тот, кто запустил",
@@ -143,8 +151,8 @@ export const AUTOMATION_ASSIGNEE_SOURCE_LABELS: Record<
   watcher: {
     none: "Никто",
     conditional: "По условию",
-    fromField: "Поле с пользователем",
-    fromRelated: "Через связанную запись",
+    fromField: "Из поля записи",
+    fromRelated: "Из поля записи",
     fixedUsers: "Выбранные пользователи",
     role: "Все с ролью",
     currentUser: "Тот, кто запустил",
@@ -153,8 +161,8 @@ export const AUTOMATION_ASSIGNEE_SOURCE_LABELS: Record<
   recipient: {
     none: "Никто",
     conditional: "По условию",
-    fromField: "Поле с пользователем",
-    fromRelated: "Через связанную запись",
+    fromField: "Из поля записи",
+    fromRelated: "Из поля записи",
     fixedUsers: "Выбранные пользователи",
     role: "Все с ролью",
     currentUser: "Тот, кто вызвал действие",
@@ -171,11 +179,22 @@ export function assigneeSourceKind(
 ): AutomationAssigneeSourceKind {
   if (value.type === "conditional") return "conditional";
   if (value.type === "none") return "none";
-  if (value.type === "relatedField") return "fromRelated";
-  if (value.type === "field" || value.type === "relationFieldFanOut") {
+  if (
+    value.type === "relatedField" ||
+    value.type === "field" ||
+    value.type === "relationFieldFanOut"
+  ) {
     return "fromField";
   }
   return value.type;
+}
+
+/** Relation hops for a relatedField resolver (first + via). */
+export function relatedFieldRelationPath(
+  value: Extract<AutomationAssigneeLeafResolver, { type: "relatedField" }>,
+): string[] {
+  const via = value.via?.filter((id) => id.trim()) ?? [];
+  return [value.relationFieldId, ...via].filter((id) => id.trim());
 }
 
 export function defaultAssigneeResolver(): AutomationAssigneeResolver {
@@ -228,13 +247,32 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
       return { type, fieldId };
     }
     case "relatedField": {
+      const pathFromArray = Array.isArray(raw.relationPath)
+        ? raw.relationPath.filter(
+            (id): id is string => typeof id === "string" && Boolean(id.trim()),
+          )
+        : Array.isArray(raw.relation_path)
+          ? raw.relation_path.filter(
+              (id): id is string =>
+                typeof id === "string" && Boolean(id.trim()),
+            )
+          : [];
       const relationFieldId = (
-        typeof raw.relationFieldId === "string"
+        pathFromArray[0] ??
+        (typeof raw.relationFieldId === "string"
           ? raw.relationFieldId
           : typeof raw.relation_field_id === "string"
             ? raw.relation_field_id
-            : ""
+            : "")
       ).trim();
+      const viaRaw = Array.isArray(raw.via)
+        ? raw.via
+        : pathFromArray.length > 1
+          ? pathFromArray.slice(1)
+          : [];
+      const via = viaRaw.filter(
+        (id): id is string => typeof id === "string" && Boolean(id.trim()),
+      );
       const fieldId = (
         typeof raw.fieldId === "string"
           ? raw.fieldId
@@ -243,7 +281,9 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
             : ""
       ).trim();
       if (!relationFieldId || !fieldId) return defaultAssigneeLeafResolver();
-      return { type: "relatedField", relationFieldId, fieldId };
+      return via.length > 0
+        ? { type: "relatedField", relationFieldId, via, fieldId }
+        : { type: "relatedField", relationFieldId, fieldId };
     }
     case "role": {
       const roleId =

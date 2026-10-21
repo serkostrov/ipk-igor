@@ -164,8 +164,8 @@ export function getEntityLinkedRecords(
 }
 
 /**
- * Entity reached by a relation, or by a lookup whose value is itself a
- * relation (e.g. «Отдел» = lookup via «Руководитель» → Users.Отделы).
+ * Entity reached by a relation, relationGroups (nested side), or by a lookup
+ * whose value is itself a relation (e.g. «Отдел» via «Руководитель»).
  */
 export function resolveEntityRelationBridgeTarget<
   T extends Pick<Entity, "id" | "fields">,
@@ -174,6 +174,12 @@ export function resolveEntityRelationBridgeTarget<
     const targetId = getEntityRelationTargetId(bridge);
     return entities.find((item) => item.id === targetId) ?? null;
   }
+  if (bridge.type === "relationGroups") {
+    const nestedId = bridge.relationGroups?.nestedEntityId ?? null;
+    return nestedId
+      ? (entities.find((item) => item.id === nestedId) ?? null)
+      : null;
+  }
   if (bridge.type !== "lookup") return null;
   const source = resolveEntityFieldSource(entity, bridge, entities);
   if (!source || source.field.type !== "relation") return null;
@@ -181,20 +187,26 @@ export function resolveEntityRelationBridgeTarget<
   return entities.find((item) => item.id === targetId) ?? null;
 }
 
-/** Relation field, or a lookup that resolves to relation ids. */
+/**
+ * Valid lookup bridge: relation, configured relationGroups (nested side),
+ * or a lookup that itself resolves to relation ids.
+ */
 export function isEntityLookupBridgeField<
   T extends Pick<Entity, "id" | "fields">,
 >(entity: T, field: EntityField, entities: readonly T[]): boolean {
   if (field.type === "relation") return true;
+  if (field.type === "relationGroups") {
+    return Boolean(field.relationGroups?.nestedEntityId);
+  }
   if (field.type !== "lookup") return false;
   const source = resolveEntityFieldSource(entity, field, entities);
   return source?.field.type === "relation";
 }
 
 /**
- * Follow a lookup that uses only relation bridges until a non-lookup field.
- * Used when nesting lookups (lookup → lookup → relation) without recursion
- * through `resolveEntityLookupTarget`.
+ * Follow a lookup that uses only relation / relationGroups bridges until a
+ * non-lookup field. Used when nesting lookups without recursion through
+ * `resolveEntityLookupTarget`.
  */
 function resolveLookupChainLeaf<T extends Pick<Entity, "id" | "fields">>(
   entity: T,
@@ -216,9 +228,15 @@ function resolveLookupChainLeaf<T extends Pick<Entity, "id" | "fields">>(
       currentField.lookup.relationFieldId,
     );
     // Nested lookup bridges are resolved at runtime via record cells; for
-    // static target resolution the inner bridge must be a direct relation.
-    if (!bridge || bridge.type !== "relation") return null;
-    const relatedId = getEntityRelationTargetId(bridge);
+    // static target resolution the inner bridge must be relation or groups.
+    if (!bridge) return null;
+    const relatedId =
+      bridge.type === "relation"
+        ? getEntityRelationTargetId(bridge)
+        : bridge.type === "relationGroups"
+          ? (bridge.relationGroups?.nestedEntityId ?? null)
+          : null;
+    if (!relatedId) return null;
     const related = entities.find((item) => item.id === relatedId);
     if (!related) return null;
     const next = findField(related, currentField.lookup.targetFieldId);
@@ -244,6 +262,18 @@ export function resolveEntityLookupTarget<
   if (bridge.type === "relation") {
     const targetId = getEntityRelationTargetId(bridge);
     const target = entities.find((item) => item.id === targetId);
+    if (!target) return null;
+    const targetField = findField(target, field.lookup.targetFieldId);
+    if (!targetField) return null;
+    return { relationField: bridge, entity: target, field: targetField };
+  }
+
+  // Nested records from each row of a relationGroups field.
+  if (bridge.type === "relationGroups") {
+    const nestedId = bridge.relationGroups?.nestedEntityId ?? null;
+    const target = nestedId
+      ? entities.find((item) => item.id === nestedId)
+      : undefined;
     if (!target) return null;
     const targetField = findField(target, field.lookup.targetFieldId);
     if (!targetField) return null;
@@ -328,9 +358,9 @@ export function getEntityFieldValueKind(
 }
 
 /**
- * Related record ids for a lookup bridge: stored on a relation, or pulled
- * from a relation-valued lookup (so nested lookups work when the bridge is
- * hidden on create and never written into `values`).
+ * Related record ids for a lookup bridge: stored on a relation, nested ids
+ * from relationGroups, or pulled from a relation-valued lookup (so nested
+ * lookups work when the bridge is hidden on create and never written).
  */
 function getLookupBridgeRelationIds(
   ctx: EntityValueContext,
@@ -341,6 +371,15 @@ function getLookupBridgeRelationIds(
 ): string[] {
   if (bridge.type === "relation") {
     return parseEntityRelationIds(record.values[bridge.id]);
+  }
+  if (bridge.type === "relationGroups") {
+    return [
+      ...new Set(
+        parseEntityRelationGroups(record.values[bridge.id]).flatMap(
+          (group) => group.nestedIds,
+        ),
+      ),
+    ];
   }
   if (bridge.type !== "lookup") return [];
   return [
@@ -1162,9 +1201,87 @@ export function getRelationFieldOptions(
 }
 
 /**
+ * Soft-fill one sibling relation with `fromIds` (additive; never wipes picks).
+ * Returns the next values map (same reference when unchanged).
+ */
+function softFillRelationFromIds(
+  entity: Entity,
+  values: Record<string, string>,
+  next: Record<string, string>,
+  bridgeId: string | null,
+  relatedTargetId: string,
+  fromIds: string[],
+  changedFieldId: string | null,
+): Record<string, string> {
+  if (fromIds.length === 0) return next;
+
+  const candidates = entity.fields.filter(
+    (field) =>
+      field.type === "relation" &&
+      field.id !== bridgeId &&
+      getEntityRelationTargetId(field) === relatedTargetId,
+  );
+  // Prefer relations filtered by this bridge, then fields present on the form.
+  const filtered = candidates.filter((field) => {
+    const filter = field.relationFilter;
+    if (!bridgeId || !filter) return false;
+    if (filter.matches.some((match) => match.sourceFieldId === bridgeId)) {
+      return true;
+    }
+    return filter.conditions.some(
+      (condition) =>
+        condition.operator === "equalsRecordField" &&
+        condition.value === bridgeId,
+    );
+  });
+  const onForm = candidates.filter((field) =>
+    Object.prototype.hasOwnProperty.call(values, field.id),
+  );
+  const pool =
+    filtered.length === 1
+      ? filtered
+      : onForm.length === 1
+        ? onForm
+        : candidates.length === 1
+          ? candidates
+          : [];
+  if (pool.length !== 1) return next;
+  const dest = pool[0]!;
+
+  const existing = parseEntityRelationIds(next[dest.id]);
+  // Form open / sanitize: only seed empty destinations.
+  if (changedFieldId == null && existing.length > 0) return next;
+
+  let merged: string[];
+  if (!dest.relationMultiple) {
+    // Single: keep an existing pick; otherwise take the first id.
+    if (existing.length > 0) return next;
+    merged = fromIds.slice(0, 1);
+  } else {
+    // Multiple: union — suggest, user can add more or remove.
+    const seen = new Set(existing);
+    merged = [...existing];
+    for (const id of fromIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      merged.push(id);
+    }
+  }
+
+  const serialized = serializeEntityRelationIds(merged);
+  if ((next[dest.id] ?? "") === serialized) return next;
+  if (next === values) next = { ...values };
+  next[dest.id] = serialized;
+  return next;
+}
+
+/**
  * Soft-fill a sibling relation from a lookup (e.g. «Отдел» → Users.Руководитель
  * → «Руководители»). Prefills / adds ids from the lookup; never wipes values the
  * user already chose — they can keep editing and add more.
+ *
+ * Also: lookup via `relationGroups` soft-fills a relation to the nested entity
+ * with the nested ids selected in the groups.
  */
 function syncRelationsFromLookups(
   entity: Entity,
@@ -1187,70 +1304,49 @@ function syncRelationsFromLookups(
 
   for (const lookup of lookups) {
     const target = resolveEntityLookupTarget(entity, lookup, entities);
-    if (!target || target.field.type !== "relation") continue;
+    if (!target) continue;
+
+    const bridgeId = lookup.lookup?.relationFieldId ?? null;
+    const bridge = bridgeId ? findField(entity, bridgeId) : null;
+
+    // relationGroups → nested records themselves (not a field on them).
+    if (
+      bridge?.type === "relationGroups" &&
+      bridge.relationGroups?.nestedEntityId &&
+      target.entity.id === bridge.relationGroups.nestedEntityId
+    ) {
+      const nestedIds = [
+        ...new Set(
+          parseEntityRelationGroups(
+            next[bridge.id] ?? values[bridge.id],
+          ).flatMap((group) => group.nestedIds),
+        ),
+      ];
+      next = softFillRelationFromIds(
+        entity,
+        values,
+        next,
+        bridgeId,
+        bridge.relationGroups.nestedEntityId,
+        nestedIds,
+        changedFieldId,
+      );
+    }
+
+    if (target.field.type !== "relation") continue;
     const relatedTargetId = getEntityRelationTargetId(target.field);
     if (!relatedTargetId) continue;
 
-    const bridgeId = lookup.lookup?.relationFieldId ?? null;
-    const candidates = entity.fields.filter(
-      (field) =>
-        field.type === "relation" &&
-        field.id !== bridgeId &&
-        getEntityRelationTargetId(field) === relatedTargetId,
-    );
-    // Prefer relations filtered by this bridge, then fields present on the form.
-    const filtered = candidates.filter((field) => {
-      const filter = field.relationFilter;
-      if (!bridgeId || !filter) return false;
-      if (filter.matches.some((match) => match.sourceFieldId === bridgeId)) {
-        return true;
-      }
-      return filter.conditions.some(
-        (condition) =>
-          condition.operator === "equalsRecordField" &&
-          condition.value === bridgeId,
-      );
-    });
-    const onForm = candidates.filter((field) =>
-      Object.prototype.hasOwnProperty.call(values, field.id),
-    );
-    const pool =
-      filtered.length === 1
-        ? filtered
-        : onForm.length === 1
-          ? onForm
-          : candidates.length === 1
-            ? candidates
-            : [];
-    if (pool.length !== 1) continue;
-    const dest = pool[0]!;
     const fromLookup = getRecordFieldIds(ctx, entity, record, lookup);
-    if (fromLookup.length === 0) continue;
-
-    const existing = parseEntityRelationIds(next[dest.id]);
-    // Form open / sanitize: only seed empty destinations.
-    if (changedFieldId == null && existing.length > 0) continue;
-
-    let merged: string[];
-    if (!dest.relationMultiple) {
-      // Single: keep an existing pick; otherwise take the first lookup id.
-      if (existing.length > 0) continue;
-      merged = fromLookup.slice(0, 1);
-    } else {
-      // Multiple: union — lookup suggests, user can add more or remove.
-      const seen = new Set(existing);
-      merged = [...existing];
-      for (const id of fromLookup) {
-        if (seen.has(id)) continue;
-        seen.add(id);
-        merged.push(id);
-      }
-    }
-
-    const serialized = serializeEntityRelationIds(merged);
-    if ((next[dest.id] ?? "") === serialized) continue;
-    if (next === values) next = { ...values };
-    next[dest.id] = serialized;
+    next = softFillRelationFromIds(
+      entity,
+      values,
+      next,
+      bridgeId,
+      relatedTargetId,
+      fromLookup,
+      changedFieldId,
+    );
   }
 
   return next;

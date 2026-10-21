@@ -361,6 +361,7 @@ export {
   OverflowCommaLabels,
 } from "./ui/ListSelect";
 export { RelationSelect } from "./ui/RelationSelect";
+export { RelationGroupsFieldControl } from "./ui/RelationGroupsFieldControl";
 export { DeadlineChip } from "./ui/DeadlineChip";
 export { ProgressValue } from "./ui/ProgressValue";
 export { RecordValue } from "./ui/RecordValue";

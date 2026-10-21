@@ -229,6 +229,15 @@ function normalizeDefaultValue(
     typeof value.value === "string" &&
     value.value.length > 0
   ) {
+    if (type === "relationGroups") {
+      // Keep only if it parses to at least one group.
+      try {
+        const parsed = JSON.parse(value.value) as unknown;
+        if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
+      } catch {
+        return undefined;
+      }
+    }
     return { kind: "value", value: value.value };
   }
   return undefined;

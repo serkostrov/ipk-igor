@@ -1,13 +1,20 @@
+import { useMemo } from "react";
 import { Input } from "@/shared/ui/input";
 import {
+  getEntityValueContext,
   ListSelect,
   normalizeEntityDecimalInput,
   parseEntityListValueIds,
+  parseEntityRelationGroups,
   parseEntityRelationIds,
+  RelationGroupsFieldControl,
   RelationSelect,
+  type Entity,
+  type EntityField,
   type EntityFieldDefaultValue,
   type EntityFieldType,
   type EntityListOption,
+  type EntityRelationGroupsConfig,
   type RelationRecordOption,
 } from "@/entities/entity";
 import {
@@ -28,6 +35,9 @@ type DefaultValueSettingsProps = {
   relationMultiple?: boolean;
   /** Target is Users — offer «Текущий пользователь». */
   relationToUsers?: boolean;
+  /** Config for `relationGroups` defaults. */
+  relationGroups?: EntityRelationGroupsConfig | null;
+  entities?: Entity[];
   value: EntityFieldDefaultValue | null;
   onChange: (value: EntityFieldDefaultValue | null) => void;
 };
@@ -54,9 +64,25 @@ export function DefaultValueSettings({
   relationOptions = [],
   relationMultiple = false,
   relationToUsers = false,
+  relationGroups = null,
+  entities = [],
   value,
   onChange,
 }: DefaultValueSettingsProps) {
+  const relationGroupsCtx = useMemo(
+    () => getEntityValueContext(entities),
+    [entities],
+  );
+  const relationGroupsPreviewField = useMemo(() => {
+    if (!relationGroups?.itemEntityId || !relationGroups.nestedEntityId) {
+      return null;
+    }
+    return {
+      id: "__default-relation-groups__",
+      relationGroups,
+    } as EntityField;
+  }, [relationGroups]);
+
   if (type === "datetime") {
     return (
       <SettingSelect
@@ -169,6 +195,39 @@ export function DefaultValueSettings({
           onChange(toConstant(checked ? "true" : ""))
         }
       />
+    );
+  }
+
+  if (type === "relationGroups" && relationGroupsPreviewField) {
+    const raw = constantOf(value);
+    const groupCount = parseEntityRelationGroups(raw).length;
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        <SettingLabel
+          htmlFor="entity-field-default-relation-groups"
+          title={TITLE}
+          description="Строки и вложенные подставятся в новую запись"
+        />
+        <div
+          id="entity-field-default-relation-groups"
+          className="rounded-md border border-border/70 bg-background p-2"
+        >
+          <RelationGroupsFieldControl
+            id="entity-field-default-relation-groups-control"
+            ctx={relationGroupsCtx}
+            field={relationGroupsPreviewField}
+            value={raw}
+            onChange={(next) => onChange(toConstant(next))}
+            mode="full"
+          />
+        </div>
+        {groupCount > 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            Строк: {groupCount}
+          </p>
+        ) : null}
+      </div>
     );
   }
 

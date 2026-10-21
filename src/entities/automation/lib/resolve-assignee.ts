@@ -2,6 +2,7 @@ import type {
   AutomationAssigneeLeafResolver,
   AutomationAssigneeResolver,
 } from "../model/assignee";
+import { relatedFieldRelationPath } from "../model/assignee";
 import {
   matchAutomationConditions,
   type AutomationConditionEvalContext,
@@ -12,6 +13,7 @@ import {
   getSystemUsersEntity,
   parseEntityRelationIds,
   type Entity,
+  type EntityField,
 } from "@/entities/entity";
 
 export type ResolveAssigneeContext = AutomationConditionEvalContext & {
@@ -20,6 +22,14 @@ export type ResolveAssigneeContext = AutomationConditionEvalContext & {
   triggerEntityId?: string;
 };
 
+function findRelationField(
+  entity: Entity | null | undefined,
+  fieldId: string,
+): EntityField | null {
+  const field = entity?.fields.find((item) => item.id === fieldId);
+  return field?.type === "relation" ? field : null;
+}
+
 function resolveRelatedFieldUserIds(
   resolver: Extract<AutomationAssigneeLeafResolver, { type: "relatedField" }>,
   ctx: ResolveAssigneeContext,
@@ -27,38 +37,48 @@ function resolveRelatedFieldUserIds(
   const values = ctx.values;
   const entities = ctx.entities;
   const triggerEntityId = ctx.triggerEntityId;
+  const path = relatedFieldRelationPath(resolver);
+  if (path.length === 0) return [];
+
   if (!values || !entities || !triggerEntityId) {
-    const raw = values?.[resolver.relationFieldId];
-    if (!raw) return [];
-    // Without entity graph we cannot load nested fields.
+    // Without entity graph we cannot walk nested hops.
+    if (path.length === 1) {
+      const raw = values?.[path[0]!];
+      if (!raw) return [];
+    }
     return [];
   }
 
-  const trigger = entities.find((entity) => entity.id === triggerEntityId);
-  const relationField = trigger?.fields.find(
-    (field) =>
-      field.id === resolver.relationFieldId && field.type === "relation",
-  );
-  if (!relationField) return [];
+  let currentEntity =
+    entities.find((entity) => entity.id === triggerEntityId) ?? null;
+  let currentValues = values;
 
-  const relatedId = parseEntityRelationIds(values[resolver.relationFieldId])[0];
-  if (!relatedId) return [];
+  for (const relationFieldId of path) {
+    if (!currentEntity) return [];
+    const relationField = findRelationField(currentEntity, relationFieldId);
+    if (!relationField) return [];
 
-  const targetId = getEntityRelationTargetId(relationField);
-  const relatedEntity =
-    (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
-    entities.find((entity) =>
-      entity.records.some((record) => record.id === relatedId),
+    const relatedId = parseEntityRelationIds(currentValues[relationFieldId])[0];
+    if (!relatedId) return [];
+
+    const targetId = getEntityRelationTargetId(relationField);
+    const relatedEntity =
+      (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
+      entities.find((entity) =>
+        entity.records.some((record) => record.id === relatedId),
+      );
+    if (!relatedEntity) return [];
+
+    const relatedRecord = relatedEntity.records.find(
+      (record) => record.id === relatedId,
     );
-  if (!relatedEntity) return [];
+    if (!relatedRecord) return [];
 
-  const relatedRecord = relatedEntity.records.find(
-    (record) => record.id === relatedId,
-  );
-  if (!relatedRecord) return [];
+    currentEntity = relatedEntity;
+    currentValues = relatedRecord.values;
+  }
 
-  const nested = relatedRecord.values[resolver.fieldId];
-  const ids = parseEntityRelationIds(nested);
+  const ids = parseEntityRelationIds(currentValues[resolver.fieldId]);
   return ids[0] ? [ids[0]] : [];
 }
 

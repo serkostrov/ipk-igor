@@ -131,9 +131,12 @@ export type EntityRollupConfig = {
 
 /** `lookup` field: value of a field on the related record. */
 export type EntityLookupConfig = {
-  /** Relation field of this entity. */
+  /**
+   * Bridge on this entity: `relation`, nested-lookup of relations, or
+   * `relationGroups` (reads nested record ids from each group).
+   */
   relationFieldId: string;
-  /** Field of the related entity. */
+  /** Field of the related / nested entity. */
   targetFieldId: string;
 };
 

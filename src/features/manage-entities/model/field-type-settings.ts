@@ -67,6 +67,7 @@ const DEFAULT_VALUE_TYPES = new Set<EntityFieldType>([
   "url",
   "list",
   "relation",
+  "relationGroups",
 ]);
 
 export function canShowFieldAsProgress(type: EntityFieldType) {
@@ -79,15 +80,19 @@ export function canHaveDefaultValue(
   {
     hasListOptions,
     hasRelationTarget,
+    hasRelationGroupsConfig,
   }: {
     /** @deprecated kept for call-site compat; ignored. */
     relationToUsers?: boolean;
     hasListOptions: boolean;
     hasRelationTarget?: boolean;
+    /** Both item + nested entities configured. */
+    hasRelationGroupsConfig?: boolean;
   },
 ) {
   if (!DEFAULT_VALUE_TYPES.has(type)) return false;
   if (type === "relation") return Boolean(hasRelationTarget);
+  if (type === "relationGroups") return Boolean(hasRelationGroupsConfig);
   if (type === "list") return hasListOptions;
   return true;
 }

@@ -7,6 +7,7 @@ import { TimePicker } from "@/shared/ui/time-picker";
 import {
   createEntityDraftRecord,
   ListSelect,
+  RelationGroupsFieldControl,
   RelationSelect,
   entityFieldInputType,
   formatRecordFieldValue,
@@ -33,7 +34,6 @@ import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFie
 import { TemplateRichText } from "@/features/manage-automations/ui/TemplateRichText";
 import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
 import { DependenciesFieldControl } from "./DependenciesFieldControl";
-import { RelationGroupsFieldControl } from "./RelationGroupsFieldControl";
 import { FileFieldControl } from "./FileFieldControl";
 
 /**
@@ -48,8 +48,12 @@ function getComputedSourceCaption(
   switch (field.type) {
     case "lookup": {
       const target = resolveEntityLookupTarget(entity, field, entities);
-      if (target) {
-        return `из записи «${getEntityFieldDisplayName(target.relationField)}»`;
+      const bridge = target?.relationField;
+      if (bridge) {
+        const name = getEntityFieldDisplayName(bridge);
+        return bridge.type === "relationGroups"
+          ? `из наборов «${name}»`
+          : `из записи «${name}»`;
       }
       const relationField = field.lookup?.relationFieldId
         ? entity.fields.find(
@@ -57,7 +61,9 @@ function getComputedSourceCaption(
           )
         : null;
       if (relationField) {
-        return `из записи «${getEntityFieldDisplayName(relationField)}»`;
+        return relationField.type === "relationGroups"
+          ? `из наборов «${getEntityFieldDisplayName(relationField)}»`
+          : `из записи «${getEntityFieldDisplayName(relationField)}»`;
       }
       return "из записи";
     }

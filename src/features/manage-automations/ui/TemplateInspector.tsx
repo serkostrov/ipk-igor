@@ -580,7 +580,8 @@ function OutcomeAskFieldsEditor({
   const allowDragRef = useRef(false);
 
   function removeField(fieldId: string) {
-    const { [fieldId]: _removed, ...restOptions } = access.fieldAskOptions;
+    const restOptions = { ...access.fieldAskOptions };
+    delete restOptions[fieldId];
     onChange({
       ...access,
       visibleFieldIds: access.visibleFieldIds.filter((id) => id !== fieldId),
@@ -597,7 +598,8 @@ function OutcomeAskFieldsEditor({
   ) {
     const nextOptions = { ...access.fieldAskOptions };
     if (mode === "full") {
-      const { [fieldId]: _removed, ...rest } = nextOptions;
+      const rest = { ...nextOptions };
+      delete rest[fieldId];
       onChange({ ...access, fieldAskOptions: rest });
       return;
     }
@@ -1482,13 +1484,14 @@ export function TemplateInspector({
             <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-3.5">
               <Field
                 title="Исполнитель"
-                description="Человек из поля на записи (Менеджер, ГИП…), через связанную запись, роль или конкретные пользователи."
+                description="Человек из поля на записи или через связанные / вложенные поля (Лид → Менеджер…), роль или конкретные пользователи."
               >
                 <AssigneeEditor
                   mode="assignee"
                   value={draft.assignee}
                   fields={entity.fields}
                   entities={entities}
+                  entityId={entity.id}
                   onChange={(assignee) => patch({ assignee })}
                   renderConditions={({ value, onChange }) => (
                     <ConditionGroupBuilder
@@ -1511,6 +1514,7 @@ export function TemplateInspector({
                   value={draft.watchers}
                   fields={entity.fields}
                   entities={entities}
+                  entityId={entity.id}
                   onChange={(watchers) => patch({ watchers })}
                   renderConditions={({ value, onChange }) => (
                     <ConditionGroupBuilder

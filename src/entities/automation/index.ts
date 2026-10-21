@@ -41,6 +41,7 @@ export {
   defaultWatcherResolver,
   defaultConditionalAssigneeResolver,
   normalizeAssigneeResolver,
+  relatedFieldRelationPath,
   type AutomationAssigneeBranch,
   type AutomationAssigneeEditorMode,
   type AutomationAssigneeLeafResolver,
@@ -230,3 +231,11 @@ export {
   useAutomationStatus,
 } from "./hooks/use-automations";
 export { AssigneeEditor } from "./ui/AssigneeEditor";
+export { UserFieldPathPicker } from "./ui/UserFieldPathPicker";
+export {
+  formatUserFieldPathLabel,
+  pathFromAssigneeSelection,
+  type UserFieldPath,
+  type UserFieldPathDirect,
+  type UserFieldPathRelated,
+} from "./lib/user-field-path";
