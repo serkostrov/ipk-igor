@@ -23,21 +23,14 @@ import { TemplateFieldInput } from "./TemplateFieldInput";
 
 function Field({
   title,
-  description,
   children,
 }: {
   title: string;
-  description?: string;
   children: ReactNode;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <Label className="text-xs font-medium text-foreground">{title}</Label>
-      {description ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          {description}
-        </p>
-      ) : null}
+      <Label className="text-xs font-medium text-muted-foreground">{title}</Label>
       {children}
     </div>
   );
@@ -97,10 +90,10 @@ export function AutomationNotificationRuleEditor({
   }
 
   return (
-    <div className="flex flex-col gap-3.5 rounded-xl border border-border/70 bg-card p-3.5">
+    <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/10 p-3">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <Field title="Когда отправлять" description={eventOption.description}>
+          <Field title="Когда">
             <Select
               value={draft.event}
               onValueChange={(next) => {
@@ -141,10 +134,7 @@ export function AutomationNotificationRuleEditor({
         </Button>
       </div>
 
-      <Field
-        title="Кому"
-        description="Кто получит сообщение. Можно взять человека из поля связи на записи, роль или конкретных пользователей."
-      >
+      <Field title="Кому">
         <AssigneeEditor
           mode="recipient"
           value={draft.recipients}
@@ -166,7 +156,7 @@ export function AutomationNotificationRuleEditor({
         id={`notify-message-${draft.id}`}
         title="Текст"
         value={draft.messageTemplate}
-        placeholder="Например: Согласовать смету по {{клиент}}"
+        placeholder="Текст уведомления"
         fields={entity.fields}
         multiline
         onChange={(messageTemplate) =>
@@ -175,8 +165,8 @@ export function AutomationNotificationRuleEditor({
       />
 
       {draft.messageTemplate.trim() ? (
-        <div className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-2">
-          <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        <div className="rounded-lg border border-dashed border-border/70 bg-background/70 px-3 py-2">
+          <p className="text-[11px] font-medium text-muted-foreground">
             Превью
           </p>
           <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">
@@ -185,10 +175,7 @@ export function AutomationNotificationRuleEditor({
         </div>
       ) : null}
 
-      <Field
-        title="Условия"
-        description="Опционально. Уведомление уйдёт только если условия на записи выполнены."
-      >
+      <Field title="Условия">
         <ConditionGroupBuilder
           entity={entity}
           value={draft.conditions}

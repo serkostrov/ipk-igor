@@ -125,20 +125,27 @@ export function OutcomeRouteBranchesEditor({
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-start gap-2.5 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground shadow-xs">
-          <GitBranch className="size-3.5" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-foreground">
+    <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-3.5">
+      <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <GitBranch
+            className="size-3.5 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+          <h4 className="truncate text-sm font-semibold text-foreground">
             Условные переходы
-          </p>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            Проверяются сверху вниз. Первая подходящая ветка применится;
-            последняя — «иначе», если ничего не совпало.
-          </p>
+          </h4>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7"
+          onClick={addIfBranch}
+        >
+          <Plus className="size-3.5" />
+          Ветка
+        </Button>
       </div>
 
       <ul className="flex flex-col gap-2.5">
@@ -158,8 +165,8 @@ export function OutcomeRouteBranchesEditor({
             <li
               key={branch.id}
               className={cn(
-                "rounded-xl border bg-card p-3 shadow-xs",
-                isElse ? "border-border/80" : "border-border/70",
+                "rounded-lg border bg-muted/10 p-3",
+                isElse ? "border-border/70" : "border-border/60",
               )}
             >
               <div className="flex items-center justify-between gap-2">
@@ -205,7 +212,9 @@ export function OutcomeRouteBranchesEditor({
 
               {!isElse ? (
                 <div className="mt-3 flex flex-col gap-1.5">
-                  <Label className="text-xs">Условие</Label>
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Условие
+                  </Label>
                   <ConditionGroupBuilder
                     entity={entity}
                     value={branch.conditions}
@@ -214,15 +223,14 @@ export function OutcomeRouteBranchesEditor({
                     }
                   />
                   {!hasRules ? (
-                    <p className="text-[10px] text-amber-700 dark:text-amber-400">
-                      Добавьте условие — иначе ветка сработает всегда и
-                      перекроет нижние
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                      Без условия ветка сработает всегда
                     </p>
                   ) : null}
                 </div>
               ) : (
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  Если ни одна ветка выше не подошла
+                  Если ничего выше не подошло
                 </p>
               )}
 
@@ -254,7 +262,7 @@ export function OutcomeRouteBranchesEditor({
                   excludeFieldIds={
                     triggerFieldId ? [triggerFieldId] : undefined
                   }
-                  hint="Заполнить поля и при необходимости дублировать во «Записи»"
+                  hint="Значения подставятся сами; «комм.» — ещё и в «Записи»"
                   onChange={(actions) =>
                     patchBranch(index, {
                       actions: withOutcomeStageAction(
@@ -275,17 +283,6 @@ export function OutcomeRouteBranchesEditor({
           );
         })}
       </ul>
-
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="self-start"
-        onClick={addIfBranch}
-      >
-        <Plus className="size-3.5" />
-        Ветка «если»
-      </Button>
     </div>
   );
 }

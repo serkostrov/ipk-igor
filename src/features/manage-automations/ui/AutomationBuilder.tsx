@@ -65,6 +65,7 @@ import {
   useEntityConfig,
 } from "@/entities/entity";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
+import { cn } from "@/shared/lib/cn";
 import { AutomationFlowCanvas } from "./AutomationFlowCanvas";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import {
@@ -1285,91 +1286,99 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         </SelectContent>
       </Select>
 
-      <Select
-        value={scenario?.id}
-        onValueChange={(next) => {
-          if (next == null) return;
-          if (!confirmDiscardIfDirty()) return;
-          const nextId = String(next);
-          const nextScenario = processScenarios.find(
-            (item) => item.id === nextId,
-          );
-          setScenarioId(nextId);
-          setSelectedTemplateId(null);
-          setInspectStageId(null);
-          if (nextScenario) {
-            const snap = makeSnap(nextScenario, templates);
-            setDraft(snap);
-            setSaved(cloneSnap(snap));
-            setUndoStack([]);
-            setEditorEpoch((epoch) => epoch + 1);
-          }
-        }}
-        disabled={!scenario}
-      >
-        <SelectTrigger className={controlTriggerClass}>
-          <SelectValue>
-            <span className="inline-flex items-center gap-1.5">
-              <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">{scenario?.name ?? "Сценарий"}</span>
-            </span>
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {processScenarios.map((item) => {
-            const hasEntryRules = item.entryConditions.rules.length > 0;
-            const suffix = item.isDefault
-              ? !/основн|default|по умолчанию/i.test(item.name)
-                ? " · по умолчанию"
-                : ""
-              : hasEntryRules
-                ? ""
-                : " · нет условий";
-            return (
-              <SelectItem
-                key={item.id}
-                value={item.id}
-                trailing={
-                  item.isDefault ? undefined : (
-                    <button
-                      type="button"
-                      aria-label={`Удалить сценарий «${item.name}»`}
-                      title="Удалить сценарий"
-                      className="flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-destructive"
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        requestDeleteScenario(item);
-                      }}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  )
-                }
-              >
-                {item.name}
-                {suffix}
-              </SelectItem>
+      <div className="flex h-9 shrink-0 overflow-hidden rounded-md border border-input bg-background shadow-xs">
+        <Select
+          value={scenario?.id}
+          onValueChange={(next) => {
+            if (next == null) return;
+            if (!confirmDiscardIfDirty()) return;
+            const nextId = String(next);
+            const nextScenario = processScenarios.find(
+              (item) => item.id === nextId,
             );
-          })}
-        </SelectContent>
-      </Select>
-
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="size-9 shrink-0"
-        aria-label="Новый сценарий"
-        disabled={!resolvedEntityId || !resolvedTriggerFieldId}
-        onClick={openCreateScenarioDialog}
-      >
-        <Plus className="size-4" />
-      </Button>
+            setScenarioId(nextId);
+            setSelectedTemplateId(null);
+            setInspectStageId(null);
+            if (nextScenario) {
+              const snap = makeSnap(nextScenario, templates);
+              setDraft(snap);
+              setSaved(cloneSnap(snap));
+              setUndoStack([]);
+              setEditorEpoch((epoch) => epoch + 1);
+            }
+          }}
+          disabled={!scenario}
+        >
+          <SelectTrigger
+            className={cn(
+              controlTriggerClass,
+              "rounded-none border-0 shadow-none focus-visible:ring-0",
+            )}
+          >
+            <SelectValue>
+              <span className="inline-flex items-center gap-1.5">
+                <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{scenario?.name ?? "Сценарий"}</span>
+              </span>
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {processScenarios.map((item) => {
+              const hasEntryRules = item.entryConditions.rules.length > 0;
+              const suffix = item.isDefault
+                ? !/основн|default|по умолчанию/i.test(item.name)
+                  ? " · по умолчанию"
+                  : ""
+                : hasEntryRules
+                  ? ""
+                  : " · нет условий";
+              return (
+                <SelectItem
+                  key={item.id}
+                  value={item.id}
+                  trailing={
+                    item.isDefault ? undefined : (
+                      <button
+                        type="button"
+                        aria-label={`Удалить сценарий «${item.name}»`}
+                        title="Удалить сценарий"
+                        className="flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-destructive"
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          requestDeleteScenario(item);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )
+                  }
+                >
+                  {item.name}
+                  {suffix}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+        <div className="w-px shrink-0 self-stretch bg-border" aria-hidden />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 rounded-none"
+          aria-label="Новый сценарий"
+          title="Новый сценарий"
+          disabled={!resolvedEntityId || !resolvedTriggerFieldId}
+          onClick={openCreateScenarioDialog}
+        >
+          <Plus className="size-4" />
+        </Button>
+      </div>
 
       {scenario && !scenario.isDefault && entity ? (
         <Popover>
@@ -1416,7 +1425,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   if (status === "idle" || status === "loading") {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="relative flex min-w-0 items-center">
+        <div className="sticky top-0 z-20 -mx-1 flex min-w-0 items-center bg-background px-1 pb-3">
           <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {leading}
           </div>
@@ -1506,7 +1515,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         onConfirm={confirmDeleteScenario}
       />
 
-      <div className="flex min-h-9 min-w-0 items-center">
+      <div className="sticky top-0 z-20 -mx-1 flex min-h-9 min-w-0 items-center bg-background px-1 pb-3">
         <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {leading}
         </div>

@@ -3,9 +3,6 @@ import type { ReactNode } from "react";
 import {
   AUTOMATION_ASSIGNEE_SOURCE_LABELS,
   AUTOMATION_ASSIGNEE_SOURCE_ORDER,
-  AUTOMATION_ASSIGNEE_TYPE_HINTS,
-  AUTOMATION_RECIPIENT_TYPE_HINTS,
-  AUTOMATION_WATCHER_TYPE_HINTS,
   assigneeSourceKind,
   createAutomationAssigneeBranchId,
   defaultAssigneeLeafResolver,
@@ -23,7 +20,6 @@ import {
 } from "../model/conditions";
 import { useRoles } from "@/entities/access";
 import {
-  getEntityRelationTargetId,
   getRelationRecordOptions,
   getSystemUsersEntity,
   parseEntityRelationIds,
@@ -46,9 +42,12 @@ import {
 import { cn } from "@/shared/lib/cn";
 import {
   bridgeRelationFields,
+  bridgeRelationGroupsFields,
   pathFromAssigneeSelection,
+  relationTargetEntity,
   userRelationFields,
   type UserFieldPath,
+  type UserFieldPathEntity,
 } from "../lib/user-field-path";
 import { UserFieldPathPicker } from "./UserFieldPathPicker";
 
@@ -56,20 +55,14 @@ function firstUserRelationFieldId(fields: EntityField[]) {
   return userRelationFields(fields)[0]?.id ?? "";
 }
 
-function relationTargetEntity(
-  field: EntityField | null | undefined,
-  entities: Entity[],
-): Entity | null {
-  const targetId = field ? getEntityRelationTargetId(field) : null;
-  if (!targetId) return null;
-  return entities.find((item) => item.id === targetId) ?? null;
-}
-
 function firstRelatedDefault(
   fields: EntityField[],
   entities: Entity[],
 ): Extract<AutomationAssigneeLeafResolver, { type: "relatedField" }> | null {
-  const bridges = bridgeRelationFields(fields);
+  const bridges = [
+    ...bridgeRelationFields(fields),
+    ...bridgeRelationGroupsFields(fields),
+  ];
   for (const bridge of bridges) {
     const target = relationTargetEntity(bridge, entities);
     const nested = firstUserRelationFieldId(target?.fields ?? []);
@@ -98,34 +91,10 @@ function defaultFromFieldResolver(
   return firstRelatedDefault(fields, entities) ?? { type: "currentUser" };
 }
 
-function hintsForMode(mode: AutomationAssigneeEditorMode) {
-  if (mode === "watcher") return AUTOMATION_WATCHER_TYPE_HINTS;
-  if (mode === "recipient") return AUTOMATION_RECIPIENT_TYPE_HINTS;
-  return AUTOMATION_ASSIGNEE_TYPE_HINTS;
-}
-
-function fanOutLabels(mode: AutomationAssigneeEditorMode) {
-  if (mode === "assignee") {
-    return {
-      one: "Только первому",
-      oneHint: "Одна задача — первому из поля",
-      each: "Каждому из поля",
-      eachHint: "Отдельная задача на каждого",
-    };
-  }
-  if (mode === "watcher") {
-    return {
-      one: "Только первому",
-      oneHint: "Один наблюдатель — первый из поля",
-      each: "Каждому из поля",
-      eachHint: "Наблюдатель — каждый из списка",
-    };
-  }
+function fanOutLabels() {
   return {
     one: "Только первому",
-    oneHint: "Одно уведомление — первому из поля",
     each: "Каждому из поля",
-    eachHint: "Уведомление каждому из списка",
   };
 }
 
@@ -151,18 +120,67 @@ function pathToResolver(
       ? { type: "relationFieldFanOut", fieldId: path.fieldId }
       : { type: "field", fieldId: path.fieldId };
   }
-  return via.length > 0
-    ? {
-        type: "relatedField",
-        relationFieldId,
-        via,
-        fieldId: path.fieldId,
-      }
-    : {
-        type: "relatedField",
-        relationFieldId,
-        fieldId: path.fieldId,
-      };
+  const base =
+    via.length > 0
+      ? {
+          type: "relatedField" as const,
+          relationFieldId,
+          via,
+          fieldId: path.fieldId,
+        }
+      : {
+          type: "relatedField" as const,
+          relationFieldId,
+          fieldId: path.fieldId,
+        };
+  return preferFanOut ? { ...base, fanOut: true } : base;
+}
+
+function findPathLeafField(
+  path: UserFieldPath | null,
+  rootEntity: UserFieldPathEntity | null,
+  entities: Entity[],
+): EntityField | null {
+  if (!path || !rootEntity) return null;
+  if (path.kind === "direct") {
+    return rootEntity.fields.find((field) => field.id === path.fieldId) ?? null;
+  }
+  let entity: UserFieldPathEntity | null = rootEntity;
+  for (const hopId of path.relationPath) {
+    const hop = entity.fields.find((field) => field.id === hopId) ?? null;
+    if (!hop) return null;
+    entity = relationTargetEntity(hop, entities);
+    if (!entity) return null;
+  }
+  return entity.fields.find((field) => field.id === path.fieldId) ?? null;
+}
+
+function pathNeedsFanOutChoice(
+  path: UserFieldPath | null,
+  rootEntity: UserFieldPathEntity | null,
+  entities: Entity[],
+): boolean {
+  if (!path || !rootEntity) return false;
+  const leaf = findPathLeafField(path, rootEntity, entities);
+  if (leaf?.relationMultiple) return true;
+  if (path.kind === "direct") return false;
+  let entity: UserFieldPathEntity | null = rootEntity;
+  for (const hopId of path.relationPath) {
+    const hop = entity.fields.find((field) => field.id === hopId) ?? null;
+    if (!hop) return false;
+    if (hop.type === "relationGroups") return true;
+    if (hop.type === "relation" && hop.relationMultiple) return true;
+    entity = relationTargetEntity(hop, entities);
+    if (!entity) return false;
+  }
+  return false;
+}
+
+function isFanOutSelected(value: AutomationAssigneeLeafResolver) {
+  return (
+    value.type === "relationFieldFanOut" ||
+    (value.type === "relatedField" && value.fanOut === true)
+  );
 }
 
 type ConditionsSlot = (args: {
@@ -198,10 +216,10 @@ function LeafAssigneeEditor({
   const userOptions = getRelationRecordOptions(usersEntity);
   const userFields = userRelationFields(fields);
   const bridgeFields = bridgeRelationFields(fields);
+  const groupsFields = bridgeRelationGroupsFields(fields);
   const source = assigneeSourceKind(value);
   const sourceLabels = AUTOMATION_ASSIGNEE_SOURCE_LABELS[mode];
-  const hints = hintsForMode(mode);
-  const fanOut = fanOutLabels(mode);
+  const fanOut = fanOutLabels();
 
   const rootEntity =
     rootEntityProp ??
@@ -236,9 +254,12 @@ function LeafAssigneeEditor({
           })
         : null;
 
-  const canPickFromField = userFields.length > 0 || bridgeFields.length > 0;
-  const showFanOut =
-    value.type === "field" || value.type === "relationFieldFanOut";
+  const canPickFromField =
+    userFields.length > 0 ||
+    bridgeFields.length > 0 ||
+    groupsFields.length > 0;
+  const showFanOut = pathNeedsFanOutChoice(pathValue, rootEntity, entities);
+  const fanOutSelected = isFanOutSelected(value);
 
   const sourceOptions = AUTOMATION_ASSIGNEE_SOURCE_ORDER.filter((kind) => {
     if (kind === "conditional") return false;
@@ -288,7 +309,7 @@ function LeafAssigneeEditor({
       {!hideSourceSelect ? (
         <div className="flex flex-col gap-1.5">
           {!compact ? (
-            <Label className="text-xs font-medium text-foreground">
+            <Label className="text-[11px] font-medium text-muted-foreground">
               Способ
             </Label>
           ) : null}
@@ -312,23 +333,16 @@ function LeafAssigneeEditor({
               ))}
             </SelectContent>
           </Select>
-          {!compact ? (
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {hints[value.type]}
-            </p>
-          ) : null}
         </div>
       ) : null}
 
       {source === "fromField" ? (
         <div className="flex flex-col gap-2.5 rounded-lg border border-border/70 bg-muted/15 p-2.5">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-medium text-foreground">Кто</Label>
+            <Label className="text-[11px] font-medium text-muted-foreground">Кто</Label>
             {!canPickFromField ? (
               <p className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                Нет полей с пользователями и связей с другими сущностями.
-                Добавьте поле «Связь» (Менеджер, ГИП…) или связь с Лид / РКО в
-                настройках сущности.
+                Нет полей с пользователями или связей.
               </p>
             ) : (
               <UserFieldPathPicker
@@ -337,76 +351,44 @@ function LeafAssigneeEditor({
                 value={pathValue}
                 placeholder="Поле или связь → поле"
                 onChange={(next) =>
-                  onChange(
-                    pathToResolver(next, value.type === "relationFieldFanOut"),
-                  )
+                  onChange(pathToResolver(next, fanOutSelected))
                 }
               />
             )}
-            {canPickFromField && !compact ? (
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Поле на этой записи или через связанные / вложенные (Лид →
-                Менеджер, РКО → ГИП…).
-              </p>
-            ) : null}
           </div>
 
-          {showFanOut && userFields.length > 0 ? (
+          {showFanOut && pathValue ? (
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium text-foreground">
-                Если в поле несколько человек
+              <Label className="text-[11px] font-medium text-muted-foreground">
+                Несколько в поле
               </Label>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   className={cn(
                     "rounded-md border px-2.5 py-2 text-left transition-colors",
-                    value.type === "field"
+                    !fanOutSelected
                       ? "border-primary/40 bg-background ring-1 ring-primary/25"
                       : "border-border/70 bg-background/60 hover:bg-background",
                   )}
-                  onClick={() =>
-                    onChange({
-                      type: "field",
-                      fieldId:
-                        value.type === "field" ||
-                        value.type === "relationFieldFanOut"
-                          ? value.fieldId
-                          : firstUserRelationFieldId(fields),
-                    })
-                  }
+                  onClick={() => onChange(pathToResolver(pathValue, false))}
                 >
                   <span className="block text-xs font-medium">
                     {fanOut.one}
-                  </span>
-                  <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
-                    {fanOut.oneHint}
                   </span>
                 </button>
                 <button
                   type="button"
                   className={cn(
                     "rounded-md border px-2.5 py-2 text-left transition-colors",
-                    value.type === "relationFieldFanOut"
+                    fanOutSelected
                       ? "border-primary/40 bg-background ring-1 ring-primary/25"
                       : "border-border/70 bg-background/60 hover:bg-background",
                   )}
-                  onClick={() =>
-                    onChange({
-                      type: "relationFieldFanOut",
-                      fieldId:
-                        value.type === "field" ||
-                        value.type === "relationFieldFanOut"
-                          ? value.fieldId
-                          : firstUserRelationFieldId(fields),
-                    })
-                  }
+                  onClick={() => onChange(pathToResolver(pathValue, true))}
                 >
                   <span className="block text-xs font-medium">
                     {fanOut.each}
-                  </span>
-                  <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
-                    {fanOut.eachHint}
                   </span>
                 </button>
               </div>
@@ -418,7 +400,7 @@ function LeafAssigneeEditor({
       {value.type === "role" ? (
         <div className="flex flex-col gap-1.5">
           {!compact ? (
-            <Label className="text-xs font-medium text-foreground">Роль</Label>
+            <Label className="text-[11px] font-medium text-muted-foreground">Роль</Label>
           ) : null}
           <Select
             value={value.roleId || undefined}
@@ -453,7 +435,7 @@ function LeafAssigneeEditor({
       {value.type === "fixedUsers" ? (
         <div className="flex flex-col gap-1.5">
           {!compact ? (
-            <Label className="text-xs font-medium text-foreground">
+            <Label className="text-[11px] font-medium text-muted-foreground">
               Пользователи
             </Label>
           ) : null}
@@ -752,7 +734,7 @@ export function AssigneeEditor({
       <div className="flex flex-col gap-3">
         {!compact ? (
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-medium text-foreground">
+            <Label className="text-[11px] font-medium text-muted-foreground">
               Способ
             </Label>
             <Select
@@ -794,7 +776,7 @@ export function AssigneeEditor({
     <div className={compact ? "flex flex-col gap-2" : "flex flex-col gap-3"}>
       {showTopSource ? (
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs font-medium text-foreground">Способ</Label>
+          <Label className="text-[11px] font-medium text-muted-foreground">Способ</Label>
           <Select
             value={source}
             onValueChange={(next) => {
@@ -813,9 +795,6 @@ export function AssigneeEditor({
               ))}
             </SelectContent>
           </Select>
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {hintsForMode(mode)[value.type]}
-          </p>
         </div>
       ) : null}
 

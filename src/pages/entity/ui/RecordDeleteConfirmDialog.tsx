@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  countAutomationTasksForRecord,
-  deleteAutomationTasksForRecord,
+  countAutomationTasksForRecords,
+  deleteAutomationTasksForRecords,
 } from "@/entities/automation";
 import { pluralRu } from "@/shared/lib/plural";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
@@ -11,11 +11,11 @@ type RecordDeleteConfirmDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   entityId: string | null;
-  recordId: string | null;
+  recordIds: string[];
   title: string;
   description: string;
   confirmLabel?: string;
-  /** Deletes the entity record (called after optional automation cleanup). */
+  /** Deletes the entity record(s) (called after optional automation cleanup). */
   onConfirm: () => void | Promise<void>;
 };
 
@@ -27,24 +27,25 @@ export function RecordDeleteConfirmDialog({
   open,
   onOpenChange,
   entityId,
-  recordId,
+  recordIds,
   title,
   description,
   confirmLabel = "Удалить",
   onConfirm,
 }: RecordDeleteConfirmDialogProps) {
-  const fetchKey =
-    open && entityId && recordId ? `${entityId}:${recordId}` : null;
+  const idsKey = recordIds.length > 0 ? recordIds.join(",") : null;
+  const fetchKey = open && entityId && idsKey ? `${entityId}:${idsKey}` : null;
   const [fetched, setFetched] = useState<{
     key: string;
     count: number;
   } | null>(null);
 
   useEffect(() => {
-    if (!fetchKey || !entityId || !recordId) return;
+    if (!fetchKey || !entityId || !idsKey) return;
 
+    const ids = idsKey.split(",");
     let cancelled = false;
-    void countAutomationTasksForRecord(entityId, recordId)
+    void countAutomationTasksForRecords(entityId, ids)
       .then((count) => {
         if (!cancelled) setFetched({ key: fetchKey, count });
       })
@@ -55,14 +56,17 @@ export function RecordDeleteConfirmDialog({
     return () => {
       cancelled = true;
     };
-  }, [fetchKey, entityId, recordId]);
+  }, [fetchKey, entityId, idsKey]);
 
   const ready = fetchKey != null && fetched?.key === fetchKey;
   const taskCount = ready ? fetched.count : 0;
+  const isBulk = recordIds.length > 1;
 
   const fullDescription =
     taskCount > 0
-      ? `${description}\n\nПо записи есть ${taskCount} ${pluralRu(taskCount, "задача", "задачи", "задач")} автоматизации.`
+      ? `${description}\n\n${
+          isBulk ? "По выбранным записям" : "По записи"
+        } есть ${taskCount} ${pluralRu(taskCount, "задача", "задачи", "задач")} автоматизации.`
       : description;
 
   return (
@@ -79,9 +83,9 @@ export function RecordDeleteConfirmDialog({
       onSecondaryConfirm={
         taskCount > 0
           ? async () => {
-              if (!entityId || !recordId) return;
+              if (!entityId || recordIds.length === 0) return;
               try {
-                await deleteAutomationTasksForRecord(entityId, recordId);
+                await deleteAutomationTasksForRecords(entityId, recordIds);
                 await onConfirm();
               } catch (error) {
                 toast.error(

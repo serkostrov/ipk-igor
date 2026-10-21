@@ -907,7 +907,7 @@ export function RecordEntityTabPanel({
             if (!open) setPendingDelete(null);
           }}
           entityId={linkedEntity.id}
-          recordId={pendingDelete?.id ?? null}
+          recordIds={pendingDelete ? [pendingDelete.id] : []}
           title="Удалить запись?"
           description={
             pendingDelete

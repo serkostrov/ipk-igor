@@ -1,16 +1,17 @@
 import { useMemo } from "react";
 import { Input } from "@/shared/ui/input";
 import {
-  getEntityValueContext,
+  buildEntityRelationGroupsValue,
+  getEntityDisplayName,
+  getRelationRecordOptions,
   ListSelect,
   normalizeEntityDecimalInput,
   parseEntityListValueIds,
   parseEntityRelationGroups,
   parseEntityRelationIds,
-  RelationGroupsFieldControl,
   RelationSelect,
+  serializeEntityRelationIds,
   type Entity,
-  type EntityField,
   type EntityFieldDefaultValue,
   type EntityFieldType,
   type EntityListOption,
@@ -37,6 +38,8 @@ type DefaultValueSettingsProps = {
   relationToUsers?: boolean;
   /** Config for `relationGroups` defaults. */
   relationGroups?: EntityRelationGroupsConfig | null;
+  /** Persist nested defaults on the field config (shared across rows). */
+  onRelationGroupsChange?: (value: EntityRelationGroupsConfig) => void;
   entities?: Entity[];
   value: EntityFieldDefaultValue | null;
   onChange: (value: EntityFieldDefaultValue | null) => void;
@@ -44,6 +47,10 @@ type DefaultValueSettingsProps = {
 
 const TITLE = "По умолчанию";
 const DESCRIPTION = "Подставляется в новую запись — можно изменить";
+
+/** Match display-field pickers in RelationGroupsSettings. */
+const SETTINGS_SELECT_CLASS =
+  "h-8 bg-background hover:bg-background aria-expanded:bg-background";
 
 function constantOf(value: EntityFieldDefaultValue | null) {
   return value?.kind === "value" ? value.value : "";
@@ -65,23 +72,24 @@ export function DefaultValueSettings({
   relationMultiple = false,
   relationToUsers = false,
   relationGroups = null,
+  onRelationGroupsChange,
   entities = [],
   value,
   onChange,
 }: DefaultValueSettingsProps) {
-  const relationGroupsCtx = useMemo(
-    () => getEntityValueContext(entities),
-    [entities],
-  );
-  const relationGroupsPreviewField = useMemo(() => {
+  const relationGroupsEntities = useMemo(() => {
     if (!relationGroups?.itemEntityId || !relationGroups.nestedEntityId) {
       return null;
     }
-    return {
-      id: "__default-relation-groups__",
-      relationGroups,
-    } as EntityField;
-  }, [relationGroups]);
+    const itemEntity =
+      entities.find((entity) => entity.id === relationGroups.itemEntityId) ??
+      null;
+    const nestedEntity =
+      entities.find((entity) => entity.id === relationGroups.nestedEntityId) ??
+      null;
+    if (!itemEntity || !nestedEntity) return null;
+    return { itemEntity, nestedEntity };
+  }, [entities, relationGroups]);
 
   if (type === "datetime") {
     return (
@@ -119,67 +127,122 @@ export function DefaultValueSettings({
   }
 
   if (type === "relation") {
-    const mode =
-      value?.kind === "currentUser"
-        ? "currentUser"
-        : value?.kind === "value"
-          ? "value"
-          : null;
-    const selectedCount = parseEntityRelationIds(constantOf(value)).length;
+    const isCurrentUser = value?.kind === "currentUser";
+    const raw = isCurrentUser ? "" : constantOf(value);
+    const selectedCount = parseEntityRelationIds(raw).length;
+    const description = relationMultiple
+      ? "Предзаполняются в новой записи"
+      : DESCRIPTION;
 
     return (
       <div className="flex flex-col gap-1.5">
-        <SettingSelect
-          id="entity-field-default"
+        <SettingLabel
+          htmlFor="entity-field-default"
           title={TITLE}
-          description={
-            relationMultiple
-              ? "Предзаполняются в новой карточке — можно добавить или убрать"
-              : DESCRIPTION
-          }
-          value={mode}
-          options={[
-            ...(relationToUsers
-              ? [{ value: "currentUser", label: "Текущий пользователь" }]
-              : []),
-            {
-              value: "value",
-              label: relationMultiple ? "Выбранные записи" : "Выбранная запись",
-            },
-          ]}
-          emptyLabel="Не заполнять"
-          onChange={(next) => {
-            if (next === "currentUser") {
-              onChange({ kind: "currentUser" });
-              return;
-            }
-            if (next === "value") {
-              onChange(
-                value?.kind === "value" ? value : { kind: "value", value: "" },
-              );
-              return;
-            }
-            onChange(null);
-          }}
+          description={description}
         />
-        {mode === "value" ? (
-          <RelationSelect
-            options={relationOptions}
-            value={constantOf(value)}
-            multiple={relationMultiple}
-            placeholder={
-              relationMultiple ? "Выберите записи" : "Выберите запись"
+        {relationToUsers ? (
+          <SettingSwitch
+            id="entity-field-default-current-user"
+            title="Текущий пользователь"
+            description="Подставить того, кто создаёт запись"
+            checked={isCurrentUser}
+            onCheckedChange={(checked) =>
+              onChange(checked ? { kind: "currentUser" } : null)
             }
-            aria-label={TITLE}
-            className="min-h-8"
-            onChange={(next) => onChange(toConstant(next))}
           />
         ) : null}
-        {mode === "value" && relationMultiple && selectedCount > 0 ? (
+        {isCurrentUser ? null : (
+          <RelationSelect
+            id="entity-field-default"
+            options={relationOptions}
+            value={raw}
+            multiple={relationMultiple}
+            placeholder="Не заполнять"
+            aria-label={TITLE}
+            className={SETTINGS_SELECT_CLASS}
+            onChange={(next) => onChange(toConstant(next))}
+          />
+        )}
+        {!isCurrentUser && relationMultiple && selectedCount > 0 ? (
           <p className="text-[11px] text-muted-foreground">
             Выбрано: {selectedCount}
           </p>
         ) : null}
+      </div>
+    );
+  }
+
+  if (type === "relationGroups" && relationGroups && relationGroupsEntities) {
+    const groupsConfig = relationGroups;
+    const { itemEntity, nestedEntity } = relationGroupsEntities;
+    const itemLabel = getEntityDisplayName(itemEntity);
+    const nestedLabel = getEntityDisplayName(nestedEntity);
+    const itemOptions = getRelationRecordOptions(itemEntity, entities);
+    const nestedOptions = getRelationRecordOptions(nestedEntity, entities);
+    const defaultNestedIds = groupsConfig.defaultNestedIds ?? [];
+    const itemIds = parseEntityRelationGroups(constantOf(value)).map(
+      (group) => group.itemId,
+    );
+
+    function commitItems(nextItemIds: readonly string[]) {
+      onChange(
+        toConstant(
+          buildEntityRelationGroupsValue(nextItemIds, defaultNestedIds),
+        ),
+      );
+    }
+
+    function commitNested(nextNestedIds: readonly string[]) {
+      onRelationGroupsChange?.({
+        ...groupsConfig,
+        defaultNestedIds: [...nextNestedIds],
+      });
+      onChange(
+        toConstant(buildEntityRelationGroupsValue(itemIds, nextNestedIds)),
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-2">
+        <SettingLabel
+          title={TITLE}
+          description="Строки — в новую запись; вложенные — в каждую строку"
+        />
+        <div className="flex flex-col gap-1.5">
+          <SettingLabel
+            htmlFor="entity-field-default-items"
+            title="Строки"
+            description={`Предзаполнить «${itemLabel}»`}
+          />
+          <RelationSelect
+            id="entity-field-default-items"
+            options={itemOptions}
+            value={serializeEntityRelationIds(itemIds)}
+            multiple
+            placeholder="Не заполнять"
+            aria-label={`Строки по умолчанию: ${itemLabel}`}
+            className={SETTINGS_SELECT_CLASS}
+            onChange={(next) => commitItems(parseEntityRelationIds(next))}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <SettingLabel
+            htmlFor="entity-field-default-nested"
+            title="Вложенные"
+            description={`Подставляются в любую строку «${nestedLabel}»`}
+          />
+          <RelationSelect
+            id="entity-field-default-nested"
+            options={nestedOptions}
+            value={serializeEntityRelationIds(defaultNestedIds)}
+            multiple
+            placeholder="Не заполнять"
+            aria-label={`Вложенные по умолчанию: ${nestedLabel}`}
+            className={SETTINGS_SELECT_CLASS}
+            onChange={(next) => commitNested(parseEntityRelationIds(next))}
+          />
+        </div>
       </div>
     );
   }
@@ -198,39 +261,6 @@ export function DefaultValueSettings({
     );
   }
 
-  if (type === "relationGroups" && relationGroupsPreviewField) {
-    const raw = constantOf(value);
-    const groupCount = parseEntityRelationGroups(raw).length;
-
-    return (
-      <div className="flex flex-col gap-1.5">
-        <SettingLabel
-          htmlFor="entity-field-default-relation-groups"
-          title={TITLE}
-          description="Строки и вложенные подставятся в новую запись"
-        />
-        <div
-          id="entity-field-default-relation-groups"
-          className="rounded-md border border-border/70 bg-background p-2"
-        >
-          <RelationGroupsFieldControl
-            id="entity-field-default-relation-groups-control"
-            ctx={relationGroupsCtx}
-            field={relationGroupsPreviewField}
-            value={raw}
-            onChange={(next) => onChange(toConstant(next))}
-            mode="full"
-          />
-        </div>
-        {groupCount > 0 ? (
-          <p className="text-[11px] text-muted-foreground">
-            Строк: {groupCount}
-          </p>
-        ) : null}
-      </div>
-    );
-  }
-
   if (type === "list") {
     const raw = constantOf(value);
 
@@ -241,7 +271,7 @@ export function DefaultValueSettings({
           title={TITLE}
           description={
             listMultiple
-              ? "Предзаполняются в новой записи — можно добавить или убрать"
+              ? "Предзаполняются в новой записи"
               : DESCRIPTION
           }
         />

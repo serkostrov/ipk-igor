@@ -140,18 +140,41 @@ export async function fetchAutomationTask(
   return mapTaskRow(data as Record<string, unknown>);
 }
 
-export async function countAutomationTasksForRecord(
+export async function countAutomationTasksForRecords(
   entityId: string,
-  recordId: string,
+  recordIds: string[],
 ): Promise<number> {
-  if (!isSupabaseConfigured || !supabase) return 0;
+  if (!isSupabaseConfigured || !supabase || recordIds.length === 0) return 0;
   const { count, error } = await supabase
     .from("automation_tasks")
     .select("id", { count: "exact", head: true })
     .eq("entity_id", entityId)
-    .eq("record_id", recordId);
+    .in("record_id", recordIds);
   if (error) throw error;
   return count ?? 0;
+}
+
+export async function countAutomationTasksForRecord(
+  entityId: string,
+  recordId: string,
+): Promise<number> {
+  return countAutomationTasksForRecords(entityId, [recordId]);
+}
+
+/** Deletes all automation tasks for the given records (and cascaded task children). */
+export async function deleteAutomationTasksForRecords(
+  entityId: string,
+  recordIds: string[],
+): Promise<number> {
+  if (!isSupabaseConfigured || !supabase || recordIds.length === 0) return 0;
+  const { data, error } = await supabase
+    .from("automation_tasks")
+    .delete()
+    .eq("entity_id", entityId)
+    .in("record_id", recordIds)
+    .select("id");
+  if (error) throw error;
+  return data?.length ?? 0;
 }
 
 /** Deletes all automation tasks for a record (and cascaded task children). */
@@ -159,15 +182,7 @@ export async function deleteAutomationTasksForRecord(
   entityId: string,
   recordId: string,
 ): Promise<number> {
-  if (!isSupabaseConfigured || !supabase) return 0;
-  const { data, error } = await supabase
-    .from("automation_tasks")
-    .delete()
-    .eq("entity_id", entityId)
-    .eq("record_id", recordId)
-    .select("id");
-  if (error) throw error;
-  return data?.length ?? 0;
+  return deleteAutomationTasksForRecords(entityId, [recordId]);
 }
 
 export async function deleteAutomationTask(taskId: string): Promise<void> {

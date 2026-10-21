@@ -108,7 +108,7 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      <div className="min-w-0 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="sticky top-0 z-20 -mx-1 min-w-0 overflow-x-auto overscroll-x-contain bg-background px-1 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {leading}
       </div>
       <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden lg:flex-row">

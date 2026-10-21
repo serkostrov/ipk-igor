@@ -258,6 +258,7 @@ export function createSystemUsersEntity(): Entity {
     headerFieldId: SYSTEM_USERS_FIELD_EMAIL_ID,
     kanbanFieldId: null,
     kanbanCardFieldIds: null,
+    tableMassSelection: false,
     tabs: [createEntityOverviewTab()],
     fieldGroups: [],
     systemKey: SYSTEM_ENTITY_KEY_USERS,

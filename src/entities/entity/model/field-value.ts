@@ -25,6 +25,7 @@ import {
   parseEntityListValueIds,
   parseEntityRelationIds,
   serializeEntityRelationIds,
+  withEntityRelationGroupsDefaultNested,
 } from "./field";
 import { evaluateFormula, type FormulaValue } from "./formula";
 import {
@@ -746,6 +747,27 @@ export function formatEntityFormulaPreview(
   );
 }
 
+/** Extra field values for a related record (relationGroups display). */
+function formatRelationGroupsExtras(
+  ctx: EntityValueContext,
+  entity: Entity,
+  recordId: string,
+  fieldIds: readonly string[],
+): string {
+  if (fieldIds.length === 0) return "";
+  const record = entity.records.find((item) => item.id === recordId);
+  if (!record) return "";
+  const parts: string[] = [];
+  for (const fieldId of fieldIds) {
+    const extraField = entity.fields.find((item) => item.id === fieldId);
+    if (!extraField) continue;
+    const text = formatRecordFieldValue(ctx, entity, record, extraField);
+    if (!text || text === "—") continue;
+    parts.push(text);
+  }
+  return parts.join(" · ");
+}
+
 /** Display text of any field value (computed types included). */
 export function formatRecordFieldValue(
   ctx: EntityValueContext,
@@ -803,23 +825,49 @@ export function formatRecordFieldValue(
       const config = field.relationGroups;
       const itemEntity = ctx.entityById.get(config?.itemEntityId ?? "");
       const nestedEntity = ctx.entityById.get(config?.nestedEntityId ?? "");
+      const itemExtraIds = config?.itemDisplayFieldIds ?? [];
+      const nestedExtraIds = config?.nestedDisplayFieldIds ?? [];
+      const sep = config?.layout === "column" ? "\n" : "; ";
       const parts = parseEntityRelationGroups(record.values[field.id]).map(
         (group) => {
-          const itemLabel =
-            resolveRelationRecordLabel(itemEntity, group.itemId) ??
+          const itemTitle =
+            resolveRelationRecordLabel(itemEntity, group.itemId, ctx.entities) ??
             "Без названия";
+          const itemExtras =
+            itemEntity && itemExtraIds.length > 0
+              ? formatRelationGroupsExtras(
+                  ctx,
+                  itemEntity,
+                  group.itemId,
+                  itemExtraIds,
+                )
+              : "";
+          const itemLabel = itemExtras
+            ? `${itemTitle} · ${itemExtras}`
+            : itemTitle;
           const nestedLabels = group.nestedIds
-            .map(
-              (id) =>
-                resolveRelationRecordLabel(nestedEntity, id) ?? "Без названия",
-            )
+            .map((id) => {
+              const title =
+                resolveRelationRecordLabel(nestedEntity, id, ctx.entities) ??
+                "Без названия";
+              const extras =
+                nestedEntity && nestedExtraIds.length > 0
+                  ? formatRelationGroupsExtras(
+                      ctx,
+                      nestedEntity,
+                      id,
+                      nestedExtraIds,
+                    )
+                  : "";
+              return extras ? `${title} · ${extras}` : title;
+            })
             .filter(Boolean);
           return nestedLabels.length > 0
             ? `${itemLabel}: ${nestedLabels.join(", ")}`
             : itemLabel;
         },
       );
-      return parts.length > 0 ? parts.join("; ") : "—";
+      return parts.length > 0 ? parts.join(sep) : "—";
     }
     default: {
       if (isEntityNameField(field)) {
@@ -1460,7 +1508,10 @@ export function sanitizeEntityRelationDependencies(
 
 /** Stored default for a new record (`null` — no default). */
 export function resolveEntityFieldDefaultValue(
-  field: Pick<EntityField, "type" | "defaultValue" | "relationEntityId">,
+  field: Pick<
+    EntityField,
+    "type" | "defaultValue" | "relationEntityId" | "relationGroups"
+  >,
   currentUserRecordId: string | null,
 ): string | null {
   const config = field.defaultValue;
@@ -1478,6 +1529,12 @@ export function resolveEntityFieldDefaultValue(
         ? serializeEntityRelationIds([currentUserRecordId])
         : null;
     case "value":
+      if (field.type === "relationGroups") {
+        return withEntityRelationGroupsDefaultNested(
+          config.value,
+          field.relationGroups?.defaultNestedIds,
+        );
+      }
       return config.value;
   }
 }

@@ -119,10 +119,15 @@ export function createFieldTypeSettingsDraft(
     rollup: field?.rollup ?? null,
     lookup: field?.lookup ?? null,
     dependencies: field?.dependencies ?? { sameFieldId: null },
-    relationGroups: field?.relationGroups ?? {
+    relationGroups: {
       itemEntityId: null,
       nestedEntityId: null,
       nestedSourceFieldId: null,
+      layout: "column" as const,
+      itemDisplayFieldIds: [],
+      nestedDisplayFieldIds: [],
+      defaultNestedIds: [],
+      ...field?.relationGroups,
     },
     defaultValue: field?.defaultValue ?? null,
     relationFilter: field?.relationFilter ?? null,

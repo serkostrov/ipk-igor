@@ -1,14 +1,16 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Pencil,
   Plus,
   Search,
+  Settings,
   Table2,
   Trash2,
   X,
@@ -16,6 +18,14 @@ import {
 import { Button } from "@/shared/ui/button";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 import { DatePicker } from "@/shared/ui/date-picker";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Switch } from "@/shared/ui/switch";
@@ -73,6 +83,7 @@ import {
   removeEntityRecord,
   resolveRelationRecordLabel,
   getEntityFileDownloadUrl,
+  setEntityTableMassSelection,
   updateEntityRecord,
   useEntityConfig,
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
@@ -94,8 +105,11 @@ import {
   formatDateDisplay,
   formatDatetimeDisplay,
 } from "@/shared/lib/format-date";
+import { pluralRu } from "@/shared/lib/plural";
+import { SettingSwitch } from "@/shared/ui/setting-controls";
 import {
   ENTITY_TABLE_ACTIONS_WIDTH,
+  ENTITY_TABLE_SELECT_WIDTH,
   getEntityTableHeaderMinWidth,
 } from "../lib/table-column-width";
 import { useRecordListChange } from "./use-record-list-change";
@@ -253,6 +267,140 @@ const dataTableActionsFootClass =
 /** Stays at the bottom of the table viewport, directly above pagination. */
 const dataTableFooterClass =
   "sticky bottom-0 z-[5] border-t border-border bg-muted [&>tr]:h-9 [&>tr]:border-0";
+
+function TableSelectCheckbox({
+  checked,
+  indeterminate = false,
+  disabled = false,
+  "aria-label": ariaLabel,
+  onChange,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  disabled?: boolean;
+  "aria-label": string;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-pressed={checked}
+      aria-checked={indeterminate ? "mixed" : checked}
+      role="checkbox"
+      onClick={(event) => {
+        event.stopPropagation();
+        onChange();
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      className={cn(
+        "flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+        checked || indeterminate
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border/80 bg-background hover:border-foreground/30",
+        disabled && "cursor-not-allowed opacity-50",
+      )}
+    >
+      {checked ? (
+        <Check className="size-2.5" strokeWidth={3} aria-hidden />
+      ) : indeterminate ? (
+        <span className="block h-0.5 w-2 rounded-full bg-primary-foreground" />
+      ) : null}
+    </button>
+  );
+}
+
+function TableSettingsForm({
+  entity,
+  onClose,
+}: {
+  entity: Entity;
+  onClose: () => void;
+}) {
+  const [massSelection, setMassSelection] = useState(
+    entity.tableMassSelection === true,
+  );
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Настройки таблицы</DialogTitle>
+        <DialogDescription>
+          Как выглядит и работает таблица записей «
+          {entity.namePlural.trim() || entity.name.trim() || "сущность"}»
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="flex flex-col gap-3 py-1">
+        <SettingSwitch
+          id="entity-table-mass-selection"
+          title="Массовый выбор"
+          description="Чекбоксы в строках — действия сразу для нескольких записей. Выбор сохраняется при смене страницы."
+          checked={massSelection}
+          onCheckedChange={setMassSelection}
+        />
+      </div>
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>
+          Отмена
+        </Button>
+        <Button
+          type="button"
+          onClick={() => {
+            setEntityTableMassSelection(entity.id, massSelection);
+            onClose();
+          }}
+        >
+          Сохранить
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+/** Gear next to the «Таблица» view tab — same pattern as kanban settings. */
+export function TableSettingsButton({
+  entity,
+  className,
+}: {
+  entity: Entity;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className={cn(
+          "size-6 shrink-0 text-muted-foreground hover:text-foreground",
+          className,
+        )}
+        aria-label="Настройки таблицы"
+        title="Настройки таблицы"
+        onClick={() => setOpen(true)}
+      >
+        <Settings className="size-3.5" />
+      </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="w-fit min-w-[min(100%,22rem)] max-w-[min(92vw,28rem)] gap-4 overflow-x-hidden sm:max-w-[min(92vw,28rem)]">
+          {open ? (
+            <TableSettingsForm
+              key={entity.id}
+              entity={entity}
+              onClose={() => setOpen(false)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 type EntityTableViewProps = {
   entity: Entity;
@@ -894,12 +1042,23 @@ export function EntityTableView({
   );
   const [page, setPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<EntityRecord | null>(null);
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const massSelection = entity.tableMassSelection === true;
   const tableFields = getEntityTableFields(entity.fields, {
     preferArrayOrder: isEntityInternal(entity),
   });
   const filterFields = entity.fields.filter(
     (field) => field.showInFilters !== false && !isEntityNameField(field),
   );
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [entity.id]);
+
+  useEffect(() => {
+    if (!massSelection) setSelectedIds([]);
+  }, [massSelection]);
   const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
   const sortKey = sort ? `${sort.fieldId}:${sort.direction}` : "";
   const paginationResetKey = `${entity.id}|${search}|${filtersKey}|${sortKey}|${pageSize}`;
@@ -989,9 +1148,38 @@ export function EntityTableView({
       sortable: true,
     });
   });
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const pageIds = pagedRecords.map((record) => record.id);
+  const pageSelectedCount = pageIds.filter((id) => selectedSet.has(id)).length;
+  const allPageSelected =
+    pageIds.length > 0 && pageSelectedCount === pageIds.length;
+  const somePageSelected = pageSelectedCount > 0 && !allPageSelected;
+  const selectedCount = selectedIds.length;
+
+  function toggleRecordSelected(recordId: string) {
+    setSelectedIds((prev) =>
+      prev.includes(recordId)
+        ? prev.filter((id) => id !== recordId)
+        : [...prev, recordId],
+    );
+  }
+
+  function togglePageSelected() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        for (const id of pageIds) next.delete(id);
+      } else {
+        for (const id of pageIds) next.add(id);
+      }
+      return [...next];
+    });
+  }
+
+  const selectColWidth = massSelection ? ENTITY_TABLE_SELECT_WIDTH : 0;
+  const fixedColsWidth = ENTITY_TABLE_ACTIONS_WIDTH + selectColWidth;
   const tableMinWidth =
-    columnMinWidths.reduce((sum, width) => sum + width, 0) +
-    ENTITY_TABLE_ACTIONS_WIDTH;
+    columnMinWidths.reduce((sum, width) => sum + width, 0) + fixedColsWidth;
   const tableWidthStyle = {
     // max(100%, mins) — fill the card when space allows, else grow + scroll.
     width: `max(100%, ${tableMinWidth}px)`,
@@ -1001,12 +1189,20 @@ export function EntityTableView({
   // Absolute px widths used to stretch proportionally to header length
   // (short «Название» stayed narrow while «Описание» ate empty space).
   const contentColCount = Math.max(tableFields.length, 1);
-  const contentColWidth = `calc((100% - ${ENTITY_TABLE_ACTIONS_WIDTH}px) / ${contentColCount})`;
+  const contentColWidth = `calc((100% - ${fixedColsWidth}px) / ${contentColCount})`;
   const isEmpty = pagedRecords.length === 0;
 
   const tableHeader = (
     <>
       <colgroup>
+        {massSelection ? (
+          <col
+            style={{
+              width: ENTITY_TABLE_SELECT_WIDTH,
+              minWidth: ENTITY_TABLE_SELECT_WIDTH,
+            }}
+          />
+        ) : null}
         {tableFields.map((field, index) => (
           <col
             key={field.id}
@@ -1025,6 +1221,27 @@ export function EntityTableView({
       </colgroup>
       <TableHeader>
         <TableRow className="border-0 hover:bg-transparent">
+          {massSelection ? (
+            <TableHead
+              className={cn(
+                dataTableHeadClass,
+                "w-11 min-w-11 max-w-11 px-2",
+                isEmpty && "border-b-0",
+              )}
+            >
+              <TableSelectCheckbox
+                checked={allPageSelected}
+                indeterminate={somePageSelected}
+                disabled={pageIds.length === 0}
+                aria-label={
+                  allPageSelected
+                    ? "Снять выбор со страницы"
+                    : "Выбрать все на странице"
+                }
+                onChange={togglePageSelected}
+              />
+            </TableHead>
+          ) : null}
           {tableFields.map((field, index) => {
             const direction =
               sort?.fieldId === field.id ? sort.direction : null;
@@ -1041,7 +1258,7 @@ export function EntityTableView({
                 }
                 className={cn(
                   dataTableHeadClass,
-                  index === 0 && "pl-3.5",
+                  index === 0 && !massSelection && "pl-3.5",
                   isEmpty && "border-b-0",
                 )}
                 style={{
@@ -1090,6 +1307,34 @@ export function EntityTableView({
         />
       </div>
 
+      {massSelection && selectedCount > 0 ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/40 px-3 py-2">
+          <span className="text-sm text-muted-foreground">
+            Выбрано:{" "}
+            <span className="font-medium text-foreground tabular-nums">
+              {selectedCount}
+            </span>
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedIds([])}
+          >
+            Снять выбор
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={() => setPendingBulkDelete(true)}
+          >
+            <Trash2 className="size-3.5" />
+            Удалить
+          </Button>
+        </div>
+      ) : null}
+
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs">
         {isEmpty ? (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
@@ -1123,17 +1368,32 @@ export function EntityTableView({
               >
                 {tableHeader}
                 <TableBody className="[&_tr:last-child]:border-b">
-                  {pagedRecords.map((record) => (
+                  {pagedRecords.map((record) => {
+                    const rowSelected = selectedSet.has(record.id);
+                    return (
                     <TableRow
                       key={record.id}
                       className={cn(
                         "border-border/70",
+                        rowSelected && "bg-primary/5",
                         onOpenRecord && "cursor-pointer hover:bg-muted/35",
+                        rowSelected && onOpenRecord && "hover:bg-primary/8",
                       )}
                       onClick={
                         onOpenRecord ? () => onOpenRecord(record) : undefined
                       }
                     >
+                      {massSelection ? (
+                        <TableCell className="w-11 min-w-11 max-w-11 px-2 py-1.5">
+                          <TableSelectCheckbox
+                            checked={rowSelected}
+                            aria-label={
+                              rowSelected ? "Снять выбор" : "Выбрать запись"
+                            }
+                            onChange={() => toggleRecordSelected(record.id)}
+                          />
+                        </TableCell>
+                      ) : null}
                       {tableFields.map((field, index) => {
                         const raw = record.values[field.id];
                         const cellTitle = formatRecordFieldValue(
@@ -1189,8 +1449,8 @@ export function EntityTableView({
                             key={field.id}
                             className={cn(
                               "min-w-0 overflow-hidden px-3 py-2 text-foreground/90",
-                              index === 0 &&
-                                "pl-3.5 font-medium text-foreground",
+                              index === 0 && "font-medium text-foreground",
+                              index === 0 && !massSelection && "pl-3.5",
                             )}
                             title={
                               field.type === "list" ||
@@ -1450,7 +1710,8 @@ export function EntityTableView({
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                   {showTotalsRow ? (
                     <TableRow
                       aria-hidden
@@ -1458,7 +1719,9 @@ export function EntityTableView({
                       style={{ height: "100%" }}
                     >
                       <TableCell
-                        colSpan={tableFields.length + 1}
+                        colSpan={
+                          tableFields.length + 1 + (massSelection ? 1 : 0)
+                        }
                         className="border-0 p-0"
                       />
                     </TableRow>
@@ -1467,6 +1730,9 @@ export function EntityTableView({
                 {showTotalsRow ? (
                   <TableFooter className={dataTableFooterClass}>
                     <TableRow className="h-9 hover:bg-transparent">
+                      {massSelection ? (
+                        <TableCell className="w-11 min-w-11 max-w-11 px-2 py-0" />
+                      ) : null}
                       {tableFields.map((field, index) => {
                         const isTotalColumn =
                           isEntityNumericFieldType(field.type) &&
@@ -1483,7 +1749,11 @@ export function EntityTableView({
                             className={cn(
                               dataTableFootClass,
                               index === 0 &&
+                                !massSelection &&
                                 "pl-3.5 font-medium text-foreground",
+                              index === 0 &&
+                                massSelection &&
+                                "font-medium text-foreground",
                             )}
                           >
                             {index === 0 ? (
@@ -1537,7 +1807,7 @@ export function EntityTableView({
           if (!open) setPendingDelete(null);
         }}
         entityId={entity.id}
-        recordId={pendingDelete?.id ?? null}
+        recordIds={pendingDelete ? [pendingDelete.id] : []}
         title="Удалить запись?"
         description={
           pendingDelete
@@ -1547,7 +1817,26 @@ export function EntityTableView({
         confirmLabel="Удалить"
         onConfirm={() => {
           if (!pendingDelete) return;
-          removeEntityRecord(entity.id, pendingDelete.id);
+          const deletedId = pendingDelete.id;
+          removeEntityRecord(entity.id, deletedId);
+          setSelectedIds((prev) => prev.filter((id) => id !== deletedId));
+        }}
+      />
+
+      <RecordDeleteConfirmDialog
+        open={pendingBulkDelete}
+        onOpenChange={setPendingBulkDelete}
+        entityId={entity.id}
+        recordIds={selectedIds}
+        title="Удалить выбранные записи?"
+        description={`Вы уверены, что хотите удалить ${selectedCount} ${pluralRu(selectedCount, "запись", "записи", "записей")}? Это действие нельзя отменить.`}
+        confirmLabel="Удалить"
+        onConfirm={() => {
+          const ids = [...selectedIds];
+          for (const id of ids) {
+            removeEntityRecord(entity.id, id);
+          }
+          setSelectedIds([]);
         }}
       />
 

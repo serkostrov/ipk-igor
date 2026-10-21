@@ -11,6 +11,7 @@ import {
   SYSTEM_USERS_FIELD_ROLE_ID,
   getEntityRelationTargetId,
   getSystemUsersEntity,
+  parseEntityRelationGroups,
   parseEntityRelationIds,
   type Entity,
   type EntityField,
@@ -22,12 +23,48 @@ export type ResolveAssigneeContext = AutomationConditionEvalContext & {
   triggerEntityId?: string;
 };
 
-function findRelationField(
+/** Relation or relationGroups hop used in assignee paths. */
+function findBridgeField(
   entity: Entity | null | undefined,
   fieldId: string,
 ): EntityField | null {
   const field = entity?.fields.find((item) => item.id === fieldId);
-  return field?.type === "relation" ? field : null;
+  if (!field) return null;
+  if (field.type === "relation") return field;
+  if (
+    field.type === "relationGroups" &&
+    field.relationGroups?.nestedEntityId
+  ) {
+    return field;
+  }
+  return null;
+}
+
+function bridgeRelatedRecordIds(
+  values: Record<string, string | undefined>,
+  field: EntityField,
+): string[] {
+  if (field.type === "relation") {
+    return parseEntityRelationIds(values[field.id]);
+  }
+  if (field.type === "relationGroups") {
+    return [
+      ...new Set(
+        parseEntityRelationGroups(values[field.id]).flatMap(
+          (group) => group.nestedIds,
+        ),
+      ),
+    ];
+  }
+  return [];
+}
+
+function bridgeTargetEntityId(field: EntityField): string | null {
+  if (field.type === "relation") return getEntityRelationTargetId(field);
+  if (field.type === "relationGroups") {
+    return field.relationGroups?.nestedEntityId ?? null;
+  }
+  return null;
 }
 
 function resolveRelatedFieldUserIds(
@@ -49,37 +86,60 @@ function resolveRelatedFieldUserIds(
     return [];
   }
 
-  let currentEntity =
-    entities.find((entity) => entity.id === triggerEntityId) ?? null;
-  let currentValues = values;
+  const rootEntity = entities.find((entity) => entity.id === triggerEntityId);
+  if (!rootEntity) return [];
+
+  const fanOut = resolver.fanOut === true;
+  type Cursor = {
+    entity: Entity;
+    values: Record<string, string | undefined>;
+  };
+
+  let cursors: Cursor[] = [{ entity: rootEntity, values }];
 
   for (const relationFieldId of path) {
-    if (!currentEntity) return [];
-    const relationField = findRelationField(currentEntity, relationFieldId);
-    if (!relationField) return [];
+    const nextCursors: Cursor[] = [];
+    for (const cursor of cursors) {
+      const bridgeField = findBridgeField(cursor.entity, relationFieldId);
+      if (!bridgeField) continue;
 
-    const relatedId = parseEntityRelationIds(currentValues[relationFieldId])[0];
-    if (!relatedId) return [];
+      const relatedIds = bridgeRelatedRecordIds(cursor.values, bridgeField);
+      const hopIds = fanOut ? relatedIds : relatedIds.slice(0, 1);
+      if (hopIds.length === 0) continue;
 
-    const targetId = getEntityRelationTargetId(relationField);
-    const relatedEntity =
-      (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
-      entities.find((entity) =>
-        entity.records.some((record) => record.id === relatedId),
-      );
-    if (!relatedEntity) return [];
+      const targetId = bridgeTargetEntityId(bridgeField);
+      const relatedEntity =
+        (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
+        null;
+      if (!relatedEntity) continue;
 
-    const relatedRecord = relatedEntity.records.find(
-      (record) => record.id === relatedId,
-    );
-    if (!relatedRecord) return [];
-
-    currentEntity = relatedEntity;
-    currentValues = relatedRecord.values;
+      for (const relatedId of hopIds) {
+        const relatedRecord = relatedEntity.records.find(
+          (record) => record.id === relatedId,
+        );
+        if (!relatedRecord) continue;
+        nextCursors.push({
+          entity: relatedEntity,
+          values: relatedRecord.values,
+        });
+      }
+    }
+    cursors = nextCursors;
+    if (cursors.length === 0) return [];
   }
 
-  const ids = parseEntityRelationIds(currentValues[resolver.fieldId]);
-  return ids[0] ? [ids[0]] : [];
+  const userIds: string[] = [];
+  const seen = new Set<string>();
+  for (const cursor of cursors) {
+    const ids = parseEntityRelationIds(cursor.values[resolver.fieldId]);
+    const pick = fanOut ? ids : ids.slice(0, 1);
+    for (const id of pick) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      userIds.push(id);
+    }
+  }
+  return userIds;
 }
 
 function resolveLeaf(

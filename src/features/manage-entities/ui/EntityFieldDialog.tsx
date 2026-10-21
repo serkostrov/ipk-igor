@@ -1927,6 +1927,9 @@ function EntityFieldForm({
                         ? typeSettings.relationGroups
                         : null
                     }
+                    onRelationGroupsChange={(relationGroups) =>
+                      patchTypeSettings({ relationGroups })
+                    }
                     entities={entities}
                     value={typeSettings.defaultValue}
                     onChange={(defaultValue) =>

@@ -46,13 +46,32 @@ export function bridgeRelationFields(fields: EntityField[]) {
   });
 }
 
+/** `relationGroups` fields that bridge to their nested entity. */
+export function bridgeRelationGroupsFields(fields: EntityField[]) {
+  return fields.filter(
+    (field) =>
+      field.type === "relationGroups" &&
+      Boolean(field.relationGroups?.nestedEntityId),
+  );
+}
+
+/** Relation or relationGroups hop target for path navigation. */
 export function relationTargetEntity(
   field: EntityField | null | undefined,
   entities: Entity[],
 ): UserFieldPathEntity | null {
-  const targetId = field ? getEntityRelationTargetId(field) : null;
-  if (!targetId) return null;
-  return entities.find((item) => item.id === targetId) ?? null;
+  if (!field) return null;
+  if (field.type === "relation") {
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) return null;
+    return entities.find((item) => item.id === targetId) ?? null;
+  }
+  if (field.type === "relationGroups") {
+    const nestedId = field.relationGroups?.nestedEntityId ?? null;
+    if (!nestedId) return null;
+    return entities.find((item) => item.id === nestedId) ?? null;
+  }
+  return null;
 }
 
 export function formatUserFieldLabel(field: EntityField) {

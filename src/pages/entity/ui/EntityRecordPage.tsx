@@ -1238,15 +1238,15 @@ export function EntityRecordPage({
             className="gap-4"
           >
             {entityTabs.length > 0 ? (
-              <div className="flex h-9 w-full min-w-0 items-stretch overflow-x-auto overscroll-x-contain rounded-lg bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <TabsList className="!h-auto min-h-0 w-max max-w-none flex-none items-stretch justify-start gap-0.5 self-stretch bg-transparent p-0">
+              <div className="h-9 w-full min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-lg bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <TabsList className="!h-full w-max min-w-max max-w-none flex-none items-stretch justify-start gap-0.5 bg-transparent p-0">
                   {entityTabs.map((tab) => (
                     <TabsTrigger
                       key={tab.id}
                       value={tab.id}
-                      className="!h-auto min-h-0 flex-none self-stretch rounded-md px-3 text-sm font-medium transition-colors data-active:shadow-sm"
+                      className="!h-auto min-h-0 h-full flex-none shrink-0 grow-0 self-stretch rounded-md px-3 text-sm font-medium whitespace-nowrap data-active:shadow-sm"
                     >
-                      <span className="truncate">{tab.name}</span>
+                      {tab.name}
                     </TabsTrigger>
                   ))}
                 </TabsList>
@@ -1374,7 +1374,7 @@ export function EntityRecordPage({
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         entityId={entity.id}
-        recordId={record.id}
+        recordIds={[record.id]}
         title="Удалить запись?"
         description={`Вы уверены, что хотите удалить «${title}»? Это действие нельзя отменить.`}
         confirmLabel="Удалить"

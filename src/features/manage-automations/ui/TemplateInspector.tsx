@@ -284,25 +284,24 @@ function TemplateUploadTargetSettings({
   }
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-border/70 bg-muted/15 px-3 py-2.5">
-      <SettingSwitch
-        id="template-allow-upload"
-        title="Загрузка файлов и папок"
-        description="Исполнитель сможет прикрепить файлы прямо в задании — они попадут в выбранную папку записи"
-        checked={enabled}
-        disabled={filesTabs.length === 0}
-        onCheckedChange={enableUpload}
-      />
-
-      {filesTabs.length === 0 ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          Добавьте вкладку типа «Файлы» у сущности и настройте папки по
-          умолчанию — тогда здесь можно будет выбрать, куда складывать вложения.
-        </p>
-      ) : null}
+    <div className="flex flex-col gap-3">
+      <InspectorSwitchRow>
+        <SettingSwitch
+          id="template-allow-upload"
+          title="Загрузка в задании"
+          description={
+            filesTabs.length === 0
+              ? "Нужна вкладка «Файлы» у сущности"
+              : "Файлы попадут в выбранную папку записи"
+          }
+          checked={enabled}
+          disabled={filesTabs.length === 0}
+          onCheckedChange={enableUpload}
+        />
+      </InspectorSwitchRow>
 
       {enabled && activeTab ? (
-        <div className="flex flex-col gap-2.5 border-t border-border/60 pt-2.5">
+        <div className="flex flex-col gap-3">
           {filesTabs.length > 1 ? (
             <Field title="Вкладка файлов">
               <Select
@@ -333,10 +332,7 @@ function TemplateUploadTargetSettings({
             </Field>
           ) : null}
 
-          <Field
-            title="Папка назначения"
-            description="Файлы и загруженные папки появятся внутри этой папки на записи"
-          >
+          <Field title="Папка">
             <Select
               value={
                 target?.folderId.trim() ? target.folderId : UPLOAD_ROOT_VALUE
@@ -378,23 +374,18 @@ function TemplateUploadTargetSettings({
             </Select>
           </Field>
 
-          {folderOptions.length === 0 ? (
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              У вкладки пока нет папок по умолчанию — загрузка пойдёт в корень.
-              Папки настраиваются в карточке сущности на вкладке «Файлы».
-            </p>
-          ) : null}
-
-          <SettingSwitch
-            id="template-upload-required"
-            title="Обязательно для завершения"
-            description="Без хотя бы одного файла в этой папке задание нельзя завершить"
-            checked={target?.required === true}
-            onCheckedChange={(required) => {
-              if (!target) return;
-              patchTarget({ ...target, required });
-            }}
-          />
+          <InspectorSwitchRow>
+            <SettingSwitch
+              id="template-upload-required"
+              title="Обязательно для завершения"
+              description="Без файла задание нельзя закрыть"
+              checked={target?.required === true}
+              onCheckedChange={(required) => {
+                if (!target) return;
+                patchTarget({ ...target, required });
+              }}
+            />
+          </InspectorSwitchRow>
         </div>
       ) : null}
     </div>
@@ -451,6 +442,37 @@ function outcomesForKind(
     : defaultDecisionOutcomes();
 }
 
+/** Card-level block shared by every inspector tab. */
+function InspectorSection({
+  title,
+  action,
+  children,
+  className,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-3.5",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-2.5">
+        <h4 className="min-w-0 truncate text-sm font-semibold text-foreground">
+          {title}
+        </h4>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+      <div className="flex min-w-0 flex-col gap-3">{children}</div>
+    </div>
+  );
+}
+
+/** Field label inside a section — muted, compact, same on every tab. */
 function Field({
   title,
   description,
@@ -462,12 +484,28 @@ function Field({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <Label className="text-xs font-medium text-foreground">{title}</Label>
+      <Label className="text-xs font-medium text-muted-foreground">{title}</Label>
       {description ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
+        <p className="text-[11px] leading-snug text-muted-foreground">
           {description}
         </p>
       ) : null}
+      {children}
+    </div>
+  );
+}
+
+function InspectorEmpty({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-lg border border-dashed border-border/80 bg-muted/10 px-3 py-5 text-center text-xs text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+function InspectorSwitchRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/10 px-3 py-2">
       {children}
     </div>
   );
@@ -753,9 +791,9 @@ function OutcomeAskFieldsEditor({
   }
 
   return (
-    <div className="rounded-md border border-border/70 bg-background p-2.5">
+    <div className="rounded-lg border border-border/60 bg-background/80 p-3">
       <div className="flex h-7 items-center justify-between gap-2">
-        <p className="text-xs font-medium">Поля формы</p>
+        <p className="text-xs font-medium text-muted-foreground">Поля формы</p>
         {canAddField ? (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -1050,11 +1088,11 @@ function OutcomeAskFieldsEditor({
       )}
 
       <div className="mt-3 border-t border-border/60 pt-2.5">
-        <p className="text-xs font-medium">Поля связанных записей</p>
+        <p className="text-xs font-medium text-muted-foreground">
+          Поля связанных записей
+        </p>
         {relatedSelected.length === 0 ? (
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Нет полей. Добавьте через «Поле» → «Через связь».
-          </p>
+          <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>
         ) : (
           <ul className="mt-2 flex flex-col gap-1">
             {relatedSelected.map((item) => {
@@ -1315,233 +1353,222 @@ export function TemplateInspector({
 
         <div className="min-h-0 flex-1 overflow-auto pt-4">
           <TabsContent value="general" className="mt-0 flex flex-col gap-3.5">
-            <TemplateFieldInput
-              id="template-name"
-              title="Название"
-              value={draft.name}
-              placeholder="Согласовать смету"
-              fields={entity.fields}
-              onChange={(name) => patch({ name })}
-            />
+            <InspectorSection title="Текст">
+              <TemplateFieldInput
+                id="template-name"
+                title="Название"
+                value={draft.name}
+                placeholder="Согласовать смету"
+                fields={entity.fields}
+                onChange={(name) => patch({ name })}
+              />
+              <TemplateFieldInput
+                id="template-name-list"
+                title="Имя в списке"
+                value={draft.nameTemplate}
+                placeholder="Как в названии"
+                fields={entity.fields}
+                onChange={(nameTemplate) => patch({ nameTemplate })}
+              />
+              <TemplateFieldInput
+                id="template-description"
+                title="Описание"
+                value={draft.description}
+                placeholder="Что нужно сделать"
+                fields={entity.fields}
+                multiline
+                onChange={(description) => patch({ description })}
+              />
+            </InspectorSection>
 
-            <TemplateFieldInput
-              id="template-name-list"
-              title="Имя в списке"
-              value={draft.nameTemplate}
-              placeholder="Как в названии"
-              fields={entity.fields}
-              onChange={(nameTemplate) => patch({ nameTemplate })}
-            />
-
-            <TemplateFieldInput
-              id="template-description"
-              title="Описание"
-              value={draft.description}
-              placeholder="Что нужно сделать"
-              fields={entity.fields}
-              multiline
-              onChange={(description) => patch({ description })}
-            />
-
-            <Field title="Стадия">
-              <Select
-                value={draft.triggerOptionId}
-                onValueChange={(next) => {
-                  if (next != null) patch({ triggerOptionId: String(next) });
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {options.find((item) => item.id === draft.triggerOptionId)
-                      ?.name || "Выберите стадию"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {options.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      {option.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-
-            <div className="grid grid-cols-2 items-end gap-3">
-              <Field title="Порядок">
-                <Input
-                  type="number"
-                  value={String(draft.stepOrder)}
-                  onChange={(event) =>
-                    patch({ stepOrder: Number(event.target.value) || 0 })
-                  }
-                />
-              </Field>
-              <Field title="Тип шага">
+            <InspectorSection title="Запуск">
+              <Field title="Стадия">
                 <Select
-                  value={draft.kind}
+                  value={draft.triggerOptionId}
                   onValueChange={(next) => {
-                    if (
-                      next === "decision" ||
-                      next === "single" ||
-                      next === "autofill"
-                    ) {
-                      patch({
-                        kind: next,
-                        outcomes: outcomesForKind(next, draft.outcomes),
-                      });
-                    }
+                    if (next != null) patch({ triggerOptionId: String(next) });
                   }}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue>{KIND_LABELS[draft.kind]}</SelectValue>
+                    <SelectValue>
+                      {options.find((item) => item.id === draft.triggerOptionId)
+                        ?.name || "Выберите стадию"}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="decision">
-                      {KIND_LABELS.decision}
+                    {options.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <div className="grid grid-cols-2 items-end gap-3">
+                <Field title="Порядок">
+                  <Input
+                    type="number"
+                    value={String(draft.stepOrder)}
+                    onChange={(event) =>
+                      patch({ stepOrder: Number(event.target.value) || 0 })
+                    }
+                  />
+                </Field>
+                <Field title="Тип шага">
+                  <Select
+                    value={draft.kind}
+                    onValueChange={(next) => {
+                      if (
+                        next === "decision" ||
+                        next === "single" ||
+                        next === "autofill"
+                      ) {
+                        patch({
+                          kind: next,
+                          outcomes: outcomesForKind(next, draft.outcomes),
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>{KIND_LABELS[draft.kind]}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="decision">
+                        {KIND_LABELS.decision}
+                      </SelectItem>
+                      <SelectItem value="single">
+                        {KIND_LABELS.single}
+                      </SelectItem>
+                      <SelectItem value="autofill">
+                        Переход / автозаполнение
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+
+              <Field title="Момент запуска">
+                <Select
+                  value={draft.launchPhase ?? "onEnter"}
+                  onValueChange={(next) => {
+                    if (next !== "onEnter" && next !== "beforeEnter") return;
+                    const launchPhase = next as AutomationLaunchPhase;
+                    if (
+                      launchPhase === "beforeEnter" &&
+                      triggerFieldId &&
+                      draft.triggerOptionId
+                    ) {
+                      // Seed «Перейти на стадию» so prep completion lands on this
+                      // stage (default «Готово» buttons otherwise leave the record).
+                      patch({
+                        launchPhase,
+                        outcomes: draft.outcomes.map((outcome) => {
+                          if (
+                            getOutcomeStageOptionId(
+                              outcome.actions,
+                              triggerFieldId,
+                            )
+                          ) {
+                            return outcome;
+                          }
+                          return {
+                            ...outcome,
+                            actions: withOutcomeStageAction(
+                              outcome.actions,
+                              triggerFieldId,
+                              draft.triggerOptionId,
+                            ),
+                          };
+                        }),
+                      });
+                      return;
+                    }
+                    patch({ launchPhase });
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(draft.launchPhase ?? "onEnter") === "beforeEnter"
+                        ? "До старта"
+                        : "После старта"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="beforeEnter">
+                      До старта — до смены стадии
                     </SelectItem>
-                    <SelectItem value="single">{KIND_LABELS.single}</SelectItem>
-                    <SelectItem value="autofill">
-                      Переход / автозаполнение
+                    <SelectItem value="onEnter">
+                      После старта — на этой стадии
                     </SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
-            </div>
 
-            <Field title="Момент запуска">
-              <Select
-                value={draft.launchPhase ?? "onEnter"}
-                onValueChange={(next) => {
-                  if (next !== "onEnter" && next !== "beforeEnter") return;
-                  const launchPhase = next as AutomationLaunchPhase;
-                  if (
-                    launchPhase === "beforeEnter" &&
-                    triggerFieldId &&
-                    draft.triggerOptionId
-                  ) {
-                    // Seed «Перейти на стадию» so prep completion lands on this
-                    // stage (default «Готово» buttons otherwise leave the record).
-                    patch({
-                      launchPhase,
-                      outcomes: draft.outcomes.map((outcome) => {
-                        if (
-                          getOutcomeStageOptionId(
-                            outcome.actions,
-                            triggerFieldId,
-                          )
-                        ) {
-                          return outcome;
-                        }
-                        return {
-                          ...outcome,
-                          actions: withOutcomeStageAction(
-                            outcome.actions,
-                            triggerFieldId,
-                            draft.triggerOptionId,
-                          ),
-                        };
-                      }),
-                    });
-                    return;
-                  }
-                  patch({ launchPhase });
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(draft.launchPhase ?? "onEnter") === "beforeEnter"
-                      ? "До старта"
-                      : "После старта"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="beforeEnter">
-                    До старта — до смены стадии списка
-                  </SelectItem>
-                  <SelectItem value="onEnter">
-                    После старта — после попадания на стадию
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-                {(draft.launchPhase ?? "onEnter") === "beforeEnter"
-                  ? "Задача появится на предыдущей стадии и блокирует переход, пока не будет выполнена."
-                  : "Задача создаётся, когда запись попадает на эту стадию."}
-              </p>
-            </Field>
-
-            <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2">
-              <SettingSwitch
-                id="template-blocking"
-                title="Блокирует переход"
-                checked={draft.isBlocking}
-                onCheckedChange={(isBlocking) => patch({ isBlocking })}
-              />
-            </div>
+              <InspectorSwitchRow>
+                <SettingSwitch
+                  id="template-blocking"
+                  title="Блокирует переход"
+                  checked={draft.isBlocking}
+                  onCheckedChange={(isBlocking) => patch({ isBlocking })}
+                />
+              </InspectorSwitchRow>
+            </InspectorSection>
           </TabsContent>
 
           <TabsContent value="assignee" className="mt-0 flex flex-col gap-3.5">
-            <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-3.5">
-              <Field
-                title="Исполнитель"
-                description="Человек из поля на записи или через связанные / вложенные поля (Лид → Менеджер…), роль или конкретные пользователи."
-              >
-                <AssigneeEditor
-                  mode="assignee"
-                  value={draft.assignee}
-                  fields={entity.fields}
-                  entities={entities}
-                  entityId={entity.id}
-                  onChange={(assignee) => patch({ assignee })}
-                  renderConditions={({ value, onChange }) => (
-                    <ConditionGroupBuilder
-                      entity={entity}
-                      value={value}
-                      onChange={onChange}
-                    />
-                  )}
-                />
-              </Field>
-            </div>
+            <InspectorSection title="Исполнитель">
+              <AssigneeEditor
+                mode="assignee"
+                value={draft.assignee}
+                fields={entity.fields}
+                entities={entities}
+                entityId={entity.id}
+                onChange={(assignee) => patch({ assignee })}
+                renderConditions={({ value, onChange }) => (
+                  <ConditionGroupBuilder
+                    entity={entity}
+                    value={value}
+                    onChange={onChange}
+                  />
+                )}
+              />
+            </InspectorSection>
 
-            <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-3.5">
-              <Field
-                title="Наблюдатели"
-                description="Опционально. Получают уведомления о задаче, но не обязаны её выполнять."
-              >
-                <AssigneeEditor
-                  mode="watcher"
-                  value={draft.watchers}
-                  fields={entity.fields}
-                  entities={entities}
-                  entityId={entity.id}
-                  onChange={(watchers) => patch({ watchers })}
-                  renderConditions={({ value, onChange }) => (
-                    <ConditionGroupBuilder
-                      entity={entity}
-                      value={value}
-                      onChange={onChange}
-                    />
-                  )}
-                />
-              </Field>
-            </div>
+            <InspectorSection title="Наблюдатели">
+              <AssigneeEditor
+                mode="watcher"
+                value={draft.watchers}
+                fields={entity.fields}
+                entities={entities}
+                entityId={entity.id}
+                onChange={(watchers) => patch({ watchers })}
+                renderConditions={({ value, onChange }) => (
+                  <ConditionGroupBuilder
+                    entity={entity}
+                    value={value}
+                    onChange={onChange}
+                  />
+                )}
+              />
+            </InspectorSection>
           </TabsContent>
 
           <TabsContent
             value="conditions"
             className="mt-0 flex flex-col gap-3.5"
           >
-            <Field title="Условия запуска">
+            <InspectorSection title="Условия запуска">
               <ConditionGroupBuilder
                 entity={entity}
                 value={draft.launchConditions}
                 onChange={(launchConditions) => patch({ launchConditions })}
               />
-            </Field>
+            </InspectorSection>
           </TabsContent>
 
-          <TabsContent value="outcomes" className="mt-0 flex flex-col gap-3">
+          <TabsContent value="outcomes" className="mt-0 flex flex-col gap-3.5">
             {draft.kind === "autofill" ? (
               <OutcomeRouteBranchesEditor
                 outcomes={draft.outcomes}
@@ -1552,32 +1579,23 @@ export function TemplateInspector({
                 onChange={(outcomes) => patch({ outcomes })}
               />
             ) : (
-              <>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium">Кнопки результата</p>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                      Карандаш на кнопке — название и цвет. Ниже — действия
-                      выбранной кнопки. Вкладки «Задание» и «Кто» относятся ко
-                      всему шагу.
-                    </p>
-                  </div>
+              <InspectorSection
+                title="Кнопки результата"
+                action={
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-7 shrink-0"
+                    className="h-7"
                     onClick={addOutcome}
                   >
                     <Plus className="size-3.5" />
                     Кнопка
                   </Button>
-                </div>
-
+                }
+              >
                 {draft.outcomes.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">
-                    Нет кнопок — добавьте результат, который увидит исполнитель
-                  </p>
+                  <InspectorEmpty>Нет кнопок</InspectorEmpty>
                 ) : (
                   <>
                     <div className="flex flex-wrap gap-1.5">
@@ -1593,9 +1611,9 @@ export function TemplateInspector({
                     </div>
 
                     {selectedOutcome && selectedOutcomeIndex >= 0 ? (
-                      <div className="rounded-xl border border-border/70 bg-card p-3.5">
-                        <div className="mb-3 flex items-center justify-between gap-2">
-                          <p className="text-xs font-medium">
+                      <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/10 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium text-muted-foreground">
                             Настройки кнопки
                           </p>
                           {draft.outcomes.length > 1 ? (
@@ -1617,44 +1635,67 @@ export function TemplateInspector({
                           ) : null}
                         </div>
 
-                        <div className="flex flex-col gap-2.5">
-                          <OutcomeStageSelect
-                            value={selectedStageId}
-                            stages={options}
-                            triggerFieldId={triggerFieldId}
-                            onChange={(nextStageId) =>
-                              patchOutcome(selectedOutcomeIndex, {
-                                actions: withOutcomeStageAction(
-                                  selectedActionsWithoutStage,
-                                  triggerFieldId,
-                                  nextStageId,
-                                ),
-                              })
-                            }
-                          />
+                        <OutcomeStageSelect
+                          compact
+                          value={selectedStageId}
+                          stages={options}
+                          triggerFieldId={triggerFieldId}
+                          onChange={(nextStageId) =>
+                            patchOutcome(selectedOutcomeIndex, {
+                              actions: withOutcomeStageAction(
+                                selectedActionsWithoutStage,
+                                triggerFieldId,
+                                nextStageId,
+                              ),
+                            })
+                          }
+                        />
 
-                          <OutcomeAskFieldsEditor
-                            fields={entity.fields}
-                            entities={entities}
-                            value={selectedOutcome.fieldAccess}
-                            hasRecordsTab={hasRecordsTab}
-                            onChange={(fieldAccess) =>
-                              patchOutcome(selectedOutcomeIndex, {
-                                fieldAccess,
-                              })
-                            }
-                          />
+                        <OutcomeAskFieldsEditor
+                          fields={entity.fields}
+                          entities={entities}
+                          value={selectedOutcome.fieldAccess}
+                          hasRecordsTab={hasRecordsTab}
+                          onChange={(fieldAccess) =>
+                            patchOutcome(selectedOutcomeIndex, {
+                              fieldAccess,
+                            })
+                          }
+                        />
 
-                          <OutcomeAutofillEditor
+                        <OutcomeAutofillEditor
+                          actions={selectedActionsWithoutStage}
+                          fieldAccess={selectedOutcome.fieldAccess}
+                          sourceEntity={entity}
+                          entities={entities}
+                          hasRecordsTab={hasRecordsTab}
+                          excludeFieldIds={
+                            triggerFieldId ? [triggerFieldId] : undefined
+                          }
+                          hint="Значения подставятся сами; «комм.» — ещё и в «Записи»"
+                          onChange={(actions) =>
+                            patchOutcome(selectedOutcomeIndex, {
+                              actions: withOutcomeStageAction(
+                                actions,
+                                triggerFieldId,
+                                selectedStageId,
+                              ),
+                            })
+                          }
+                          onFieldAccessChange={(fieldAccess) =>
+                            patchOutcome(selectedOutcomeIndex, {
+                              fieldAccess,
+                            })
+                          }
+                        />
+
+                        <Field title="Другие действия">
+                          <ActionPipelineEditor
                             actions={selectedActionsWithoutStage}
-                            fieldAccess={selectedOutcome.fieldAccess}
-                            sourceEntity={entity}
                             entities={entities}
-                            hasRecordsTab={hasRecordsTab}
-                            excludeFieldIds={
-                              triggerFieldId ? [triggerFieldId] : undefined
-                            }
-                            hint="Автоматически выставить значения; «комм.» — дублировать во «Записи»"
+                            sourceEntity={entity}
+                            omitKinds={["setField"]}
+                            addKind="createRecord"
                             onChange={(actions) =>
                               patchOutcome(selectedOutcomeIndex, {
                                 actions: withOutcomeStageAction(
@@ -1664,108 +1705,79 @@ export function TemplateInspector({
                                 ),
                               })
                             }
-                            onFieldAccessChange={(fieldAccess) =>
-                              patchOutcome(selectedOutcomeIndex, {
-                                fieldAccess,
-                              })
-                            }
                           />
-                          <div className="flex flex-col gap-1.5">
-                            <p className="text-xs font-medium text-muted-foreground">
-                              Другие действия
-                            </p>
-                            <ActionPipelineEditor
-                              actions={selectedActionsWithoutStage}
-                              entities={entities}
-                              sourceEntity={entity}
-                              omitKinds={["setField"]}
-                              addKind="createRecord"
-                              onChange={(actions) =>
-                                patchOutcome(selectedOutcomeIndex, {
-                                  actions: withOutcomeStageAction(
-                                    actions,
-                                    triggerFieldId,
-                                    selectedStageId,
-                                  ),
-                                })
-                              }
-                            />
-                          </div>
-                        </div>
+                        </Field>
                       </div>
                     ) : null}
                   </>
                 )}
-              </>
+              </InspectorSection>
             )}
           </TabsContent>
 
           <TabsContent value="more" className="mt-0 flex flex-col gap-3.5">
-            <Field title="Срок, часы">
-              <Input
-                type="number"
-                value={draft.sla?.hours != null ? String(draft.sla.hours) : ""}
-                placeholder="Без срока"
-                onChange={(event) => {
-                  const hours = Number(event.target.value);
-                  patch({
-                    sla:
-                      Number.isFinite(hours) && hours > 0
-                        ? { hours, calendar: "247" }
-                        : null,
-                  });
-                }}
+            <InspectorSection title="Срок">
+              <Field title="Часы">
+                <Input
+                  type="number"
+                  value={
+                    draft.sla?.hours != null ? String(draft.sla.hours) : ""
+                  }
+                  placeholder="Без срока"
+                  onChange={(event) => {
+                    const hours = Number(event.target.value);
+                    patch({
+                      sla:
+                        Number.isFinite(hours) && hours > 0
+                          ? { hours, calendar: "247" }
+                          : null,
+                    });
+                  }}
+                />
+              </Field>
+              <InspectorSwitchRow>
+                <SettingSwitch
+                  id="template-require-time"
+                  title="Обязательный учёт времени"
+                  description="Без сессии нельзя завершить"
+                  checked={automationRequiresTimeTracking(draft.materials)}
+                  onCheckedChange={(required) =>
+                    patch({
+                      materials: setAutomationRequireTimeTracking(
+                        draft.materials,
+                        required,
+                      ),
+                    })
+                  }
+                />
+              </InspectorSwitchRow>
+            </InspectorSection>
+
+            <InspectorSection title="Файлы">
+              <TemplateUploadTargetSettings
+                entity={entity}
+                materials={draft.materials}
+                onMaterialsChange={(materials) => patch({ materials })}
               />
-            </Field>
+            </InspectorSection>
 
-            <div className="rounded-lg border border-border/70 bg-muted/15 px-3 py-2">
-              <SettingSwitch
-                id="template-require-time"
-                title="Обязательный учёт времени"
-                description="Без сессии времени задание нельзя завершить"
-                checked={automationRequiresTimeTracking(draft.materials)}
-                onCheckedChange={(required) =>
-                  patch({
-                    materials: setAutomationRequireTimeTracking(
-                      draft.materials,
-                      required,
-                    ),
-                  })
-                }
-              />
-            </div>
-
-            <TemplateUploadTargetSettings
-              entity={entity}
-              materials={draft.materials}
-              onMaterialsChange={(materials) => patch({ materials })}
-            />
-
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium">Уведомления</p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                    Кому и с каким текстом писать при назначении, завершении или
-                    просрочке этой задачи.
-                  </p>
-                </div>
+            <InspectorSection
+              title="Уведомления"
+              action={
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 shrink-0"
+                  className="h-7"
                   onClick={() => void addNotificationRule()}
                 >
                   <Plus className="size-3.5" />
                   Добавить
                 </Button>
-              </div>
+              }
+            >
               {notificationRules.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">
-                  Пока нет уведомлений — добавьте правило, если нужно оповестить
-                  кого-то кроме исполнителя.
-                </p>
+                <InspectorEmpty>Нет уведомлений</InspectorEmpty>
               ) : (
                 notificationRules.map((rule) => (
                   <AutomationNotificationRuleEditor
@@ -1777,7 +1789,7 @@ export function TemplateInspector({
                   />
                 ))
               )}
-            </div>
+            </InspectorSection>
           </TabsContent>
         </div>
       </Tabs>

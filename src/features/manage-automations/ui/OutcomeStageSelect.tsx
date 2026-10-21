@@ -65,7 +65,9 @@ export function OutcomeStageSelect({
   if (compact) {
     return (
       <div className={cn("flex flex-col gap-1.5", className)}>
-        <Label className="text-xs">Перейти на стадию</Label>
+        <Label className="text-xs font-medium text-muted-foreground">
+          Перейти на стадию
+        </Label>
         {select}
       </div>
     );

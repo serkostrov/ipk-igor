@@ -50,6 +50,15 @@ function SettingsTabsList({ tabs }: { tabs: SettingsTabId[] }) {
   );
 }
 
+/** Sticky tabs strip for tabs that render the list above content (e.g. Меню). */
+function SettingsTabsSticky({ tabs }: { tabs: SettingsTabId[] }) {
+  return (
+    <div className="sticky top-0 z-20 -mx-1 bg-background px-1 pb-3">
+      <SettingsTabsList tabs={tabs} />
+    </div>
+  );
+}
+
 function SettingsTabPanel({ children }: { children: ReactNode }) {
   return (
     <div className="mt-0 flex min-h-0 flex-1 flex-col outline-none">
@@ -186,8 +195,8 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
             className="mt-0 min-h-0 flex-1 overflow-auto"
           >
             <SettingsTabPanel>
-              <SettingsTabsList tabs={tabs} />
-              <div className="mt-5">
+              <SettingsTabsSticky tabs={tabs} />
+              <div className="mt-2">
                 <MenuSettings />
               </div>
             </SettingsTabPanel>

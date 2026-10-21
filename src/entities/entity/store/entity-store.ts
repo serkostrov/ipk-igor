@@ -673,6 +673,7 @@ export function addEntity(data: {
     headerFieldId: null,
     kanbanFieldId: null,
     kanbanCardFieldIds: null,
+    tableMassSelection: false,
     tabs: [],
     fieldGroups: [],
     systemKey: null,
@@ -1091,6 +1092,16 @@ export function setEntityKanbanCardFields(
   });
 }
 
+export function setEntityTableMassSelection(
+  entityId: string,
+  enabled: boolean,
+) {
+  mapEntity(entityId, (entity) => ({
+    ...entity,
+    tableMassSelection: enabled,
+  }));
+}
+
 export function addEntityTab(
   entityId: string,
   data?: Partial<Pick<EntityTab, "name" | "kind" | "defaultFolders">>,
@@ -1240,6 +1251,7 @@ export function addEntityTabWithLinkedEntity(
     headerFieldId: null,
     kanbanFieldId: null,
     kanbanCardFieldIds: null,
+    tableMassSelection: false,
     tabs: [],
     fieldGroups: [],
     systemKey: null,

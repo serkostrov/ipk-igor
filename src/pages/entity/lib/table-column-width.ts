@@ -1,6 +1,9 @@
 /** Fixed actions column used across entity data tables. */
 export const ENTITY_TABLE_ACTIONS_WIDTH = 96;
 
+/** Checkbox column when table mass selection is enabled. */
+export const ENTITY_TABLE_SELECT_WIDTH = 44;
+
 /** Min width so values like «178 203,14» keep the same type size as other number cols. */
 const ENTITY_TABLE_NUMBER_MIN_WIDTH = 112;
 

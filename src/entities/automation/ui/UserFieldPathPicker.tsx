@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Layers,
   Link2,
   UserRound,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { cn } from "@/shared/lib/cn";
 import {
   bridgeRelationFields,
+  bridgeRelationGroupsFields,
   formatUserFieldLabel,
   formatUserFieldPathLabel,
   relationTargetEntity,
@@ -83,6 +85,9 @@ export function UserFieldPathPicker({
 
   const users = current ? userRelationFields(current.entity.fields) : [];
   const bridges = current ? bridgeRelationFields(current.entity.fields) : [];
+  const groups = current
+    ? bridgeRelationGroupsFields(current.entity.fields)
+    : [];
   const canDrill = crumbs.length < MAX_NESTING_DEPTH;
 
   const filteredUsers = users.filter((field) =>
@@ -94,6 +99,16 @@ export function UserFieldPathPicker({
   );
   const filteredBridges = canDrill
     ? bridges.filter((field) => {
+        const target = relationTargetEntity(field, entities);
+        return matchesQuery(
+          query,
+          getEntityFieldDisplayName(field),
+          target ? getEntityDisplayName(target) : undefined,
+        );
+      })
+    : [];
+  const filteredGroups = canDrill
+    ? groups.filter((field) => {
         const target = relationTargetEntity(field, entities);
         return matchesQuery(
           query,
@@ -165,7 +180,10 @@ export function UserFieldPathPicker({
   }
 
   const empty =
-    !current || (filteredUsers.length === 0 && filteredBridges.length === 0);
+    !current ||
+    (filteredUsers.length === 0 &&
+      filteredBridges.length === 0 &&
+      filteredGroups.length === 0);
 
   return (
     <Popover
@@ -258,7 +276,7 @@ export function UserFieldPathPicker({
               {query.trim()
                 ? "Ничего не найдено"
                 : current
-                  ? "Нет полей с пользователями и связей для перехода"
+                  ? "Нет полей с пользователями, связей и наборов"
                   : "Сущность не найдена"}
             </p>
           ) : (
@@ -328,6 +346,48 @@ export function UserFieldPathPicker({
                     }
                   >
                     <Link2
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      {getEntityFieldDisplayName(field)}
+                      {targetLabel ? (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          → {targetLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                    <ChevronRight
+                      className="size-3.5 shrink-0 text-muted-foreground/70"
+                      aria-hidden
+                    />
+                  </button>
+                );
+              })}
+
+              {filteredGroups.length > 0 ? (
+                <div className="px-1.5 pb-1 pt-2">
+                  <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase px-1">
+                    Наборы связей
+                  </p>
+                </div>
+              ) : null}
+              {filteredGroups.map((field) => {
+                const target = relationTargetEntity(field, entities);
+                const targetLabel = target
+                  ? getEntityDisplayName(target)
+                  : null;
+                return (
+                  <button
+                    key={field.id}
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/60"
+                    onClick={() =>
+                      drillInto(field.id, getEntityFieldDisplayName(field))
+                    }
+                  >
+                    <Layers
                       className="size-3.5 shrink-0 text-muted-foreground"
                       aria-hidden
                     />

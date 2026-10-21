@@ -146,6 +146,9 @@ export type EntityDependenciesConfig = {
   sameFieldId: string | null;
 };
 
+/** How `relationGroups` cards are arranged in the form / read-only value. */
+export type EntityRelationGroupsLayout = "row" | "column";
+
 /**
  * `relationGroups` field: several primary records, each with its own nested
  * multi-relation (e.g. project stages → departments on a lead).
@@ -160,6 +163,23 @@ export type EntityRelationGroupsConfig = {
    * records. When set, the nested picker is limited to those ids.
    */
   nestedSourceFieldId: string | null;
+  /** Form / value layout. Default `column`. */
+  layout: EntityRelationGroupsLayout;
+  /**
+   * Extra fields of the item entity shown beside the title
+   * (name is always shown).
+   */
+  itemDisplayFieldIds: string[];
+  /**
+   * Extra fields of the nested entity appended to labels
+   * (name is always shown).
+   */
+  nestedDisplayFieldIds: string[];
+  /**
+   * Nested record ids prefilled on every row (new record defaults and
+   * when the user adds a row in the form).
+   */
+  defaultNestedIds: string[];
 };
 
 export type EntityFieldDefaultValue =
@@ -503,6 +523,11 @@ export type Entity = {
    * `null` — automatic defaults from header + table fields.
    */
   kanbanCardFieldIds: string[] | null;
+  /**
+   * Table view: show row checkboxes for bulk actions.
+   * Selection is kept across pagination while the setting is on.
+   */
+  tableMassSelection: boolean;
   tabs: EntityTab[];
   /** Order, colSpan and area for named groups (excludes ungrouped «Основное» fields). */
   fieldGroups: EntityFieldGroup[];

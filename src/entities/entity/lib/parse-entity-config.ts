@@ -193,6 +193,25 @@ function normalizeDependenciesConfig(value: unknown): EntityDependenciesConfig {
   };
 }
 
+function normalizeRelationGroupsLayout(
+  value: unknown,
+): EntityRelationGroupsConfig["layout"] {
+  return value === "row" ? "row" : "column";
+}
+
+function normalizeRelationGroupsDisplayFieldIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const item of value) {
+    const id = normalizeId(item);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 function normalizeRelationGroupsConfig(
   value: unknown,
 ): EntityRelationGroupsConfig {
@@ -201,12 +220,26 @@ function normalizeRelationGroupsConfig(
       itemEntityId: null,
       nestedEntityId: null,
       nestedSourceFieldId: null,
+      layout: "column",
+      itemDisplayFieldIds: [],
+      nestedDisplayFieldIds: [],
+      defaultNestedIds: [],
     };
   }
   return {
     itemEntityId: normalizeId(value.itemEntityId),
     nestedEntityId: normalizeId(value.nestedEntityId),
     nestedSourceFieldId: normalizeId(value.nestedSourceFieldId),
+    layout: normalizeRelationGroupsLayout(value.layout),
+    itemDisplayFieldIds: normalizeRelationGroupsDisplayFieldIds(
+      value.itemDisplayFieldIds,
+    ),
+    nestedDisplayFieldIds: normalizeRelationGroupsDisplayFieldIds(
+      value.nestedDisplayFieldIds,
+    ),
+    defaultNestedIds: normalizeRelationGroupsDisplayFieldIds(
+      value.defaultNestedIds,
+    ),
   };
 }
 
@@ -808,6 +841,7 @@ export function normalizeEntity(
       resolveKanbanFieldId(resolvedFields, entity.kanbanFieldId),
       (entity as { kanbanCardFieldIds?: unknown }).kanbanCardFieldIds,
     ),
+    tableMassSelection: entity.tableMassSelection === true,
     tabs,
     fieldGroups: ensureEntityFieldGroups(entity.fieldGroups, resolvedFields),
     systemKey: normalizeSystemKey(entity.systemKey),
@@ -849,6 +883,7 @@ export function toEntityStructure(entity: Entity) {
       resolveKanbanFieldId(entity.fields, entity.kanbanFieldId),
       entity.kanbanCardFieldIds,
     ),
+    tableMassSelection: entity.tableMassSelection === true,
     tabs: ensureEntityTabs(entity.tabs.map((tab) => normalizeEntityTab(tab))),
     fieldGroups: ensureEntityFieldGroups(entity.fieldGroups, entity.fields),
     systemKey: normalizeSystemKey(entity.systemKey),
@@ -930,6 +965,7 @@ export function parseEntityConfig(value: unknown): EntityConfig {
         kanbanCardFieldIds: Array.isArray(item.kanbanCardFieldIds)
           ? item.kanbanCardFieldIds
           : null,
+        tableMassSelection: item.tableMassSelection === true,
         tabs,
         fieldGroups,
         listOptions,

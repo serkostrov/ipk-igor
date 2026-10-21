@@ -48,7 +48,7 @@ export function TemplateFieldInput({
   placeholder,
   id,
   multiline = false,
-  headerInsert = false,
+  headerInsert = true,
 }: {
   title: string;
   value: string;
@@ -57,7 +57,7 @@ export function TemplateFieldInput({
   placeholder?: string;
   id?: string;
   multiline?: boolean;
-  /** Put «Вставить поле» next to the title instead of below the editor. */
+  /** Mini braces icon next to the title (entity name template style). */
   headerInsert?: boolean;
 }) {
   /** Remount select after insert so the same field can be picked again. */
@@ -234,9 +234,7 @@ export function TemplateFieldInput({
           {title.trim() ? (
             <Label
               htmlFor={id}
-              className={
-                headerInsert ? undefined : "text-xs font-medium text-foreground"
-              }
+              className="text-xs font-medium text-muted-foreground"
             >
               {title}
             </Label>

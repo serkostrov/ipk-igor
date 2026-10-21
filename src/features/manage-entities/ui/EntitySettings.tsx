@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  Check,
   EyeOff,
   Pencil,
   Plus,
@@ -7,7 +8,9 @@ import {
   Shield,
   Table2,
   Trash2,
+  X,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import {
@@ -37,6 +40,38 @@ import { EntitySettingsSkeleton } from "./EntitySettingsSkeleton";
 
 type DialogState =
   { mode: "closed" } | { mode: "create" } | { mode: "edit"; entity: Entity };
+
+const toolbarIconTransition = {
+  type: "spring" as const,
+  stiffness: 520,
+  damping: 32,
+  mass: 0.6,
+};
+
+function ToolbarIconSwap({
+  swapKey,
+  icon,
+}: {
+  swapKey: string;
+  icon: ReactNode;
+}) {
+  return (
+    <span className="relative flex size-4 items-center justify-center">
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span
+          key={swapKey}
+          className="inline-flex [&_svg]:size-4"
+          initial={{ opacity: 0, scale: 0.55, rotate: -28 }}
+          animate={{ opacity: 1, scale: 1, rotate: 0 }}
+          exit={{ opacity: 0, scale: 0.55, rotate: 28 }}
+          transition={toolbarIconTransition}
+        >
+          {icon}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
 
 type EntitySettingsProps = {
   /** Left side of the top row (e.g. settings tabs). */
@@ -121,11 +156,20 @@ function EntityPage({
             </h3>
             {system ? <SystemEntityBadge /> : null}
             {internal ? <InternalEntityBadge /> : null}
-            {editing ? (
-              <span className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/8 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-primary">
-                Редактирование
-              </span>
-            ) : null}
+            <AnimatePresence initial={false}>
+              {editing ? (
+                <motion.span
+                  key="editing-badge"
+                  initial={{ opacity: 0, scale: 0.86, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: -3 }}
+                  transition={toolbarIconTransition}
+                  className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/8 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-primary"
+                >
+                  Редактирование
+                </motion.span>
+              ) : null}
+            </AnimatePresence>
           </div>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
             {entity.description || "Без описания"}
@@ -289,53 +333,49 @@ export function EntitySettings({
         onValueChange={selectEntity}
       />
 
-      {editing ? (
-        <Button
-          type="button"
-          className="min-w-24"
-          disabled={!selected}
-          onClick={saveAndExit}
-        >
-          Сохранить
-        </Button>
-      ) : null}
-
       <Button
         type="button"
         size="icon"
-        variant={editing ? "default" : "outline"}
+        variant="outline"
         aria-label={
-          editing ? "Выйти из режима редактирования" : "Редактировать схему"
+          editing ? "Отменить редактирование" : "Редактировать схему"
         }
         aria-pressed={editing}
-        title={
-          editing
-            ? "Выйти из режима редактирования"
-            : "Параметры — режим редактирования схемы"
-        }
+        title={editing ? "Отменить" : "Параметры — режим редактирования схемы"}
         disabled={!selected}
         onClick={() => {
           if (editing) requestExitEdit();
           else enterEditMode();
         }}
       >
-        <Settings2 />
+        <ToolbarIconSwap
+          swapKey={editing ? "cancel" : "edit"}
+          icon={editing ? <X /> : <Settings2 />}
+        />
       </Button>
 
       <Button
         type="button"
         size="icon"
-        aria-label="Добавить сущность"
-        onClick={() => setDialog({ mode: "create" })}
+        aria-label={editing ? "Сохранить схему" : "Добавить сущность"}
+        title={editing ? "Сохранить" : "Добавить сущность"}
+        disabled={editing && !selected}
+        onClick={() => {
+          if (editing) saveAndExit();
+          else setDialog({ mode: "create" });
+        }}
       >
-        <Plus />
+        <ToolbarIconSwap
+          swapKey={editing ? "save" : "add"}
+          icon={editing ? <Check /> : <Plus />}
+        />
       </Button>
     </>
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
-      <div className="flex min-h-9 min-w-0 items-center">
+      <div className="sticky top-0 z-20 -mx-1 flex min-h-9 min-w-0 items-center bg-background px-1 pb-3">
         <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {leading}
         </div>

@@ -1,10 +1,12 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import {
   Eye,
@@ -543,6 +545,47 @@ const fieldActionButtonClass =
 
 const hoverActionsClass =
   "flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150";
+
+/** Chrome that appears when entering schema edit mode. */
+const editChromeTransition = {
+  type: "spring" as const,
+  stiffness: 480,
+  damping: 30,
+  mass: 0.65,
+};
+
+const editCardTransition = {
+  type: "spring" as const,
+  stiffness: 420,
+  damping: 32,
+  mass: 0.7,
+};
+
+function EditAppear({
+  show,
+  children,
+  className,
+}: {
+  show: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <AnimatePresence initial={false}>
+      {show ? (
+        <motion.div
+          className={className}
+          initial={{ opacity: 0, scale: 0.88, y: -6 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.92, y: -4 }}
+          transition={editChromeTransition}
+        >
+          {children}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
 
 type DragHome = {
   groupName: string;
@@ -1823,6 +1866,8 @@ function FieldCard({
   onEdit,
   onDelete,
   onConfigureList,
+  enterFromEdit = false,
+  enterDelay = 0,
 }: {
   entityId: string;
   field: EntityField;
@@ -1838,6 +1883,9 @@ function FieldCard({
   onEdit: () => void;
   onDelete: () => void;
   onConfigureList?: () => void;
+  /** Play enter animation when switching into schema edit. */
+  enterFromEdit?: boolean;
+  enterDelay?: number;
 }) {
   const controls = useDragControls();
   const cardRef = useRef<HTMLLIElement>(null);
@@ -1927,9 +1975,18 @@ function FieldCard({
   return (
     <motion.li
       ref={cardRef}
-      initial={false}
+      initial={
+        enterFromEdit ? { opacity: 0, y: 8, scale: 0.985 } : false
+      }
+      animate={
+        enterFromEdit ? { opacity: 1, y: 0, scale: 1 } : false
+      }
       layout={!isDragging}
-      transition={fieldLayoutTransition}
+      transition={
+        enterFromEdit
+          ? { ...editCardTransition, delay: enterDelay }
+          : fieldLayoutTransition
+      }
       data-field-id={field.id}
       data-col-span={colSpan}
       data-field-group-name={groupName}
@@ -2096,6 +2153,7 @@ function GroupBlock({
   titleHidden = false,
   enableGroupLayout = false,
   readOnly = false,
+  enteringEdit = false,
   lockedFieldIds,
   onDraggingChange,
   onFieldDrop,
@@ -2125,6 +2183,8 @@ function GroupBlock({
   titleHidden?: boolean;
   enableGroupLayout?: boolean;
   readOnly?: boolean;
+  /** One-shot enter animation when schema edit just turned on. */
+  enteringEdit?: boolean;
   /** Fields that can be edited/moved/resized but not deleted (tab-link relations). */
   lockedFieldIds?: Set<string>;
   onDraggingChange: (id: string | null) => void;
@@ -2337,7 +2397,10 @@ function GroupBlock({
                 <span className="text-[11px] font-semibold tracking-wide text-foreground/45 tabular-nums">
                   {fields.length}
                 </span>
-                {!readOnly && onAddField ? (
+                <EditAppear
+                  show={Boolean(!readOnly && onAddField)}
+                  className="inline-flex"
+                >
                   <Button
                     type="button"
                     variant="ghost"
@@ -2349,7 +2412,7 @@ function GroupBlock({
                   >
                     <Plus className="size-3.5" />
                   </Button>
-                ) : null}
+                </EditAppear>
               </div>
             </header>
           ) : null}
@@ -2404,7 +2467,7 @@ function GroupBlock({
               )}
               style={fieldsGridStyle}
             >
-              {fields.map((field) => {
+              {fields.map((field, fieldIndex) => {
                 const isActiveDrag = draggingId === field.id;
                 const edge =
                   insertActive && !isActiveDrag
@@ -2422,6 +2485,8 @@ function GroupBlock({
                     insertEdge={edge}
                     allowEdit
                     allowDelete={!lockedFieldIds?.has(field.id)}
+                    enterFromEdit={enteringEdit}
+                    enterDelay={enteringEdit ? fieldIndex * 0.028 : 0}
                     onDragStart={() => onDraggingChange(field.id)}
                     onDragEnd={(clientX, clientY) => {
                       onFieldDrop(field.id, clientX, clientY);
@@ -3038,6 +3103,20 @@ export function EntityFieldsEditor({
   onActiveTabIdChange,
 }: EntityFieldsEditorProps) {
   const readOnly = readOnlyProp;
+  const wasReadOnlyRef = useRef(readOnly);
+  const [holdEditEnter, setHoldEditEnter] = useState(false);
+  const justEnteredEdit = wasReadOnlyRef.current && !readOnly;
+  const enteringEdit = justEnteredEdit || holdEditEnter;
+  useLayoutEffect(() => {
+    if (justEnteredEdit) {
+      setHoldEditEnter(true);
+      const timer = window.setTimeout(() => setHoldEditEnter(false), 520);
+      wasReadOnlyRef.current = readOnly;
+      return () => window.clearTimeout(timer);
+    }
+    wasReadOnlyRef.current = readOnly;
+    if (readOnly) setHoldEditEnter(false);
+  }, [justEnteredEdit, readOnly]);
   const { entities } = useEntityConfig();
   const { entries } = useMenuConfig();
   const entityOptions = useMemo(() => {
@@ -3977,7 +4056,7 @@ export function EntityFieldsEditor({
             <EntityFieldsOverviewButton
               onClick={() => setFieldsOverviewOpen(true)}
             />
-            {readOnly ? null : (
+            <EditAppear show={!readOnly} className="inline-flex">
               <Button
                 type="button"
                 size="sm"
@@ -3987,7 +4066,7 @@ export function EntityFieldsEditor({
                 <Plus />
                 Добавить поле
               </Button>
-            )}
+            </EditAppear>
           </div>
         </div>
 
@@ -4102,7 +4181,7 @@ export function EntityFieldsEditor({
           <EntityFieldsOverviewButton
             onClick={() => setFieldsOverviewOpen(true)}
           />
-          {readOnly ? null : (
+          <EditAppear show={!readOnly} className="inline-flex">
             <Button
               type="button"
               size="sm"
@@ -4112,7 +4191,7 @@ export function EntityFieldsEditor({
               <Plus />
               Добавить поле
             </Button>
-          )}
+          </EditAppear>
         </div>
       </div>
 
@@ -4318,6 +4397,7 @@ export function EntityFieldsEditor({
                               showHeader
                               enableGroupLayout={!readOnly}
                               readOnly={readOnly}
+                              enteringEdit={enteringEdit}
                               lockedFieldIds={protectedFieldIds}
                               onDraggingChange={handleDraggingChange}
                               onFieldDrop={handleFieldDrop}
@@ -4393,6 +4473,7 @@ export function EntityFieldsEditor({
                                 )}
                                 enableGroupLayout={!readOnly}
                                 readOnly={readOnly}
+                                enteringEdit={enteringEdit}
                                 lockedFieldIds={protectedFieldIds}
                                 onDraggingChange={handleDraggingChange}
                                 onFieldDrop={handleFieldDrop}
@@ -4462,10 +4543,10 @@ export function EntityFieldsEditor({
             {!nested ? (
               <div
                 data-entity-tabs=""
-                className="flex h-9 w-full min-w-0 items-stretch rounded-lg bg-muted p-1"
+                className="flex h-9 w-full min-w-0 items-stretch overflow-hidden rounded-lg bg-muted p-1"
               >
-                <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <TabsList className="!h-auto min-h-0 w-max max-w-none flex-none items-stretch justify-start gap-0.5 self-stretch bg-transparent p-0">
+                <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsList className="!h-full w-max min-w-max max-w-none flex-none items-stretch justify-start gap-0.5 bg-transparent p-0">
                     {entityTabs.map((tab, tabIndex) => {
                       const isOverview = isEntityOverviewTab(tab);
                       const dropActive =
@@ -4580,7 +4661,7 @@ export function EntityFieldsEditor({
                             unlockDragSelection();
                           }}
                           className={cn(
-                            "group/tab !h-auto relative min-h-0 flex-none gap-1 self-stretch rounded-md py-0 pr-3 pl-3 text-sm font-medium transition-[color,background-color,box-shadow,padding] duration-150 data-active:shadow-sm",
+                            "group/tab relative !h-auto min-h-0 h-full flex-none shrink-0 grow-0 self-stretch gap-1 rounded-md py-0 pr-3 pl-3 text-sm font-medium whitespace-nowrap transition-[color,background-color,box-shadow,padding] duration-150 data-active:shadow-sm",
                             !readOnly && "hover:pr-1.5 focus-within:pr-1.5",
                             dropActive &&
                               "bg-primary/10 text-primary ring-2 ring-primary/20",
@@ -4608,7 +4689,7 @@ export function EntityFieldsEditor({
                               )}
                             />
                           ) : null}
-                          <span className="truncate">{tab.name}</span>
+                          <span className="shrink-0">{tab.name}</span>
                           {readOnly ? null : (
                             <span
                               className={cn(
@@ -4694,7 +4775,7 @@ export function EntityFieldsEditor({
                     })}
                   </TabsList>
                 </div>
-                {readOnly ? null : (
+                <EditAppear show={!readOnly} className="inline-flex h-full shrink-0">
                   <Button
                     type="button"
                     variant="ghost"
@@ -4706,7 +4787,7 @@ export function EntityFieldsEditor({
                   >
                     <Plus />
                   </Button>
-                )}
+                </EditAppear>
               </div>
             ) : null}
 
@@ -4824,6 +4905,7 @@ export function EntityFieldsEditor({
                             )}
                             enableGroupLayout={!readOnly}
                             readOnly={readOnly}
+                            enteringEdit={enteringEdit}
                             lockedFieldIds={protectedFieldIds}
                             onDraggingChange={handleDraggingChange}
                             onFieldDrop={handleFieldDrop}

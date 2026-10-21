@@ -413,7 +413,6 @@ export function RecordFieldControl({
       <TemplateFieldInput
         id={id}
         title={label}
-        headerInsert
         value={value}
         placeholder={hint || "Текст и поля записи"}
         fields={entity.fields.filter((item) => !isEntityNameField(item))}

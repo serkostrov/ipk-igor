@@ -37,7 +37,11 @@ import {
   EntityKanbanView,
   KanbanFieldSettingsButton,
 } from "./EntityKanbanView";
-import { AddRecordButton, EntityTableView } from "./EntityTableView";
+import {
+  AddRecordButton,
+  EntityTableView,
+  TableSettingsButton,
+} from "./EntityTableView";
 import { EntityTimelineView } from "./EntityTimelineView";
 import { HiddenRecordsBar } from "./HiddenRecordsBar";
 import { useEntityRecordScope } from "./use-entity-record-scope";
@@ -356,6 +360,12 @@ export function EntityPage({
                         <Icon className="size-3 opacity-70" aria-hidden />
                         {getViewLabel(view)}
                       </TabsTrigger>
+                      {view === "table" && activeView === "table" ? (
+                        <TableSettingsButton
+                          entity={currentEntity}
+                          className="-ml-1.5"
+                        />
+                      ) : null}
                       {view === "kanban" && activeView === "kanban" ? (
                         <KanbanFieldSettingsButton
                           entity={currentEntity}
@@ -393,7 +403,9 @@ export function EntityPage({
           title={title}
           description={currentEntity.description || undefined}
           titleExtra={
-            activeView === "kanban" ? (
+            activeView === "table" ? (
+              <TableSettingsButton entity={currentEntity} />
+            ) : activeView === "kanban" ? (
               <KanbanFieldSettingsButton entity={currentEntity} />
             ) : activeView === "timeline" ? (
               timelineSettingsButton

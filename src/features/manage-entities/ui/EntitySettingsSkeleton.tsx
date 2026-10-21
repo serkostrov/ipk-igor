@@ -7,9 +7,9 @@ export function EntitySettingsSkeleton({ leading }: { leading?: ReactNode }) {
       aria-busy="true"
       aria-label="Загрузка сущностей"
     >
-      <div className="flex min-h-9 min-w-0 items-center">
+      <div className="sticky top-0 z-20 -mx-1 flex min-h-9 min-w-0 items-center bg-background px-1 pb-3">
         <div className="min-w-0 flex-1 overflow-hidden">{leading}</div>
-        <div className="relative z-10 flex shrink-0 items-center gap-2 bg-background pl-3">
+        <div className="relative z-10 flex shrink-0 items-center gap-2 bg-background pl-2">
           <div className="h-9 w-64 animate-pulse rounded-md bg-muted/60" />
           <div className="size-9 animate-pulse rounded-md bg-muted/60" />
           <div className="size-9 animate-pulse rounded-md bg-muted/60" />

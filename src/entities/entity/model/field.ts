@@ -230,6 +230,44 @@ export function serializeEntityRelationGroups(
   return groups.length > 0 ? JSON.stringify(groups) : "";
 }
 
+/**
+ * Build a relationGroups value from item ids and shared nested defaults
+ * (same nested list on every row).
+ */
+export function buildEntityRelationGroupsValue(
+  itemIds: readonly string[],
+  nestedIds: readonly string[] = [],
+): string {
+  const nested = [
+    ...new Set(
+      nestedIds.map((id) => id.trim()).filter((id) => id.length > 0),
+    ),
+  ];
+  return serializeEntityRelationGroups(
+    itemIds
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0)
+      .map((itemId) => ({ itemId, nestedIds: [...nested] })),
+  );
+}
+
+/**
+ * Apply shared nested defaults onto every row of a stored relationGroups value.
+ * No-op when `defaultNestedIds` is empty (keeps per-row nested as stored).
+ */
+export function withEntityRelationGroupsDefaultNested(
+  value: string,
+  defaultNestedIds: readonly string[] | undefined,
+): string {
+  if (!defaultNestedIds || defaultNestedIds.length === 0) return value;
+  const groups = parseEntityRelationGroups(value);
+  if (groups.length === 0) return value;
+  return buildEntityRelationGroupsValue(
+    groups.map((group) => group.itemId),
+    defaultNestedIds,
+  );
+}
+
 /** Ask / form presentation for a `relationGroups` field. */
 export type EntityRelationGroupsMode = "full" | "items" | "nested";
 

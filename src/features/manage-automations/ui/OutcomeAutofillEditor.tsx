@@ -131,14 +131,16 @@ export function OutcomeAutofillEditor({
   return (
     <div
       className={cn(
-        "rounded-md border border-border/70 bg-background p-2.5",
+        "rounded-lg border border-border/60 bg-background/80 p-3",
         className,
       )}
     >
       <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="text-xs font-medium">Управление полями</p>
+        <p className="text-xs font-medium text-muted-foreground">
+          Управление полями
+        </p>
         {hint ? (
-          <p className="text-[10px] leading-snug text-muted-foreground">
+          <p className="text-[11px] leading-snug text-muted-foreground">
             {hint}
           </p>
         ) : null}

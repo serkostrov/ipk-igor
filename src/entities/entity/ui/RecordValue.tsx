@@ -79,10 +79,17 @@ export function RecordValue({
         getRecordFieldNumber(ctx, entity, record, field),
       )
     : null;
+  const relationGroupsColumn =
+    field.type === "relationGroups" &&
+    field.relationGroups?.layout === "column" &&
+    !empty;
   return (
     <span
       className={cn(
-        "block truncate text-sm",
+        "block text-sm",
+        relationGroupsColumn
+          ? "whitespace-pre-line break-words"
+          : "truncate",
         empty ? "text-muted-foreground/70" : (signClass ?? "text-foreground"),
         numeric && "tabular-nums",
         className,

@@ -1,5 +1,6 @@
 import { Plus, X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
+import { cn } from "@/shared/lib/cn";
 import {
   parseEntityRelationGroups,
   parseEntityRelationIds,
@@ -8,12 +9,17 @@ import {
   type EntityRelationGroupItem,
   type EntityRelationGroupsMode,
 } from "../model/field";
-import type { EntityValueContext } from "../model/field-value";
+import {
+  formatRecordFieldValue,
+  type EntityValueContext,
+} from "../model/field-value";
 import {
   getEntityDisplayName,
   getRelationRecordOptions,
+  resolveRelationRecordLabel,
   type Entity,
   type EntityField,
+  type RelationRecordOption,
 } from "../model/types";
 import { RelationSelect } from "./RelationSelect";
 
@@ -43,15 +49,83 @@ function allowedNestedIds(
   return new Set(parseEntityRelationIds(item.values[sourceFieldId]));
 }
 
-function itemLabelFor(
-  itemEntity: Entity,
-  itemId: string,
+function formatRecordExtras(
+  ctx: EntityValueContext,
+  entity: Entity,
+  recordId: string,
+  fieldIds: readonly string[],
+): string {
+  if (fieldIds.length === 0) return "";
+  const record = entity.records.find((item) => item.id === recordId);
+  if (!record) return "";
+  const parts: string[] = [];
+  for (const fieldId of fieldIds) {
+    const extraField = entity.fields.find((item) => item.id === fieldId);
+    if (!extraField) continue;
+    const text = formatRecordFieldValue(ctx, entity, record, extraField);
+    if (!text || text === "—") continue;
+    parts.push(text);
+  }
+  return parts.join(" · ");
+}
+
+function recordTitle(
+  entity: Entity,
+  recordId: string,
   ctx: EntityValueContext,
 ) {
   return (
-    getRelationRecordOptions(itemEntity, ctx.entities).find(
-      (option) => option.id === itemId,
-    )?.label ?? "Удалённая запись"
+    resolveRelationRecordLabel(entity, recordId, ctx.entities) ??
+    "Удалённая запись"
+  );
+}
+
+function withExtraLabel(
+  title: string,
+  extras: string,
+): string {
+  return extras ? `${title} · ${extras}` : title;
+}
+
+function enrichOptions(
+  ctx: EntityValueContext,
+  entity: Entity,
+  base: RelationRecordOption[],
+  fieldIds: readonly string[],
+): RelationRecordOption[] {
+  if (fieldIds.length === 0) return base;
+  return base.map((option) => ({
+    ...option,
+    label: withExtraLabel(
+      option.label,
+      formatRecordExtras(ctx, entity, option.id, fieldIds),
+    ),
+  }));
+}
+
+function ItemMeta({
+  title,
+  extras,
+  className,
+}: {
+  title: string;
+  extras: string;
+  className?: string;
+}) {
+  return (
+    <span className={cn("min-w-0 flex-1", className)}>
+      <span className="block truncate text-sm font-medium" title={title}>
+        {title}
+      </span>
+      {extras ? (
+        <span
+          className="mt-0.5 block truncate text-[11px] leading-tight text-muted-foreground"
+          title={extras}
+        >
+          {extras}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -68,11 +142,9 @@ export function RelationGroupsFieldControl({
   const nestedEntity = ctx.entityById.get(config?.nestedEntityId ?? "") ?? null;
   const groups = parseEntityRelationGroups(value);
   const usedItemIds = new Set(groups.map((group) => group.itemId));
-
-  const itemOptions = getRelationRecordOptions(itemEntity, ctx.entities).filter(
-    (option) => !usedItemIds.has(option.id),
-  );
-  const allNestedOptions = getRelationRecordOptions(nestedEntity, ctx.entities);
+  const layout = config?.layout === "row" ? "row" : "column";
+  const itemDisplayFieldIds = config?.itemDisplayFieldIds ?? [];
+  const nestedDisplayFieldIds = config?.nestedDisplayFieldIds ?? [];
 
   const itemLabel = itemEntity ? getEntityDisplayName(itemEntity) : "Запись";
   const nestedLabel = nestedEntity
@@ -102,7 +174,16 @@ export function RelationGroupsFieldControl({
 
   function addItem(nextId: string) {
     if (!nextId || usedItemIds.has(nextId)) return;
-    commit([...groups, { itemId: nextId, nestedIds: [] }]);
+    const defaults = config?.defaultNestedIds ?? [];
+    const allowed = allowedNestedIds(
+      itemEntity,
+      nextId,
+      config?.nestedSourceFieldId ?? null,
+    );
+    const nestedIds = allowed
+      ? defaults.filter((nestedId) => allowed.has(nestedId))
+      : [...defaults];
+    commit([...groups, { itemId: nextId, nestedIds }]);
   }
 
   function removeItem(itemId: string) {
@@ -125,22 +206,55 @@ export function RelationGroupsFieldControl({
     );
   }
 
+  const itemOptions = enrichOptions(
+    ctx,
+    itemEntity,
+    getRelationRecordOptions(itemEntity, ctx.entities).filter(
+      (option) => !usedItemIds.has(option.id),
+    ),
+    itemDisplayFieldIds,
+  );
+  const allNestedOptions = enrichOptions(
+    ctx,
+    nestedEntity,
+    getRelationRecordOptions(nestedEntity, ctx.entities),
+    nestedDisplayFieldIds,
+  );
+
+  const groupsClassName =
+    layout === "row"
+      ? "flex flex-row flex-wrap gap-2"
+      : "flex flex-col gap-2";
+  const cardClassName = cn(
+    "flex flex-col gap-1.5 rounded-lg border border-border/70 bg-card p-2.5",
+    layout === "row" && "min-w-[15rem] flex-1 basis-[min(100%,17rem)]",
+  );
+
   if (mode === "items") {
     return (
       <div className="flex flex-col gap-2">
         {groups.length > 0 ? (
-          <ul className="flex flex-col gap-1.5">
+          <ul className={groupsClassName}>
             {groups.map((group) => {
-              const label = itemLabelFor(itemEntity, group.itemId, ctx);
+              const title = recordTitle(itemEntity, group.itemId, ctx);
+              const extras = formatRecordExtras(
+                ctx,
+                itemEntity,
+                group.itemId,
+                itemDisplayFieldIds,
+              );
               const nestedCount = group.nestedIds.length;
               return (
                 <li
                   key={group.itemId}
-                  className="flex h-9 items-center gap-2 rounded-md border border-border/70 bg-card px-2.5"
+                  className={cn(
+                    "flex items-center gap-2 rounded-md border border-border/70 bg-card px-2.5",
+                    layout === "row"
+                      ? "min-h-9 min-w-[12rem] flex-1 basis-[min(100%,14rem)] py-1.5"
+                      : "h-9",
+                  )}
                 >
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {label}
-                  </span>
+                  <ItemMeta title={title} extras={extras} />
                   {nestedCount > 0 ? (
                     <span className="shrink-0 text-[11px] text-muted-foreground">
                       {nestedCount} выбр.
@@ -151,7 +265,7 @@ export function RelationGroupsFieldControl({
                     variant="ghost"
                     size="icon-sm"
                     className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
-                    aria-label={`Убрать «${label}»`}
+                    aria-label={`Убрать «${title}»`}
                     onClick={() => removeItem(group.itemId)}
                   >
                     <X className="size-3.5" />
@@ -189,9 +303,15 @@ export function RelationGroupsFieldControl({
     }
 
     return (
-      <div className="flex flex-col gap-2">
+      <div className={groupsClassName}>
         {groups.map((group) => {
-          const label = itemLabelFor(itemEntity, group.itemId, ctx);
+          const title = recordTitle(itemEntity, group.itemId, ctx);
+          const extras = formatRecordExtras(
+            ctx,
+            itemEntity,
+            group.itemId,
+            itemDisplayFieldIds,
+          );
           const allowed = allowedNestedIds(
             itemEntity,
             group.itemId,
@@ -204,13 +324,10 @@ export function RelationGroupsFieldControl({
             config.nestedSourceFieldId != null && (allowed?.size ?? 0) === 0;
 
           return (
-            <div
-              key={group.itemId}
-              className="flex flex-col gap-1.5 rounded-lg border border-border/70 bg-card p-2.5"
-            >
-              <div className="flex min-w-0 items-baseline justify-between gap-2 px-0.5">
-                <span className="truncate text-sm font-medium">{label}</span>
-                <span className="shrink-0 text-[11px] text-muted-foreground">
+            <div key={group.itemId} className={cardClassName}>
+              <div className="flex min-w-0 items-start justify-between gap-2 px-0.5">
+                <ItemMeta title={title} extras={extras} />
+                <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground">
                   {nestedLabel}
                 </span>
               </div>
@@ -224,7 +341,7 @@ export function RelationGroupsFieldControl({
                     ? "Нет доступных записей"
                     : `Выберите ${nestedLabel.toLowerCase()}`
                 }
-                aria-label={`${nestedLabel} для «${label}»`}
+                aria-label={`${nestedLabel} для «${title}»`}
                 onChange={(next) => updateNested(group.itemId, next)}
               />
             </div>
@@ -237,9 +354,15 @@ export function RelationGroupsFieldControl({
   return (
     <div className="flex flex-col gap-2">
       {groups.length > 0 ? (
-        <div className="flex flex-col gap-2">
+        <div className={groupsClassName}>
           {groups.map((group) => {
-            const label = itemLabelFor(itemEntity, group.itemId, ctx);
+            const title = recordTitle(itemEntity, group.itemId, ctx);
+            const extras = formatRecordExtras(
+              ctx,
+              itemEntity,
+              group.itemId,
+              itemDisplayFieldIds,
+            );
             const allowed = allowedNestedIds(
               itemEntity,
               group.itemId,
@@ -252,23 +375,15 @@ export function RelationGroupsFieldControl({
               config.nestedSourceFieldId != null && (allowed?.size ?? 0) === 0;
 
             return (
-              <div
-                key={group.itemId}
-                className="flex flex-col gap-1.5 rounded-lg border border-border/70 bg-card p-2.5"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="min-w-0 flex-1 truncate text-sm font-medium"
-                    title={label}
-                  >
-                    {label}
-                  </span>
+              <div key={group.itemId} className={cardClassName}>
+                <div className="flex items-start gap-2">
+                  <ItemMeta title={title} extras={extras} />
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
                     className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
-                    aria-label={`Убрать «${label}»`}
+                    aria-label={`Убрать «${title}»`}
                     onClick={() => removeItem(group.itemId)}
                   >
                     <X className="size-3.5" />
@@ -284,7 +399,7 @@ export function RelationGroupsFieldControl({
                       ? "Нет доступных записей"
                       : `Выберите ${nestedLabel.toLowerCase()}`
                   }
-                  aria-label={`${nestedLabel} для «${label}»`}
+                  aria-label={`${nestedLabel} для «${title}»`}
                   onChange={(next) => updateNested(group.itemId, next)}
                 />
               </div>

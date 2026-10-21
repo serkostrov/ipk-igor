@@ -21,6 +21,11 @@ export type AutomationAssigneeLeafResolver =
       via?: string[];
       /** User field on the entity reached by the relation path. */
       fieldId: string;
+      /**
+       * When true — every related / nested record and every user in the leaf
+       * field (separate tasks). Otherwise only the first.
+       */
+      fanOut?: boolean;
     }
   | { type: "role"; roleId: string }
   | { type: "currentUser" }
@@ -100,7 +105,7 @@ export const AUTOMATION_RECIPIENT_TYPE_HINTS: Record<
   fixedUsers: "Уведомление получат выбранные пользователи.",
   field:
     "Человек из поля этой записи или через связь / вложенность. Если в поле несколько — берётся первый.",
-  relationFieldFanOut: "Отдельное уведомление каждому из поля на этой записи.",
+  relationFieldFanOut: "Отдельное уведомление каждому из поля на этой записи",
   relatedField:
     "Через связь или вложенность: связанная запись → … → поле с человеком.",
   role: "Уведомление всем пользователям с выбранной ролью.",
@@ -281,9 +286,11 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
             : ""
       ).trim();
       if (!relationFieldId || !fieldId) return defaultAssigneeLeafResolver();
-      return via.length > 0
-        ? { type: "relatedField", relationFieldId, via, fieldId }
-        : { type: "relatedField", relationFieldId, fieldId };
+      const fanOut = raw.fanOut === true || raw.fan_out === true;
+      const base = via.length > 0
+        ? { type: "relatedField" as const, relationFieldId, via, fieldId }
+        : { type: "relatedField" as const, relationFieldId, fieldId };
+      return fanOut ? { ...base, fanOut: true } : base;
     }
     case "role": {
       const roleId =
