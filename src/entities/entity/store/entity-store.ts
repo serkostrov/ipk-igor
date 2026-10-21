@@ -471,10 +471,7 @@ function withOptionalTabLinkFields(entities: Entity[]): Entity[] {
   });
 }
 
-function mapEntity(
-  entityId: string,
-  mapper: (entity: Entity) => Entity,
-): void {
+function mapEntity(entityId: string, mapper: (entity: Entity) => Entity): void {
   let changed = false;
   const entities = config.entities.map((entity) => {
     if (entity.id !== entityId) return entity;

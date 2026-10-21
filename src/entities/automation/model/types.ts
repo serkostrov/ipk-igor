@@ -51,6 +51,19 @@ export type AutomationTaskKind = "decision" | "single" | "autofill";
 export type AutomationTaskStatus =
   "pending" | "completed" | "cancelled" | "returned";
 
+/**
+ * Ask the assignee to fill a field on a *related* record, reached through a
+ * relation field of the trigger entity.
+ */
+export type AutomationAskRelatedField = {
+  /** Stable row id (not an entity field id). */
+  id: string;
+  /** Relation field on the trigger entity. */
+  relationFieldId: string;
+  /** Field on the related entity. */
+  fieldId: string;
+};
+
 export type AutomationOutcomeFieldAccess = {
   /** Fields required to complete with this outcome. */
   requiredFieldIds: string[];
@@ -67,6 +80,17 @@ export type AutomationOutcomeFieldAccess = {
    * Defaults to all visible fields for legacy configs.
    */
   recordFieldIds: string[];
+  /** Related-entity fields shown on the task form. */
+  relatedVisibleFields: AutomationAskRelatedField[];
+  /** `relatedVisibleFields[].id` that are required. */
+  relatedRequiredIds: string[];
+  /** Related ask ids whose values are appended as notes on the related record. */
+  relatedCommentIds: string[];
+  /**
+   * Related ask ids written onto the related record.
+   * Defaults to all related visible for new configs.
+   */
+  relatedRecordIds: string[];
 };
 
 export function emptyAutomationOutcomeFieldAccess(): AutomationOutcomeFieldAccess {
@@ -76,6 +100,10 @@ export function emptyAutomationOutcomeFieldAccess(): AutomationOutcomeFieldAcces
     requireAttachment: false,
     commentFieldIds: [],
     recordFieldIds: [],
+    relatedVisibleFields: [],
+    relatedRequiredIds: [],
+    relatedCommentIds: [],
+    relatedRecordIds: [],
   };
 }
 
@@ -84,6 +112,39 @@ function normalizeStringIdList(value: unknown): string[] {
   return value.filter(
     (id): id is string => typeof id === "string" && id.trim().length > 0,
   );
+}
+
+function normalizeAskRelatedFields(
+  value: unknown,
+): AutomationAskRelatedField[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: AutomationAskRelatedField[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const relationFieldId =
+      typeof raw.relationFieldId === "string"
+        ? raw.relationFieldId.trim()
+        : typeof raw.relation_field_id === "string"
+          ? raw.relation_field_id.trim()
+          : "";
+    const fieldId =
+      typeof raw.fieldId === "string"
+        ? raw.fieldId.trim()
+        : typeof raw.field_id === "string"
+          ? raw.field_id.trim()
+          : "";
+    if (!relationFieldId || !fieldId) continue;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : `related-${relationFieldId}-${fieldId}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push({ id, relationFieldId, fieldId });
+  }
+  return result;
 }
 
 export function normalizeAutomationOutcomeFieldAccess(
@@ -107,6 +168,24 @@ export function normalizeAutomationOutcomeFieldAccess(
   )
     ? normalizeStringIdList(access.recordFieldIds ?? access.record_field_ids)
     : visibleFieldIds;
+  const relatedVisibleFields = normalizeAskRelatedFields(
+    access.relatedVisibleFields ?? access.related_visible_fields,
+  );
+  const relatedVisibleIds = new Set(
+    relatedVisibleFields.map((field) => field.id),
+  );
+  const relatedRequiredIds = normalizeStringIdList(
+    access.relatedRequiredIds ?? access.related_required_ids,
+  ).filter((id) => relatedVisibleIds.has(id));
+  const relatedCommentIds = normalizeStringIdList(
+    access.relatedCommentIds ?? access.related_comment_ids,
+  ).filter((id) => relatedVisibleIds.has(id));
+  const relatedRecordRaw = access.relatedRecordIds ?? access.related_record_ids;
+  const relatedRecordIds = Array.isArray(relatedRecordRaw)
+    ? normalizeStringIdList(relatedRecordRaw).filter((id) =>
+        relatedVisibleIds.has(id),
+      )
+    : relatedVisibleFields.map((field) => field.id);
   return {
     requiredFieldIds,
     visibleFieldIds,
@@ -114,7 +193,33 @@ export function normalizeAutomationOutcomeFieldAccess(
       access.requireAttachment === true || access.require_attachment === true,
     commentFieldIds,
     recordFieldIds,
+    relatedVisibleFields,
+    relatedRequiredIds,
+    relatedCommentIds,
+    relatedRecordIds,
   };
+}
+
+/** Draft value key for a related-entity ask field on the task form. */
+export function relatedAskValueKey(
+  relationFieldId: string,
+  relatedRecordId: string,
+  fieldId: string,
+) {
+  return `related:${relationFieldId}:${relatedRecordId}:${fieldId}`;
+}
+
+export function parseRelatedAskValueKey(key: string): {
+  relationFieldId: string;
+  relatedRecordId: string;
+  fieldId: string;
+} | null {
+  if (!key.startsWith("related:")) return null;
+  const parts = key.slice("related:".length).split(":");
+  if (parts.length !== 3) return null;
+  const [relationFieldId, relatedRecordId, fieldId] = parts;
+  if (!relationFieldId || !relatedRecordId || !fieldId) return null;
+  return { relationFieldId, relatedRecordId, fieldId };
 }
 
 export type AutomationOutcome = {

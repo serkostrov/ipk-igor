@@ -3,10 +3,12 @@ import {
   getCurrentUserRecordId,
   getEntityConfig,
   getEntityFieldDisplayName,
+  getEntityRelationTargetId,
   getEntityTabRecordsValueKey,
   getEntityValueContext,
   isEntityRecordsTab,
   notifyRecordMentions,
+  parseEntityRelationIds,
   parseEntityTabRecordEntries,
   serializeEntityTabRecordEntries,
   setEntityRecordValuesLocal,
@@ -25,7 +27,10 @@ import { resolveAutomationActionValue } from "../model/action-values";
 import { getAutomationConfig } from "../store/automation-store";
 import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
-import type { AutomationOutcomeFieldAccess } from "../model/types";
+import {
+  relatedAskValueKey,
+  type AutomationOutcomeFieldAccess,
+} from "../model/types";
 
 /** Append selected form-field values as notes on the first «Записи» tab. */
 async function appendOutcomeFieldComments(
@@ -83,6 +88,164 @@ async function appendOutcomeFieldComments(
   });
 }
 
+/** Append related-ask «комм.» notes onto linked records. */
+async function appendRelatedOutcomeFieldComments(
+  triggerEntity: Entity,
+  entities: Entity[],
+  fieldAccess: AutomationOutcomeFieldAccess,
+  values: Record<string, string>,
+) {
+  if (fieldAccess.relatedCommentIds.length === 0) return;
+
+  const commentAsks = fieldAccess.relatedVisibleFields.filter((item) =>
+    fieldAccess.relatedCommentIds.includes(item.id),
+  );
+  if (commentAsks.length === 0) return;
+
+  const entityById = new Map(entities.map((item) => [item.id, item]));
+  const ctx = getEntityValueContext(
+    getEntityConfig().entities,
+    getCurrentUserRecordId(),
+  );
+
+  type NoteBucket = {
+    entity: Entity;
+    record: EntityRecord;
+    lines: string[];
+  };
+  const buckets = new Map<string, NoteBucket>();
+
+  for (const ask of commentAsks) {
+    const relationField = triggerEntity.fields.find(
+      (field) => field.id === ask.relationFieldId,
+    );
+    const targetId = relationField
+      ? getEntityRelationTargetId(relationField)
+      : null;
+    const relatedEntity = targetId ? entityById.get(targetId) : undefined;
+    if (!relatedEntity) continue;
+    if (!relatedEntity.tabs.some(isEntityRecordsTab)) continue;
+    const field = relatedEntity.fields.find((item) => item.id === ask.fieldId);
+    if (!field) continue;
+
+    for (const relatedRecordId of parseEntityRelationIds(
+      values[ask.relationFieldId],
+    )) {
+      const relatedRecord = relatedEntity.records.find(
+        (item) => item.id === relatedRecordId,
+      );
+      if (!relatedRecord) continue;
+      const key = relatedAskValueKey(
+        ask.relationFieldId,
+        relatedRecordId,
+        ask.fieldId,
+      );
+      const raw = (values[key] ?? "").trim();
+      if (!raw) continue;
+      const draftValues = {
+        ...relatedRecord.values,
+        [ask.fieldId]: values[key] ?? "",
+      };
+      const formatted = formatRecordFieldValue(
+        ctx,
+        relatedEntity,
+        { ...relatedRecord, values: draftValues },
+        field,
+      );
+      if (!formatted || formatted === "—") continue;
+      const mapKey = `${relatedEntity.id}:${relatedRecordId}`;
+      const bucket = buckets.get(mapKey) ?? {
+        entity: relatedEntity,
+        record: relatedRecord,
+        lines: [],
+      };
+      bucket.lines.push(`${getEntityFieldDisplayName(field)}: ${formatted}`);
+      buckets.set(mapKey, bucket);
+    }
+  }
+
+  for (const bucket of buckets.values()) {
+    if (bucket.lines.length === 0) continue;
+    const notesTab = bucket.entity.tabs.find(isEntityRecordsTab);
+    if (!notesTab) continue;
+    const valueKey = getEntityTabRecordsValueKey(notesTab.id);
+    const existing = parseEntityTabRecordEntries(
+      bucket.record.values[valueKey],
+    );
+    const entry: EntityTabRecordEntry = {
+      id: crypto.randomUUID(),
+      text: bucket.lines.join("\n"),
+      createdAt: new Date().toISOString(),
+      authorId: getCurrentUserRecordId(),
+      editedAt: null,
+    };
+    await updateEntityRecord(bucket.entity.id, bucket.record.id, {
+      ...bucket.record.values,
+      [valueKey]: serializeEntityTabRecordEntries([entry, ...existing]),
+    });
+    await notifyRecordMentions({
+      entities: getEntityConfig().entities,
+      entityId: bucket.entity.id,
+      recordId: bucket.record.id,
+      text: entry.text,
+      authorId: entry.authorId,
+      entityName: bucket.entity.name,
+    });
+  }
+}
+
+function validateRelatedRequiredFields(
+  triggerEntity: Entity,
+  entities: Entity[],
+  fieldAccess: AutomationOutcomeFieldAccess,
+  values: Record<string, string>,
+): string[] {
+  const missing: string[] = [];
+  const requiredAsks = fieldAccess.relatedVisibleFields.filter((item) =>
+    fieldAccess.relatedRequiredIds.includes(item.id),
+  );
+  const entityById = new Map(entities.map((item) => [item.id, item]));
+
+  for (const ask of requiredAsks) {
+    const relationField = triggerEntity.fields.find(
+      (field) => field.id === ask.relationFieldId,
+    );
+    const relationLabel = relationField
+      ? getEntityFieldDisplayName(relationField)
+      : ask.relationFieldId;
+    const targetId = relationField
+      ? getEntityRelationTargetId(relationField)
+      : null;
+    const relatedEntity = targetId ? entityById.get(targetId) : undefined;
+    const field = relatedEntity?.fields.find((item) => item.id === ask.fieldId);
+    const fieldLabel = field ? getEntityFieldDisplayName(field) : ask.fieldId;
+    const label = `${relationLabel} · ${fieldLabel}`;
+    const relatedIds = parseEntityRelationIds(values[ask.relationFieldId]);
+    if (relatedIds.length === 0) {
+      missing.push(label);
+      continue;
+    }
+    if (!field) {
+      missing.push(label);
+      continue;
+    }
+    for (const relatedRecordId of relatedIds) {
+      const key = relatedAskValueKey(
+        ask.relationFieldId,
+        relatedRecordId,
+        ask.fieldId,
+      );
+      const raw = values[key] ?? "";
+      if (field.type === "boolean") continue;
+      if (!raw.trim()) {
+        missing.push(label);
+        break;
+      }
+    }
+  }
+  return [...new Set(missing)];
+}
+
 /**
  * Complete via SQL RPC, then run rich client-side actions from outcome.
  * `formValues` — draft values from the fill dialog (for comments that are
@@ -131,6 +294,19 @@ export async function completeAutomationTask(
     });
     throw new Error(`Не заполнены обязательные поля: ${labels.join(", ")}`);
   }
+  if (entity) {
+    const missingRelated = validateRelatedRequiredFields(
+      entity,
+      entities,
+      outcome.fieldAccess,
+      valuesForForm,
+    );
+    if (missingRelated.length > 0) {
+      throw new Error(
+        `Не заполнены обязательные поля: ${missingRelated.join(", ")}`,
+      );
+    }
+  }
   const previousValues: Record<string, string> = {
     ...(record?.values ?? {}),
   };
@@ -160,6 +336,12 @@ export async function completeAutomationTask(
     await appendOutcomeFieldComments(
       entity,
       record,
+      outcome.fieldAccess,
+      valuesForComments,
+    );
+    await appendRelatedOutcomeFieldComments(
+      entity,
+      entities,
       outcome.fieldAccess,
       valuesForComments,
     );

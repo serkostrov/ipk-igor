@@ -3,8 +3,10 @@ import type { AutomationOutcome } from "@/entities/automation";
 import { updateEntityRecord, type Entity } from "@/entities/entity";
 import {
   buildTaskFormPersistPatch,
+  buildTaskRelatedPersistUpdates,
   processTriggerFieldId,
 } from "./task-form-persist";
+import { persistRelatedAskUpdates } from "./task-related-ask";
 
 const AUTOSAVE_DELAY_MS = 650;
 
@@ -17,6 +19,7 @@ type AutosaveArgs = {
   recordId: string;
   processId: string;
   entity: Entity | null | undefined;
+  entities: Entity[];
   outcomes: AutomationOutcome[];
   values: Record<string, string>;
   recordValues: Record<string, string | undefined>;
@@ -25,6 +28,7 @@ type AutosaveArgs = {
 /**
  * Debounced persist of task form values onto the entity record so drafts
  * survive reload / restart. Skips the process trigger field (stage).
+ * Also writes related-ask «запись» fields onto linked records.
  */
 export function useTaskFormAutosave({
   enabled,
@@ -32,6 +36,7 @@ export function useTaskFormAutosave({
   recordId,
   processId,
   entity,
+  entities,
   outcomes,
   values,
   recordValues,
@@ -52,6 +57,7 @@ export function useTaskFormAutosave({
     recordId,
     processId,
     entity,
+    entities,
     outcomes,
     values,
     recordValues,
@@ -64,6 +70,7 @@ export function useTaskFormAutosave({
       recordId,
       processId,
       entity,
+      entities,
       outcomes,
       values,
       recordValues,
@@ -74,6 +81,7 @@ export function useTaskFormAutosave({
     recordId,
     processId,
     entity,
+    entities,
     outcomes,
     values,
     recordValues,
@@ -90,8 +98,15 @@ export function useTaskFormAutosave({
       excludeFieldIds: [processTriggerFieldId(args.processId)],
       recordValues: args.recordValues,
     });
+    const related = buildTaskRelatedPersistUpdates({
+      entity: args.entity,
+      entities: args.entities,
+      outcomes: args.outcomes,
+      values: args.values,
+      skipUnchanged: true,
+    });
 
-    if (!patch) {
+    if (!patch && related.length === 0) {
       if (generation === genRef.current) {
         dirtyRef.current = false;
         setStatus("saved");
@@ -105,7 +120,10 @@ export function useTaskFormAutosave({
     }
 
     try {
-      await updateEntityRecord(args.entityId, args.recordId, patch);
+      if (patch) {
+        await updateEntityRecord(args.entityId, args.recordId, patch);
+      }
+      await persistRelatedAskUpdates(related);
       if (generation !== genRef.current) return;
       dirtyRef.current = false;
       setStatus("saved");

@@ -23,6 +23,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
@@ -45,6 +50,7 @@ import {
   setAutomationUploadTarget,
   withOutcomeStageAction,
   withoutOutcomeStageAction,
+  type AutomationAskRelatedField,
   type AutomationLaunchPhase,
   type AutomationNotificationRule,
   type AutomationOutcome,
@@ -56,6 +62,8 @@ import {
 import { AssigneeEditor } from "@/entities/automation/ui/AssigneeEditor";
 import {
   getEntityFieldDisplayName,
+  getEntityRelationTargetId,
+  isEntityComputedFieldType,
   isEntityFilesTab,
   isEntityRecordsTab,
   type Entity,
@@ -77,6 +85,19 @@ import { TemplateRichText } from "./TemplateRichText";
 import { cn } from "@/shared/lib/cn";
 
 const OUTCOME_FIELD_MIME = "application/x-ipk-outcome-field";
+
+function createAskRelatedFieldId() {
+  return `arel-${crypto.randomUUID()}`;
+}
+
+/** Writable fields for related-entity ask (no computed / file / dependencies). */
+function isAskRelatedTargetField(field: EntityField) {
+  return (
+    !isEntityComputedFieldType(field.type) &&
+    field.type !== "file" &&
+    field.type !== "dependencies"
+  );
+}
 
 const fieldLayoutTransition = {
   type: "spring" as const,
@@ -493,22 +514,59 @@ function toggleIdList(ids: string[], fieldId: string, enabled: boolean) {
 /** Compact: only selected fields; add via select. Flags = checkboxes on the row. */
 function OutcomeAskFieldsEditor({
   fields,
+  entities,
   value,
   onChange,
   hasRecordsTab,
 }: {
   fields: EntityField[];
+  entities: Entity[];
   value: AutomationOutcomeFieldAccess;
   onChange: (next: AutomationOutcomeFieldAccess) => void;
   hasRecordsTab: boolean;
 }) {
   const access = normalizeAutomationOutcomeFieldAccess(value);
+  const entityById = new Map(entities.map((item) => [item.id, item]));
   const selected = access.visibleFieldIds
     .map((id) => fields.find((field) => field.id === id))
     .filter((field): field is EntityField => field != null);
   const available = fields.filter(
     (field) => !access.visibleFieldIds.includes(field.id),
   );
+  const relationFields = fields.filter((field) => field.type === "relation");
+  const relatedSelected = access.relatedVisibleFields;
+  const usedRelatedKeys = new Set(
+    relatedSelected.map((item) => `${item.relationFieldId}:${item.fieldId}`),
+  );
+
+  const relatedPickers = relationFields
+    .map((relation) => {
+      const targetId = getEntityRelationTargetId(relation);
+      const target = targetId ? entityById.get(targetId) : undefined;
+      if (!target) return null;
+      const availableFields = target.fields.filter(
+        (field) =>
+          isAskRelatedTargetField(field) &&
+          !usedRelatedKeys.has(`${relation.id}:${field.id}`),
+      );
+      if (availableFields.length === 0) return null;
+      return {
+        relation,
+        target,
+        availableFields,
+      };
+    })
+    .filter(
+      (
+        item,
+      ): item is {
+        relation: EntityField;
+        target: Entity;
+        availableFields: EntityField[];
+      } => item != null,
+    );
+
+  const canAddField = available.length > 0 || relatedPickers.length > 0;
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{
@@ -550,6 +608,77 @@ function OutcomeAskFieldsEditor({
       ...access,
       recordFieldIds: toggleIdList(access.recordFieldIds, fieldId, enabled),
     });
+  }
+
+  function addRelatedField(relationFieldId: string, fieldId: string) {
+    const next: AutomationAskRelatedField = {
+      id: createAskRelatedFieldId(),
+      relationFieldId,
+      fieldId,
+    };
+    onChange({
+      ...access,
+      relatedVisibleFields: [...access.relatedVisibleFields, next],
+      relatedRecordIds: [...access.relatedRecordIds, next.id],
+    });
+  }
+
+  function removeRelatedField(askId: string) {
+    onChange({
+      ...access,
+      relatedVisibleFields: access.relatedVisibleFields.filter(
+        (item) => item.id !== askId,
+      ),
+      relatedRequiredIds: access.relatedRequiredIds.filter(
+        (id) => id !== askId,
+      ),
+      relatedCommentIds: access.relatedCommentIds.filter((id) => id !== askId),
+      relatedRecordIds: access.relatedRecordIds.filter((id) => id !== askId),
+    });
+  }
+
+  function setRelatedRequired(askId: string, required: boolean) {
+    onChange({
+      ...access,
+      relatedRequiredIds: toggleIdList(
+        access.relatedRequiredIds,
+        askId,
+        required,
+      ),
+    });
+  }
+
+  function setRelatedComment(askId: string, enabled: boolean) {
+    onChange({
+      ...access,
+      relatedCommentIds: toggleIdList(access.relatedCommentIds, askId, enabled),
+    });
+  }
+
+  function setRelatedRecord(askId: string, enabled: boolean) {
+    onChange({
+      ...access,
+      relatedRecordIds: toggleIdList(access.relatedRecordIds, askId, enabled),
+    });
+  }
+
+  function resolveRelatedRow(item: AutomationAskRelatedField) {
+    const relation = fields.find((field) => field.id === item.relationFieldId);
+    const targetId = relation ? getEntityRelationTargetId(relation) : null;
+    const target = targetId ? entityById.get(targetId) : undefined;
+    const targetField = target?.fields.find(
+      (field) => field.id === item.fieldId,
+    );
+    return {
+      relation,
+      target,
+      targetField,
+      relationLabel: relation ? getEntityFieldDisplayName(relation) : "Связь",
+      fieldLabel: targetField
+        ? getEntityFieldDisplayName(targetField)
+        : item.fieldId,
+      hasRecordsTab: target?.tabs.some(isEntityRecordsTab) ?? false,
+    };
   }
 
   function endDrag() {
@@ -602,7 +731,7 @@ function OutcomeAskFieldsEditor({
     <div className="rounded-md border border-border/70 bg-background p-2.5">
       <div className="flex h-7 items-center justify-between gap-2">
         <p className="text-xs font-medium">Поля формы</p>
-        {available.length > 0 ? (
+        {canAddField ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -617,23 +746,69 @@ function OutcomeAskFieldsEditor({
               <Plus className="size-3 shrink-0" />
               Поле
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-64 min-w-48">
-              {available.map((field) => (
-                <DropdownMenuItem
-                  key={field.id}
-                  onClick={() =>
-                    onChange({
-                      ...access,
-                      visibleFieldIds: [...access.visibleFieldIds, field.id],
-                      recordFieldIds: access.recordFieldIds.includes(field.id)
-                        ? access.recordFieldIds
-                        : [...access.recordFieldIds, field.id],
-                    })
-                  }
-                >
-                  {getEntityFieldDisplayName(field)}
-                </DropdownMenuItem>
-              ))}
+            <DropdownMenuContent align="end" className="max-h-72 min-w-52">
+              {available.length > 0 ? (
+                <>
+                  <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                    Эта сущность
+                  </DropdownMenuLabel>
+                  {available.map((field) => (
+                    <DropdownMenuItem
+                      key={field.id}
+                      onClick={() =>
+                        onChange({
+                          ...access,
+                          visibleFieldIds: [
+                            ...access.visibleFieldIds,
+                            field.id,
+                          ],
+                          recordFieldIds: access.recordFieldIds.includes(
+                            field.id,
+                          )
+                            ? access.recordFieldIds
+                            : [...access.recordFieldIds, field.id],
+                        })
+                      }
+                    >
+                      {getEntityFieldDisplayName(field)}
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              ) : null}
+              {available.length > 0 && relatedPickers.length > 0 ? (
+                <DropdownMenuSeparator />
+              ) : null}
+              {relatedPickers.length > 0 ? (
+                <>
+                  <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                    Через связь
+                  </DropdownMenuLabel>
+                  {relatedPickers.map(
+                    ({ relation, target, availableFields }) => (
+                      <DropdownMenuSub key={relation.id}>
+                        <DropdownMenuSubTrigger>
+                          {getEntityFieldDisplayName(relation)}
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="max-h-64 min-w-44">
+                          <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+                            {target.name}
+                          </DropdownMenuLabel>
+                          {availableFields.map((field) => (
+                            <DropdownMenuItem
+                              key={field.id}
+                              onClick={() =>
+                                addRelatedField(relation.id, field.id)
+                              }
+                            >
+                              {getEntityFieldDisplayName(field)}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    ),
+                  )}
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
@@ -800,6 +975,76 @@ function OutcomeAskFieldsEditor({
           </ul>
         </LayoutGroup>
       )}
+
+      <div className="mt-3 border-t border-border/60 pt-2.5">
+        <p className="text-xs font-medium">Поля связанных записей</p>
+        {relatedSelected.length === 0 ? (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Нет полей. Добавьте через «Поле» → «Через связь».
+          </p>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-1">
+            {relatedSelected.map((item) => {
+              const row = resolveRelatedRow(item);
+              const required = access.relatedRequiredIds.includes(item.id);
+              const toComments = access.relatedCommentIds.includes(item.id);
+              const toRecord = access.relatedRecordIds.includes(item.id);
+              return (
+                <li key={item.id} className="list-none">
+                  <div className="flex h-8 items-center gap-1.5 rounded border border-border/50 bg-card px-2">
+                    <span className="min-w-0 flex-1 truncate text-xs">
+                      <span className="text-muted-foreground">
+                        {row.relationLabel}
+                      </span>
+                      <span className="text-muted-foreground"> · </span>
+                      {row.fieldLabel}
+                    </span>
+                    <FieldFlagCheckbox
+                      checked={required}
+                      label="обяз."
+                      title="Обязательное поле связанной записи"
+                      onCheckedChange={(checked) =>
+                        setRelatedRequired(item.id, checked)
+                      }
+                    />
+                    <FieldFlagCheckbox
+                      checked={toComments}
+                      disabled={!row.hasRecordsTab}
+                      label="комм."
+                      title={
+                        row.hasRecordsTab
+                          ? "Добавить содержимое в комментарии связанной записи"
+                          : "Нет вкладки «Записи» у связанной сущности"
+                      }
+                      onCheckedChange={(checked) =>
+                        setRelatedComment(item.id, checked)
+                      }
+                    />
+                    <FieldFlagCheckbox
+                      checked={toRecord}
+                      label="запись"
+                      title="Записать значение в поле связанной записи"
+                      onCheckedChange={(checked) =>
+                        setRelatedRecord(item.id, checked)
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6 shrink-0"
+                      aria-label="Убрать поле"
+                      onClick={() => removeRelatedField(item.id)}
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
@@ -1315,6 +1560,7 @@ export function TemplateInspector({
 
                           <OutcomeAskFieldsEditor
                             fields={entity.fields}
+                            entities={entities}
                             value={selectedOutcome.fieldAccess}
                             hasRecordsTab={hasRecordsTab}
                             onChange={(fieldAccess) =>

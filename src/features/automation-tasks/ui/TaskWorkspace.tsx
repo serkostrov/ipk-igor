@@ -55,13 +55,23 @@ import {
 } from "../lib/task-ask-fields";
 import {
   buildTaskFormPersistPatch,
+  buildTaskRelatedPersistUpdates,
   processTriggerFieldId,
 } from "../lib/task-form-persist";
+import {
+  countMissingRelatedRequired,
+  resolveRelatedAskLayout,
+  seedRelatedAskValues,
+  syncRelatedAskValuesAfterLocalChange,
+  validateRelatedAskRequired,
+  persistRelatedAskUpdates,
+} from "../lib/task-related-ask";
 import {
   taskFormAutosaveLabel,
   useTaskFormAutosave,
 } from "../lib/use-task-form-autosave";
 import { resumePendingRecordListChange } from "../model/pending-list-change";
+import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
 function isFieldFilled(
@@ -127,6 +137,9 @@ function buildTaskFormValues(
   entities: Entity[],
   setFieldActions: ReturnType<typeof getOutcomeSetFieldActions> = [],
   actorUserId: string | null = null,
+  relatedFields: ReturnType<
+    typeof getAutomationTaskAskFields
+  >["relatedVisibleFields"] = [],
 ) {
   const draft: Record<string, string> = {};
   for (const fieldId of visibleFieldIds) {
@@ -134,23 +147,32 @@ function buildTaskFormValues(
     const raw = record.values[fieldId] ?? "";
     draft[fieldId] = field ? normalizeEntityFieldInputValue(field, raw) : raw;
   }
-  const base = sanitizeEntityRelationDependencies(entity, draft, entities);
-  if (setFieldActions.length === 0) return base;
-  const merged = { ...record.values, ...base };
-  const filled = applyAutomationSetFieldAutofill({
-    entity,
+  let base = sanitizeEntityRelationDependencies(entity, draft, entities);
+  if (setFieldActions.length > 0) {
+    const merged = { ...record.values, ...base };
+    const filled = applyAutomationSetFieldAutofill({
+      entity,
+      entities,
+      values: merged,
+      actions: setFieldActions,
+      actorUserId,
+      triggerRecordId: record.id,
+    });
+    base = mergeAutofillIntoFormValues(
+      base,
+      record.values,
+      filled,
+      setFieldActions,
+    );
+  }
+  if (relatedFields.length === 0) return base;
+  return seedRelatedAskValues({
+    triggerEntity: entity,
     entities,
-    values: merged,
-    actions: setFieldActions,
-    actorUserId,
-    triggerRecordId: record.id,
+    relatedFields,
+    triggerValues: { ...record.values, ...base },
+    currentValues: base,
   });
-  return mergeAutofillIntoFormValues(
-    base,
-    record.values,
-    filled,
-    setFieldActions,
-  );
 }
 
 export function TaskWorkspace({
@@ -244,6 +266,7 @@ function TaskWorkspaceBody({
       entities,
       getOutcomeSetFieldActions(outcome),
       getCurrentUserRecordId(),
+      taskAsk.relatedVisibleFields,
     );
   });
   const [busy, setBusy] = useState(false);
@@ -266,36 +289,70 @@ function TaskWorkspaceBody({
     recordId: task.recordId,
     processId: task.processId,
     entity,
+    entities,
     outcomes: task.config.outcomes,
     values,
     recordValues: record?.values ?? {},
   });
   const autosaveLabel = taskFormAutosaveLabel(autosave.status);
 
+  const relatedFieldsForForm =
+    ask?.relatedVisibleFields ??
+    (formUpfront ? taskAsk.relatedVisibleFields : []);
+  const relatedRequiredForForm =
+    ask?.relatedRequiredIds ?? (formUpfront ? taskAsk.relatedRequiredIds : []);
+
+  const relatedLayout =
+    entity && relatedFieldsForForm.length > 0
+      ? resolveRelatedAskLayout({
+          triggerEntity: entity,
+          entities,
+          relatedFields: relatedFieldsForForm,
+          relatedRequiredIds: relatedRequiredForForm,
+          triggerValues: { ...(record?.values ?? {}), ...values },
+          ctx: previewContext,
+        })
+      : { groups: [], emptyRelations: [] };
+
   function applyOutcomeAutofill(outcomeId: string) {
     if (!entity || !record) return;
     const outcome =
       task.config.outcomes.find((item) => item.id === outcomeId) ?? null;
     const actions = getOutcomeSetFieldActions(outcome);
-    if (actions.length === 0) return;
+    const relatedFields =
+      outcome != null
+        ? getAutomationOutcomeAskFields(outcome).relatedVisibleFields
+        : [];
+    if (actions.length === 0 && relatedFields.length === 0) return;
     const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
-    autosave.markDirty();
+    if (actions.length > 0) autosave.markDirty();
     setValues((current) => {
-      const merged = { ...record.values, ...current };
-      const filled = applyAutomationSetFieldAutofill({
-        entity,
+      let next = current;
+      if (actions.length > 0) {
+        const merged = { ...record.values, ...current };
+        const filled = applyAutomationSetFieldAutofill({
+          entity,
+          entities,
+          values: merged,
+          actions,
+          actorUserId,
+          triggerRecordId: record.id,
+        });
+        next = mergeAutofillIntoFormValues(
+          current,
+          record.values,
+          filled,
+          actions,
+        );
+      }
+      if (relatedFields.length === 0) return next;
+      return seedRelatedAskValues({
+        triggerEntity: entity,
         entities,
-        values: merged,
-        actions,
-        actorUserId,
-        triggerRecordId: record.id,
+        relatedFields,
+        triggerValues: { ...record.values, ...next },
+        currentValues: next,
       });
-      return mergeAutofillIntoFormValues(
-        current,
-        record.values,
-        filled,
-        actions,
-      );
     });
   }
 
@@ -321,9 +378,12 @@ function TaskWorkspaceBody({
   const title = recordTitle(valueContext, entity, record);
   /** View tabs from any outcome — shown before a result is chosen. */
   const earlyViewTabIds = taskAsk.viewTabIds;
+  const hasRelatedAsk =
+    relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
   const hasFillForm =
-    ask != null && (fields.length > 0 || viewFields.length > 0);
-  const missingRequiredCount = ask
+    ask != null &&
+    (fields.length > 0 || viewFields.length > 0 || hasRelatedAsk);
+  const missingLocalRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {
         const field = entity?.fields.find((item) => item.id === fieldId);
         if (!field || !entity || !record) return true;
@@ -335,37 +395,63 @@ function TaskWorkspaceBody({
         });
       }).length
     : 0;
+  const missingRelatedRequiredCount =
+    entity && relatedFieldsForForm.length > 0
+      ? countMissingRelatedRequired({
+          triggerEntity: entity,
+          entities,
+          relatedFields: relatedFieldsForForm,
+          relatedRequiredIds: relatedRequiredForForm,
+          values: mergedValues,
+          isFieldFilled: (field, value) => isFieldFilled(field, value),
+        })
+      : 0;
+  const missingRequiredCount =
+    missingLocalRequiredCount + missingRelatedRequiredCount;
 
   function setValue(fieldId: string, value: string) {
     if (!entity) return;
     const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
     autosave.markDirty();
     setValues((current) => {
-      const base = applyEntityFieldValue(
+      let base = applyEntityFieldValue(
         entity,
         current,
         fieldId,
         value,
         entities,
       );
-      if (setFieldActions.length === 0) return base;
-      const merged = { ...(record?.values ?? {}), ...base };
-      const filled = applyAutomationSetFieldAutofill({
-        entity,
+      if (setFieldActions.length > 0) {
+        const merged = { ...(record?.values ?? {}), ...base };
+        const filled = applyAutomationSetFieldAutofill({
+          entity,
+          entities,
+          values: merged,
+          actions: setFieldActions,
+          actorUserId,
+          triggerRecordId: record?.id,
+          changedFieldId: fieldId,
+        });
+        base = mergeAutofillIntoFormValues(
+          base,
+          record?.values ?? {},
+          filled,
+          setFieldActions,
+        );
+      }
+      return syncRelatedAskValuesAfterLocalChange({
+        triggerEntity: entity,
         entities,
-        values: merged,
-        actions: setFieldActions,
-        actorUserId,
-        triggerRecordId: record?.id,
+        relatedFields: relatedFieldsForForm,
         changedFieldId: fieldId,
+        values: base,
       });
-      return mergeAutofillIntoFormValues(
-        base,
-        record?.values ?? {},
-        filled,
-        setFieldActions,
-      );
     });
+  }
+
+  function setRelatedValue(valueKey: string, value: string) {
+    autosave.markDirty();
+    setValues((current) => ({ ...current, [valueKey]: value }));
   }
 
   async function persistValues(outcomeId?: string) {
@@ -381,9 +467,17 @@ function TaskWorkspaceBody({
       values,
       excludeFieldIds: [processTriggerFieldId(task.processId)],
     });
-    if (!patch) return;
-    // Partial patch — store merges into current values (keeps files tabs etc.).
-    await updateEntityRecord(task.entityId, task.recordId, patch);
+    if (patch) {
+      // Partial patch — store merges into current values (keeps files tabs etc.).
+      await updateEntityRecord(task.entityId, task.recordId, patch);
+    }
+    const related = buildTaskRelatedPersistUpdates({
+      entity,
+      entities,
+      outcomes,
+      values,
+    });
+    await persistRelatedAskUpdates(related);
   }
 
   function validateForOutcome(outcomeId: string) {
@@ -408,7 +502,13 @@ function TaskWorkspaceBody({
       });
       return `Заполните: ${labels.join(", ")}`;
     }
-    return null;
+    return validateRelatedAskRequired({
+      triggerEntity: entity,
+      entities,
+      fieldAccess: outcome.fieldAccess,
+      values: mergedValues,
+      isFieldFilled: (field, value) => isFieldFilled(field, value),
+    });
   }
 
   async function run(outcomeId: string) {
@@ -656,6 +756,18 @@ function TaskWorkspaceBody({
                       );
                     })}
                   </div>
+                ) : null}
+
+                {hasRelatedAsk ? (
+                  <TaskRelatedAskFields
+                    groups={relatedLayout.groups}
+                    emptyRelations={relatedLayout.emptyRelations}
+                    values={values}
+                    entities={entities}
+                    ctx={previewContext}
+                    disabled={busy}
+                    onChange={setRelatedValue}
+                  />
                 ) : null}
               </div>
             ) : undefined

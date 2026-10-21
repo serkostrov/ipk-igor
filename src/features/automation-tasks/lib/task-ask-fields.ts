@@ -1,4 +1,8 @@
-import type { AutomationOutcome, AutomationTask } from "@/entities/automation";
+import type {
+  AutomationAskRelatedField,
+  AutomationOutcome,
+  AutomationTask,
+} from "@/entities/automation";
 
 export type AutomationAskFields = {
   requiredFieldIds: string[];
@@ -15,6 +19,12 @@ export type AutomationAskFields = {
   /** Assignee may move files between folders on files tabs in the task. */
   viewFilesTabAllowMove: boolean;
   requireAttachment: boolean;
+  /** Related-entity fields shown on the task form. */
+  relatedVisibleFields: AutomationAskRelatedField[];
+  /** `relatedVisibleFields[].id` that are required. */
+  relatedRequiredIds: string[];
+  relatedCommentIds: string[];
+  relatedRecordIds: string[];
 };
 
 const EMPTY_ASK_FIELDS: AutomationAskFields = {
@@ -25,6 +35,10 @@ const EMPTY_ASK_FIELDS: AutomationAskFields = {
   viewFilesTabEntryIds: {},
   viewFilesTabAllowMove: false,
   requireAttachment: false,
+  relatedVisibleFields: [],
+  relatedRequiredIds: [],
+  relatedCommentIds: [],
+  relatedRecordIds: [],
 };
 
 function mergeFilesTabEntryIds(
@@ -51,6 +65,19 @@ function uniquePreserveOrder(ids: Iterable<string>): string[] {
   return result;
 }
 
+function uniqueRelatedFields(
+  fields: AutomationAskRelatedField[],
+): AutomationAskRelatedField[] {
+  const seen = new Set<string>();
+  const result: AutomationAskRelatedField[] = [];
+  for (const item of fields) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    result.push(item);
+  }
+  return result;
+}
+
 /** Fields / tabs for a single outcome (form appears only after that button). */
 export function getAutomationOutcomeAskFields(
   outcome: AutomationOutcome,
@@ -64,6 +91,28 @@ export function getAutomationOutcomeAskFields(
   const visibleSet = new Set(visibleFieldIds);
   const requiredFieldIds = uniquePreserveOrder(
     outcome.fieldAccess.requiredFieldIds.filter((id) => visibleSet.has(id)),
+  );
+
+  const relatedVisibleFields = uniqueRelatedFields(
+    outcome.fieldAccess.relatedVisibleFields,
+  );
+  const relatedVisibleIds = new Set(
+    relatedVisibleFields.map((item) => item.id),
+  );
+  const relatedRequiredIds = uniquePreserveOrder(
+    outcome.fieldAccess.relatedRequiredIds.filter((id) =>
+      relatedVisibleIds.has(id),
+    ),
+  );
+  const relatedCommentIds = uniquePreserveOrder(
+    outcome.fieldAccess.relatedCommentIds.filter((id) =>
+      relatedVisibleIds.has(id),
+    ),
+  );
+  const relatedRecordIds = uniquePreserveOrder(
+    outcome.fieldAccess.relatedRecordIds.filter((id) =>
+      relatedVisibleIds.has(id),
+    ),
   );
 
   const viewOnly: string[] = [];
@@ -99,6 +148,10 @@ export function getAutomationOutcomeAskFields(
     viewFilesTabEntryIds,
     viewFilesTabAllowMove,
     requireAttachment: outcome.fieldAccess.requireAttachment === true,
+    relatedVisibleFields,
+    relatedRequiredIds,
+    relatedCommentIds,
+    relatedRecordIds,
   };
 }
 
@@ -111,6 +164,10 @@ export function getAutomationTaskAskFields(
   const viewOnly: string[] = [];
   const viewTabs: string[] = [];
   const viewFilesTabEntryIds: Record<string, string[]> = {};
+  const relatedVisible: AutomationAskRelatedField[] = [];
+  const relatedRequired: string[] = [];
+  const relatedComment: string[] = [];
+  const relatedRecord: string[] = [];
   let viewFilesTabAllowMove = false;
   let requireAttachment = false;
 
@@ -123,10 +180,18 @@ export function getAutomationTaskAskFields(
     mergeFilesTabEntryIds(viewFilesTabEntryIds, ask.viewFilesTabEntryIds);
     if (ask.viewFilesTabAllowMove) viewFilesTabAllowMove = true;
     if (ask.requireAttachment) requireAttachment = true;
+    relatedVisible.push(...ask.relatedVisibleFields);
+    relatedRequired.push(...ask.relatedRequiredIds);
+    relatedComment.push(...ask.relatedCommentIds);
+    relatedRecord.push(...ask.relatedRecordIds);
   }
 
   const visibleFieldIds = uniquePreserveOrder(visible);
   const visibleSet = new Set(visibleFieldIds);
+  const relatedVisibleFields = uniqueRelatedFields(relatedVisible);
+  const relatedVisibleIds = new Set(
+    relatedVisibleFields.map((item) => item.id),
+  );
 
   return {
     requiredFieldIds: uniquePreserveOrder(required),
@@ -138,6 +203,16 @@ export function getAutomationTaskAskFields(
     viewFilesTabEntryIds,
     viewFilesTabAllowMove,
     requireAttachment,
+    relatedVisibleFields,
+    relatedRequiredIds: uniquePreserveOrder(relatedRequired).filter((id) =>
+      relatedVisibleIds.has(id),
+    ),
+    relatedCommentIds: uniquePreserveOrder(relatedComment).filter((id) =>
+      relatedVisibleIds.has(id),
+    ),
+    relatedRecordIds: uniquePreserveOrder(relatedRecord).filter((id) =>
+      relatedVisibleIds.has(id),
+    ),
   };
 }
 
@@ -148,6 +223,7 @@ export function automationOutcomeNeedsInput(outcome: AutomationOutcome) {
     ask.requiredFieldIds.length > 0 ||
     ask.viewFieldIds.length > 0 ||
     ask.viewTabIds.length > 0 ||
+    ask.relatedVisibleFields.length > 0 ||
     ask.requireAttachment
   );
 }

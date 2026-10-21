@@ -4,6 +4,10 @@ import {
 } from "@/entities/automation";
 import type { Entity } from "@/entities/entity";
 import { getOutcomeSetFieldActions } from "./apply-outcome-autofill";
+import {
+  buildRelatedAskPersistUpdates,
+  type RelatedAskPersistUpdate,
+} from "./task-related-ask";
 
 /** Process list/stage field — must be written only by complete RPC. */
 export function processTriggerFieldId(processId: string): string {
@@ -69,4 +73,21 @@ export function buildTaskFormPersistPatch(options: {
     patch[fieldId] = next;
   }
   return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/** Related-record patches for ask fields marked «запись». */
+export function buildTaskRelatedPersistUpdates(options: {
+  entity: Entity;
+  entities: Entity[];
+  outcomes: AutomationOutcome[];
+  values: Record<string, string>;
+  skipUnchanged?: boolean;
+}): RelatedAskPersistUpdate[] {
+  return buildRelatedAskPersistUpdates({
+    triggerEntity: options.entity,
+    entities: options.entities,
+    fieldAccess: options.outcomes.map((item) => item.fieldAccess),
+    values: options.values,
+    skipUnchanged: options.skipUnchanged,
+  });
 }
