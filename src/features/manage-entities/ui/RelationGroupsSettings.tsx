@@ -84,7 +84,7 @@ export function RelationGroupsSettings({
       <SettingSelect
         id="entity-field-relation-groups-item"
         title="Строки"
-        description="Сущность, из которой выбираются основные записи"
+        description="Что выбирают в первую очередь (например стадии)"
         value={value.itemEntityId}
         options={itemOptions}
         emptyLabel="Выберите сущность"
@@ -102,7 +102,7 @@ export function RelationGroupsSettings({
       <SettingSelect
         id="entity-field-relation-groups-nested"
         title="Вложенные"
-        description="Мультивыбор для каждой строки"
+        description="Мультивыбор внутри каждой строки (например отделы)"
         value={value.nestedEntityId}
         options={nestedOptions}
         emptyLabel="Выберите сущность"
@@ -120,8 +120,8 @@ export function RelationGroupsSettings({
           title="Ограничить вложенные"
           description={
             nestedEntityName
-              ? `Поле связи на строке → «${nestedEntityName}» (необязательно)`
-              : "Поле связи на строке (необязательно)"
+              ? `Необязательно: поле связи на строке → «${nestedEntityName}»`
+              : "Необязательно: поле связи на строке"
           }
           value={value.nestedSourceFieldId}
           options={nestedSourceOptions}

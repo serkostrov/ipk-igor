@@ -40,6 +40,7 @@ import {
   defaultAutofillOutcomes,
   defaultDecisionOutcomes,
   emptyAutomationConditions,
+  AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS,
   emptyAutomationOutcomeFieldAccess,
   getOutcomeStageOptionId,
   normalizeAutomationOutcomeFieldAccess,
@@ -56,6 +57,7 @@ import {
   type AutomationNotificationRule,
   type AutomationOutcome,
   type AutomationOutcomeFieldAccess,
+  type AutomationRelationGroupsAskMode,
   type AutomationTaskKind,
   type AutomationTaskTemplate,
   type AutomationTaskUploadTarget,
@@ -578,13 +580,32 @@ function OutcomeAskFieldsEditor({
   const allowDragRef = useRef(false);
 
   function removeField(fieldId: string) {
+    const { [fieldId]: _removed, ...restOptions } = access.fieldAskOptions;
     onChange({
       ...access,
       visibleFieldIds: access.visibleFieldIds.filter((id) => id !== fieldId),
       requiredFieldIds: access.requiredFieldIds.filter((id) => id !== fieldId),
       commentFieldIds: access.commentFieldIds.filter((id) => id !== fieldId),
       recordFieldIds: access.recordFieldIds.filter((id) => id !== fieldId),
+      fieldAskOptions: restOptions,
     });
+  }
+
+  function setRelationGroupsMode(
+    fieldId: string,
+    mode: AutomationRelationGroupsAskMode,
+  ) {
+    const nextOptions = { ...access.fieldAskOptions };
+    if (mode === "full") {
+      const { [fieldId]: _removed, ...rest } = nextOptions;
+      onChange({ ...access, fieldAskOptions: rest });
+      return;
+    }
+    nextOptions[fieldId] = {
+      ...nextOptions[fieldId],
+      relationGroupsMode: mode,
+    };
+    onChange({ ...access, fieldAskOptions: nextOptions });
   }
 
   function setRequired(fieldId: string, required: boolean) {
@@ -924,50 +945,96 @@ function OutcomeAskFieldsEditor({
                         ) : (
                           <div
                             data-outcome-field-card
-                            className="flex h-8 items-center gap-1.5 rounded border border-border/50 bg-card px-2 transition-[border-color,box-shadow] duration-150 group-hover/field:border-border"
+                            className="flex flex-col gap-1 rounded border border-border/50 bg-card px-2 py-1.5 transition-[border-color,box-shadow] duration-150 group-hover/field:border-border"
                           >
-                            <span className="min-w-0 flex-1 truncate text-xs">
-                              {label}
-                            </span>
-                            <FieldFlagCheckbox
-                              checked={required}
-                              label="обяз."
-                              title="Обязательное поле"
-                              onCheckedChange={(checked) =>
-                                setRequired(field.id, checked)
-                              }
-                            />
-                            <FieldFlagCheckbox
-                              checked={toComments}
-                              disabled={!hasRecordsTab}
-                              label="комм."
-                              title={
-                                hasRecordsTab
-                                  ? "Добавить содержимое в комментарии (вкладка «Записи»)"
-                                  : "Нет вкладки «Записи» у этой сущности"
-                              }
-                              onCheckedChange={(checked) =>
-                                setComment(field.id, checked)
-                              }
-                            />
-                            <FieldFlagCheckbox
-                              checked={toRecord}
-                              label="запись"
-                              title="Записать значение в поле сущности"
-                              onCheckedChange={(checked) =>
-                                setRecord(field.id, checked)
-                              }
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="size-6 shrink-0"
-                              aria-label="Убрать поле"
-                              onClick={() => removeField(field.id)}
-                            >
-                              <Trash2 className="size-3" />
-                            </Button>
+                            <div className="flex h-6 items-center gap-1.5">
+                              <span className="min-w-0 flex-1 truncate text-xs">
+                                {label}
+                              </span>
+                              <FieldFlagCheckbox
+                                checked={required}
+                                label="обяз."
+                                title="Обязательное поле"
+                                onCheckedChange={(checked) =>
+                                  setRequired(field.id, checked)
+                                }
+                              />
+                              <FieldFlagCheckbox
+                                checked={toComments}
+                                disabled={!hasRecordsTab}
+                                label="комм."
+                                title={
+                                  hasRecordsTab
+                                    ? "Добавить содержимое в комментарии (вкладка «Записи»)"
+                                    : "Нет вкладки «Записи» у этой сущности"
+                                }
+                                onCheckedChange={(checked) =>
+                                  setComment(field.id, checked)
+                                }
+                              />
+                              <FieldFlagCheckbox
+                                checked={toRecord}
+                                label="запись"
+                                title="Записать значение в поле сущности"
+                                onCheckedChange={(checked) =>
+                                  setRecord(field.id, checked)
+                                }
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="size-6 shrink-0"
+                                aria-label="Убрать поле"
+                                onClick={() => removeField(field.id)}
+                              >
+                                <Trash2 className="size-3" />
+                              </Button>
+                            </div>
+                            {field.type === "relationGroups" ? (
+                              <div className="flex flex-wrap items-center gap-1 border-t border-border/40 pt-1.5 pb-0.5">
+                                <span className="mr-0.5 text-[10px] text-muted-foreground">
+                                  Спросить
+                                </span>
+                                {(
+                                  Object.keys(
+                                    AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS,
+                                  ) as AutomationRelationGroupsAskMode[]
+                                ).map((mode) => {
+                                  const active =
+                                    (access.fieldAskOptions[field.id]
+                                      ?.relationGroupsMode ?? "full") === mode;
+                                  return (
+                                    <button
+                                      key={mode}
+                                      type="button"
+                                      className={cn(
+                                        "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                                        active
+                                          ? "bg-primary/10 text-primary"
+                                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                      )}
+                                      title={
+                                        mode === "items"
+                                          ? "В этом задании выбирают только строки (стадии). Вложенные — в другом."
+                                          : mode === "nested"
+                                            ? "В этом задании заполняют вложенные для уже выбранных строк."
+                                            : "Строки и вложенные в одном задании"
+                                      }
+                                      onClick={() =>
+                                        setRelationGroupsMode(field.id, mode)
+                                      }
+                                    >
+                                      {
+                                        AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS[
+                                          mode
+                                        ]
+                                      }
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </div>

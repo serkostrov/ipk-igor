@@ -64,6 +64,26 @@ export type AutomationAskRelatedField = {
   fieldId: string;
 };
 
+/**
+ * How a `relationGroups` field is asked on a task form.
+ * Lets one stage pick rows and another fill nested values.
+ */
+export type AutomationRelationGroupsAskMode = "full" | "items" | "nested";
+
+export const AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS: Record<
+  AutomationRelationGroupsAskMode,
+  string
+> = {
+  full: "Всё сразу",
+  items: "Только строки",
+  nested: "Только вложенные",
+};
+
+/** Per-field ask presentation overrides (keyed by field id). */
+export type AutomationFieldAskOptions = {
+  relationGroupsMode?: AutomationRelationGroupsAskMode;
+};
+
 export type AutomationOutcomeFieldAccess = {
   /** Fields required to complete with this outcome. */
   requiredFieldIds: string[];
@@ -91,6 +111,8 @@ export type AutomationOutcomeFieldAccess = {
    * Defaults to all related visible for new configs.
    */
   relatedRecordIds: string[];
+  /** Presentation tweaks for complex ask fields (e.g. relationGroups mode). */
+  fieldAskOptions: Record<string, AutomationFieldAskOptions>;
 };
 
 export function emptyAutomationOutcomeFieldAccess(): AutomationOutcomeFieldAccess {
@@ -104,7 +126,35 @@ export function emptyAutomationOutcomeFieldAccess(): AutomationOutcomeFieldAcces
     relatedRequiredIds: [],
     relatedCommentIds: [],
     relatedRecordIds: [],
+    fieldAskOptions: {},
   };
+}
+
+function normalizeRelationGroupsAskMode(
+  value: unknown,
+): AutomationRelationGroupsAskMode | undefined {
+  if (value === "full" || value === "items" || value === "nested") return value;
+  return undefined;
+}
+
+function normalizeFieldAskOptions(
+  value: unknown,
+  visibleFieldIds: readonly string[],
+): Record<string, AutomationFieldAskOptions> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const visible = new Set(visibleFieldIds);
+  const result: Record<string, AutomationFieldAskOptions> = {};
+  for (const [fieldId, raw] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (!visible.has(fieldId) || !raw || typeof raw !== "object") continue;
+    const mode = normalizeRelationGroupsAskMode(
+      (raw as Record<string, unknown>).relationGroupsMode,
+    );
+    if (!mode || mode === "full") continue;
+    result[fieldId] = { relationGroupsMode: mode };
+  }
+  return result;
 }
 
 function normalizeStringIdList(value: unknown): string[] {
@@ -197,6 +247,10 @@ export function normalizeAutomationOutcomeFieldAccess(
     relatedRequiredIds,
     relatedCommentIds,
     relatedRecordIds,
+    fieldAskOptions: normalizeFieldAskOptions(
+      access.fieldAskOptions ?? access.field_ask_options,
+      visibleFieldIds,
+    ),
   };
 }
 

@@ -23,6 +23,7 @@ import {
   getVisibleListOptions,
   isEntityComputedFieldType,
   isEntityNameField,
+  isEntityRelationGroupsFilled,
   normalizeEntityFieldInputValue,
   parseEntityFieldFileValue,
   parseEntityListValueIds,
@@ -37,6 +38,7 @@ import {
   type Entity,
   type EntityField,
   type EntityRecord,
+  type EntityRelationGroupsMode,
   type EntityValueContext,
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
@@ -82,10 +84,17 @@ function isFieldFilled(
     entity: Entity;
     values: Record<string, string>;
     recordId: string;
+    relationGroupsMode?: EntityRelationGroupsMode;
   },
 ) {
   if (field.type === "boolean") return true;
   if (field.type === "file") return parseEntityFieldFileValue(value) != null;
+  if (field.type === "relationGroups") {
+    return isEntityRelationGroupsFilled(
+      value,
+      options?.relationGroupsMode ?? "full",
+    );
+  }
   if (isEntityComputedFieldType(field.type) && options) {
     const text = formatRecordFieldValue(
       options.ctx,
@@ -392,6 +401,8 @@ function TaskWorkspaceBody({
           entity,
           values: mergedValues,
           recordId: record.id,
+          relationGroupsMode:
+            ask.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full",
         });
       }).length
     : 0;
@@ -485,6 +496,7 @@ function TaskWorkspaceBody({
     const outcome = task.config.outcomes.find((item) => item.id === outcomeId);
     if (!outcome) return "Не выбран результат";
 
+    const outcomeAsk = getAutomationOutcomeAskFields(outcome);
     const missing = outcome.fieldAccess.requiredFieldIds.filter((fieldId) => {
       const field = entity.fields.find((item) => item.id === fieldId);
       if (!field || !record) return true;
@@ -493,6 +505,8 @@ function TaskWorkspaceBody({
         entity,
         values: mergedValues,
         recordId: record.id,
+        relationGroupsMode:
+          outcomeAsk.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full",
       });
     });
     if (missing.length > 0) {
@@ -751,6 +765,10 @@ function TaskWorkspaceBody({
                             entities={entities}
                             recordId={record.id}
                             required={required}
+                            relationGroupsMode={
+                              ask?.fieldAskOptions[field.id]
+                                ?.relationGroupsMode ?? "full"
+                            }
                           />
                         </div>
                       );

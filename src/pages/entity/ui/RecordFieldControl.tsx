@@ -26,6 +26,7 @@ import {
   type Entity,
   type EntityField,
   type EntityListOption,
+  type EntityRelationGroupsMode,
   type EntityValueContext,
 } from "@/entities/entity";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
@@ -133,6 +134,7 @@ export function RecordFieldControl({
   entities = [],
   recordId,
   required: requiredOverride,
+  relationGroupsMode = "full",
 }: {
   /** Preview context: computed values follow the unsaved `values`. */
   ctx: EntityValueContext;
@@ -147,6 +149,8 @@ export function RecordFieldControl({
   listMultiple?: boolean;
   /** When false, a list cannot be cleared (e.g. status under a process). */
   listAllowEmpty?: boolean;
+  /** Ask mode for `relationGroups` (items / nested / full). */
+  relationGroupsMode?: EntityRelationGroupsMode;
   showColors?: boolean;
   entities?: Entity[];
   recordId: string;
@@ -251,6 +255,7 @@ export function RecordFieldControl({
           field={field}
           value={value}
           onChange={onChange}
+          mode={relationGroupsMode}
         />
       </div>
     );

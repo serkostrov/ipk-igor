@@ -230,6 +230,26 @@ export function serializeEntityRelationGroups(
   return groups.length > 0 ? JSON.stringify(groups) : "";
 }
 
+/** Ask / form presentation for a `relationGroups` field. */
+export type EntityRelationGroupsMode = "full" | "items" | "nested";
+
+/**
+ * Whether a relationGroups value satisfies required validation for `mode`.
+ * - items / full — at least one row
+ * - nested — every row has at least one nested id
+ */
+export function isEntityRelationGroupsFilled(
+  value: string | undefined,
+  mode: EntityRelationGroupsMode = "full",
+) {
+  const groups = parseEntityRelationGroups(value);
+  if (groups.length === 0) return false;
+  if (mode === "nested") {
+    return groups.every((group) => group.nestedIds.length > 0);
+  }
+  return true;
+}
+
 /** Stored type kept for computed number fields; not shown in the type picker. */
 const ENTITY_FIELD_TYPE_LABELS: Partial<Record<EntityFieldType, string>> = {
   numberSum: "Сумма чисел",

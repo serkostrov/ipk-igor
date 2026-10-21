@@ -258,9 +258,11 @@ export {
   serializeEntityDependencies,
   parseEntityRelationGroups,
   serializeEntityRelationGroups,
+  isEntityRelationGroupsFilled,
   type EntityDependency,
   type EntityDependencyType,
   type EntityRelationGroupItem,
+  type EntityRelationGroupsMode,
 } from "./model/field";
 export { ENTITY_ROLLUP_AGGREGATIONS } from "./model/types";
 export {

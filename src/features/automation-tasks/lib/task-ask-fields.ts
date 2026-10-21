@@ -1,5 +1,6 @@
 import type {
   AutomationAskRelatedField,
+  AutomationFieldAskOptions,
   AutomationOutcome,
   AutomationTask,
 } from "@/entities/automation";
@@ -25,6 +26,8 @@ export type AutomationAskFields = {
   relatedRequiredIds: string[];
   relatedCommentIds: string[];
   relatedRecordIds: string[];
+  /** Per-field ask presentation (e.g. relationGroups mode). */
+  fieldAskOptions: Record<string, AutomationFieldAskOptions>;
 };
 
 const EMPTY_ASK_FIELDS: AutomationAskFields = {
@@ -39,7 +42,31 @@ const EMPTY_ASK_FIELDS: AutomationAskFields = {
   relatedRequiredIds: [],
   relatedCommentIds: [],
   relatedRecordIds: [],
+  fieldAskOptions: {},
 };
+
+function mergeFieldAskOptions(
+  into: Record<string, AutomationFieldAskOptions>,
+  from: Record<string, AutomationFieldAskOptions> | undefined,
+) {
+  if (!from) return;
+  for (const [fieldId, opts] of Object.entries(from)) {
+    const prev = into[fieldId];
+    if (!prev) {
+      into[fieldId] = { ...opts };
+      continue;
+    }
+    if (
+      prev.relationGroupsMode &&
+      opts.relationGroupsMode &&
+      prev.relationGroupsMode !== opts.relationGroupsMode
+    ) {
+      into[fieldId] = { ...prev, relationGroupsMode: "full" };
+    } else {
+      into[fieldId] = { ...prev, ...opts };
+    }
+  }
+}
 
 function mergeFilesTabEntryIds(
   into: Record<string, string[]>,
@@ -140,6 +167,14 @@ export function getAutomationOutcomeAskFields(
     (fieldId) => !visibleSet.has(fieldId),
   );
 
+  const fieldAskOptions: Record<string, AutomationFieldAskOptions> = {};
+  for (const [fieldId, opts] of Object.entries(
+    outcome.fieldAccess.fieldAskOptions ?? {},
+  )) {
+    if (!visibleSet.has(fieldId)) continue;
+    fieldAskOptions[fieldId] = { ...opts };
+  }
+
   return {
     requiredFieldIds,
     visibleFieldIds,
@@ -152,6 +187,7 @@ export function getAutomationOutcomeAskFields(
     relatedRequiredIds,
     relatedCommentIds,
     relatedRecordIds,
+    fieldAskOptions,
   };
 }
 
@@ -168,6 +204,7 @@ export function getAutomationTaskAskFields(
   const relatedRequired: string[] = [];
   const relatedComment: string[] = [];
   const relatedRecord: string[] = [];
+  const fieldAskOptions: Record<string, AutomationFieldAskOptions> = {};
   let viewFilesTabAllowMove = false;
   let requireAttachment = false;
 
@@ -178,6 +215,7 @@ export function getAutomationTaskAskFields(
     viewOnly.push(...ask.viewFieldIds);
     viewTabs.push(...ask.viewTabIds);
     mergeFilesTabEntryIds(viewFilesTabEntryIds, ask.viewFilesTabEntryIds);
+    mergeFieldAskOptions(fieldAskOptions, ask.fieldAskOptions);
     if (ask.viewFilesTabAllowMove) viewFilesTabAllowMove = true;
     if (ask.requireAttachment) requireAttachment = true;
     relatedVisible.push(...ask.relatedVisibleFields);
@@ -213,6 +251,7 @@ export function getAutomationTaskAskFields(
     relatedRecordIds: uniquePreserveOrder(relatedRecord).filter((id) =>
       relatedVisibleIds.has(id),
     ),
+    fieldAskOptions,
   };
 }
 
