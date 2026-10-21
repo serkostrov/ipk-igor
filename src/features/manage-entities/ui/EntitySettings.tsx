@@ -1,26 +1,28 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   EyeOff,
-  Lock,
-  LockOpen,
   Pencil,
   Plus,
+  Settings2,
   Shield,
   Table2,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
-import { cn } from "@/shared/lib/cn";
 import {
   addEntity,
+  beginEntitySchemaEdit,
+  cancelEntitySchemaEdit,
+  commitEntitySchemaEdit,
+  getEntitySchemaEditSession,
   getVisibleEntities,
   isEntityInternal,
-  isEntityLocked,
+  isEntitySchemaEditDirty,
   isSystemEntity,
   removeEntity,
-  setEntityLocked,
   sortEntitiesByMenuOrder,
+  subscribeEntityConfig,
   updateEntity,
   useEntityConfig,
   useEntityStatus,
@@ -73,20 +75,19 @@ function InternalEntityBadge() {
   );
 }
 
-function LockedEntityBadge() {
-  return (
-    <span
-      title="Схема сущности заблокирована"
-      className="inline-flex items-center gap-1 rounded-md border border-border/80 bg-muted/60 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-muted-foreground"
-    >
-      <Lock className="size-3 shrink-0" aria-hidden />
-      Заблокировано
-    </span>
-  );
+function useSchemaEditSession() {
+  const [session, setSession] = useState(getEntitySchemaEditSession);
+  useEffect(() => {
+    return subscribeEntityConfig(() => {
+      setSession(getEntitySchemaEditSession());
+    });
+  }, []);
+  return session;
 }
 
 function EntityPage({
   entity,
+  editing,
   onEdit,
   onDelete,
   onOpenRecords,
@@ -94,6 +95,7 @@ function EntityPage({
   onActiveTabIdChange,
 }: {
   entity: Entity;
+  editing: boolean;
   onEdit: () => void;
   onDelete?: () => void;
   onOpenRecords?: () => void;
@@ -102,7 +104,6 @@ function EntityPage({
 }) {
   const system = isSystemEntity(entity);
   const internal = isEntityInternal(entity);
-  const locked = isEntityLocked(entity);
 
   return (
     <div className="rounded-xl border border-border bg-card">
@@ -120,7 +121,11 @@ function EntityPage({
             </h3>
             {system ? <SystemEntityBadge /> : null}
             {internal ? <InternalEntityBadge /> : null}
-            {locked ? <LockedEntityBadge /> : null}
+            {editing ? (
+              <span className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/8 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-primary">
+                Редактирование
+              </span>
+            ) : null}
           </div>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
             {entity.description || "Без описания"}
@@ -129,7 +134,7 @@ function EntityPage({
 
         <div className="flex shrink-0 items-center gap-1.5">
           {internal ? null : (
-            <EntityBehaviorMenu entity={entity} disabled={locked} />
+            <EntityBehaviorMenu entity={entity} disabled={!editing} />
           )}
           {onOpenRecords ? (
             <Button
@@ -150,7 +155,7 @@ function EntityPage({
             variant="ghost"
             size="icon-sm"
             aria-label="Редактировать сущность"
-            disabled={locked}
+            disabled={!editing}
             onClick={onEdit}
           >
             <Pencil />
@@ -161,7 +166,7 @@ function EntityPage({
               variant="ghost"
               size="icon-sm"
               aria-label="Удалить сущность"
-              disabled={locked}
+              disabled={!editing}
               onClick={onDelete}
             >
               <Trash2 />
@@ -170,45 +175,14 @@ function EntityPage({
         </div>
       </div>
 
-      <div className="relative px-5 py-5">
-        <div
-          aria-hidden={locked || undefined}
-          className={cn(
-            "transition-[filter,opacity] duration-300 ease-out",
-            locked && "pointer-events-none select-none opacity-55 blur-[3px]",
-          )}
-        >
-          <EntityFieldsEditor
-            key={entity.id}
-            entity={entity}
-            readOnly={locked}
-            activeTabId={activeTabId}
-            onActiveTabIdChange={onActiveTabIdChange}
-          />
-        </div>
-
-        {locked ? (
-          <div
-            role="status"
-            className="absolute inset-0 z-10 flex items-start justify-center px-6 pt-14 sm:pt-16"
-          >
-            <div className="pointer-events-none absolute inset-0 rounded-b-xl bg-gradient-to-b from-card/55 via-card/35 to-card/50 backdrop-blur-[1.5px]" />
-            <div className="relative flex max-w-sm flex-col items-center gap-3 rounded-2xl border border-border/80 bg-card/95 px-6 py-5 text-center shadow-lg ring-1 ring-foreground/5 backdrop-blur-md">
-              <span className="flex size-11 items-center justify-center rounded-full border border-border bg-muted/70 text-muted-foreground">
-                <Lock className="size-5" aria-hidden />
-              </span>
-              <div className="space-y-1.5">
-                <p className="text-sm font-semibold tracking-tight text-foreground">
-                  Схема заблокирована
-                </p>
-                <p className="text-[13px] leading-relaxed text-muted-foreground">
-                  Поля и вкладки только для просмотра. Нажмите замочек сверху,
-                  чтобы снова редактировать.
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : null}
+      <div className="px-5 py-5">
+        <EntityFieldsEditor
+          key={entity.id}
+          entity={entity}
+          readOnly={!editing}
+          activeTabId={activeTabId}
+          onActiveTabIdChange={onActiveTabIdChange}
+        />
       </div>
     </div>
   );
@@ -225,8 +199,13 @@ export function EntitySettings({
   const config = useEntityConfig();
   const { entries } = useMenuConfig();
   const status = useEntityStatus();
+  const schemaEdit = useSchemaEditSession();
   const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
   const [pendingDelete, setPendingDelete] = useState<Entity | null>(null);
+  const [discardConfirm, setDiscardConfirm] = useState(false);
+  const [pendingSwitchEntityId, setPendingSwitchEntityId] = useState<
+    string | null
+  >(null);
 
   const entities = sortEntitiesByMenuOrder(
     getVisibleEntities(config.entities),
@@ -237,6 +216,9 @@ export function EntitySettings({
     entities[0] ??
     null;
 
+  const editing = selected != null && schemaEdit?.entityId === selected.id;
+  const dirty = editing && isEntitySchemaEditDirty();
+
   // Sync URL when falling back to the first entity (no id in history yet).
   useEffect(() => {
     if (status === "idle" || status === "loading") return;
@@ -245,15 +227,58 @@ export function EntitySettings({
     onSelectedEntityIdChange(selected.id);
   }, [status, selected, selectedEntityId, onSelectedEntityIdChange]);
 
+  // Leaving the page / unmount: discard unsaved schema edits.
+  useEffect(() => {
+    return () => {
+      if (getEntitySchemaEditSession()) cancelEntitySchemaEdit();
+    };
+  }, []);
+
   if (status === "idle" || status === "loading") {
     return <EntitySettingsSkeleton leading={leading} />;
   }
 
-  const selectedLocked = selected ? isEntityLocked(selected) : false;
   const pendingDeleteName =
     pendingDelete?.name.trim() ||
     pendingDelete?.namePlural.trim() ||
     "Без названия";
+
+  function selectEntity(entityId: string) {
+    if (editing && dirty) {
+      setPendingSwitchEntityId(entityId);
+      setDiscardConfirm(true);
+      return;
+    }
+    if (editing) cancelEntitySchemaEdit();
+    onSelectedEntityIdChange?.(entityId);
+  }
+
+  function enterEditMode() {
+    if (!selected) return;
+    beginEntitySchemaEdit(selected.id);
+  }
+
+  function saveAndExit() {
+    commitEntitySchemaEdit();
+  }
+
+  function requestExitEdit() {
+    if (dirty) {
+      setPendingSwitchEntityId(null);
+      setDiscardConfirm(true);
+      return;
+    }
+    cancelEntitySchemaEdit();
+  }
+
+  function confirmDiscard() {
+    cancelEntitySchemaEdit();
+    setDiscardConfirm(false);
+    if (pendingSwitchEntityId) {
+      onSelectedEntityIdChange?.(pendingSwitchEntityId);
+      setPendingSwitchEntityId(null);
+    }
+  }
 
   const toolbar = (
     <div className="flex shrink-0 items-center gap-2">
@@ -261,33 +286,40 @@ export function EntitySettings({
         entities={entities}
         menuEntries={entries}
         value={selected?.id}
-        onValueChange={(entityId) => {
-          onSelectedEntityIdChange?.(entityId);
-        }}
+        onValueChange={selectEntity}
       />
+
+      {editing ? (
+        <Button
+          type="button"
+          className="min-w-24"
+          disabled={!selected}
+          onClick={saveAndExit}
+        >
+          Сохранить
+        </Button>
+      ) : null}
 
       <Button
         type="button"
         size="icon"
-        variant={selectedLocked ? "default" : "outline"}
+        variant={editing ? "default" : "outline"}
         aria-label={
-          selectedLocked
-            ? "Разблокировать редактирование"
-            : "Заблокировать редактирование"
+          editing ? "Выйти из режима редактирования" : "Редактировать схему"
         }
-        aria-pressed={selectedLocked}
+        aria-pressed={editing}
         title={
-          selectedLocked
-            ? "Разблокировать схему сущности"
-            : "Заблокировать схему сущности"
+          editing
+            ? "Выйти из режима редактирования"
+            : "Параметры — режим редактирования схемы"
         }
         disabled={!selected}
         onClick={() => {
-          if (!selected) return;
-          setEntityLocked(selected.id, !selectedLocked);
+          if (editing) requestExitEdit();
+          else enterEditMode();
         }}
       >
-        {selectedLocked ? <Lock /> : <LockOpen />}
+        <Settings2 />
       </Button>
 
       <Button
@@ -311,6 +343,7 @@ export function EntitySettings({
       {selected ? (
         <EntityPage
           entity={selected}
+          editing={editing}
           onEdit={() => setDialog({ mode: "edit", entity: selected })}
           onDelete={() => setPendingDelete(selected)}
           onOpenRecords={
@@ -348,6 +381,9 @@ export function EntitySettings({
         onConfirm={() => {
           if (!pendingDelete) return;
           const deletedId = pendingDelete.id;
+          if (getEntitySchemaEditSession()?.entityId === deletedId) {
+            cancelEntitySchemaEdit();
+          }
           removeEntity(deletedId);
           if (selectedEntityId === deletedId) {
             const fallback =
@@ -355,6 +391,20 @@ export function EntitySettings({
             if (fallback) onSelectedEntityIdChange?.(fallback);
           }
         }}
+      />
+
+      <ConfirmDialog
+        open={discardConfirm}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDiscardConfirm(false);
+            setPendingSwitchEntityId(null);
+          }
+        }}
+        title="Отменить изменения?"
+        description="Несохранённые изменения схемы будут потеряны."
+        confirmLabel="Отменить изменения"
+        onConfirm={confirmDiscard}
       />
 
       <EntityDialog

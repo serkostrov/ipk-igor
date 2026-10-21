@@ -135,7 +135,7 @@ function operatorsForSource(
   if (type === "file") {
     return ["folderHasFiles", "folderEmpty"];
   }
-  if (type === "relation" || type === "template" || type === "list") {
+  if (type === "relation" || type === "list") {
     return RELATION_LIST_OPERATORS;
   }
   if (type === "boolean") {
@@ -471,7 +471,7 @@ function ConditionValueControl({
 
   if (
     source?.kind === "field" &&
-    (source.field.type === "relation" || source.field.type === "template") &&
+    source.field.type === "relation" &&
     usesIdPicker(rule.operator)
   ) {
     const targetId = getEntityRelationTargetId(source.field);
@@ -576,9 +576,7 @@ function RuleRow({
     }
     const keepIds =
       next?.kind === "field" &&
-      (next.field.type === "relation" ||
-        next.field.type === "template" ||
-        next.field.type === "list") &&
+      (next.field.type === "relation" || next.field.type === "list") &&
       usesIdPicker(nextOperator)
         ? ruleSelectedIds(rule)
         : [];

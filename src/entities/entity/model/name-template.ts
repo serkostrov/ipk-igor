@@ -69,7 +69,22 @@ export function renderEntityNameTemplate(
 }
 
 /**
- * Record title for UI: name field value, with `{{fieldId}}` tokens resolved.
+ * Effective title template: entity-wide setting, else the name field value
+ * when it contains `{{fieldId}}` tokens.
+ */
+export function resolveEntityRecordNameTemplate(
+  entity: Pick<Entity, "nameTemplate" | "fields">,
+  record: Pick<EntityRecord, "values">,
+): string {
+  const entityTemplate = entity.nameTemplate.trim();
+  if (entityTemplate) return entityTemplate;
+  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  if (!nameField) return "";
+  return (record.values[nameField.id] ?? "").trim();
+}
+
+/**
+ * Record title for UI: entity template or name field value, with tokens resolved.
  */
 export function getEntityRecordTitle(
   ctx: EntityValueContext,
@@ -77,13 +92,11 @@ export function getEntityRecordTitle(
   record: EntityRecord,
   empty = "Без названия",
 ): string {
-  const nameField = entity.fields.find((field) => isEntityNameField(field));
-  if (!nameField) return empty;
-  const raw = (record.values[nameField.id] ?? "").trim();
-  if (!raw) return empty;
-  const text = entityNameValueHasTemplate(raw)
-    ? renderEntityNameTemplate(ctx, entity, record, raw)
-    : raw;
+  const template = resolveEntityRecordNameTemplate(entity, record);
+  if (!template) return empty;
+  const text = entityNameValueHasTemplate(template)
+    ? renderEntityNameTemplate(ctx, entity, record, template)
+    : template;
   if (!text || text === "—") return empty;
   return text;
 }

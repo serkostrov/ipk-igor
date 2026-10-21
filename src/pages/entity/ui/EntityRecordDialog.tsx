@@ -96,11 +96,14 @@ function buildRecordValues(
 }
 
 function canSubmitRecord(
+  entity: Entity,
   fields: EntityField[],
   values: Record<string, string>,
 ) {
+  const hasEntityNameTemplate = entity.nameTemplate.trim().length > 0;
   return fields.every((field) => {
     if (isEntityComputedFieldType(field.type)) return true;
+    if (hasEntityNameTemplate && isEntityNameField(field)) return true;
     const raw = values[field.id] ?? "";
     if (field.type === "email" && !isValidEntityEmail(raw)) return false;
     if (!field.required) return true;
@@ -214,7 +217,7 @@ function EntityRecordForm({
   const [pending, setPending] = useState(false);
   const needsPassword = requireAccountPassword && !isEdit;
   const canSubmit =
-    canSubmitRecord(visibleFields, values) &&
+    canSubmitRecord(entity, visibleFields, values) &&
     (!needsPassword || password.length >= 6);
   const nameField = useMemo(
     () => visibleFields.find((field) => isEntityNameField(field)) ?? null,

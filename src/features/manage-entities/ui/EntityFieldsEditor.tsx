@@ -56,7 +56,6 @@ import {
   isEntityFilesTab,
   isEntityHistoryTab,
   isEntityMirrorTab,
-  isEntityLocked,
   isEntityInternal,
   isEntityFieldGroupTitleHidden,
   isEntityMetricsFieldGroup,
@@ -84,6 +83,7 @@ import {
   resolveEntityListFieldSource,
   setEntityHeaderField,
   sortEntitiesByMenuOrder,
+  updateEntity,
   updateEntityField,
   updateEntityTab,
   useEntityConfig,
@@ -1457,7 +1457,7 @@ function FieldCardMeta({
       ? listFromEntity
         ? null
         : `${typeLabel} · Новый${listFixedHint ? ` · ${listFixedHint}` : ""}`
-      : field.type === "relation" || field.type === "template"
+      : field.type === "relation"
         ? null
         : typeLabel;
 
@@ -1499,26 +1499,16 @@ function FieldCardMeta({
         )}
       >
         {nameDuplicatesGroup ? statusBadges : null}
-        {field.type === "relation" || field.type === "template" ? (
+        {field.type === "relation" ? (
           <FieldLinkBadge
             kind={isTabLink ? "tab" : "relation"}
-            label={
-              field.type === "template"
-                ? relationTargetLabel
-                  ? `По шаблону · ${relationTargetLabel}`
-                  : "По шаблону"
-                : (relationTargetLabel ?? "Сущность не выбрана")
-            }
+            label={relationTargetLabel ?? "Сущность не выбрана"}
             title={
               isTabLink
                 ? `Создано для связи вкладки с «${relationTargetLabel ?? "сущностью"}» — нельзя удалить или сменить цель`
-                : field.type === "template"
-                  ? relationTargetLabel
-                    ? `Варианты из шаблона «${relationTargetLabel}»`
-                    : "Настройте связь и поле шаблона"
-                  : relationTargetLabel
-                    ? `Поле связи с «${relationTargetLabel}»`
-                    : "Выберите сущность для связи"
+                : relationTargetLabel
+                  ? `Поле связи с «${relationTargetLabel}»`
+                  : "Выберите сущность для связи"
             }
           />
         ) : listFromEntity ? (
@@ -3028,7 +3018,7 @@ export function EntityFieldsEditor({
   activeTabId: controlledActiveTabId = null,
   onActiveTabIdChange,
 }: EntityFieldsEditorProps) {
-  const readOnly = readOnlyProp || isEntityLocked(entity);
+  const readOnly = readOnlyProp;
   const { entities } = useEntityConfig();
   const { entries } = useMenuConfig();
   const entityOptions = useMemo(() => {
@@ -3692,6 +3682,15 @@ export function EntityFieldsEditor({
 
     if (dialog.mode === "edit") {
       const isTabLink = tabLinkFieldIds.has(dialog.field.id);
+      if (isEntityNameField(dialog.field)) {
+        updateEntityField(entity.id, dialog.field.id, {
+          name: data.name,
+          hint: data.hint,
+          showInFilters: data.showInFilters,
+        });
+        updateEntity(entity.id, { nameTemplate: data.nameTemplate });
+        return dialog.field.id;
+      }
       updateEntityField(entity.id, dialog.field.id, {
         name: data.name,
         type: isTabLink ? dialog.field.type : data.type,
@@ -3709,6 +3708,16 @@ export function EntityFieldsEditor({
           ? dialog.field.relationMultiple
           : data.relationMultiple,
         listSourceFieldId: isTabLink ? null : data.listSourceFieldId,
+        listFixed: isTabLink
+          ? dialog.field.listFixed
+          : data.type === "list"
+            ? data.listMultiple || dialog.field.listFixed
+            : false,
+        listMultiple: isTabLink
+          ? dialog.field.listMultiple
+          : data.type === "list"
+            ? data.listMultiple
+            : false,
         unitSuffix: isTabLink ? null : data.unitSuffix,
         sumFieldIds: isTabLink ? [] : data.sumFieldIds,
         datetimeWithTime: isTabLink ? false : data.datetimeWithTime,
@@ -3738,6 +3747,8 @@ export function EntityFieldsEditor({
       relationEntityId: data.relationEntityId,
       relationMultiple: data.relationMultiple,
       listSourceFieldId: data.listSourceFieldId,
+      listFixed: data.type === "list" ? data.listMultiple : false,
+      listMultiple: data.type === "list" ? data.listMultiple : false,
       unitSuffix: data.unitSuffix,
       sumFieldIds: data.sumFieldIds,
       datetimeWithTime: data.datetimeWithTime,
@@ -4138,39 +4149,50 @@ export function EntityFieldsEditor({
                     field={headerField}
                     entityId={entity.id}
                     dropActive={
-                      draggingId != null && dropHighlight?.type === "header"
+                      !readOnly &&
+                      draggingId != null &&
+                      dropHighlight?.type === "header"
                     }
                     isDragging={
-                      headerField != null && draggingId === headerField.id
+                      !readOnly &&
+                      headerField != null &&
+                      draggingId === headerField.id
                     }
                     snapToOrigin={
                       headerField == null || snapFieldId !== headerField.id
                     }
-                    onClear={() => setEntityHeaderField(entity.id, null)}
+                    onClear={
+                      readOnly
+                        ? () => undefined
+                        : () => setEntityHeaderField(entity.id, null)
+                    }
                     onEdit={
-                      headerField
-                        ? () => setDialog({ mode: "edit", field: headerField })
-                        : undefined
+                      readOnly || !headerField
+                        ? undefined
+                        : () => setDialog({ mode: "edit", field: headerField })
                     }
                     onConfigureList={
-                      headerField?.type === "list" &&
-                      !headerField.listSourceFieldId
-                        ? () => setListSettingsFieldId(headerField.id)
-                        : undefined
+                      readOnly ||
+                      headerField?.type !== "list" ||
+                      headerField.listSourceFieldId
+                        ? undefined
+                        : () => setListSettingsFieldId(headerField.id)
                     }
                     onDragStart={
-                      headerField
-                        ? () => handleDraggingChange(headerField.id)
-                        : undefined
+                      readOnly || !headerField
+                        ? undefined
+                        : () => handleDraggingChange(headerField.id)
                     }
                     onDragEnd={
-                      headerField
-                        ? (clientX, clientY) => {
+                      readOnly || !headerField
+                        ? undefined
+                        : (clientX, clientY) => {
                             handleFieldDrop(headerField.id, clientX, clientY);
                           }
-                        : undefined
                     }
-                    onDragSettle={() => handleDraggingChange(null)}
+                    onDragSettle={
+                      readOnly ? undefined : () => handleDraggingChange(null)
+                    }
                   />
                 </div>
               )
@@ -4245,6 +4267,7 @@ export function EntityFieldsEditor({
                               fields={primaryGroup.fields}
                               colSpan={primaryGroup.colSpan}
                               dropIndex={
+                                !readOnly &&
                                 draggingId != null &&
                                 draggingGroupName == null &&
                                 dropHighlight?.type === "group" &&
@@ -4253,33 +4276,47 @@ export function EntityFieldsEditor({
                                   : null
                               }
                               draggingField={
-                                draggingGroupName == null ? draggingField : null
+                                !readOnly && draggingGroupName == null
+                                  ? draggingField
+                                  : null
                               }
                               draggingId={
-                                draggingGroupName == null ? draggingId : null
+                                !readOnly && draggingGroupName == null
+                                  ? draggingId
+                                  : null
                               }
                               draggingGroupName={
                                 readOnly ? null : draggingGroupName
                               }
-                              groupInsertEdge={mainMark?.edge ?? null}
-                              groupInsertMode={mainMark?.mode ?? null}
-                              snapFieldId={snapFieldId}
+                              groupInsertEdge={
+                                readOnly ? null : (mainMark?.edge ?? null)
+                              }
+                              groupInsertMode={
+                                readOnly ? null : (mainMark?.mode ?? null)
+                              }
+                              snapFieldId={readOnly ? null : snapFieldId}
                               cardEpoch={cardEpoch}
                               showHeader
+                              enableGroupLayout={!readOnly}
+                              readOnly={readOnly}
                               lockedFieldIds={protectedFieldIds}
                               onDraggingChange={handleDraggingChange}
                               onFieldDrop={handleFieldDrop}
                               onEditField={(field) => {
-                                if (isEntityNameField(field)) {
+                                if (readOnly || isEntityNameField(field)) {
                                   return;
                                 }
                                 setDialog({ mode: "edit", field });
                               }}
                               onDeleteField={setPendingDeleteField}
-                              onConfigureList={(field) => {
-                                if (field.listSourceFieldId) return;
-                                setListSettingsFieldId(field.id);
-                              }}
+                              onConfigureList={
+                                readOnly
+                                  ? undefined
+                                  : (field) => {
+                                      if (field.listSourceFieldId) return;
+                                      setListSettingsFieldId(field.id);
+                                    }
+                              }
                               onAddField={
                                 readOnly
                                   ? undefined
@@ -4433,9 +4470,11 @@ export function EntityFieldsEditor({
                         data-entity-tab-drop={
                           acceptsFields ? tab.id : undefined
                         }
-                        draggable={!isOverview && draggingId == null}
+                        draggable={
+                          !readOnly && !isOverview && draggingId == null
+                        }
                         onDragStart={(event) => {
-                          if (isOverview || draggingId != null) {
+                          if (readOnly || isOverview || draggingId != null) {
                             event.preventDefault();
                             return;
                           }
@@ -4544,93 +4583,101 @@ export function EntityFieldsEditor({
                           />
                         ) : null}
                         <span className="truncate">{tab.name}</span>
-                        <span
-                          className={cn(
-                            "grid transition-[grid-template-columns,opacity] duration-150 ease-out",
-                            "grid-cols-[0fr] opacity-0",
-                            "group-hover/tab:grid-cols-[1fr] group-hover/tab:opacity-100",
-                            "group-focus-within/tab:grid-cols-[1fr] group-focus-within/tab:opacity-100",
-                          )}
-                        >
-                          <span className="flex min-w-0 items-center gap-0.5 overflow-hidden">
-                            <span
-                              role="button"
-                              tabIndex={-1}
-                              className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                              aria-label={
-                                isEntityTabWithLinkedEntity(tab)
-                                  ? `Настройки вкладки «${tab.name}»`
-                                  : `Редактировать вкладку «${tab.name}»`
-                              }
-                              title={
-                                isEntityTabWithLinkedEntity(tab)
-                                  ? "Настройки вкладки"
-                                  : "Редактировать"
-                              }
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                if (
-                                  isEntityTabWithLinkedEntity(tab) &&
-                                  tab.linkedEntityId
-                                ) {
-                                  setSubEntitySettings({
-                                    tabId: tab.id,
-                                    linkedEntityId: tab.linkedEntityId,
-                                  });
-                                  return;
-                                }
-                                setTabDialog({ mode: "edit", tab });
-                              }}
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onMouseDown={(event) => event.stopPropagation()}
-                            >
-                              <Pencil className="size-3" />
-                            </span>
-                            {!canDeleteTab ? null : (
+                        {readOnly ? null : (
+                          <span
+                            className={cn(
+                              "grid transition-[grid-template-columns,opacity] duration-150 ease-out",
+                              "grid-cols-[0fr] opacity-0",
+                              "group-hover/tab:grid-cols-[1fr] group-hover/tab:opacity-100",
+                              "group-focus-within/tab:grid-cols-[1fr] group-focus-within/tab:opacity-100",
+                            )}
+                          >
+                            <span className="flex min-w-0 items-center gap-0.5 overflow-hidden">
                               <span
                                 role="button"
                                 tabIndex={-1}
-                                className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                                aria-label={`Удалить вкладку «${tab.name}»`}
-                                title="Удалить"
+                                className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                aria-label={
+                                  isEntityTabWithLinkedEntity(tab)
+                                    ? `Настройки вкладки «${tab.name}»`
+                                    : `Редактировать вкладку «${tab.name}»`
+                                }
+                                title={
+                                  isEntityTabWithLinkedEntity(tab)
+                                    ? "Настройки вкладки"
+                                    : "Редактировать"
+                                }
                                 onClick={(event) => {
                                   event.preventDefault();
                                   event.stopPropagation();
-                                  const fallbackId =
-                                    entityTabs.find(
-                                      (item) => item.id !== tab.id,
-                                    )?.id ?? ENTITY_OVERVIEW_TAB_ID;
-                                  if (activeTabId === tab.id) {
-                                    setActiveTabId(fallbackId);
+                                  if (
+                                    isEntityTabWithLinkedEntity(tab) &&
+                                    tab.linkedEntityId
+                                  ) {
+                                    setSubEntitySettings({
+                                      tabId: tab.id,
+                                      linkedEntityId: tab.linkedEntityId,
+                                    });
+                                    return;
                                   }
-                                  removeEntityTab(entity.id, tab.id);
+                                  setTabDialog({ mode: "edit", tab });
                                 }}
                                 onPointerDown={(event) =>
                                   event.stopPropagation()
                                 }
                                 onMouseDown={(event) => event.stopPropagation()}
                               >
-                                <X className="size-3.5" />
+                                <Pencil className="size-3" />
                               </span>
-                            )}
+                              {!canDeleteTab ? null : (
+                                <span
+                                  role="button"
+                                  tabIndex={-1}
+                                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label={`Удалить вкладку «${tab.name}»`}
+                                  title="Удалить"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    const fallbackId =
+                                      entityTabs.find(
+                                        (item) => item.id !== tab.id,
+                                      )?.id ?? ENTITY_OVERVIEW_TAB_ID;
+                                    if (activeTabId === tab.id) {
+                                      setActiveTabId(fallbackId);
+                                    }
+                                    removeEntityTab(entity.id, tab.id);
+                                  }}
+                                  onPointerDown={(event) =>
+                                    event.stopPropagation()
+                                  }
+                                  onMouseDown={(event) =>
+                                    event.stopPropagation()
+                                  }
+                                >
+                                  <X className="size-3.5" />
+                                </span>
+                              )}
+                            </span>
                           </span>
-                        </span>
+                        )}
                       </TabsTrigger>
                     );
                   })}
                 </TabsList>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="ml-0.5 !h-auto w-7 shrink-0 self-stretch rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
-                  aria-label="Добавить вкладку"
-                  title="Добавить вкладку"
-                  onClick={() => setTabDialog({ mode: "create" })}
-                >
-                  <Plus />
-                </Button>
+                {readOnly ? null : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="ml-0.5 !h-auto w-7 shrink-0 self-stretch rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
+                    aria-label="Добавить вкладку"
+                    title="Добавить вкладку"
+                    onClick={() => setTabDialog({ mode: "create" })}
+                  >
+                    <Plus />
+                  </Button>
+                )}
               </div>
             ) : null}
 

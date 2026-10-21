@@ -5,7 +5,6 @@ import {
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   isEntityListOtherValue,
-  isEntityRelationLikeFieldType,
   parseEntityFieldFileValue,
   parseEntityListOtherText,
   parseEntityListValueIds,
@@ -37,7 +36,6 @@ export {
   isEntityDatetimeWithTime,
   isEntityFieldType,
   isEntityListOtherValue,
-  isEntityRelationLikeFieldType,
   isEntitySummableFieldType,
   isValidEntityEmail,
   normalizeEntityDecimalInput,
@@ -137,17 +135,6 @@ export type EntityLookupConfig = {
   relationFieldId: string;
   /** Field of the related entity. */
   targetFieldId: string;
-};
-
-/**
- * `template` field: pick records whose ids come from a field on a related
- * record (e.g. Lead.Departments ← Stage.Departments via Lead.Stage).
- */
-export type EntityTemplateConfig = {
-  /** Relation field on this entity (bridge), e.g. Lead.Stage. */
-  bridgeFieldId: string;
-  /** Relation/list field on the bridge target that yields option ids. */
-  sourceFieldId: string;
 };
 
 /** `dependencies` field: predecessors among records of the same entity. */
@@ -256,8 +243,6 @@ export type EntityField = {
   formula?: EntityFormulaConfig;
   rollup?: EntityRollupConfig;
   lookup?: EntityLookupConfig;
-  /** Options and soft-fill from a field on a related record. */
-  template?: EntityTemplateConfig;
   dependencies?: EntityDependenciesConfig;
   /** Value prefilled for new records. */
   defaultValue?: EntityFieldDefaultValue;
@@ -1154,7 +1139,7 @@ export function getEntityHeaderField(entity: Entity): EntityField | null {
 export function isEntityKanbanGroupField(
   field: Pick<EntityField, "type" | "listMultiple">,
 ) {
-  if (isEntityRelationLikeFieldType(field.type)) return true;
+  if (field.type === "relation") return true;
   return field.type === "list" && !field.listMultiple;
 }
 
@@ -1291,7 +1276,7 @@ export function getEntityKanbanColumns(
     return columns;
   }
 
-  if (isEntityRelationLikeFieldType(field.type)) {
+  if (field.type === "relation") {
     const targetId = getEntityRelationTargetId(field);
     const target = targetId
       ? (entities.find((item) => item.id === targetId) ?? null)
@@ -1316,7 +1301,7 @@ export function getEntityRecordKanbanColumnId(
   if (field.type === "list") {
     return parseEntityListValueIds(value)[0] ?? ENTITY_KANBAN_EMPTY_COLUMN_ID;
   }
-  if (isEntityRelationLikeFieldType(field.type)) {
+  if (field.type === "relation") {
     return parseEntityRelationIds(value)[0] ?? ENTITY_KANBAN_EMPTY_COLUMN_ID;
   }
   return ENTITY_KANBAN_EMPTY_COLUMN_ID;
@@ -1328,7 +1313,7 @@ export function serializeEntityKanbanColumnValue(
 ) {
   const id = columnId === ENTITY_KANBAN_EMPTY_COLUMN_ID ? "" : columnId.trim();
   if (field.type === "list") return id;
-  if (isEntityRelationLikeFieldType(field.type)) {
+  if (field.type === "relation") {
     return id ? serializeEntityRelationIds([id]) : "";
   }
   return "";
@@ -1527,13 +1512,14 @@ export function formatEntityListFieldValue(
 
 /** Expand `{{fieldId}}` in a record name using sibling field values (no formula ctx). */
 function resolveRecordNameLabel(
-  entity: Pick<Entity, "fields">,
+  entity: Pick<Entity, "fields"> & { nameTemplate?: string },
   values: Record<string, string>,
   entities?: readonly Entity[],
 ): string {
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   if (!nameField) return "Без названия";
-  const raw = (values[nameField.id] ?? "").trim();
+  const entityTemplate = entity.nameTemplate?.trim() ?? "";
+  const raw = entityTemplate || (values[nameField.id] ?? "").trim();
   if (!raw) return "Без названия";
   if (!/\{\{[^}]+\}\}/.test(raw)) return raw;
 
@@ -1550,7 +1536,7 @@ function resolveRecordNameLabel(
         );
         return !label || label === "—" ? "" : label;
       }
-      if (isEntityRelationLikeFieldType(field.type)) {
+      if (field.type === "relation") {
         const targetId = getEntityRelationTargetId(field);
         const target = targetId
           ? entities?.find((item) => item.id === targetId)
@@ -1697,7 +1683,7 @@ function isEntityListDependencyParentType(
     "type" | "listDependsOnFieldId" | "listSourceFieldId"
   >,
 ): boolean {
-  if (isEntityRelationLikeFieldType(field.type)) return true;
+  if (field.type === "relation") return true;
   return (
     field.type === "list" &&
     !field.listDependsOnFieldId &&
@@ -1747,7 +1733,7 @@ export function getEntityListDependencyParentValues(
       color: parentField.listUseColors ? option.color : undefined,
     }));
   }
-  if (isEntityRelationLikeFieldType(parentField.type)) {
+  if (parentField.type === "relation") {
     const targetId = getEntityRelationTargetId(parentField);
     const target = targetId
       ? (entities.find((item) => item.id === targetId) ?? null)

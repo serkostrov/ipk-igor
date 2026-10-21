@@ -195,12 +195,6 @@ function FieldTypeMeta({
   const isTabLink = getEntityTabLinkFieldIds(entityId, entities).has(field.id);
   const listSource = resolveEntityListFieldSource(field, entities);
 
-  if (field.type === "template") {
-    return (
-      <span className="truncate text-xs text-muted-foreground">По шаблону</span>
-    );
-  }
-
   if (field.type === "relation") {
     return (
       <span className="truncate text-xs text-muted-foreground">

@@ -16,10 +16,8 @@ import {
   getRelationFieldOptions,
   getRelationNestedParentField,
   getRelationRecordOptions,
-  getTemplateFieldOptions,
   isEntityComputedFieldType,
   isEntityNameField,
-  isEntityRelationLikeFieldType,
   isValidEntityEmail,
   normalizeEntityDecimalInput,
   normalizeEntityPhoneValue,
@@ -31,6 +29,7 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
+import { TemplateRichText } from "@/features/manage-automations/ui/TemplateRichText";
 import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
 import { DependenciesFieldControl } from "./DependenciesFieldControl";
 import { FileFieldControl } from "./FileFieldControl";
@@ -161,30 +160,17 @@ export function RecordFieldControl({
   const target = targetId
     ? (entities.find((item) => item.id === targetId) ?? null)
     : null;
-  const relationUnavailable =
-    isEntityRelationLikeFieldType(field.type) && !target;
+  const relationUnavailable = field.type === "relation" && !target;
   const nestedParentField =
     field.type === "relation"
       ? getRelationNestedParentField(entity, field, entities)
       : null;
-  const templateBridgeField =
-    field.type === "template" && field.template
-      ? (entity.fields.find(
-          (item) => item.id === field.template!.bridgeFieldId,
-        ) ?? null)
-      : null;
-  const templateBridgeEmpty =
-    templateBridgeField != null &&
-    parseEntityRelationIds(values[templateBridgeField.id]).length === 0;
   const relationParentEmpty =
-    (nestedParentField != null &&
-      parseEntityRelationIds(values[nestedParentField.id]).length === 0) ||
-    templateBridgeEmpty;
-  const relationDisabledHint = templateBridgeField
-    ? `Сначала выберите «${getEntityFieldDisplayName(templateBridgeField)}»`
-    : nestedParentField
-      ? `Сначала выберите «${getEntityFieldDisplayName(nestedParentField)}»`
-      : undefined;
+    nestedParentField != null &&
+    parseEntityRelationIds(values[nestedParentField.id]).length === 0;
+  const relationDisabledHint = nestedParentField
+    ? `Сначала выберите «${getEntityFieldDisplayName(nestedParentField)}»`
+    : undefined;
 
   const labelNode = (
     <Label htmlFor={id}>
@@ -299,19 +285,7 @@ export function RecordFieldControl({
     );
   }
 
-  if (field.type === "relation" || field.type === "template") {
-    const options =
-      field.type === "template"
-        ? getTemplateFieldOptions(ctx, entity, values, field)
-        : getRelationControlOptions(
-            ctx,
-            entity,
-            field,
-            values,
-            recordId,
-            target,
-            entities,
-          );
+  if (field.type === "relation") {
     return (
       <div className="flex flex-col gap-2">
         {labelNode}
@@ -329,7 +303,15 @@ export function RecordFieldControl({
         ) : (
           <RelationSelect
             id={id}
-            options={options}
+            options={getRelationControlOptions(
+              ctx,
+              entity,
+              field,
+              values,
+              recordId,
+              target,
+              entities,
+            )}
             value={relationParentEmpty ? "" : value}
             multiple={field.relationMultiple}
             disabled={relationParentEmpty}
@@ -365,6 +347,38 @@ export function RecordFieldControl({
   }
 
   if (isEntityNameField(field)) {
+    const entityTemplate = entity.nameTemplate.trim();
+    if (entityTemplate) {
+      const previewRecord = createEntityDraftRecord(
+        { ...values, [field.id]: value },
+        recordId,
+      );
+      const preview = formatRecordFieldValue(ctx, entity, previewRecord, field);
+      return (
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <Label htmlFor={id}>{label}</Label>
+          <div
+            id={id}
+            className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
+          >
+            <TemplateRichText
+              value={entityTemplate}
+              fields={entity.fields}
+              empty="По шаблону сущности"
+            />
+            {preview && preview !== "—" ? (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Сейчас: {preview}
+              </p>
+            ) : (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Название собирается из полей по шаблону сущности
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
     return (
       <TemplateFieldInput
         id={id}

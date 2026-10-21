@@ -48,7 +48,6 @@ import {
   getEntityRelationTargetId,
   getEntityTableFields,
   isEntityInternal,
-  isEntityRelationLikeFieldType,
   getEntityUrlHref,
   getRelationRecordOptions,
   getVisibleListOptions,
@@ -373,7 +372,7 @@ function recordMatchesFilters(
     }
 
     if (filter.kind === "list") {
-      if (isEntityRelationLikeFieldType(field.type)) {
+      if (field.type === "relation") {
         return entityRelationIncludesId(raw, filter.optionId);
       }
       if (field.type === "list" && field.listMultiple) {
@@ -709,7 +708,7 @@ function EntityFilters({
           );
         }
 
-        if (isEntityRelationLikeFieldType(field.type)) {
+        if (field.type === "relation") {
           const targetId = getEntityRelationTargetId(field);
           const target = targetId
             ? (entities.find((item) => item.id === targetId) ?? null)
@@ -1157,18 +1156,16 @@ export function EntityTableView({
                           field.type === "file"
                             ? formatEntityFieldFilesSummary(raw)
                             : null;
-                        const relationTargetId = isEntityRelationLikeFieldType(
-                          field.type,
-                        )
-                          ? getEntityRelationTargetId(field)
-                          : null;
-                        const relationIds = isEntityRelationLikeFieldType(
-                          field.type,
-                        )
-                          ? parseEntityRelationIds(raw)
-                          : [];
+                        const relationTargetId =
+                          field.type === "relation"
+                            ? getEntityRelationTargetId(field)
+                            : null;
+                        const relationIds =
+                          field.type === "relation"
+                            ? parseEntityRelationIds(raw)
+                            : [];
                         const canOpenRelation =
-                          isEntityRelationLikeFieldType(field.type) &&
+                          field.type === "relation" &&
                           Boolean(relationTargetId) &&
                           relationIds.length > 0 &&
                           cellTitle !== "—" &&
@@ -1197,7 +1194,7 @@ export function EntityTableView({
                             )}
                             title={
                               field.type === "list" ||
-                              isEntityRelationLikeFieldType(field.type) ||
+                              field.type === "relation" ||
                               field.type === "file" ||
                               (field.type === "boolean" &&
                                 field.booleanInline) ||
@@ -1310,7 +1307,7 @@ export function EntityTableView({
                                 multiple={listPresentation.listMultiple}
                                 showColors={listPresentation.listUseColors}
                               />
-                            ) : isEntityRelationLikeFieldType(field.type) &&
+                            ) : field.type === "relation" &&
                               relationIds.length > 0 ? (
                               (() => {
                                 const primaryId = relationIds[0]!;

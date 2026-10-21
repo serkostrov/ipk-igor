@@ -10,7 +10,6 @@ import {
   type EntityFieldDefaultValue,
   type EntityFieldType,
   type EntityLookupConfig,
-  type EntityTemplateConfig,
   type EntityNumberDecimals,
   type EntityNumberSignColor,
   type EntityRelationFilter,
@@ -24,7 +23,6 @@ export type EntityFieldTypeSettings = Pick<
   | "formula"
   | "rollup"
   | "lookup"
-  | "template"
   | "dependencies"
   | "defaultValue"
   | "relationFilter"
@@ -40,7 +38,6 @@ export type FieldTypeSettingsDraft = {
   formulaDecimals: EntityNumberDecimals;
   rollup: EntityRollupConfig | null;
   lookup: EntityLookupConfig | null;
-  template: EntityTemplateConfig | null;
   dependencies: EntityDependenciesConfig;
   defaultValue: EntityFieldDefaultValue | null;
   relationFilter: EntityRelationFilter | null;
@@ -113,7 +110,6 @@ export function createFieldTypeSettingsDraft(
     formulaDecimals: field?.formula?.decimals ?? 2,
     rollup: field?.rollup ?? null,
     lookup: field?.lookup ?? null,
-    template: field?.template ?? null,
     dependencies: field?.dependencies ?? { sameFieldId: null },
     defaultValue: field?.defaultValue ?? null,
     relationFilter: field?.relationFilter ?? null,
@@ -160,12 +156,6 @@ export function getFieldTypeSettingsError(
   ) {
     return "Выберите связь и поле";
   }
-  if (
-    type === "template" &&
-    (!draft.template?.bridgeFieldId || !draft.template.sourceFieldId)
-  ) {
-    return "Выберите связь и поле шаблона";
-  }
   return null;
 }
 
@@ -184,7 +174,6 @@ export function resolveFieldTypeSettings(
       : undefined,
     rollup: type === "rollup" ? (draft.rollup ?? undefined) : undefined,
     lookup: type === "lookup" ? (draft.lookup ?? undefined) : undefined,
-    template: type === "template" ? (draft.template ?? undefined) : undefined,
     dependencies: type === "dependencies" ? draft.dependencies : undefined,
     defaultValue: draft.defaultValue ?? undefined,
     relationFilter:

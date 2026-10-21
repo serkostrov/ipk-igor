@@ -1,12 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronDown, EyeOff, Lock, Search, Shield } from "lucide-react";
+import { Check, ChevronDown, EyeOff, Search, Shield } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import {
   isEntityInternal,
-  isEntityLocked,
   isSystemEntity,
   type Entity,
 } from "@/entities/entity";
@@ -36,18 +35,12 @@ type EntityMenuSelectProps = {
 };
 
 function entityStatusIcons(entity: Entity): ReactNode {
-  const locked = isEntityLocked(entity);
   const internal = isEntityInternal(entity);
   const system = isSystemEntity(entity);
-  if (!locked && !internal && !system) return null;
+  if (!internal && !system) return null;
 
   return (
     <span className="inline-flex shrink-0 items-center gap-1 text-muted-foreground">
-      {locked ? (
-        <span title="Схема сущности заблокирована">
-          <Lock className="size-3.5" aria-label="Заблокировано" />
-        </span>
-      ) : null}
       {internal ? (
         <span title="Служебная сущность — без раздела в меню">
           <EyeOff className="size-3.5" aria-label="Служебная сущность" />

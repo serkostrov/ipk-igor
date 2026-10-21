@@ -71,7 +71,6 @@ import {
   getEntityTableFields,
   isEntityFieldsHostTab,
   isEntityKanbanGroupField,
-  isEntityLocked,
   isEntityNameField,
   isEntityOverviewTab,
   isEntitySubEntity,
@@ -118,6 +117,15 @@ let currentAuthUserId: string | null = null;
 let stopRecordSync: (() => void) | null = null;
 let stopStructureSync: (() => void) | null = null;
 let stopVisibilityRefresh: (() => void) | null = null;
+/**
+ * Schema editor session: mutations update memory immediately, but remote
+ * save is deferred until `commitEntitySchemaEdit`.
+ */
+let schemaEditSession: {
+  entityId: string;
+  snapshot: EntityConfig;
+  dirty: boolean;
+} | null = null;
 
 const listeners = new Set<Listener>();
 
@@ -196,6 +204,7 @@ function applyRemoteRecordDelete(recordId: string) {
 }
 
 function applyRemoteStructureUpsert(remote: Entity) {
+  if (schemaEditSession) return;
   if (isRecentLocalStructureWrite(remote.id)) return;
   const existing = config.entities.find((item) => item.id === remote.id);
   const merged = normalizeEntity({
@@ -222,6 +231,7 @@ function applyRemoteStructureUpsert(remote: Entity) {
 }
 
 function applyRemoteStructureDelete(entityId: string) {
+  if (schemaEditSession) return;
   if (isRecentLocalStructureWrite(entityId)) return;
   if (!config.entities.some((item) => item.id === entityId)) return;
   setLocalConfig({
@@ -249,7 +259,7 @@ function startStructureSync() {
 /** Pull structure (+ record values) when the tab becomes visible again. */
 async function refreshFromRemote() {
   if (!isSupabaseConfigured || status === "loading") return;
-  if (persistStructureTimer) return;
+  if (persistStructureTimer || schemaEditSession) return;
 
   try {
     const remote = await withTimeout(
@@ -345,16 +355,13 @@ function handlePersistError(error: unknown, fallback: string) {
 
 let persistStructureTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** Persist entity structure (without records) to the entities table. */
-function persistStructure(next: EntityConfig) {
-  config = next;
-  notify();
-  syncEntityMenuItems(menuLabels(next.entities));
+function cloneEntityConfig(source: EntityConfig): EntityConfig {
+  return structuredClone(source);
+}
 
+function flushStructureToRemote() {
   if (!isSupabaseConfigured) return;
-
-  markLocalStructureWrite(next.entities.map((entity) => entity.id));
-
+  markLocalStructureWrite(config.entities.map((entity) => entity.id));
   if (persistStructureTimer) clearTimeout(persistStructureTimer);
   persistStructureTimer = setTimeout(() => {
     persistStructureTimer = null;
@@ -363,6 +370,67 @@ function persistStructure(next: EntityConfig) {
       handlePersistError(error, "Не удалось сохранить сущности");
     });
   }, 400);
+}
+
+/** Persist entity structure (without records) to the entities table. */
+function persistStructure(next: EntityConfig) {
+  config = next;
+  notify();
+  syncEntityMenuItems(menuLabels(next.entities));
+
+  if (schemaEditSession) {
+    schemaEditSession = { ...schemaEditSession, dirty: true };
+    notify();
+    return;
+  }
+
+  flushStructureToRemote();
+}
+
+/** Start deferred-save editing for an entity schema (settings UI). */
+export function beginEntitySchemaEdit(entityId: string) {
+  if (schemaEditSession?.entityId === entityId) return;
+  if (schemaEditSession) {
+    // Drop unsaved work on another entity before starting a new session.
+    config = cloneEntityConfig(schemaEditSession.snapshot);
+    syncEntityMenuItems(menuLabels(config.entities));
+  }
+  schemaEditSession = {
+    entityId,
+    snapshot: cloneEntityConfig(config),
+    dirty: false,
+  };
+  notify();
+}
+
+/** Write deferred schema changes to the backend and leave the edit session. */
+export function commitEntitySchemaEdit() {
+  if (!schemaEditSession) return;
+  schemaEditSession = null;
+  notify();
+  flushStructureToRemote();
+}
+
+/** Restore the pre-edit snapshot and leave the edit session. */
+export function cancelEntitySchemaEdit() {
+  if (!schemaEditSession) return;
+  config = cloneEntityConfig(schemaEditSession.snapshot);
+  schemaEditSession = null;
+  syncEntityMenuItems(menuLabels(config.entities));
+  notify();
+}
+
+export function getEntitySchemaEditSession() {
+  return schemaEditSession
+    ? {
+        entityId: schemaEditSession.entityId,
+        dirty: schemaEditSession.dirty,
+      }
+    : null;
+}
+
+export function isEntitySchemaEditDirty() {
+  return Boolean(schemaEditSession?.dirty);
 }
 
 /** Update in-memory state only (records are persisted separately). */
@@ -406,12 +474,10 @@ function withOptionalTabLinkFields(entities: Entity[]): Entity[] {
 function mapEntity(
   entityId: string,
   mapper: (entity: Entity) => Entity,
-  options?: { allowWhenLocked?: boolean },
 ): void {
   let changed = false;
   const entities = config.entities.map((entity) => {
     if (entity.id !== entityId) return entity;
-    if (isEntityLocked(entity) && !options?.allowWhenLocked) return entity;
     changed = true;
     return normalizeEntity(mapper(entity));
   });
@@ -459,7 +525,9 @@ export function getEntityError() {
 
 export function subscribeEntityConfig(listener: Listener) {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export async function initEntityConfig() {
@@ -654,21 +722,9 @@ export function updateEntity(
   }));
 }
 
-export function setEntityLocked(entityId: string, locked: boolean) {
-  mapEntity(
-    entityId,
-    (entity) => ({
-      ...entity,
-      locked: Boolean(locked),
-    }),
-    { allowWhenLocked: true },
-  );
-}
-
 export function removeEntity(id: string) {
   const target = config.entities.find((entity) => entity.id === id);
   if (target && isSystemEntity(target)) return;
-  if (target && isEntityLocked(target)) return;
 
   const childIds = config.entities
     .filter((entity) => entity.parentEntityId === id)
@@ -713,18 +769,13 @@ export function addEntityField(
     includeInTotal: Boolean(data?.includeInTotal),
     tableOrder: data?.tableOrder ?? 0,
     relationEntityId:
-      type === "relation" || type === "template"
-        ? data?.relationEntityId?.trim() || null
-        : null,
+      type === "relation" ? data?.relationEntityId?.trim() || null : null,
     relationMultiple:
-      type === "relation" || type === "template"
-        ? Boolean(data?.relationMultiple)
-        : false,
+      type === "relation" ? Boolean(data?.relationMultiple) : false,
     unitSuffix: data?.unitSuffix?.trim() || null,
     formula: data?.formula,
     rollup: data?.rollup,
     lookup: data?.lookup,
-    template: data?.template,
     dependencies: data?.dependencies,
     defaultValue: data?.defaultValue,
     relationFilter: data?.relationFilter,
@@ -1089,7 +1140,7 @@ export function addEntityMirrorTab(
   },
 ) {
   const host = config.entities.find((item) => item.id === entityId);
-  if (!host || isEntityLocked(host)) return null;
+  if (!host) return null;
 
   const relationField = host.fields.find(
     (field) =>
@@ -1137,7 +1188,7 @@ export function addEntityTabWithLinkedEntity(
   },
 ) {
   const parent = config.entities.find((item) => item.id === parentEntityId);
-  if (!parent || isEntityLocked(parent)) return null;
+  if (!parent) return null;
 
   const tabId = createId("tab");
   const childId = createId("entity");
@@ -1248,7 +1299,7 @@ export function addEntityTabWithExistingEntity(
   const linked = config.entities.find(
     (item) => item.id === data.linkedEntityId,
   );
-  if (!parent || !linked || isEntityLocked(parent)) return null;
+  if (!parent || !linked) return null;
 
   const alreadyLinked = parent.tabs.some(
     (tab) =>
@@ -1372,7 +1423,7 @@ export function updateEntityTab(
   patch: Partial<Pick<EntityTab, "name" | "defaultFolders">>,
 ) {
   const parent = config.entities.find((item) => item.id === entityId);
-  if (!parent || isEntityLocked(parent)) return;
+  if (!parent) return;
   const target = parent.tabs.find((tab) => tab.id === tabId);
   const nextName = patch.name?.trim();
 
@@ -1440,7 +1491,6 @@ export function removeEntityTab(entityId: string, tabId: string) {
   const parent = config.entities.find((item) => item.id === entityId);
   const target = parent?.tabs.find((tab) => tab.id === tabId);
   if (!parent || !target || parent.tabs.length <= 1) return;
-  if (isEntityLocked(parent)) return;
 
   const linkedEntityId =
     isEntityTabWithLinkedEntity(target) && target.linkedEntityId
@@ -1664,7 +1714,7 @@ export function dissolveEntityFieldGroup(entityId: string, groupName: string) {
  */
 export function rescueOrphanEntityFields(entityId: string) {
   const current = config.entities.find((item) => item.id === entityId);
-  if (!current || isEntityLocked(current)) return;
+  if (!current) return;
 
   const hostTabIds = getEntityFieldsHostTabIds(current.tabs);
   // Nowhere to attach until a fields tab exists.

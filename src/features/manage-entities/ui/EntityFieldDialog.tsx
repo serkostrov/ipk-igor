@@ -67,12 +67,12 @@ import {
   SettingSelect,
   SettingSwitch,
 } from "@/shared/ui/setting-controls";
+import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
 import { DeadlineSettings } from "./DeadlineSettings";
 import { DefaultValueSettings } from "./DefaultValueSettings";
 import { FormulaSettings } from "./FormulaSettings";
 import { LookupSettings } from "./LookupSettings";
 import { RelationFilterSettings } from "./RelationFilterSettings";
-import { TemplateSettings } from "./TemplateSettings";
 import {
   RollupCalculationSettings,
   RollupConditionsSettings,
@@ -96,6 +96,8 @@ export type EntityFieldFormData = {
   relationMultiple: boolean;
   /** Linked list field id when type is list; null = own «Новый» list. */
   listSourceFieldId: string | null;
+  /** List: allow several option ids (implies fixed catalog). */
+  listMultiple: boolean;
   /** Optional unit suffix for number, formula and rollup (e.g. «м/с»). */
   unitSuffix: string | null;
   sumFieldIds: string[];
@@ -103,6 +105,11 @@ export type EntityFieldFormData = {
   datetimeWithTime: boolean;
   /** When `type === "boolean"` — interactive switch in the table. */
   booleanInline: boolean;
+  /**
+   * Name field only: entity-wide title template (`{{fieldId}}` tokens).
+   * Empty — titles are entered per record.
+   */
+  nameTemplate: string;
   /** Formula, rollup, lookup, default value, relation filter, deadline… */
   settings: EntityFieldTypeSettings;
 };
@@ -613,6 +620,35 @@ function RelationMultipleControl({
   );
 }
 
+function ListMultipleControl({
+  multiple,
+  onMultipleChange,
+}: {
+  multiple: boolean;
+  onMultipleChange: (multiple: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <Label
+          htmlFor="entity-field-list-multiple"
+          className="text-xs font-medium text-muted-foreground"
+        >
+          Множественный выбор
+        </Label>
+        <span className="text-[11px] leading-tight text-muted-foreground">
+          Можно выбрать несколько вариантов
+        </span>
+      </div>
+      <Switch
+        id="entity-field-list-multiple"
+        checked={multiple}
+        onCheckedChange={onMultipleChange}
+      />
+    </div>
+  );
+}
+
 function NumberTotalControl({
   checked,
   onCheckedChange,
@@ -1044,12 +1080,14 @@ function buildEntityFieldFormData({
   relationEntityId,
   relationMultiple,
   listSourceFieldId,
+  listMultiple,
   unitSuffix,
   useUnit,
   sumFieldIds,
   useAsSum,
   datetimeWithTime,
   booleanInline,
+  nameTemplate,
   typeSettings,
   entity,
   relationBindingLocked,
@@ -1072,12 +1110,14 @@ function buildEntityFieldFormData({
   relationEntityId: string;
   relationMultiple: boolean;
   listSourceFieldId: string;
+  listMultiple: boolean;
   unitSuffix: string;
   useUnit: boolean;
   sumFieldIds: string[];
   useAsSum: boolean;
   datetimeWithTime: boolean;
   booleanInline: boolean;
+  nameTemplate: string;
   typeSettings: FieldTypeSettingsDraft;
   entity: Entity | null;
   relationBindingLocked: boolean;
@@ -1099,10 +1139,12 @@ function buildEntityFieldFormData({
       relationEntityId: null,
       relationMultiple: false,
       listSourceFieldId: null,
+      listMultiple: false,
       unitSuffix: null,
       sumFieldIds: [],
       datetimeWithTime: false,
       booleanInline: false,
+      nameTemplate: nameTemplate.trim(),
       settings: {},
     };
   }
@@ -1119,7 +1161,7 @@ function buildEntityFieldFormData({
   const columnTotal = Math.max(1, tableColumnCount);
   const minPosition = Math.min(tablePositionMin, columnTotal);
   const resolvedRelationEntityId =
-    resolvedType === "relation" || resolvedType === "template"
+    resolvedType === "relation"
       ? relationBindingLocked
         ? (field?.relationEntityId ?? (relationEntityId.trim() || null))
         : relationEntityId.trim() || null
@@ -1138,13 +1180,14 @@ function buildEntityFieldFormData({
     tablePosition: Math.min(columnTotal, Math.max(minPosition, tablePosition)),
     relationEntityId: resolvedRelationEntityId,
     relationMultiple:
-      resolvedType === "relation" || resolvedType === "template"
+      resolvedType === "relation"
         ? relationBindingLocked
           ? Boolean(field?.relationMultiple)
           : relationMultiple
         : false,
     listSourceFieldId:
       resolvedType === "list" ? listSourceFieldId.trim() || null : null,
+    listMultiple: resolvedType === "list" ? Boolean(listMultiple) : false,
     unitSuffix:
       isEntityUnitFieldType(resolvedType) && useUnit
         ? unitSuffix.trim() || null
@@ -1153,6 +1196,7 @@ function buildEntityFieldFormData({
     datetimeWithTime:
       resolvedType === "datetime" ? Boolean(datetimeWithTime) : false,
     booleanInline: resolvedType === "boolean" ? Boolean(booleanInline) : false,
+    nameTemplate: "",
     settings: resolveFieldTypeSettings(
       resolvedType,
       typeSettings,
@@ -1299,6 +1343,9 @@ function EntityFieldForm({
   const [listSourceFieldId, setListSourceFieldId] = useState(
     field?.listSourceFieldId ?? "",
   );
+  const [listMultiple, setListMultiple] = useState(
+    Boolean(field?.listFixed && field?.listMultiple),
+  );
   const [unitSuffix, setUnitSuffix] = useState(field?.unitSuffix ?? "");
   const [useUnit, setUseUnit] = useState(
     Boolean(field?.unitSuffix?.trim()) && field?.type !== "numberSum",
@@ -1319,6 +1366,9 @@ function EntityFieldForm({
     () => entities.find((item) => item.id === entityId) ?? null,
     [entities, entityId],
   );
+  const [nameTemplate, setNameTemplate] = useState(
+    () => entities.find((item) => item.id === entityId)?.nameTemplate ?? "",
+  );
   const [typeSettings, setTypeSettings] = useState(() =>
     createFieldTypeSettingsDraft(field, currentEntity),
   );
@@ -1328,7 +1378,7 @@ function EntityFieldForm({
   const effectiveType: EntityFieldType =
     isNumberType && useAsSum ? "numberSum" : type;
   const relationTarget =
-    type === "relation" || type === "template"
+    type === "relation"
       ? (entities.find((item) => item.id === relationEntityId) ?? null)
       : null;
   const listDefaultOptions =
@@ -1364,8 +1414,7 @@ function EntityFieldForm({
       label: getEntityFieldDisplayName(item),
     }));
   const canSubmit =
-    ((type !== "relation" && type !== "template") ||
-      relationEntityId.trim().length > 0) &&
+    (type !== "relation" || relationEntityId.trim().length > 0) &&
     !(isNumberType && useAsSum && sumFieldIds.length === 0) &&
     !(
       isEntityUnitFieldType(effectiveType) &&
@@ -1436,12 +1485,14 @@ function EntityFieldForm({
       relationEntityId,
       relationMultiple,
       listSourceFieldId,
+      listMultiple,
       unitSuffix,
       useUnit,
       sumFieldIds,
       useAsSum,
       datetimeWithTime,
       booleanInline,
+      nameTemplate,
       typeSettings,
       entity: currentEntity,
       relationBindingLocked,
@@ -1479,12 +1530,13 @@ function EntityFieldForm({
       setUseUnit(false);
       setUnitSuffix("");
     }
-    if (resolved !== "relation" && resolved !== "template") {
+    if (resolved !== "relation") {
       setRelationEntityId("");
       setRelationMultiple(false);
     }
     if (resolved !== "list") {
       setListSourceFieldId("");
+      setListMultiple(false);
     }
     if (resolved !== "datetime") {
       setDatetimeWithTime(false);
@@ -1496,20 +1548,6 @@ function EntityFieldForm({
       if (!relationEntityId && entityOptions.length === 1) {
         setRelationEntityId(entityOptions[0]!.id);
       }
-    }
-    if (resolved === "template") {
-      setRelationMultiple(true);
-      patchTypeSettings({
-        template: typeSettings.template ?? {
-          bridgeFieldId: "",
-          sourceFieldId: "",
-        },
-        defaultValue: null,
-        relationFilter: null,
-      });
-    }
-    if (resolved !== "template") {
-      patchTypeSettings({ template: null });
     }
   }
 
@@ -1553,7 +1591,7 @@ function EntityFieldForm({
         </DialogTitle>
         <DialogDescription>
           {isNameField
-            ? "Системное поле заголовка записи — можно изменить название и подсказку."
+            ? "Системное поле заголовка — название, подсказка и общий шаблон для всех записей."
             : systemBindingLocked
               ? "Системное поле — тип зафиксирован, можно изменить название и отображение."
               : relationBindingLocked
@@ -1583,6 +1621,25 @@ function EntityFieldForm({
             placeholder="Подсказка для заполнения"
           />
         </div>
+
+        {isNameField && currentEntity ? (
+          <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-2.5">
+            <TemplateFieldInput
+              id="entity-field-name-template"
+              title="Шаблон названия"
+              value={nameTemplate}
+              placeholder="Текст и поля — для всех записей"
+              fields={currentEntity.fields.filter(
+                (item) => !isEntityNameField(item),
+              )}
+              onChange={setNameTemplate}
+            />
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              Если задан — название всех записей собирается из полей. Пусто —
+              вводится вручную в каждой записи.
+            </p>
+          </div>
+        ) : null}
 
         {isNameField ? null : (
           <>
@@ -1637,7 +1694,7 @@ function EntityFieldForm({
                     onChange={handleRelationEntityChange}
                   />
                 ) : null}
-                {type === "relation" || type === "template" ? (
+                {type === "relation" ? (
                   <RelationMultipleControl
                     multiple={relationMultiple}
                     disabled={relationBindingLocked}
@@ -1656,19 +1713,6 @@ function EntityFieldForm({
                     onChange={(relationFilter) =>
                       patchTypeSettings({ relationFilter })
                     }
-                  />
-                ) : null}
-                {type === "template" ? (
-                  <TemplateSettings
-                    entity={currentEntity}
-                    entities={entities}
-                    fieldId={field?.id ?? null}
-                    value={typeSettings.template}
-                    onChange={(template) => patchTypeSettings({ template })}
-                    onTargetEntityIdChange={(entityId) => {
-                      setRelationEntityId(entityId ?? "");
-                      patchTypeSettings({ defaultValue: null });
-                    }}
                   />
                 ) : null}
                 {type === "formula" ? (
@@ -1770,6 +1814,12 @@ function EntityFieldForm({
                     }
                   />
                 ) : null}
+                {type === "list" ? (
+                  <ListMultipleControl
+                    multiple={listMultiple}
+                    onMultipleChange={setListMultiple}
+                  />
+                ) : null}
                 {isEntityUnitFieldType(effectiveType) ? (
                   <NumberUnitControl
                     enabled={useUnit}
@@ -1850,11 +1900,7 @@ function EntityFieldForm({
                     datetimeWithTime={datetimeWithTime}
                     listOptions={listDefaultOptions}
                     listMultiple={
-                      effectiveType === "list"
-                        ? (listPresentation?.listMultiple ??
-                          field?.listMultiple ??
-                          false)
-                        : false
+                      effectiveType === "list" ? listMultiple : false
                     }
                     listAllowOther={field?.listAllowOther ?? false}
                     listUseColors={listPresentation?.listUseColors ?? false}
