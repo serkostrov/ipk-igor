@@ -174,7 +174,8 @@ export function RecordFieldControl({
   const target = targetId
     ? (entities.find((item) => item.id === targetId) ?? null)
     : null;
-  const relationUnavailable = field.type === "relation" && !target;
+  const relationUnavailable =
+    (field.type === "relation" || field.type === "belonging") && !target;
   const nestedParentField =
     field.type === "relation"
       ? getRelationNestedParentField(entity, field, entities)
@@ -318,7 +319,11 @@ export function RecordFieldControl({
     );
   }
 
-  if (field.type === "relation") {
+  if (field.type === "relation" || field.type === "belonging") {
+    const belongingTarget =
+      field.type === "belonging"
+        ? (entities.find((item) => item.id === entity.id) ?? entity)
+        : target;
     return (
       <div className="flex flex-col gap-2">
         {labelNode}
@@ -329,8 +334,8 @@ export function RecordFieldControl({
             {relationDisabledHint}
           </span>
         ) : null}
-        {relationUnavailable ? (
-          <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+        {relationUnavailable && field.type === "relation" ? (
+          <p className="flex h-9 items-center rounded-md border border-dashed border-border px-2.5 text-sm text-muted-foreground">
             Сущность не выбрана
           </p>
         ) : (
@@ -342,16 +347,20 @@ export function RecordFieldControl({
               field,
               values,
               recordId,
-              target,
+              belongingTarget,
               entities,
             )}
             value={relationParentEmpty ? "" : value}
-            multiple={field.relationMultiple}
+            multiple={
+              field.type === "belonging" ? false : field.relationMultiple
+            }
             disabled={relationParentEmpty}
             placeholder={
               relationParentEmpty
                 ? (relationDisabledHint ?? "Не выбран")
-                : "Не выбран"
+                : field.type === "belonging"
+                  ? "Без родителя"
+                  : "Не выбран"
             }
             onChange={onChange}
           />
@@ -388,11 +397,11 @@ export function RecordFieldControl({
       );
       const preview = formatRecordFieldValue(ctx, entity, previewRecord, field);
       return (
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <Label htmlFor={id}>{label}</Label>
+        <div className="flex min-w-0 flex-col gap-2">
+          {labelNode}
           <div
             id={id}
-            className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
+            className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-sm"
           >
             <TemplateRichText
               value={entityTemplate}
@@ -420,6 +429,8 @@ export function RecordFieldControl({
         placeholder={hint || "Текст и поля записи"}
         fields={entity.fields.filter((item) => !isEntityNameField(item))}
         onChange={onChange}
+        tone="form"
+        required={required}
       />
     );
   }

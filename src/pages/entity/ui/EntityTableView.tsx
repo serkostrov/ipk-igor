@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -85,7 +85,11 @@ import {
   removeEntityRecord,
   resolveRelationRecordLabel,
   getEntityFileDownloadUrl,
-  setEntityTableMassSelection,
+  flattenEntityTableHierarchyRows,
+  getEntityTableParentFieldOptions,
+  parseEntityTableParentId,
+  resolveEntityTableParentField,
+  setEntityTableSettings,
   updateEntityRecord,
   useEntityConfig,
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
@@ -108,7 +112,8 @@ import {
   formatDatetimeDisplay,
 } from "@/shared/lib/format-date";
 import { pluralRu } from "@/shared/lib/plural";
-import { SettingSwitch } from "@/shared/ui/setting-controls";
+import { SettingSelect, SettingSwitch } from "@/shared/ui/setting-controls";
+import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import {
   ENTITY_TABLE_ACTIONS_WIDTH,
   ENTITY_TABLE_SELECT_WIDTH,
@@ -258,13 +263,13 @@ const dataTableHeadClass =
   "sticky top-0 z-10 h-9 border-b border-border bg-muted px-3 text-[11px] font-semibold tracking-wide whitespace-nowrap text-foreground/65 uppercase";
 
 const dataTableActionsHeadClass =
-  "sticky top-0 z-10 h-9 w-24 min-w-24 max-w-24 border-b border-border bg-muted px-2 text-right text-[11px] font-semibold tracking-wide text-foreground/65 uppercase";
+  "sticky top-0 z-10 h-9 w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] border-b border-border bg-muted px-2 text-right text-[11px] font-semibold tracking-wide text-foreground/65 uppercase";
 
 const dataTableFootClass =
   "h-9 min-w-0 overflow-hidden px-3 py-0 text-foreground/90";
 
 const dataTableActionsFootClass =
-  "h-9 w-24 min-w-24 max-w-24 overflow-hidden px-2 py-0";
+  "h-9 w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] overflow-hidden px-2 py-0";
 
 /** Stays at the bottom of the table viewport, directly above pagination. */
 const dataTableFooterClass =
@@ -313,6 +318,30 @@ function TableSelectCheckbox({
   );
 }
 
+/**
+ * Tree gutter matches the group chevron column (size-6).
+ * Placed at left-3 so it lines up with in-flow content after cell px-3;
+ * stem at left-1/2 = exact chevron center. Arm w-2 ends before pl-9 content.
+ */
+function HierarchyTreeGuides({
+  isFirst,
+  isLast,
+}: {
+  isFirst: boolean;
+  isLast: boolean;
+}) {
+  return (
+    <div className="pointer-events-none absolute inset-y-0 left-3 w-6">
+      <TreeBranchGuides
+        isFirst={isFirst}
+        isLast={isLast}
+        className="left-1/2"
+        armClassName="w-2"
+      />
+    </div>
+  );
+}
+
 function TableSettingsForm({
   entity,
   onClose,
@@ -322,6 +351,13 @@ function TableSettingsForm({
 }) {
   const [massSelection, setMassSelection] = useState(
     entity.tableMassSelection === true,
+  );
+  const parentOptions = useMemo(
+    () => getEntityTableParentFieldOptions(entity),
+    [entity],
+  );
+  const [parentFieldId, setParentFieldId] = useState<string | null>(
+    () => resolveEntityTableParentField(entity)?.id ?? null,
   );
 
   return (
@@ -334,13 +370,23 @@ function TableSettingsForm({
         </DialogDescription>
       </DialogHeader>
 
-      <div className="flex flex-col gap-3 py-1">
+      <div className="flex flex-col gap-4 py-1">
         <SettingSwitch
           id="entity-table-mass-selection"
           title="Массовый выбор"
           description="Чекбоксы в строках — действия сразу для нескольких записей. Выбор сохраняется при смене страницы."
           checked={massSelection}
           onCheckedChange={setMassSelection}
+        />
+        <SettingSelect
+          id="entity-table-parent-field"
+          title="Иерархия"
+          description="Группы как у категорий: родительские строки и вложенные записи."
+          value={parentFieldId}
+          options={parentOptions}
+          emptyLabel="Без иерархии"
+          noOptionsLabel="Нужен список, связь или принадлежность."
+          onChange={setParentFieldId}
         />
       </div>
 
@@ -351,7 +397,10 @@ function TableSettingsForm({
         <Button
           type="button"
           onClick={() => {
-            setEntityTableMassSelection(entity.id, massSelection);
+            setEntityTableSettings(entity.id, {
+              massSelection,
+              parentFieldId,
+            });
             onClose();
           }}
         >
@@ -414,6 +463,8 @@ type EntityTableViewProps = {
   /** Row click — open full record (optional). */
   onOpenRecord?: (record: EntityRecord) => void;
   onOpenRelation?: (entityId: string, recordId: string) => void;
+  /** Create a record under this hierarchy group (list option id). */
+  onCreateChildRecord?: (groupValue: string) => void;
 };
 
 function SortIcon({
@@ -1062,6 +1113,7 @@ export function EntityTableView({
   onEditRecord,
   onOpenRecord,
   onOpenRelation,
+  onCreateChildRecord,
 }: EntityTableViewProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
@@ -1082,24 +1134,46 @@ export function EntityTableView({
   const [pendingDelete, setPendingDelete] = useState<EntityRecord | null>(null);
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  /** Hierarchy groups start collapsed; ids here are expanded by the user. */
+  const [expandedHierarchyIds, setExpandedHierarchyIds] = useState(
+    () => new Set<string>(),
+  );
   const massSelection = entity.tableMassSelection === true;
-  const tableFields = getEntityTableFields(entity.fields, {
-    preferArrayOrder: isEntityInternal(entity),
-  });
+  const parentField = useMemo(
+    () => resolveEntityTableParentField(entity),
+    [entity],
+  );
+  const tableFields = useMemo(() => {
+    const fields = getEntityTableFields(entity.fields, {
+      preferArrayOrder: isEntityInternal(entity),
+    });
+    if (!parentField) return fields;
+    return fields.filter((field) => field.id !== parentField.id);
+  }, [entity, parentField]);
   const filterFields = entity.fields.filter(
-    (field) => field.showInFilters !== false && !isEntityNameField(field),
+    (field) =>
+      field.showInFilters !== false &&
+      !isEntityNameField(field) &&
+      field.id !== parentField?.id,
   );
 
-  useEffect(() => {
+  const [selectionEntityId, setSelectionEntityId] = useState(entity.id);
+  if (selectionEntityId !== entity.id) {
+    setSelectionEntityId(entity.id);
     setSelectedIds([]);
-  }, [entity.id]);
+    setExpandedHierarchyIds(new Set());
+  }
 
-  useEffect(() => {
+  const [selectionMassEnabled, setSelectionMassEnabled] =
+    useState(massSelection);
+  if (selectionMassEnabled !== massSelection) {
+    setSelectionMassEnabled(massSelection);
     if (!massSelection) setSelectedIds([]);
-  }, [massSelection]);
+  }
+
   const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
   const sortKey = sort ? `${sort.fieldId}:${sort.direction}` : "";
-  const paginationResetKey = `${entity.id}|${search}|${filtersKey}|${sortKey}|${pageSize}`;
+  const paginationResetKey = `${entity.id}|${search}|${filtersKey}|${sortKey}|${pageSize}|${parentField?.id ?? ""}`;
   const [activePaginationKey, setActivePaginationKey] =
     useState(paginationResetKey);
 
@@ -1110,7 +1184,7 @@ export function EntityTableView({
     effectivePage = 1;
   }
 
-  const filteredRecords = useMemo(
+  const matchedRecords = useMemo(
     () =>
       sortEntityRecords(
         valueContext,
@@ -1131,17 +1205,143 @@ export function EntityTableView({
     [entity, filterFields, filters, records, search, sort, valueContext],
   );
 
+  const filteredRecords = matchedRecords;
+
+  const hierarchyGroupIds = useMemo(() => {
+    if (!parentField) return new Set<string>();
+    const ids = new Set<string>();
+    for (const record of filteredRecords) {
+      ids.add(parseEntityTableParentId(record.values[parentField.id]));
+    }
+    return ids;
+  }, [filteredRecords, parentField]);
+
+  const effectiveExpandedIds = useMemo(() => {
+    const next = new Set<string>();
+    for (const id of expandedHierarchyIds) {
+      if (hierarchyGroupIds.has(id)) next.add(id);
+    }
+    return next;
+  }, [expandedHierarchyIds, hierarchyGroupIds]);
+
+  const hierarchyRows = useMemo(() => {
+    if (!parentField) return null;
+    return flattenEntityTableHierarchyRows(
+      filteredRecords,
+      parentField,
+      effectiveExpandedIds,
+      entities,
+    );
+  }, [effectiveExpandedIds, entities, filteredRecords, parentField]);
+
+  const hierarchyRootRows = useMemo(
+    () => hierarchyRows?.filter((row) => row.kind === "group") ?? null,
+    [hierarchyRows],
+  );
+
+  const total = hierarchyRootRows
+    ? hierarchyRootRows.length
+    : filteredRecords.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.min(effectivePage, totalPages);
+
+  const pagedHierarchyRows = useMemo(() => {
+    if (!hierarchyRows || !hierarchyRootRows) return null;
+    const start = (currentPage - 1) * pageSize;
+    const pagedRoots = new Set(
+      hierarchyRootRows.slice(start, start + pageSize).map((row) => row.id),
+    );
+    return hierarchyRows.filter((row) =>
+      row.kind === "group"
+        ? pagedRoots.has(row.id)
+        : pagedRoots.has(row.groupId),
+    );
+  }, [currentPage, hierarchyRootRows, hierarchyRows, pageSize]);
+
+  const pagedRecords = pagedHierarchyRows
+    ? pagedHierarchyRows.flatMap((row) =>
+        row.kind === "record" ? [row.record] : [],
+      )
+    : filteredRecords.slice(
+        (currentPage - 1) * pageSize,
+        currentPage * pageSize,
+      );
+
+  const hierarchyMetaById = useMemo(() => {
+    if (!pagedHierarchyRows) return null;
+    const groupStart = new Set<string>();
+    const groupEnd = new Set<string>();
+    for (let i = 0; i < pagedHierarchyRows.length; i += 1) {
+      const row = pagedHierarchyRows[i]!;
+      if (row.kind !== "group" || !effectiveExpandedIds.has(row.id)) continue;
+      let start = -1;
+      let end = i;
+      for (let j = i + 1; j < pagedHierarchyRows.length; j += 1) {
+        if (pagedHierarchyRows[j]!.kind === "group") break;
+        if (start < 0) start = j;
+        end = j;
+      }
+      if (start > i) {
+        const startRow = pagedHierarchyRows[start]!;
+        if (startRow.kind === "record") groupStart.add(startRow.record.id);
+      }
+      if (end > i) {
+        const endRow = pagedHierarchyRows[end]!;
+        if (endRow.kind === "record") groupEnd.add(endRow.record.id);
+      }
+    }
+    const meta = new Map<
+      string,
+      {
+        depth: number;
+        hasChildren: boolean;
+        childCount: number;
+        expanded: boolean;
+        inOpenGroup: boolean;
+        isGroupStart: boolean;
+        isGroupEnd: boolean;
+        isGroup: boolean;
+        groupId: string;
+        groupLabel: string;
+      }
+    >();
+    for (const row of pagedHierarchyRows) {
+      if (row.kind === "group") {
+        meta.set(`group:${row.id}`, {
+          depth: 0,
+          hasChildren: row.childCount > 0,
+          childCount: row.childCount,
+          expanded: effectiveExpandedIds.has(row.id),
+          inOpenGroup: effectiveExpandedIds.has(row.id),
+          isGroupStart: false,
+          isGroupEnd: false,
+          isGroup: true,
+          groupId: row.id,
+          groupLabel: row.label,
+        });
+        continue;
+      }
+      meta.set(row.record.id, {
+        depth: 1,
+        hasChildren: false,
+        childCount: 0,
+        expanded: false,
+        inOpenGroup: true,
+        isGroupStart: groupStart.has(row.record.id),
+        isGroupEnd: groupEnd.has(row.record.id),
+        isGroup: false,
+        groupId: row.groupId,
+        groupLabel: "",
+      });
+    }
+    return meta;
+  }, [effectiveExpandedIds, pagedHierarchyRows]);
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
   if (tableFields.length === 0) {
     return <FieldEmptyState title={title} />;
   }
-
-  const total = filteredRecords.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const currentPage = Math.min(effectivePage, totalPages);
-  const pagedRecords = filteredRecords.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
 
   const isFiltered =
     records.length !== entity.records.length ||
@@ -1186,7 +1386,6 @@ export function EntityTableView({
       sortable: true,
     });
   });
-  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const pageIds = pagedRecords.map((record) => record.id);
   const pageSelectedCount = pageIds.filter((id) => selectedSet.has(id)).length;
   const allPageSelected =
@@ -1228,7 +1427,8 @@ export function EntityTableView({
   // (short «Название» stayed narrow while «Описание» ate empty space).
   const contentColCount = Math.max(tableFields.length, 1);
   const contentColWidth = `calc((100% - ${fixedColsWidth}px) / ${contentColCount})`;
-  const isEmpty = pagedRecords.length === 0;
+  const bodyRows = pagedHierarchyRows;
+  const isEmpty = bodyRows ? bodyRows.length === 0 : pagedRecords.length === 0;
 
   const tableHeader = (
     <>
@@ -1406,23 +1606,135 @@ export function EntityTableView({
               >
                 {tableHeader}
                 <TableBody className="[&_tr:last-child]:border-b">
-                  {pagedRecords.map((record) => {
+                  {(
+                    bodyRows ??
+                    pagedRecords.map((record) => ({
+                      kind: "record" as const,
+                      record,
+                      groupId: "",
+                      depth: 1 as const,
+                    }))
+                  ).map((row) => {
+                    if (row.kind === "group") {
+                      const expanded = effectiveExpandedIds.has(row.id);
+                      return (
+                        <TableRow
+                          key={`group:${row.id}`}
+                          className={cn(
+                            "border-border/70 bg-muted/55",
+                            expanded
+                              ? "border-b-transparent"
+                              : "border-b-border/70",
+                          )}
+                        >
+                          {massSelection ? (
+                            <TableCell className="w-11 min-w-11 max-w-11 px-2 py-1.5" />
+                          ) : null}
+                          <TableCell
+                            colSpan={Math.max(tableFields.length, 1)}
+                            className="relative min-w-0 px-3 py-2 font-semibold text-foreground"
+                          >
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <button
+                                type="button"
+                                className={cn(
+                                  "relative z-[1] inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border/80 bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground",
+                                  expanded &&
+                                    "border-transparent bg-foreground/5",
+                                )}
+                                aria-label={
+                                  expanded ? "Свернуть" : "Развернуть"
+                                }
+                                aria-expanded={expanded}
+                                onClick={() => {
+                                  setExpandedHierarchyIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (expanded) next.delete(row.id);
+                                    else next.add(row.id);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                {expanded ? (
+                                  <ChevronDown className="size-3.5" />
+                                ) : (
+                                  <ChevronRight className="size-3.5" />
+                                )}
+                              </button>
+                              <span className="min-w-0 flex-1 truncate">
+                                {row.label}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] px-2 py-1.5 text-right">
+                            <div
+                              className="inline-flex items-center justify-end gap-1"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <span className="px-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+                                {row.childCount}
+                              </span>
+                              {onCreateChildRecord && parentField ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="size-7 text-foreground"
+                                  aria-label="Добавить запись в группу"
+                                  title="Добавить запись в группу"
+                                  onClick={() => {
+                                    setExpandedHierarchyIds((prev) => {
+                                      const next = new Set(prev);
+                                      next.add(row.id);
+                                      return next;
+                                    });
+                                    onCreateChildRecord(row.id);
+                                  }}
+                                >
+                                  <Plus className="size-3.5" />
+                                </Button>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+
+                    const record = row.record;
                     const rowSelected = selectedSet.has(record.id);
+                    const hierarchyMeta = hierarchyMetaById?.get(record.id);
+                    const hierarchyDepth = hierarchyMeta?.depth ?? 0;
+                    const hierarchyInOpenGroup =
+                      hierarchyMeta?.inOpenGroup === true;
+                    const hierarchyIsGroupStart =
+                      hierarchyMeta?.isGroupStart === true;
+                    const hierarchyIsGroupEnd =
+                      hierarchyMeta?.isGroupEnd === true;
+                    /** Inset separators so they don't cut through tree guides. */
+                    const hierarchySepInset =
+                      hierarchyInOpenGroup && !hierarchyIsGroupEnd;
                     return (
                       <TableRow
                         key={record.id}
                         className={cn(
                           "border-border/70",
+                          hierarchyInOpenGroup && "overflow-visible",
                           rowSelected && "bg-primary/5",
                           onOpenRecord && "cursor-pointer hover:bg-muted/35",
                           rowSelected && onOpenRecord && "hover:bg-primary/8",
+                          hierarchySepInset && "border-b-transparent",
                         )}
                         onClick={
                           onOpenRecord ? () => onOpenRecord(record) : undefined
                         }
                       >
                         {massSelection ? (
-                          <TableCell className="w-11 min-w-11 max-w-11 px-2 py-1.5">
+                          <TableCell
+                            className={cn(
+                              "w-11 min-w-11 max-w-11 px-2 py-1.5",
+                              hierarchySepInset && "border-b border-border/50",
+                            )}
+                          >
                             <TableSelectCheckbox
                               checked={rowSelected}
                               aria-label={
@@ -1486,9 +1798,19 @@ export function EntityTableView({
                             <TableCell
                               key={field.id}
                               className={cn(
-                                "min-w-0 overflow-hidden px-3 py-2 text-foreground/90",
+                                "min-w-0 px-3 py-2 text-foreground/90",
+                                index === 0 && hierarchyDepth > 0
+                                  ? "relative overflow-visible font-medium text-foreground"
+                                  : "overflow-hidden",
                                 index === 0 && "font-medium text-foreground",
-                                index === 0 && !massSelection && "pl-3.5",
+                                index === 0 &&
+                                  !massSelection &&
+                                  hierarchyDepth === 0 &&
+                                  "pl-3.5",
+                                hierarchySepInset &&
+                                  (index === 0 && hierarchyDepth > 0
+                                    ? "after:pointer-events-none after:absolute after:right-0 after:bottom-0 after:left-9 after:h-px after:bg-border/50"
+                                    : "border-b border-border/50"),
                               )}
                               title={
                                 field.type === "list" ||
@@ -1501,229 +1823,252 @@ export function EntityTableView({
                                   : cellTitle
                               }
                             >
-                              {field.type === "boolean" &&
-                              field.booleanInline ? (
-                                <div
-                                  className="flex items-center"
-                                  onClick={(event) => event.stopPropagation()}
-                                  onPointerDown={(event) =>
-                                    event.stopPropagation()
-                                  }
-                                >
-                                  <Switch
-                                    checked={raw === "true"}
-                                    aria-label={getEntityFieldDisplayName(
-                                      field,
-                                    )}
-                                    onCheckedChange={(checked) => {
-                                      const values = applyEntityFieldValue(
-                                        entity,
-                                        record.values,
-                                        field.id,
-                                        checked ? "true" : "false",
-                                        entities,
-                                      );
-                                      updateEntityRecord(
-                                        entity.id,
-                                        record.id,
-                                        values,
-                                      );
-                                    }}
-                                  />
-                                </div>
-                              ) : field.type === "list" &&
-                                listPresentation &&
-                                !listPresentation.listFixed ? (
-                                <div
-                                  className="w-full min-w-0"
-                                  onClick={(event) => event.stopPropagation()}
-                                  onPointerDown={(event) =>
-                                    event.stopPropagation()
-                                  }
-                                >
-                                  {(() => {
-                                    const parentField =
-                                      getEntityListParentField(entity, field);
-                                    const parentValue = parentField
-                                      ? record.values[parentField.id]
-                                      : undefined;
-                                    const visibleOptions =
-                                      getVisibleListOptions(
+                              {index === 0 && hierarchyDepth > 0 ? (
+                                <HierarchyTreeGuides
+                                  isFirst={hierarchyIsGroupStart}
+                                  isLast={hierarchyIsGroupEnd}
+                                />
+                              ) : null}
+                              <div
+                                className={cn(
+                                  "min-w-0",
+                                  index === 0 &&
+                                    hierarchyDepth > 0 &&
+                                    "overflow-hidden pl-9",
+                                )}
+                              >
+                                {field.type === "boolean" &&
+                                field.booleanInline ? (
+                                  <div
+                                    className="flex items-center"
+                                    onClick={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                  >
+                                    <Switch
+                                      checked={raw === "true"}
+                                      aria-label={getEntityFieldDisplayName(
                                         field,
-                                        parentValue,
+                                      )}
+                                      onCheckedChange={(checked) => {
+                                        const values = applyEntityFieldValue(
+                                          entity,
+                                          record.values,
+                                          field.id,
+                                          checked ? "true" : "false",
+                                          entities,
+                                        );
+                                        updateEntityRecord(
+                                          entity.id,
+                                          record.id,
+                                          values,
+                                        );
+                                      }}
+                                    />
+                                  </div>
+                                ) : field.type === "list" &&
+                                  listPresentation &&
+                                  !listPresentation.listFixed ? (
+                                  <div
+                                    className="w-full min-w-0"
+                                    onClick={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                  >
+                                    {(() => {
+                                      const parentField =
+                                        getEntityListParentField(entity, field);
+                                      const parentValue = parentField
+                                        ? record.values[parentField.id]
+                                        : undefined;
+                                      const visibleOptions =
+                                        getVisibleListOptions(
+                                          field,
+                                          parentValue,
+                                          parentField,
+                                          entities,
+                                        );
+                                      const listDisabled =
+                                        parentField != null &&
+                                        parseEntityListValueIds(parentValue)
+                                          .length === 0;
+                                      return (
+                                        <ListSelect
+                                          size="sm"
+                                          variant="plain"
+                                          options={visibleOptions}
+                                          value={raw ?? ""}
+                                          allowEmpty={!field.required}
+                                          allowOther={
+                                            field.listAllowOther &&
+                                            !listPresentation.listMultiple
+                                          }
+                                          multiple={
+                                            listPresentation.listMultiple
+                                          }
+                                          showColors={
+                                            listPresentation.listUseColors
+                                          }
+                                          disabled={listDisabled}
+                                          aria-label={
+                                            field.name.trim() || "Список"
+                                          }
+                                          onChange={(next) => {
+                                            void requestListChange(
+                                              entity,
+                                              record,
+                                              field,
+                                              next,
+                                            );
+                                          }}
+                                        />
+                                      );
+                                    })()}
+                                  </div>
+                                ) : field.type === "list" &&
+                                  listPresentation ? (
+                                  <ListValueDisplay
+                                    options={(() => {
+                                      const parentField =
+                                        getEntityListParentField(entity, field);
+                                      return getVisibleListOptions(
+                                        field,
+                                        parentField
+                                          ? record.values[parentField.id]
+                                          : undefined,
                                         parentField,
                                         entities,
                                       );
-                                    const listDisabled =
-                                      parentField != null &&
-                                      parseEntityListValueIds(parentValue)
-                                        .length === 0;
+                                    })()}
+                                    value={raw}
+                                    multiple={listPresentation.listMultiple}
+                                    showColors={listPresentation.listUseColors}
+                                  />
+                                ) : field.type === "relation" &&
+                                  relationIds.length > 0 ? (
+                                  (() => {
+                                    const primaryId = relationIds[0]!;
+                                    const primaryLabel =
+                                      resolveRelationRecordLabel(
+                                        relationTarget,
+                                        primaryId,
+                                      ) ?? "Без названия";
+                                    const extraCount = relationIds.length - 1;
+                                    const fullTitle =
+                                      cellTitle === "—" ? undefined : cellTitle;
                                     return (
-                                      <ListSelect
-                                        size="sm"
-                                        variant="plain"
-                                        options={visibleOptions}
-                                        value={raw ?? ""}
-                                        allowEmpty={!field.required}
-                                        allowOther={
-                                          field.listAllowOther &&
-                                          !listPresentation.listMultiple
+                                      <div
+                                        className="flex min-w-0 items-center gap-1.5"
+                                        title={fullTitle}
+                                        onClick={(event) =>
+                                          event.stopPropagation()
                                         }
-                                        multiple={listPresentation.listMultiple}
-                                        showColors={
-                                          listPresentation.listUseColors
+                                        onPointerDown={(event) =>
+                                          event.stopPropagation()
                                         }
-                                        disabled={listDisabled}
-                                        aria-label={
-                                          field.name.trim() || "Список"
+                                      >
+                                        {canOpenRelation ? (
+                                          <button
+                                            type="button"
+                                            className="min-w-0 truncate text-left font-medium text-primary underline-offset-2 hover:underline"
+                                            onClick={() =>
+                                              onOpenRelation(
+                                                relationTargetId!,
+                                                primaryId,
+                                              )
+                                            }
+                                          >
+                                            {primaryLabel}
+                                          </button>
+                                        ) : (
+                                          <span className="min-w-0 truncate">
+                                            {primaryLabel}
+                                          </span>
+                                        )}
+                                        {extraCount > 0 ? (
+                                          <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none font-semibold text-muted-foreground tabular-nums">
+                                            +{extraCount}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })()
+                                ) : contactHref ? (
+                                  <a
+                                    href={contactHref}
+                                    className="block cursor-default truncate font-medium text-primary underline-offset-2 hover:underline"
+                                    title={cellTitle}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    {...(field.type === "url"
+                                      ? {
+                                          target: "_blank",
+                                          rel: "noopener noreferrer",
                                         }
-                                        onChange={(next) => {
-                                          void requestListChange(
-                                            entity,
-                                            record,
-                                            field,
-                                            next,
+                                      : {})}
+                                  >
+                                    {cellTitle}
+                                  </a>
+                                ) : isRecordValueDecorated(field) ? (
+                                  <RecordValue
+                                    ctx={valueContext}
+                                    entity={entity}
+                                    record={record}
+                                    field={field}
+                                    className="text-[13px]"
+                                  />
+                                ) : fileValue &&
+                                  fileSummary &&
+                                  fileSummary !== "—" ? (
+                                  <button
+                                    type="button"
+                                    className="block w-full truncate text-left font-medium text-primary underline-offset-2 hover:underline"
+                                    title={fileSummary}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void (async () => {
+                                        if (fileValue.dataUrl) {
+                                          window.open(
+                                            fileValue.dataUrl,
+                                            "_blank",
+                                            "noopener,noreferrer",
                                           );
-                                        }}
-                                      />
-                                    );
-                                  })()}
-                                </div>
-                              ) : field.type === "list" && listPresentation ? (
-                                <ListValueDisplay
-                                  options={(() => {
-                                    const parentField =
-                                      getEntityListParentField(entity, field);
-                                    return getVisibleListOptions(
-                                      field,
-                                      parentField
-                                        ? record.values[parentField.id]
-                                        : undefined,
-                                      parentField,
-                                      entities,
-                                    );
-                                  })()}
-                                  value={raw}
-                                  multiple={listPresentation.listMultiple}
-                                  showColors={listPresentation.listUseColors}
-                                />
-                              ) : field.type === "relation" &&
-                                relationIds.length > 0 ? (
-                                (() => {
-                                  const primaryId = relationIds[0]!;
-                                  const primaryLabel =
-                                    resolveRelationRecordLabel(
-                                      relationTarget,
-                                      primaryId,
-                                    ) ?? "Без названия";
-                                  const extraCount = relationIds.length - 1;
-                                  const fullTitle =
-                                    cellTitle === "—" ? undefined : cellTitle;
-                                  return (
-                                    <div
-                                      className="flex min-w-0 items-center gap-1.5"
-                                      title={fullTitle}
-                                      onClick={(event) =>
-                                        event.stopPropagation()
-                                      }
-                                      onPointerDown={(event) =>
-                                        event.stopPropagation()
-                                      }
-                                    >
-                                      {canOpenRelation ? (
-                                        <button
-                                          type="button"
-                                          className="min-w-0 truncate text-left font-medium text-primary underline-offset-2 hover:underline"
-                                          onClick={() =>
-                                            onOpenRelation(
-                                              relationTargetId!,
-                                              primaryId,
-                                            )
-                                          }
-                                        >
-                                          {primaryLabel}
-                                        </button>
-                                      ) : (
-                                        <span className="min-w-0 truncate">
-                                          {primaryLabel}
-                                        </span>
-                                      )}
-                                      {extraCount > 0 ? (
-                                        <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none font-semibold text-muted-foreground tabular-nums">
-                                          +{extraCount}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  );
-                                })()
-                              ) : contactHref ? (
-                                <a
-                                  href={contactHref}
-                                  className="block cursor-default truncate font-medium text-primary underline-offset-2 hover:underline"
-                                  title={cellTitle}
-                                  onClick={(event) => event.stopPropagation()}
-                                  onPointerDown={(event) =>
-                                    event.stopPropagation()
-                                  }
-                                  {...(field.type === "url"
-                                    ? {
-                                        target: "_blank",
-                                        rel: "noopener noreferrer",
-                                      }
-                                    : {})}
-                                >
-                                  {cellTitle}
-                                </a>
-                              ) : isRecordValueDecorated(field) ? (
-                                <RecordValue
-                                  ctx={valueContext}
-                                  entity={entity}
-                                  record={record}
-                                  field={field}
-                                  className="text-[13px]"
-                                />
-                              ) : fileValue &&
-                                fileSummary &&
-                                fileSummary !== "—" ? (
-                                <button
-                                  type="button"
-                                  className="block w-full truncate text-left font-medium text-primary underline-offset-2 hover:underline"
-                                  title={fileSummary}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void (async () => {
-                                      if (fileValue.dataUrl) {
+                                          return;
+                                        }
+                                        if (!fileValue.storagePath) return;
+                                        const url =
+                                          await getEntityFileDownloadUrl(
+                                            fileValue.storagePath,
+                                          );
                                         window.open(
-                                          fileValue.dataUrl,
+                                          url,
                                           "_blank",
                                           "noopener,noreferrer",
                                         );
-                                        return;
-                                      }
-                                      if (!fileValue.storagePath) return;
-                                      const url =
-                                        await getEntityFileDownloadUrl(
-                                          fileValue.storagePath,
-                                        );
-                                      window.open(
-                                        url,
-                                        "_blank",
-                                        "noopener,noreferrer",
-                                      );
-                                    })();
-                                  }}
-                                >
-                                  {fileSummary}
-                                </button>
-                              ) : (
-                                <span className="block truncate">
-                                  {cellTitle}
-                                </span>
-                              )}
+                                      })();
+                                    }}
+                                  >
+                                    {fileSummary}
+                                  </button>
+                                ) : (
+                                  <span className="block truncate">
+                                    {cellTitle}
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
                           );
                         })}
-                        <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
+                        <TableCell
+                          className={cn(
+                            "w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] px-2 py-1.5 text-right",
+                            hierarchySepInset && "border-b border-border/50",
+                          )}
+                        >
                           <div
                             className="inline-flex items-center justify-end gap-0"
                             onClick={(event) => event.stopPropagation()}

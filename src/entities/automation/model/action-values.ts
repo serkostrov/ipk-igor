@@ -323,9 +323,8 @@ export function describeAutomationActionValue(
 
   const path = parseAutomationEntityPathRef(raw);
   if (path) {
-    const relationName =
-      fieldNameById?.(path.relationFieldId) ?? path.relationFieldId;
-    const nestedName = fieldNameById?.(path.fieldId) ?? path.fieldId;
+    const relationName = fieldNameById?.(path.relationFieldId) ?? "связь";
+    const nestedName = fieldNameById?.(path.fieldId) ?? "поле";
     return `Из «${relationName}» · «${nestedName}»`;
   }
 
@@ -333,7 +332,7 @@ export function describeAutomationActionValue(
   if (match) {
     const fieldId = match[1]!.trim();
     if (fieldId === "created") return "Созданная запись";
-    const name = fieldNameById?.(fieldId) ?? fieldId;
+    const name = fieldNameById?.(fieldId) ?? "поле";
     return `Из поля «${name}»`;
   }
 

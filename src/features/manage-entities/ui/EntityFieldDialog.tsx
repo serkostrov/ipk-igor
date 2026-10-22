@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Switch } from "@/shared/ui/switch";
+import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import {
   DEFAULT_ENTITY_FIELD_GROUP,
   ENTITY_FIELD_TYPE_GROUPS,
@@ -319,30 +320,13 @@ function TypeNestedGroup({ children }: { children: ReactNode }) {
 
           return (
             <div key={index} className="relative">
-              {isLast ? (
-                <div
-                  className={cn(
-                    "pointer-events-none absolute left-0 w-3 rounded-bl-[5px] border-b border-l border-border",
-                    isFirst ? "-top-2 h-[calc(50%+8px)]" : "top-0 h-1/2",
-                  )}
-                  aria-hidden
-                />
-              ) : (
-                <>
-                  <div
-                    className={cn(
-                      "pointer-events-none absolute left-0 w-px bg-border",
-                      isFirst ? "-top-2 bottom-[-6px]" : "top-0 bottom-[-6px]",
-                    )}
-                    aria-hidden
-                  />
-                  <div
-                    className="pointer-events-none absolute top-1/2 left-0 h-px w-3 bg-border"
-                    aria-hidden
-                  />
-                </>
-              )}
-              <div className="ml-3 flex flex-col gap-1.5 rounded-md bg-muted/35 py-2 pr-2 pl-3">
+              <TreeBranchGuides
+                isFirst={isFirst}
+                isLast={isLast}
+                className="left-0"
+                armClassName="w-2"
+              />
+              <div className="ml-3.5 flex flex-col gap-1.5 rounded-md bg-muted/35 py-2 pr-2 pl-3">
                 {child}
               </div>
             </div>
@@ -1162,11 +1146,13 @@ function buildEntityFieldFormData({
   const columnTotal = Math.max(1, tableColumnCount);
   const minPosition = Math.min(tablePositionMin, columnTotal);
   const resolvedRelationEntityId =
-    resolvedType === "relation"
-      ? relationBindingLocked
-        ? (field?.relationEntityId ?? (relationEntityId.trim() || null))
-        : relationEntityId.trim() || null
-      : null;
+    resolvedType === "belonging"
+      ? (entity?.id ?? (relationEntityId.trim() || null))
+      : resolvedType === "relation"
+        ? relationBindingLocked
+          ? (field?.relationEntityId ?? (relationEntityId.trim() || null))
+          : relationEntityId.trim() || null
+        : null;
 
   return {
     name: name.trim(),
@@ -1379,8 +1365,12 @@ function EntityFieldForm({
   const effectiveType: EntityFieldType =
     isNumberType && useAsSum ? "numberSum" : type;
   const relationTarget =
-    type === "relation"
-      ? (entities.find((item) => item.id === relationEntityId) ?? null)
+    type === "relation" || type === "belonging"
+      ? (entities.find(
+          (item) =>
+            item.id ===
+            (type === "belonging" ? (entityId ?? "") : relationEntityId),
+        ) ?? null)
       : null;
   const listDefaultOptions =
     field?.type === "list" &&
@@ -1535,7 +1525,7 @@ function EntityFieldForm({
       setUseUnit(false);
       setUnitSuffix("");
     }
-    if (resolved !== "relation") {
+    if (resolved !== "relation" && resolved !== "belonging") {
       setRelationEntityId("");
       setRelationMultiple(false);
     }
@@ -1549,7 +1539,10 @@ function EntityFieldForm({
     if (resolved !== "boolean") {
       setBooleanInline(false);
     }
-    if (resolved === "relation") {
+    if (resolved === "belonging") {
+      setRelationEntityId(entityId ?? "");
+      setRelationMultiple(false);
+    } else if (resolved === "relation") {
       if (!relationEntityId && entityOptions.length === 1) {
         setRelationEntityId(entityOptions[0]!.id);
       }
@@ -1691,6 +1684,12 @@ function EntityFieldForm({
                 </Select>
               </div>
               <TypeNestedGroup>
+                {type === "belonging" ? (
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Родительская запись этой же сущности — к какой записи
+                    принадлежит новая.
+                  </p>
+                ) : null}
                 {type === "relation" ? (
                   <RelationEntityControl
                     value={relationEntityId}
@@ -1920,8 +1919,12 @@ function EntityFieldForm({
                     listAllowOther={field?.listAllowOther ?? false}
                     listUseColors={listPresentation?.listUseColors ?? false}
                     relationOptions={relationDefaultOptions}
-                    relationMultiple={relationMultiple}
-                    relationToUsers={relationToUsers}
+                    relationMultiple={
+                      effectiveType === "belonging" ? false : relationMultiple
+                    }
+                    relationToUsers={
+                      effectiveType === "belonging" ? false : relationToUsers
+                    }
                     relationGroups={
                       effectiveType === "relationGroups"
                         ? typeSettings.relationGroups

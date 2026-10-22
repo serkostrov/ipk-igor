@@ -332,6 +332,7 @@ export function getEntityFieldValueKind(
     case "list":
       return "list";
     case "relation":
+    case "belonging":
       return "relation";
     case "boolean":
       return "boolean";
@@ -489,7 +490,7 @@ export function getRecordFieldIds(
   if (field.type === "list") {
     return parseEntityListValueIds(record.values[field.id]);
   }
-  if (field.type === "relation") {
+  if (field.type === "relation" || field.type === "belonging") {
     return parseEntityRelationIds(record.values[field.id]);
   }
   if (field.type === "lookup") {
@@ -546,7 +547,8 @@ export function getRecordFieldFormulaValue(
       )[0];
       return option?.name ?? null;
     }
-    case "relation": {
+    case "relation":
+    case "belonging": {
       const id = parseEntityRelationIds(record.values[field.id])[0];
       return id ? getRelationLabel(ctx, field, id) : null;
     }
@@ -571,7 +573,6 @@ export function getRecordFieldFormulaValue(
     }
     case "dependencies":
     case "relationGroups":
-    case "period":
     case "file":
       return null;
     default: {
@@ -814,7 +815,8 @@ export function formatRecordFieldValue(
         record.values[field.id],
         ctx.entities,
       );
-    case "relation": {
+    case "relation":
+    case "belonging": {
       const target = ctx.entityById.get(getEntityRelationTargetId(field) ?? "");
       return resolveRelationRecordLabel(target, record.values[field.id]) ?? "—";
     }
@@ -1224,8 +1226,32 @@ export function getRelationFieldOptions(
     record: current,
   };
 
+  const belongingRecordId =
+    field.type === "belonging" ? (recordId?.trim() ?? "") : "";
+
   return target.records
     .filter((candidate) => {
+      if (belongingRecordId) {
+        if (candidate.id === belongingRecordId) return false;
+        // Prevent cycles: candidate must not already be under this record.
+        let walk = candidate.id;
+        const seen = new Set<string>();
+        while (walk) {
+          if (seen.has(walk)) break;
+          seen.add(walk);
+          const parentId =
+            parseEntityRelationIds(
+              (walk === candidate.id
+                ? candidate
+                : target.records.find((item) => item.id === walk)
+              )?.values[field.id],
+            )[0] ?? "";
+          if (!parentId) break;
+          if (parentId === belongingRecordId) return false;
+          walk = parentId;
+        }
+      }
+
       if (nestedParentField && parentLinkField) {
         if (!nestedParentIds || nestedParentIds.length === 0) return false;
         const linkedParentIds = parseEntityRelationIds(

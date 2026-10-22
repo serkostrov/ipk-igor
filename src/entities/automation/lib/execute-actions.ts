@@ -2,6 +2,7 @@ import {
   addEntityRecord,
   getEntityParentLinkField,
   parseEntityRelationIds,
+  resolveEntityFieldLabel,
   serializeEntityRelationIds,
   updateEntityRecord,
   waitForEntityRecordInsert,
@@ -398,8 +399,14 @@ export async function executeAutomationActions(
             (fieldId) => !(ctx.values[fieldId] ?? "").trim(),
           );
           if (missing.length > 0) {
+            const entity = ctx.entities.find(
+              (item) => item.id === ctx.triggerEntityId,
+            );
+            const labels = missing.map((fieldId) =>
+              resolveEntityFieldLabel(entity?.fields ?? [], fieldId),
+            );
             throw new Error(
-              `Не заполнены обязательные поля: ${missing.join(", ")}`,
+              `Не заполнены обязательные поля: ${labels.join(", ")}`,
             );
           }
           logs.push({ kind: "requireFields", ok: true });

@@ -330,7 +330,11 @@ export function normalizeEntityTimeline(
     startFieldId,
     endFieldId,
     groupFieldId: normalizeId(value.groupFieldId),
+    clusterFieldId: normalizeId(value.clusterFieldId),
+    splitFieldId: normalizeId(value.splitFieldId),
+    showAllGroupOptions: value.showAllGroupOptions === true,
     colorFieldId: normalizeId(value.colorFieldId),
+    labelFieldId: normalizeId(value.labelFieldId),
     progressFieldId: normalizeId(value.progressFieldId),
     dependenciesFieldId: normalizeId(value.dependenciesFieldId),
   };
@@ -410,7 +414,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
   const systemKey = normalizeSystemKey(field.systemKey);
   const type = field.type;
   const relationEntityId =
-    type === "relation" &&
+    (type === "relation" || type === "belonging") &&
     typeof field.relationEntityId === "string" &&
     field.relationEntityId.trim().length > 0
       ? field.relationEntityId.trim()
@@ -748,8 +752,25 @@ function resolveKanbanFieldId(
   if (!requested) return null;
   const field = fields.find((item) => item.id === requested);
   if (!field) return null;
-  if (field.type === "relation") return field.id;
+  if (field.type === "relation" || field.type === "belonging") return field.id;
   if (field.type === "list" && !field.listMultiple) return field.id;
+  return null;
+}
+
+/** Single-choice list/relation field used to group the table into a tree. */
+function resolveTableParentFieldId(
+  fields: Entity["fields"],
+  _entityId: string,
+  tableParentFieldId: unknown,
+): string | null {
+  const requested =
+    typeof tableParentFieldId === "string" ? tableParentFieldId.trim() : "";
+  if (!requested) return null;
+  const field = fields.find((item) => item.id === requested);
+  if (!field) return null;
+  if (field.type === "list" && !field.listMultiple) return field.id;
+  if (field.type === "relation" && !field.relationMultiple) return field.id;
+  if (field.type === "belonging") return field.id;
   return null;
 }
 
@@ -857,6 +878,11 @@ export function normalizeEntity(
       (entity as { kanbanCardFieldIds?: unknown }).kanbanCardFieldIds,
     ),
     tableMassSelection: entity.tableMassSelection === true,
+    tableParentFieldId: resolveTableParentFieldId(
+      resolvedFields,
+      entity.id,
+      (entity as { tableParentFieldId?: unknown }).tableParentFieldId,
+    ),
     tabs,
     fieldGroups: ensureEntityFieldGroups(entity.fieldGroups, resolvedFields),
     systemKey: normalizeSystemKey(entity.systemKey),
@@ -899,6 +925,11 @@ export function toEntityStructure(entity: Entity) {
       entity.kanbanCardFieldIds,
     ),
     tableMassSelection: entity.tableMassSelection === true,
+    tableParentFieldId: resolveTableParentFieldId(
+      entity.fields,
+      entity.id,
+      entity.tableParentFieldId,
+    ),
     tabs: ensureEntityTabs(entity.tabs.map((tab) => normalizeEntityTab(tab))),
     fieldGroups: ensureEntityFieldGroups(entity.fieldGroups, entity.fields),
     systemKey: normalizeSystemKey(entity.systemKey),
@@ -981,6 +1012,10 @@ export function parseEntityConfig(value: unknown): EntityConfig {
           ? item.kanbanCardFieldIds
           : null,
         tableMassSelection: item.tableMassSelection === true,
+        tableParentFieldId:
+          typeof item.tableParentFieldId === "string"
+            ? item.tableParentFieldId
+            : null,
         tabs,
         fieldGroups,
         listOptions,

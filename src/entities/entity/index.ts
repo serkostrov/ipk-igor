@@ -81,7 +81,9 @@ export {
   formatEntityScalarFieldValue,
   getEntityContactHref,
   getEntityDisplayName,
+  resolveEntityDisplayLabel,
   getEntityFieldDisplayName,
+  resolveEntityFieldLabel,
   getEntityFieldNumericValue,
   getEntityFieldTypeLabel,
   isEntityDatetimeWithTime,
@@ -251,6 +253,7 @@ export {
   formatEntityDependencyLag,
   getEntityFieldOptions,
   isEntityComputedFieldType,
+  isEntityRelationLikeFieldType,
   isEntityStructuredFieldType,
   canEntityFieldToggleShowOnCreate,
   isEntityNumericFieldType,
@@ -370,6 +373,18 @@ export {
 } from "./ui/ListSelect";
 export { RelationSelect } from "./ui/RelationSelect";
 export { RelationGroupsFieldControl } from "./ui/RelationGroupsFieldControl";
+export {
+  ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID,
+  flattenEntityTableHierarchyRows,
+  getEntityTableParentFieldCandidates,
+  getEntityTableParentFieldOptions,
+  isEntityTableParentField,
+  parseEntityTableParentId,
+  resolveEntityTableParentField,
+  type EntityTableHierarchyGroupRow,
+  type EntityTableHierarchyRecordRow,
+  type EntityTableHierarchyRow,
+} from "./model/table-hierarchy";
 export { DeadlineChip } from "./ui/DeadlineChip";
 export { ProgressValue } from "./ui/ProgressValue";
 export { RecordValue } from "./ui/RecordValue";
@@ -394,6 +409,8 @@ export {
   getEntityRecordDependencies,
   getEntityTimelineDates,
   getEntityTimelineSetup,
+  getTimelineRowOptionFields,
+  getTimelineRowTargetEntity,
   type EntityTimelineSetup,
 } from "./model/timeline";
 export {
@@ -451,6 +468,8 @@ export {
   setEntityKanbanCardFields,
   setEntityKanbanField,
   setEntityTableMassSelection,
+  setEntityTableParentField,
+  setEntityTableSettings,
   beginEntitySchemaEdit,
   cancelEntitySchemaEdit,
   commitEntitySchemaEdit,

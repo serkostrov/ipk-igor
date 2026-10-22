@@ -357,6 +357,11 @@ export type AutomationTaskTemplate = {
   triggerOptionId: string;
   stepOrder: number;
   isBlocking: boolean;
+  /**
+   * When false the template is skipped at spawn (not created, sequential
+   * chain continues to the next enabled template). Default true.
+   */
+  enabled: boolean;
   kind: AutomationTaskKind;
   /**
    * `onEnter` — after landing on the stage (below «Старт»).
@@ -749,6 +754,7 @@ export function normalizeAutomationTaskTemplate(
   const descriptionRaw = raw.description;
   const triggerOptionIdRaw = raw.triggerOptionId ?? raw.trigger_option_id;
   const isBlocking = raw.isBlocking === true || raw.is_blocking === true;
+  const enabled = raw.enabled !== false;
   const kind: AutomationTaskKind =
     raw.kind === "single"
       ? "single"
@@ -774,6 +780,7 @@ export function normalizeAutomationTaskTemplate(
         ? Math.max(0, Math.round(stepOrderRaw))
         : 0,
     isBlocking,
+    enabled,
     kind,
     launchPhase,
     launchConditions: normalizeAutomationConditions(

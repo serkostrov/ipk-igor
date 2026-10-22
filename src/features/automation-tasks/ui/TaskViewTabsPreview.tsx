@@ -18,6 +18,7 @@ import {
   filterEntityFieldGroupsForTab,
   formatEntityFileSize,
   getEntityFieldDisplayName,
+  resolveEntityFieldLabel,
   getEntityFieldGroupArea,
   getEntityFieldGroupName,
   getEntityFieldTabId,
@@ -684,10 +685,9 @@ function historyActionLabel(
     const count = Object.keys(changes).length;
     return count > 0 ? `Изменено: ${count}` : "Изменение записи";
   }
-  const names = fieldIds.slice(0, 2).map((id) => {
-    const field = entity.fields.find((item) => item.id === id);
-    return field ? getEntityFieldDisplayName(field) : id;
-  });
+  const names = fieldIds
+    .slice(0, 2)
+    .map((id) => resolveEntityFieldLabel(entity.fields, id));
   const extra = fieldIds.length - names.length;
   return `Изменено: ${names.join(", ")}${extra > 0 ? ` · +${extra}` : ""}`;
 }

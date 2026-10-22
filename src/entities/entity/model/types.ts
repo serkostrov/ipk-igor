@@ -28,6 +28,7 @@ export {
   formatEntityScalarFieldValue,
   getEntityContactHref,
   getEntityFieldDisplayName,
+  resolveEntityFieldLabel,
   getEntityFieldNumericValue,
   getEntityFieldTypeLabel,
   getEntityRelationTargetId,
@@ -70,8 +71,26 @@ export function isEntityBrowseView(value: unknown): value is EntityBrowseView {
 export type EntityTimelineConfig = {
   startFieldId: string;
   endFieldId: string;
+  /** Leaf rows: list/relation field on this entity (e.g. «Статья»). */
   groupFieldId: string | null;
+  /**
+   * Group rows by a list/relation field of the related «Строки» record
+   * (e.g. вид деятельности on the article).
+   */
+  clusterFieldId: string | null;
+  /**
+   * Split the table into sections by a list/relation field of the related
+   * «Строки» record (e.g. приход / расход).
+   */
+  splitFieldId: string | null;
+  /**
+   * When grouping by a list/relation: show every option/record as a row,
+   * including empty ones (not only groups that have items).
+   */
+  showAllGroupOptions: boolean;
   colorFieldId: string | null;
+  /** Field shown as the bar label (`null` → record name). */
+  labelFieldId: string | null;
   progressFieldId: string | null;
   dependenciesFieldId: string | null;
 };
@@ -528,6 +547,12 @@ export type Entity = {
    * Selection is kept across pagination while the setting is on.
    */
   tableMassSelection: boolean;
+  /**
+   * Table view: single-choice list or relation field used to group rows.
+   * When set, records are shown under their option / related record.
+   * `null` — flat table.
+   */
+  tableParentFieldId: string | null;
   tabs: EntityTab[];
   /** Order, colSpan and area for named groups (excludes ungrouped «Основное» fields). */
   fieldGroups: EntityFieldGroup[];
@@ -1640,6 +1665,21 @@ export function getEntityDisplayName(
   entity: Pick<Entity, "name" | "namePlural">,
 ) {
   return entity.namePlural.trim() || entity.name.trim() || "Без названия";
+}
+
+/**
+ * Resolve an entity id to a UI caption. Never returns a raw id
+ * (deleted / unknown → `missingLabel`).
+ */
+export function resolveEntityDisplayLabel(
+  entities: ReadonlyArray<Pick<Entity, "id" | "name" | "namePlural">>,
+  entityId: string,
+  missingLabel = "Удалённая сущность",
+): string {
+  const id = entityId.trim();
+  if (!id) return "сущность";
+  const entity = entities.find((item) => item.id === id);
+  return entity ? getEntityDisplayName(entity) : missingLabel;
 }
 
 /**

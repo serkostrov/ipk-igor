@@ -1511,10 +1511,21 @@ export function TemplateInspector({
 
               <InspectorSwitchRow>
                 <SettingSwitch
+                  id="template-enabled"
+                  title="Включено"
+                  description="Выключенное задание не создаётся и пропускается в цепочке"
+                  checked={draft.enabled !== false}
+                  onCheckedChange={(enabled) => patch({ enabled })}
+                />
+              </InspectorSwitchRow>
+
+              <InspectorSwitchRow>
+                <SettingSwitch
                   id="template-blocking"
                   title="Блокирует переход"
                   checked={draft.isBlocking}
                   onCheckedChange={(isBlocking) => patch({ isBlocking })}
+                  disabled={draft.enabled === false}
                 />
               </InspectorSwitchRow>
             </InspectorSection>

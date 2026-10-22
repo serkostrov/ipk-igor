@@ -17,6 +17,7 @@ import {
   formatRecordFieldValue,
   getCurrentUserRecordId,
   getEntityFieldDisplayName,
+  resolveEntityFieldLabel,
   getEntityListParentField,
   getEntityPreviewValueContext,
   getEntityRecordTitle,
@@ -510,10 +511,9 @@ function TaskWorkspaceBody({
       });
     });
     if (missing.length > 0) {
-      const labels = missing.map((fieldId) => {
-        const field = entity.fields.find((item) => item.id === fieldId);
-        return field ? getEntityFieldDisplayName(field) : fieldId;
-      });
+      const labels = missing.map((fieldId) =>
+        resolveEntityFieldLabel(entity.fields, fieldId),
+      );
       return `Заполните: ${labels.join(", ")}`;
     }
     return validateRelatedAskRequired({

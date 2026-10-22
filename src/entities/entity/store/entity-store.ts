@@ -316,6 +316,18 @@ async function refreshFromRemote() {
       }
     }
 
+    // Records fetch can take long — a local structure save may have started
+    // in the meantime. Never apply a stale structure snapshot over it.
+    if (
+      persistStructureTimer ||
+      schemaEditSession ||
+      structureSaveInFlight ||
+      structureSaveQueued ||
+      hasRecentLocalStructureWrites()
+    ) {
+      return;
+    }
+
     const localById = new Map(
       config.entities.map((entity) => [entity.id, entity]),
     );
@@ -754,6 +766,7 @@ export function addEntity(data: {
     kanbanFieldId: null,
     kanbanCardFieldIds: null,
     tableMassSelection: false,
+    tableParentFieldId: null,
     tabs: [],
     fieldGroups: [],
     systemKey: null,
@@ -842,7 +855,11 @@ export function addEntityField(
     includeInTotal: Boolean(data?.includeInTotal),
     tableOrder: data?.tableOrder ?? 0,
     relationEntityId:
-      type === "relation" ? data?.relationEntityId?.trim() || null : null,
+      type === "belonging"
+        ? entityId
+        : type === "relation"
+          ? data?.relationEntityId?.trim() || null
+          : null,
     relationMultiple:
       type === "relation" ? Boolean(data?.relationMultiple) : false,
     unitSuffix: data?.unitSuffix?.trim() || null,
@@ -895,7 +912,7 @@ export function addEntityField(
 
   mapEntity(entityId, (current) => {
     const nextFields = [...current.fields, field];
-    return withResolvedListDependencies({
+    const next = withResolvedListDependencies({
       ...current,
       fields: nextFields,
       fieldGroups: ensureEntityFieldGroups(
@@ -906,6 +923,11 @@ export function addEntityField(
         nextFields,
       ),
     });
+    // Belonging = category-style table tree (parent record → children).
+    if (type === "belonging" && !current.tableParentFieldId?.trim()) {
+      return { ...next, tableParentFieldId: field.id };
+    }
+    return next;
   });
 
   return field;
@@ -987,6 +1009,14 @@ export function updateEntityField(
         ...nextPatch,
         locked: false,
         systemKey: null,
+        ...(nextPatch.type === "belonging" ||
+        (nextPatch.type == null && field.type === "belonging")
+          ? {
+              type: "belonging" as const,
+              relationEntityId: entityId,
+              relationMultiple: false,
+            }
+          : null),
       });
       if (merged.type === "list" && merged.listSourceFieldId) {
         return normalizeEntityField({
@@ -1070,6 +1100,10 @@ export function updateEntityField(
     );
     return {
       ...nextEntity,
+      tableParentFieldId: resolveTableParentFieldIdForStore(
+        nextEntity,
+        nextEntity.tableParentFieldId,
+      ),
       kanbanFieldId,
       kanbanCardFieldIds: normalizeEntityKanbanCardFieldIds(
         nextEntity.fields,
@@ -1182,6 +1216,51 @@ export function setEntityTableMassSelection(
     ...entity,
     tableMassSelection: enabled,
   }));
+}
+
+function resolveTableParentFieldIdForStore(
+  entity: Entity,
+  fieldId: string | null,
+): string | null {
+  const requested = fieldId?.trim() || null;
+  if (!requested) return null;
+  const field = entity.fields.find((item) => item.id === requested);
+  if (!field) return null;
+  if (field.type === "list" && !field.listMultiple) return requested;
+  if (field.type === "relation" && !field.relationMultiple) return requested;
+  if (field.type === "belonging") return requested;
+  return null;
+}
+
+export function setEntityTableParentField(
+  entityId: string,
+  fieldId: string | null,
+) {
+  mapEntity(entityId, (entity) => ({
+    ...entity,
+    tableParentFieldId: resolveTableParentFieldIdForStore(entity, fieldId),
+  }));
+}
+
+/** Save both table settings in one write and flush to remote immediately. */
+export function setEntityTableSettings(
+  entityId: string,
+  settings: {
+    massSelection: boolean;
+    parentFieldId: string | null;
+  },
+) {
+  mapEntity(entityId, (entity) => ({
+    ...entity,
+    tableMassSelection: settings.massSelection,
+    tableParentFieldId: resolveTableParentFieldIdForStore(
+      entity,
+      settings.parentFieldId,
+    ),
+  }));
+  if (!schemaEditSession) {
+    flushStructureToRemote(true);
+  }
 }
 
 export function addEntityTab(
@@ -1334,6 +1413,7 @@ export function addEntityTabWithLinkedEntity(
     kanbanFieldId: null,
     kanbanCardFieldIds: null,
     tableMassSelection: false,
+    tableParentFieldId: null,
     tabs: [],
     fieldGroups: [],
     systemKey: null,
@@ -2805,11 +2885,15 @@ export function rescheduleEntityRecord(
   return changes.filter((change) => change.recordId !== recordId).length;
 }
 
+/** Save timeline settings and flush to remote immediately (avoids refresh race). */
 export function setEntityTimeline(
   entityId: string,
   timeline: EntityTimelineConfig | null,
 ) {
   mapEntity(entityId, (entity) => ({ ...entity, timeline }));
+  if (!schemaEditSession) {
+    flushStructureToRemote(true);
+  }
 }
 
 export function removeEntityRecord(entityId: string, recordId: string) {

@@ -4,6 +4,7 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { TreeBranchRow } from "@/shared/ui/tree-branch-guides";
 import {
   isEntityInternal,
   isSystemEntity,
@@ -123,38 +124,25 @@ function filterPickerTree(nodes: PickerNode[], needle: string): PickerNode[] {
   return result;
 }
 
-/** Row height for elbow alignment (must match EntityButton / group header). */
-const TREE_ROW_H = 32;
-const TREE_ELBOW_TOP = TREE_ROW_H / 2;
-
-/**
- * Tree branch for one child. Elbow is pinned to the first row center,
- * so nested groups (taller than one row) still connect correctly.
- */
 function TreeChild({
+  isFirst,
   isLast,
   children,
 }: {
+  isFirst: boolean;
   isLast: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="relative ml-3">
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute left-0 w-px bg-border",
-          isLast ? "top-0" : "-top-px bottom-0",
-        )}
-        style={isLast ? { height: TREE_ELBOW_TOP } : undefined}
-      />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute left-0 h-px w-2.5 bg-border"
-        style={{ top: TREE_ELBOW_TOP }}
-      />
-      <div className="min-w-0 pl-3">{children}</div>
-    </div>
+    <TreeBranchRow
+      isFirst={isFirst}
+      isLast={isLast}
+      insetClassName="ml-3"
+      contentClassName="pl-3.5"
+      elbowTopPx={16}
+    >
+      {children}
+    </TreeBranchRow>
   );
 }
 
@@ -234,6 +222,7 @@ function GroupBlock({
           {node.children.map((child, index) => (
             <TreeChild
               key={child.type === "entity" ? child.entity.id : child.id}
+              isFirst={index === 0}
               isLast={index === node.children.length - 1}
             >
               {child.type === "entity" ? (

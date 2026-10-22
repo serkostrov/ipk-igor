@@ -18,6 +18,8 @@ export type EntityFieldType =
   | "url"
   | "list"
   | "relation"
+  /** Parent record of the same entity (single self-relation). */
+  | "belonging"
   | "relationGroups"
   | "dependencies"
   | "file"
@@ -41,6 +43,7 @@ export const ENTITY_FIELD_TYPE_OPTIONS: Array<{
   { value: "url", label: "Ссылка" },
   { value: "list", label: "Список" },
   { value: "relation", label: "Связь" },
+  { value: "belonging", label: "Принадлежность" },
   { value: "relationGroups", label: "Наборы связей" },
   { value: "file", label: "Файлы" },
   { value: "dependencies", label: "Предшественники" },
@@ -72,10 +75,15 @@ export const ENTITY_FIELD_TYPE_GROUPS: Array<{
   },
   {
     label: "Списки и связи",
-    types: ["list", "relation", "relationGroups", "dependencies"],
+    types: ["list", "relation", "belonging", "relationGroups", "dependencies"],
   },
   { label: "Вычисляемые", types: ["formula", "rollup", "lookup"] },
 ];
+
+/** Relation and belonging — both store related record id(s). */
+export function isEntityRelationLikeFieldType(type: EntityFieldType) {
+  return type === "relation" || type === "belonging";
+}
 
 /**
  * Types that store structured JSON (not a scalar / simple id list).
@@ -410,11 +418,31 @@ export function getEntityFieldDisplayName(field: {
   return getEntityFieldTypeLabel(field.type);
 }
 
+/**
+ * Resolve a field id to a UI caption. Never returns a raw id
+ * (deleted / unknown → `missingLabel`).
+ */
+export function resolveEntityFieldLabel(
+  fields: ReadonlyArray<{
+    id: string;
+    name: string;
+    type: EntityFieldType;
+    group?: string;
+  }>,
+  fieldId: string,
+  missingLabel = "Удалённое поле",
+): string {
+  const id = fieldId.trim();
+  if (!id) return "поле";
+  const field = fields.find((item) => item.id === id);
+  return field ? getEntityFieldDisplayName(field) : missingLabel;
+}
+
 export function getEntityRelationTargetId(field: {
   type: EntityFieldType;
   relationEntityId?: string | null;
 }) {
-  if (field.type !== "relation") return null;
+  if (!isEntityRelationLikeFieldType(field.type)) return null;
   const id =
     typeof field.relationEntityId === "string"
       ? field.relationEntityId.trim()

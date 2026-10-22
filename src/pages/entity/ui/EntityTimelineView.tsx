@@ -1,18 +1,17 @@
-import { useMemo, useState, type PointerEvent } from "react";
-import { ChartGantt, ChevronDown, ChevronRight, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChartGantt, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
-import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
-import { fromDayNumber, isWeekendDayNumber } from "@/shared/lib/business-days";
+import { isWeekendDayNumber } from "@/shared/lib/business-days";
 import { cn } from "@/shared/lib/cn";
-import { pluralRu } from "@/shared/lib/plural";
 import {
+  formatEntityFieldScalarValue,
+  formatRecordFieldValue,
+  getEntityFieldValueKind,
   getEntityListOption,
-  getEntityRecordDependencies,
   getEntityTimelineSetup,
   getRecordFieldIds,
   getRecordFieldNumber,
-  rescheduleEntityRecord,
   resolveEntityListFieldOptions,
   resolveRelationRecordLabel,
   useEntityValueContext,
@@ -21,19 +20,25 @@ import {
 } from "@/entities/entity";
 import {
   buildTimelineGroups,
+  getTimelineColumns,
   getTimelineMonths,
   getTimelineRange,
-  getTimelineWeeks,
   parseTimelineScale,
-  TIMELINE_DAY_WIDTH,
+  TIMELINE_COLUMN_WIDTH,
+  timelineItemInColumn,
+  type TimelineGroup,
+  type TimelineGroupKind,
   type TimelineItem,
   type TimelineScale,
+  type TimelineSegment,
 } from "../lib/timeline-layout";
 
-const ROW_HEIGHT = 36;
+const ROW_HEIGHT = 28;
 const HEADER_ROW = 24;
-const LIST_WIDTH = 256;
-const DEFAULT_BAR_COLOR = "#3b82f6";
+const LIST_WIDTH = 280;
+const DEFAULT_CELL_COLOR = "#3b82f6";
+const ROW_LABEL_CLASS =
+  "text-[11px] font-normal leading-none tracking-normal normal-case";
 
 const SCALE_LABELS: Record<TimelineScale, string> = {
   day: "День",
@@ -41,13 +46,39 @@ const SCALE_LABELS: Record<TimelineScale, string> = {
   month: "Месяц",
 };
 
-type BarDrag = {
-  recordId: string;
-  mode: "move" | "start" | "end";
-  originX: number;
-  deltaDays: number;
-  moved: boolean;
-};
+/** Compact day/week/month switch for the page header description row. */
+export function TimelineScaleTabs({
+  value,
+  onChange,
+  className,
+}: {
+  value: TimelineScale;
+  onChange: (value: TimelineScale) => void;
+  className?: string;
+}) {
+  return (
+    <Tabs
+      value={value}
+      onValueChange={(next) => {
+        const parsed = parseTimelineScale(next);
+        if (parsed) onChange(parsed);
+      }}
+      className={cn("gap-0", className)}
+    >
+      <TabsList variant="line" className="!h-auto gap-3 bg-transparent p-0">
+        {(Object.keys(SCALE_LABELS) as TimelineScale[]).map((option) => (
+          <TabsTrigger
+            key={option}
+            value={option}
+            className="h-5 rounded-none px-0 py-0 text-[11px] leading-5 font-normal text-muted-foreground shadow-none after:bottom-0 data-active:bg-transparent data-active:text-foreground data-active:shadow-none"
+          >
+            {SCALE_LABELS[option]}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
+  );
+}
 
 type TimelineRow =
   | {
@@ -55,37 +86,72 @@ type TimelineRow =
       key: string;
       label: string;
       color: string | null;
+      groupKind: TimelineGroupKind;
+      empty: boolean;
       count: number;
       collapsed: boolean;
-      start: number | null;
-      end: number | null;
+      expandable: boolean;
+      depth: number;
+      items: TimelineItem[];
     }
-  | { kind: "item"; item: TimelineItem };
+  | { kind: "item"; item: TimelineItem; depth: number };
 
-type Message = { tone: "info" | "error"; text: string };
+function CellValue({
+  label,
+  color,
+  muted,
+  onClick,
+  title,
+}: {
+  label: string;
+  color: string;
+  muted?: boolean;
+  onClick?: () => void;
+  title?: string;
+}) {
+  const className = cn(
+    "flex size-full min-w-0 items-center justify-end border-0 px-1.5 text-right text-[11px] font-normal leading-none tabular-nums outline-none",
+    muted && "opacity-90",
+    onClick &&
+      "cursor-pointer hover:brightness-[0.97] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+  );
+  const style = {
+    backgroundColor: `${color}28`,
+    color: "var(--foreground)",
+  } as const;
 
-function applyDrag(item: TimelineItem, drag: BarDrag | null) {
-  if (item.start == null || item.end == null) return item;
-  if (!drag || drag.recordId !== item.record.id) return item;
-  const delta = drag.deltaDays;
-  if (drag.mode === "move") {
-    return { ...item, start: item.start + delta, end: item.end + delta };
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={className}
+        style={style}
+        title={title}
+        onClick={onClick}
+      >
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </button>
+    );
   }
-  if (drag.mode === "start") {
-    return { ...item, start: Math.min(item.start + delta, item.end) };
-  }
-  return { ...item, end: Math.max(item.end + delta, item.start) };
+
+  return (
+    <span className={className} style={style} title={title}>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </span>
+  );
 }
 
 export function EntityTimelineView({
   entity,
   records,
+  scale,
   onOpenRecord,
   onConfigure,
   className,
 }: {
   entity: Entity;
   records: EntityRecord[];
+  scale: TimelineScale;
   onOpenRecord?: (record: EntityRecord) => void;
   /** Opens timeline settings from the empty state. */
   onConfigure?: () => void;
@@ -93,22 +159,53 @@ export function EntityTimelineView({
 }) {
   const valueContext = useEntityValueContext();
   const setup = useMemo(() => getEntityTimelineSetup(entity), [entity]);
-  const [scale, setScale] = useLocalStorageState(
-    `entity-timeline-scale:${entity.id}`,
-    parseTimelineScale,
-    "week",
+  /** Cluster / split: collapsed when present (default expanded). */
+  const [collapsedClusterIds, setCollapsedClusterIds] = useState(
+    () => new Set<string>(),
   );
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  const [drag, setDrag] = useState<BarDrag | null>(null);
-  const [message, setMessage] = useState<Message | null>(null);
-  const dayWidth = TIMELINE_DAY_WIDTH[scale];
+  /** Belonging / nested «Строки»: expanded when present (default collapsed). */
+  const [expandedRowIds, setExpandedRowIds] = useState(
+    () => new Set<string>(),
+  );
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const didScrollToToday = useRef(false);
 
   const groups = useMemo(
     () =>
       setup ? buildTimelineGroups(valueContext, entity, setup, records) : [],
     [entity, records, setup, valueContext],
   );
-  const range = useMemo(() => getTimelineRange(groups), [groups]);
+  const range = useMemo(() => getTimelineRange(groups, scale), [groups, scale]);
+  const columns = useMemo(
+    () => getTimelineColumns(scale, range),
+    [scale, range],
+  );
+  const monthBands = useMemo(() => {
+    if (scale === "month") return [];
+    return getTimelineMonths(range);
+  }, [scale, range]);
+
+  useEffect(() => {
+    didScrollToToday.current = false;
+  }, [entity.id, scale]);
+
+  useEffect(() => {
+    if (didScrollToToday.current || columns.length === 0) return;
+    const root = scrollRef.current;
+    if (!root) return;
+    const todayIndex = columns.findIndex(
+      (column) =>
+        range.today >= column.start &&
+        range.today < column.start + column.days,
+    );
+    if (todayIndex < 0) return;
+    const target =
+      LIST_WIDTH +
+      todayIndex * TIMELINE_COLUMN_WIDTH -
+      Math.max(root.clientWidth * 0.35, TIMELINE_COLUMN_WIDTH * 2);
+    root.scrollLeft = Math.max(0, target);
+    didScrollToToday.current = true;
+  }, [columns, range.today]);
 
   if (!setup) {
     return (
@@ -124,8 +221,8 @@ export function EntityTimelineView({
         <div className="flex flex-col gap-1">
           <p className="text-sm font-medium">График не настроен</p>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Укажите поля начала и окончания — записи появятся полосами на шкале
-            времени.
+            Укажите поля начала и окончания — записи появятся в ячейках по
+            датам.
           </p>
         </div>
         {onConfigure ? (
@@ -143,133 +240,124 @@ export function EntityTimelineView({
   }
 
   const timelineSetup = setup;
-  const totalDays = range.end - range.start + 1;
-  const chartWidth = totalDays * dayWidth;
-  const xOf = (day: number) => (day - range.start) * dayWidth;
+  const chartWidth = columns.length * TIMELINE_COLUMN_WIDTH;
+  const headerHeight = monthBands.length > 0 ? HEADER_ROW * 2 : HEADER_ROW;
 
   const rows: TimelineRow[] = [];
-  for (const group of groups) {
-    const isCollapsed = collapsed.has(group.key);
+  function appendGroup(group: TimelineGroup) {
+    const hasChildren = group.children.length > 0;
+    // Cluster / split / nested «Строки» (table parent hierarchy) expand.
+    // Leaf article rows stay aggregates — operations are not listed under them.
+    const expandable = hasChildren;
+    const isCollapsed =
+      expandable &&
+      (group.kind === "row"
+        ? !expandedRowIds.has(group.key)
+        : collapsedClusterIds.has(group.key));
     if (timelineSetup.groupField) {
-      const starts = group.items.flatMap((item) =>
-        item.start == null ? [] : [item.start],
-      );
-      const ends = group.items.flatMap((item) =>
-        item.end == null ? [] : [item.end],
-      );
       rows.push({
         kind: "group",
         key: group.key,
         label: group.label,
         color: group.color,
+        groupKind: group.kind,
+        empty: group.optionId === "__none__",
         count: group.items.length,
         collapsed: isCollapsed,
-        start: starts.length > 0 ? Math.min(...starts) : null,
-        end: ends.length > 0 ? Math.max(...ends) : null,
+        expandable,
+        depth: group.depth,
+        items: group.items,
       });
     }
-    if (!isCollapsed) {
+    if (isCollapsed) return;
+    if (hasChildren) {
+      for (const child of group.children) appendGroup(child);
+      return;
+    }
+    // Flat chart (no «Строки»): each record is its own row.
+    if (!timelineSetup.groupField) {
       for (const item of group.items) {
-        rows.push({ kind: "item", item: applyDrag(item, drag) });
+        rows.push({ kind: "item", item, depth: group.depth });
       }
     }
   }
+  for (const group of groups) appendGroup(group);
 
-  const rowIndexById = new Map<string, number>();
-  rows.forEach((row, index) => {
-    if (row.kind === "item") rowIndexById.set(row.item.record.id, index);
-  });
-  const itemById = new Map(
-    rows.flatMap((row) =>
-      row.kind === "item" ? [[row.item.record.id, row.item] as const] : [],
-    ),
-  );
-
-  function barColor(record: EntityRecord) {
+  function cellColor(record: EntityRecord) {
     const field = timelineSetup.colorField;
-    if (!field) return DEFAULT_BAR_COLOR;
+    if (!field) return DEFAULT_CELL_COLOR;
     const id = getRecordFieldIds(valueContext, entity, record, field)[0];
     const option = getEntityListOption(
       resolveEntityListFieldOptions(field, valueContext.entities),
       id,
     );
-    return option?.color ?? DEFAULT_BAR_COLOR;
+    return option?.color ?? DEFAULT_CELL_COLOR;
   }
 
-  function barProgress(record: EntityRecord) {
-    const field = timelineSetup.progressField;
-    if (!field) return null;
-    const value = getRecordFieldNumber(valueContext, entity, record, field);
-    return value == null ? null : Math.min(100, Math.max(0, value));
+  function recordTitle(record: EntityRecord) {
+    return resolveRelationRecordLabel(entity, record.id) ?? "Без названия";
   }
 
-  function startDrag(
-    event: PointerEvent<HTMLElement>,
-    recordId: string,
-    mode: BarDrag["mode"],
-  ) {
-    if (event.button !== 0) return;
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setMessage(null);
-    setDrag({
-      recordId,
-      mode,
-      originX: event.clientX,
-      deltaDays: 0,
-      moved: false,
-    });
+  function cellLabel(record: EntityRecord) {
+    const field = timelineSetup.labelField;
+    if (!field) return recordTitle(record);
+    const text = formatRecordFieldValue(valueContext, entity, record, field);
+    return text === "—" ? recordTitle(record) : text;
   }
 
-  function moveDrag(event: PointerEvent<HTMLElement>) {
-    if (!drag) return;
-    const dx = event.clientX - drag.originX;
-    setDrag({
-      ...drag,
-      deltaDays: Math.round(dx / dayWidth),
-      moved: drag.moved || Math.abs(dx) > 3,
-    });
+  function groupCellLabel(items: TimelineItem[], column: TimelineSegment) {
+    const inColumn = items.filter((item) => timelineItemInColumn(item, column));
+    if (inColumn.length === 0) return null;
+
+    const field = timelineSetup.labelField;
+    if (
+      field &&
+      getEntityFieldValueKind(entity, field, valueContext.entities) === "number"
+    ) {
+      let sum = 0;
+      let any = false;
+      for (const item of inColumn) {
+        const value = getRecordFieldNumber(
+          valueContext,
+          entity,
+          item.record,
+          field,
+        );
+        if (value == null) continue;
+        sum += value;
+        any = true;
+      }
+      if (!any) return null;
+      const formatted = formatEntityFieldScalarValue(field, String(sum));
+      return formatted === "—" ? null : formatted;
+    }
+
+    if (inColumn.length === 1) {
+      return cellLabel(inColumn[0]!.record);
+    }
+    return String(inColumn.length);
   }
 
-  function endDrag(record: EntityRecord) {
-    if (!drag) return;
-    const current = drag;
-    setDrag(null);
-    if (!current.moved) {
-      onOpenRecord?.(record);
+  function groupCellColor(items: TimelineItem[], column: TimelineSegment) {
+    const first = items.find((item) => timelineItemInColumn(item, column));
+    return first
+      ? cellColor(first.record)
+      : timelineSetup.groupField
+        ? null
+        : DEFAULT_CELL_COLOR;
+  }
+
+  function toggleGroup(key: string, kind: TimelineGroupKind) {
+    if (kind === "row") {
+      setExpandedRowIds((current) => {
+        const next = new Set(current);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
       return;
     }
-    const base = itemById.get(record.id);
-    const original = groups
-      .flatMap((group) => group.items)
-      .find((item) => item.record.id === record.id);
-    if (!base || !original || base.start == null || base.end == null) return;
-    if (base.start === original.start && base.end === original.end) return;
-    try {
-      const shifted = rescheduleEntityRecord(
-        entity.id,
-        record.id,
-        fromDayNumber(base.start),
-        fromDayNumber(base.end),
-      );
-      setMessage(
-        shifted > 0
-          ? {
-              tone: "info",
-              text: `Сдвинуто ${shifted} ${pluralRu(shifted, "запись", "записи", "записей")} по зависимостям`,
-            }
-          : null,
-      );
-    } catch (error: unknown) {
-      setMessage({
-        tone: "error",
-        text: error instanceof Error ? error.message : "График не пересчитан",
-      });
-    }
-  }
-
-  function toggleGroup(key: string) {
-    setCollapsed((current) => {
+    setCollapsedClusterIds((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -277,367 +365,266 @@ export function EntityTimelineView({
     });
   }
 
-  const months = getTimelineMonths(range);
-  const secondRow =
-    scale === "day"
-      ? Array.from({ length: totalDays }, (_, index) => {
-          const day = range.start + index;
-          return {
-            key: String(day),
-            label: fromDayNumber(day).slice(8, 10),
-            start: day,
-            days: 1,
-          };
-        })
-      : scale === "week"
-        ? getTimelineWeeks(range)
-        : [];
-  const headerHeight = secondRow.length > 0 ? HEADER_ROW * 2 : HEADER_ROW;
-  const bodyHeight = rows.length * ROW_HEIGHT;
-
-  const arrows = timelineSetup.dependenciesField
-    ? rows.flatMap((row) => {
-        if (row.kind !== "item") return [];
-        const successor = row.item;
-        const successorStart = successor.start;
-        const successorEnd = successor.end;
-        if (successorStart == null || successorEnd == null) return [];
-        return getEntityRecordDependencies(
-          timelineSetup,
-          successor.record,
-        ).flatMap((dependency) => {
-          const predecessor = itemById.get(dependency.recordId);
-          const fromRow = rowIndexById.get(dependency.recordId);
-          const toRow = rowIndexById.get(successor.record.id);
-          if (
-            !predecessor ||
-            predecessor.start == null ||
-            predecessor.end == null ||
-            fromRow == null ||
-            toRow == null
-          ) {
-            return [];
-          }
-          const fromX =
-            dependency.type === "FS" || dependency.type === "FF"
-              ? xOf(predecessor.end + 1)
-              : xOf(predecessor.start);
-          const toX =
-            dependency.type === "FS" || dependency.type === "SS"
-              ? xOf(successorStart)
-              : xOf(successorEnd + 1);
-          const fromY = fromRow * ROW_HEIGHT + ROW_HEIGHT / 2;
-          const toY = toRow * ROW_HEIGHT + ROW_HEIGHT / 2;
-          const elbow = fromX + 8;
-          return [
-            {
-              key: `${dependency.recordId}->${successor.record.id}`,
-              path: `M ${fromX} ${fromY} H ${elbow} V ${toY} H ${toX}`,
-            },
-          ];
-        });
-      })
-    : [];
+  function columnLeft(column: TimelineSegment) {
+    const index = columns.findIndex((item) => item.key === column.key);
+    return index * TIMELINE_COLUMN_WIDTH;
+  }
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col gap-2", className)}>
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-        <Tabs
-          value={scale}
-          onValueChange={(next) => {
-            const value = parseTimelineScale(next);
-            if (value) setScale(value);
-          }}
+    <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs"
+      >
+        <div
+          className="relative"
+          style={{ width: LIST_WIDTH + chartWidth }}
         >
-          <TabsList className="h-8">
-            {(Object.keys(SCALE_LABELS) as TimelineScale[]).map((value) => (
-              <TabsTrigger key={value} value={value} className="px-2.5 text-xs">
-                {SCALE_LABELS[value]}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        {message ? (
-          <p
-            role={message.tone === "error" ? "alert" : "status"}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs",
-              message.tone === "error"
-                ? "bg-destructive/10 text-destructive"
-                : "bg-primary/10 text-primary",
-            )}
-          >
-            {message.text}
-            <button
-              type="button"
-              aria-label="Скрыть"
-              className="opacity-70 hover:opacity-100"
-              onClick={() => setMessage(null)}
-            >
-              <X className="size-3" />
-            </button>
-          </p>
-        ) : null}
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs">
-        <div className="relative" style={{ width: LIST_WIDTH + chartWidth }}>
           <div
             className="sticky top-0 z-20 flex border-b border-border bg-card"
             style={{ height: headerHeight }}
           >
             <div
-              className="sticky left-0 z-30 flex shrink-0 items-end border-r border-border bg-card px-3 pb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase"
+              className="sticky left-0 z-30 flex shrink-0 items-end border-r border-border bg-card px-3 pb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]"
               style={{ width: LIST_WIDTH }}
             >
               Записи
             </div>
             <div className="relative shrink-0" style={{ width: chartWidth }}>
-              {months.map((month) => (
+              {monthBands.map((month) => {
+                const startIndex = columns.findIndex(
+                  (column) =>
+                    column.start >= month.start &&
+                    column.start < month.start + month.days,
+                );
+                const endIndex = columns.reduce((last, column, index) => {
+                  if (
+                    column.start >= month.start &&
+                    column.start < month.start + month.days
+                  ) {
+                    return index;
+                  }
+                  return last;
+                }, -1);
+                if (startIndex < 0 || endIndex < 0) return null;
+                const width =
+                  (endIndex - startIndex + 1) * TIMELINE_COLUMN_WIDTH;
+                return (
+                  <div
+                    key={month.key}
+                    className="absolute top-0 flex items-center border-l border-border/70 px-2 text-[11px] font-medium text-foreground/80"
+                    style={{
+                      left: startIndex * TIMELINE_COLUMN_WIDTH,
+                      width,
+                      height: HEADER_ROW,
+                    }}
+                  >
+                    <span className="truncate">{month.label}</span>
+                  </div>
+                );
+              })}
+              {columns.map((column) => (
                 <div
-                  key={month.key}
-                  className="absolute top-0 flex items-center border-l border-border/70 px-2 text-[11px] font-medium text-foreground/80"
-                  style={{
-                    left: xOf(month.start),
-                    width: month.days * dayWidth,
-                    height: HEADER_ROW,
-                  }}
-                >
-                  <span className="truncate">{month.label}</span>
-                </div>
-              ))}
-              {secondRow.map((cell) => (
-                <div
-                  key={cell.key}
+                  key={column.key}
                   className={cn(
-                    "absolute flex items-center border-t border-l border-border/50 text-[10px] text-muted-foreground tabular-nums",
-                    scale === "day" ? "justify-center" : "px-1.5",
+                    "absolute flex items-center justify-center border-l border-border/60 text-[11px] text-muted-foreground tabular-nums",
+                    monthBands.length > 0 && "border-t",
                     scale === "day" &&
-                      isWeekendDayNumber(cell.start) &&
-                      "bg-muted/60",
+                      isWeekendDayNumber(column.start) &&
+                      "bg-muted/50",
                   )}
                   style={{
-                    top: HEADER_ROW,
-                    left: xOf(cell.start),
-                    width: cell.days * dayWidth,
+                    top: monthBands.length > 0 ? HEADER_ROW : 0,
+                    left: columnLeft(column),
+                    width: TIMELINE_COLUMN_WIDTH,
                     height: HEADER_ROW,
                   }}
                 >
-                  {cell.label}
+                  {column.label}
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="relative" style={{ height: bodyHeight }}>
-            {scale !== "month"
-              ? Array.from(
-                  { length: totalDays },
-                  (_, index) => range.start + index,
-                )
-                  .filter(isWeekendDayNumber)
-                  .map((day) => (
-                    <div
-                      key={day}
-                      aria-hidden
-                      className="absolute top-0 bg-muted/45"
-                      style={{
-                        left: LIST_WIDTH + xOf(day),
-                        width: dayWidth,
-                        height: bodyHeight,
-                      }}
-                    />
-                  ))
-              : null}
-            <div
-              aria-hidden
-              className="absolute top-0 z-[1] w-px bg-primary"
-              style={{
-                left: LIST_WIDTH + xOf(range.today) + dayWidth / 2,
-                height: bodyHeight,
-              }}
-            />
-            <svg
-              aria-hidden
-              className="pointer-events-none absolute top-0 z-[2] text-muted-foreground/70"
-              style={{
-                left: LIST_WIDTH,
-                width: chartWidth,
-                height: bodyHeight,
-              }}
-            >
-              <defs>
-                <marker
-                  id={`timeline-arrow-${entity.id}`}
-                  viewBox="0 0 8 8"
-                  refX="7"
-                  refY="4"
-                  markerWidth="6"
-                  markerHeight="6"
-                  orient="auto"
-                >
-                  <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
-                </marker>
-              </defs>
-              {arrows.map((arrow) => (
-                <path
-                  key={arrow.key}
-                  d={arrow.path}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.25}
-                  markerEnd={`url(#timeline-arrow-${entity.id})`}
-                />
-              ))}
-            </svg>
-
+          <div className="relative">
             {rows.map((row) => {
               if (row.kind === "group") {
+                const tint =
+                  !row.empty &&
+                  row.color &&
+                  (row.groupKind === "cluster" || row.groupKind === "split")
+                    ? `${row.color}22`
+                    : undefined;
+                const cellTone = row.empty
+                  ? "#94a3b8"
+                  : (row.color ?? DEFAULT_CELL_COLOR);
+
+                const canOpenGroupRecord =
+                  !row.expandable &&
+                  row.items.length === 1 &&
+                  Boolean(onOpenRecord);
+
                 return (
                   <div
                     key={`group-${row.key}`}
-                    className="relative flex border-b border-border/60 bg-muted/20"
-                    style={{ height: ROW_HEIGHT }}
+                    className={cn(
+                      "flex h-7 shrink-0 border-b border-border/50",
+                      row.empty && "bg-muted/80",
+                    )}
+                    style={{
+                      height: ROW_HEIGHT,
+                      backgroundColor: tint,
+                    }}
                   >
                     <button
                       type="button"
-                      className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 border-r border-border bg-card px-2 text-left text-xs font-semibold text-foreground"
-                      style={{ width: LIST_WIDTH }}
-                      aria-expanded={!row.collapsed}
-                      onClick={() => toggleGroup(row.key)}
-                    >
-                      {row.collapsed ? (
-                        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                      className={cn(
+                        "sticky left-0 z-10 flex h-full shrink-0 items-center gap-1.5 border-r border-border pr-2 text-left shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]",
+                        ROW_LABEL_CLASS,
+                        row.empty
+                          ? "bg-muted text-muted-foreground"
+                          : "bg-card text-foreground",
+                        canOpenGroupRecord &&
+                          "hover:bg-muted/40 hover:text-foreground",
                       )}
-                      {row.color ? (
-                        <span
-                          className="size-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: row.color }}
-                          aria-hidden
-                        />
-                      ) : null}
-                      <span className="truncate">{row.label}</span>
-                      <span className="ml-auto shrink-0 font-normal text-muted-foreground tabular-nums">
-                        {row.count}
+                      style={{
+                        width: LIST_WIDTH,
+                        paddingLeft: 8 + row.depth * 14,
+                        ...(tint
+                          ? {
+                              backgroundImage: `linear-gradient(${tint}, ${tint})`,
+                            }
+                          : {}),
+                      }}
+                      aria-expanded={
+                        row.expandable ? !row.collapsed : undefined
+                      }
+                      onClick={() => {
+                        if (row.expandable) {
+                          toggleGroup(row.key, row.groupKind);
+                          return;
+                        }
+                        const only = row.items[0];
+                        if (only) onOpenRecord?.(only.record);
+                      }}
+                    >
+                      {row.expandable ? (
+                        row.collapsed ? (
+                          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                        )
+                      ) : (
+                        <span className="size-3.5 shrink-0" aria-hidden />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">
+                        {row.label}
                       </span>
                     </button>
-                    {row.start != null && row.end != null ? (
-                      <div
-                        aria-hidden
-                        className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-foreground/15"
-                        style={{
-                          left: LIST_WIDTH + xOf(row.start),
-                          width: (row.end - row.start + 1) * dayWidth,
-                        }}
-                      />
-                    ) : null}
+                    <div
+                      className="flex h-full shrink-0"
+                      style={{ width: chartWidth }}
+                    >
+                      {columns.map((column) => {
+                        const inColumn = row.items.filter((item) =>
+                          timelineItemInColumn(item, column),
+                        );
+                        const label = groupCellLabel(row.items, column);
+                        const color =
+                          row.groupKind === "row"
+                            ? (groupCellColor(row.items, column) ??
+                              row.color ??
+                              DEFAULT_CELL_COLOR)
+                            : cellTone;
+                        const only = inColumn[0];
+                        const openCell =
+                          inColumn.length === 1 && only && onOpenRecord
+                            ? () => onOpenRecord(only.record)
+                            : undefined;
+                        return (
+                          <div
+                            key={column.key}
+                            className={cn(
+                              "flex h-full items-stretch border-l border-border/40 p-0",
+                              scale === "day" &&
+                                isWeekendDayNumber(column.start) &&
+                                !tint &&
+                                "bg-muted/30",
+                            )}
+                            style={{ width: TIMELINE_COLUMN_WIDTH }}
+                          >
+                            {label ? (
+                              <CellValue
+                                label={label}
+                                color={color}
+                                title={label}
+                                onClick={openCell}
+                              />
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               }
 
               const { item } = row;
               const record = item.record;
-              const title =
-                resolveRelationRecordLabel(entity, record.id) ?? "Без названия";
-              const color = barColor(record);
-              const progress = barProgress(record);
-              const hasDates = item.start != null && item.end != null;
-              const barWidth = hasDates
-                ? (item.end! - item.start! + 1) * dayWidth
-                : 0;
+              const title = recordTitle(record);
+              const label = cellLabel(record);
+              const color = cellColor(record);
+
               return (
                 <div
                   key={record.id}
-                  className="relative flex border-b border-border/40"
+                  className="flex h-7 shrink-0 border-b border-border/40"
                   style={{ height: ROW_HEIGHT }}
                 >
                   <button
                     type="button"
                     className={cn(
-                      "sticky left-0 z-10 flex shrink-0 items-center border-r border-border bg-card text-left text-[13px] text-foreground hover:bg-muted/40",
-                      timelineSetup.groupField ? "pr-2 pl-7" : "px-3",
+                      "sticky left-0 z-10 flex h-full shrink-0 items-center border-r border-border bg-card pr-2 text-left text-muted-foreground shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] hover:bg-muted/40 hover:text-foreground",
+                      ROW_LABEL_CLASS,
                     )}
-                    style={{ width: LIST_WIDTH }}
+                    style={{
+                      width: LIST_WIDTH,
+                      paddingLeft: 8 + row.depth * 14,
+                    }}
                     title={title}
                     onClick={() => onOpenRecord?.(record)}
                   >
                     <span className="truncate">{title}</span>
                   </button>
-                  {hasDates ? (
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      title={`${title}: ${fromDayNumber(item.start!)} — ${fromDayNumber(item.end!)}`}
-                      className={cn(
-                        "group/bar absolute top-1/2 z-[3] flex h-6 -translate-y-1/2 cursor-grab touch-none items-center overflow-visible rounded-md border select-none active:cursor-grabbing",
-                        drag?.recordId === record.id && "shadow-md",
-                      )}
-                      style={{
-                        left: LIST_WIDTH + xOf(item.start!),
-                        width: Math.max(barWidth, 6),
-                        backgroundColor: `${color}26`,
-                        borderColor: `${color}99`,
-                      }}
-                      onPointerDown={(event) =>
-                        startDrag(event, record.id, "move")
-                      }
-                      onPointerMove={moveDrag}
-                      onPointerUp={() => endDrag(record)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") onOpenRecord?.(record);
-                      }}
-                    >
-                      {progress != null ? (
-                        <span
-                          aria-hidden
-                          className="absolute inset-y-0 left-0 rounded-l-[5px]"
-                          style={{
-                            width: `${progress}%`,
-                            backgroundColor: `${color}66`,
-                          }}
-                        />
-                      ) : null}
-                      <span
-                        className={cn(
-                          "relative truncate px-2 text-[11px] font-medium text-foreground",
-                          barWidth < 72 && "absolute left-full pl-1.5",
-                        )}
-                      >
-                        {title}
-                      </span>
-                      {(["start", "end"] as const).map((edge) => (
-                        <span
-                          key={edge}
-                          aria-hidden
+                  <div
+                    className="flex h-full shrink-0"
+                    style={{ width: chartWidth }}
+                  >
+                    {columns.map((column) => {
+                      const active = timelineItemInColumn(item, column);
+                      return (
+                        <div
+                          key={column.key}
                           className={cn(
-                            "absolute inset-y-0 w-1.5 cursor-ew-resize rounded-sm opacity-0 group-hover/bar:opacity-100",
-                            edge === "start" ? "left-0" : "right-0",
+                            "flex h-full items-stretch border-l border-border/40 p-0",
+                            scale === "day" &&
+                              isWeekendDayNumber(column.start) &&
+                              "bg-muted/30",
                           )}
-                          style={{ backgroundColor: `${color}99` }}
-                          onPointerDown={(event) =>
-                            startDrag(event, record.id, edge)
-                          }
-                          onPointerMove={(event) => {
-                            event.stopPropagation();
-                            moveDrag(event);
-                          }}
-                          onPointerUp={(event) => {
-                            event.stopPropagation();
-                            endDrag(record);
-                          }}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <span
-                      className="absolute top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground"
-                      style={{ left: LIST_WIDTH + 12 }}
-                    >
-                      Без дат
-                    </span>
-                  )}
+                          style={{ width: TIMELINE_COLUMN_WIDTH }}
+                        >
+                          {active ? (
+                            <CellValue
+                              label={label}
+                              color={color}
+                              title={`${title}: ${label}`}
+                              onClick={() => onOpenRecord?.(record)}
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })}

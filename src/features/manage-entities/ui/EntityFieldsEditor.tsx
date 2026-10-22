@@ -2586,21 +2586,29 @@ function simpleFieldDropEdge(
   return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
 }
 
-function setSimpleFieldDragPreview(event: ReactDragEvent, source: HTMLElement) {
+/**
+ * Parent lists use overflow clipping — the default drag image would be cut off.
+ * Clone onto `document.body` for setDragImage, then hide (keep until dragend).
+ * Never leave it at top-left: it sits under the page «Настройки» heading.
+ */
+function setSimpleFieldDragPreview(
+  event: ReactDragEvent,
+  source: HTMLElement,
+): HTMLElement {
   const rect = source.getBoundingClientRect();
   const ghost = source.cloneNode(true) as HTMLElement;
   ghost.querySelectorAll("button").forEach((button) => button.remove());
   ghost.setAttribute("aria-hidden", "true");
   Object.assign(ghost.style, {
     position: "fixed",
-    top: "-1000px",
-    left: "-1000px",
-    width: `${rect.width}px`,
+    top: "0",
+    left: "0",
+    width: `${Math.ceil(rect.width)}px`,
+    height: `${Math.ceil(rect.height)}px`,
     margin: "0",
     pointerEvents: "none",
-    zIndex: "99999",
+    zIndex: "0",
     opacity: "1",
-    transform: "rotate(1.25deg)",
     boxShadow:
       "0 18px 40px -16px rgb(0 0 0 / 0.4), 0 0 0 1px color-mix(in oklab, var(--primary) 35%, transparent)",
     borderColor: "color-mix(in oklab, var(--primary) 45%, transparent)",
@@ -2616,9 +2624,11 @@ function setSimpleFieldDragPreview(event: ReactDragEvent, source: HTMLElement) {
     Math.max(rect.height - 12, 12),
   );
   event.dataTransfer.setDragImage(ghost, offsetX, offsetY);
-  requestAnimationFrame(() => {
-    ghost.remove();
-  });
+  // Hide after the browser snapshots the drag bitmap — keep node for the gesture.
+  ghost.style.left = "-10000px";
+  ghost.style.top = "0";
+  ghost.style.opacity = "0";
+  return ghost;
 }
 
 /** Red grab rail to the left of a flat field row (internal entities). */
@@ -2704,6 +2714,7 @@ function SimpleFieldRow({
   onPrepareDrag,
   onDragStart,
   onDragEnd,
+  onDragGhost,
   onDragOver,
   onDrop,
 }: {
@@ -2721,6 +2732,7 @@ function SimpleFieldRow({
   onPrepareDrag?: (event: { target: EventTarget | null }) => void;
   onDragStart?: (event: ReactDragEvent) => void;
   onDragEnd?: (event?: ReactDragEvent) => void;
+  onDragGhost?: (ghost: HTMLElement) => void;
   onDragOver?: (event: ReactDragEvent<HTMLElement>) => void;
   onDrop?: (event: ReactDragEvent<HTMLElement>) => void;
 }) {
@@ -2820,7 +2832,9 @@ function SimpleFieldRow({
         const preview = event.currentTarget.querySelector<HTMLElement>(
           "[data-simple-field-card]",
         );
-        if (preview) setSimpleFieldDragPreview(event, preview);
+        if (preview) {
+          onDragGhost?.(setSimpleFieldDragPreview(event, preview));
+        }
         onDragStart?.(event);
       }}
       onDragEnd={onDragEnd}
@@ -2881,6 +2895,7 @@ function SimpleFieldsList({
   );
   const [handleEpoch, setHandleEpoch] = useState(0);
   const allowDragRef = useRef(false);
+  const dragGhostRef = useRef<HTMLElement | null>(null);
 
   const nameFields = fields.filter((field) => isEntityNameField(field));
   const movableFields = fields.filter((field) => !isEntityNameField(field));
@@ -2902,6 +2917,8 @@ function SimpleFieldsList({
     setDropBeforeId(undefined);
     setHandleEpoch((value) => value + 1);
     unlockDragSelection();
+    dragGhostRef.current?.remove();
+    dragGhostRef.current = null;
 
     const target = event?.target;
     const handle =
@@ -2931,7 +2948,7 @@ function SimpleFieldsList({
 
   return (
     <LayoutGroup id={`simple-fields-${entityId}`}>
-      <ul className="flex flex-col gap-0.5 overflow-hidden rounded-xl border border-border bg-muted/20 p-1.5">
+      <ul className="flex flex-col gap-0.5 overflow-visible rounded-xl border border-border bg-muted/20 p-1.5">
         {nameFields.map((field) => (
           <SimpleFieldRow
             key={field.id}
@@ -2994,6 +3011,10 @@ function SimpleFieldsList({
                 setDropBeforeId(undefined);
               }}
               onDragEnd={(event) => clearDrag(event)}
+              onDragGhost={(ghost) => {
+                dragGhostRef.current?.remove();
+                dragGhostRef.current = ghost;
+              }}
               onDragOver={(event) => {
                 if (draggingId == null || draggingId === field.id) return;
                 if (
@@ -3099,20 +3120,21 @@ export function EntityFieldsEditor({
   onActiveTabIdChange,
 }: EntityFieldsEditorProps) {
   const readOnly = readOnlyProp;
-  const wasReadOnlyRef = useRef(readOnly);
+  const [prevReadOnly, setPrevReadOnly] = useState(readOnly);
   const [holdEditEnter, setHoldEditEnter] = useState(false);
-  const justEnteredEdit = wasReadOnlyRef.current && !readOnly;
+  let justEnteredEdit = false;
+  if (prevReadOnly !== readOnly) {
+    setPrevReadOnly(readOnly);
+    justEnteredEdit = prevReadOnly && !readOnly;
+    if (readOnly) setHoldEditEnter(false);
+    else if (justEnteredEdit) setHoldEditEnter(true);
+  }
   const enteringEdit = justEnteredEdit || holdEditEnter;
   useLayoutEffect(() => {
-    if (justEnteredEdit) {
-      setHoldEditEnter(true);
-      const timer = window.setTimeout(() => setHoldEditEnter(false), 520);
-      wasReadOnlyRef.current = readOnly;
-      return () => window.clearTimeout(timer);
-    }
-    wasReadOnlyRef.current = readOnly;
-    if (readOnly) setHoldEditEnter(false);
-  }, [justEnteredEdit, readOnly]);
+    if (!holdEditEnter) return;
+    const timer = window.setTimeout(() => setHoldEditEnter(false), 520);
+    return () => window.clearTimeout(timer);
+  }, [holdEditEnter]);
   const { entities } = useEntityConfig();
   const { entries } = useMenuConfig();
   const entityOptions = useMemo(() => {

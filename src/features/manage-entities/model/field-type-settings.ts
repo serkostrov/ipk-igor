@@ -68,6 +68,7 @@ const DEFAULT_VALUE_TYPES = new Set<EntityFieldType>([
   "url",
   "list",
   "relation",
+  "belonging",
   "relationGroups",
 ]);
 
@@ -92,7 +93,9 @@ export function canHaveDefaultValue(
   },
 ) {
   if (!DEFAULT_VALUE_TYPES.has(type)) return false;
-  if (type === "relation") return Boolean(hasRelationTarget);
+  if (type === "relation" || type === "belonging") {
+    return Boolean(hasRelationTarget);
+  }
   if (type === "relationGroups") return Boolean(hasRelationGroupsConfig);
   if (type === "list") return hasListOptions;
   return true;

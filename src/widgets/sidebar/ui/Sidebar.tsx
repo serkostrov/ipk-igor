@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/shared/ui/button";
+import { TreeBranchRow } from "@/shared/ui/tree-branch-guides";
 import { cn } from "@/shared/lib/cn";
 import { getPersonInitials } from "@/shared/lib/person";
 import { RunningTimerCard } from "./RunningTimerCard";
@@ -104,38 +105,25 @@ function NavLabel({
   );
 }
 
-/** Matches expanded sidebar nav row (~py-2 + text-sm / icon). */
-const SIDEBAR_TREE_ROW_H = 36;
-const SIDEBAR_TREE_ELBOW_TOP = SIDEBAR_TREE_ROW_H / 2;
-
-/**
- * Branch for one child under a group. Elbow is pinned to the first row
- * (like MenuSettings), so nested groups don't shift the connector mid-block.
- */
 function SidebarTreeRow({
+  isFirst = false,
   isLast = false,
   children,
 }: {
+  isFirst?: boolean;
   isLast?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="relative ml-4 min-h-9">
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute left-0 w-px bg-sidebar-foreground/25",
-          isLast ? "top-0" : "-top-px bottom-0",
-        )}
-        style={isLast ? { height: SIDEBAR_TREE_ELBOW_TOP } : undefined}
-      />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute left-0 h-px w-2.5 bg-sidebar-foreground/25"
-        style={{ top: SIDEBAR_TREE_ELBOW_TOP }}
-      />
-      <div className="min-w-0 pl-3">{children}</div>
-    </div>
+    <TreeBranchRow
+      isFirst={isFirst}
+      isLast={isLast}
+      tone="sidebar"
+      insetClassName="ml-4"
+      contentClassName="pl-3.5"
+    >
+      {children}
+    </TreeBranchRow>
   );
 }
 
@@ -247,11 +235,16 @@ function SidebarGroupTree({
             ) : (
               <div className="flex flex-col">
                 {group.entries.map((entry, entryIndex) => {
+                  const isFirst = entryIndex === 0;
                   const isLast = entryIndex === group.entries.length - 1;
                   if (entry.type === "item") {
                     const isActive = entry.id === activeId;
                     return (
-                      <SidebarTreeRow key={entry.id} isLast={isLast}>
+                      <SidebarTreeRow
+                        key={entry.id}
+                        isFirst={isFirst}
+                        isLast={isLast}
+                      >
                         <Button
                           type="button"
                           variant="ghost"
@@ -278,7 +271,11 @@ function SidebarGroupTree({
                   }
 
                   return (
-                    <SidebarTreeRow key={entry.id} isLast={isLast}>
+                    <SidebarTreeRow
+                      key={entry.id}
+                      isFirst={isFirst}
+                      isLast={isLast}
+                    >
                       <div className="min-w-0 flex-1">
                         <SidebarGroupTree
                           group={entry}

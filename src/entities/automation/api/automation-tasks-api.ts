@@ -22,6 +22,7 @@ function mapTaskRow(row: Record<string, unknown>): AutomationTask | null {
     triggerOptionId: String(row.trigger_option_id ?? ""),
     stepOrder: Number(row.step_order ?? 0),
     isBlocking: row.is_blocking === true,
+    enabled: true,
     kind: "decision" as const,
     launchPhase: "onEnter" as const,
     launchConditions: { version: 1 as const, match: "all" as const, rules: [] },

@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Switch } from "@/shared/ui/switch";
+import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import { cn } from "@/shared/lib/cn";
 import {
   lockDragSelection,
@@ -128,30 +129,13 @@ function SettingsNestedGroup({ children }: { children: ReactNode }) {
 
           return (
             <div key={index} className="relative">
-              {isLast ? (
-                <div
-                  className={cn(
-                    "pointer-events-none absolute left-0 w-3 rounded-bl-[5px] border-b border-l border-border",
-                    isFirst ? "-top-2 h-[calc(50%+8px)]" : "top-0 h-1/2",
-                  )}
-                  aria-hidden
-                />
-              ) : (
-                <>
-                  <div
-                    className={cn(
-                      "pointer-events-none absolute left-0 w-px bg-border",
-                      isFirst ? "-top-2 bottom-[-6px]" : "top-0 bottom-[-6px]",
-                    )}
-                    aria-hidden
-                  />
-                  <div
-                    className="pointer-events-none absolute top-1/2 left-0 h-px w-3 bg-border"
-                    aria-hidden
-                  />
-                </>
-              )}
-              <div className="ml-3">{child}</div>
+              <TreeBranchGuides
+                isFirst={isFirst}
+                isLast={isLast}
+                className="left-0"
+                armClassName="w-2"
+              />
+              <div className="ml-3.5">{child}</div>
             </div>
           );
         })}

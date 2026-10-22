@@ -49,6 +49,9 @@ export function TemplateFieldInput({
   id,
   multiline = false,
   headerInsert = true,
+  /** `form` matches record dialog Label + h-9 controls; `muted` is for automation UIs. */
+  tone = "muted",
+  required = false,
 }: {
   title: string;
   value: string;
@@ -59,6 +62,8 @@ export function TemplateFieldInput({
   multiline?: boolean;
   /** Mini braces icon next to the title (entity name template style). */
   headerInsert?: boolean;
+  tone?: "muted" | "form";
+  required?: boolean;
 }) {
   /** Remount select after insert so the same field can be picked again. */
   const [fieldPickKey, setFieldPickKey] = useState(0);
@@ -227,16 +232,21 @@ export function TemplateFieldInput({
       </Select>
     ) : null;
 
+  const isForm = tone === "form";
+
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
+    <div className={cn("flex min-w-0 flex-col", isForm ? "gap-2" : "gap-1.5")}>
       {title.trim() || headerInsert ? (
         <div className="flex min-w-0 items-center justify-between gap-2">
           {title.trim() ? (
             <Label
               htmlFor={id}
-              className="text-xs font-medium text-muted-foreground"
+              className={
+                isForm ? undefined : "text-xs font-medium text-muted-foreground"
+              }
             >
               {title}
+              {required ? <span className="text-destructive"> *</span> : null}
             </Label>
           ) : (
             <span className="min-w-0" />
@@ -252,7 +262,9 @@ export function TemplateFieldInput({
           "dark:bg-input/30",
           multiline
             ? "min-h-20 items-start py-1.5"
-            : "min-h-8 items-center py-1",
+            : isForm
+              ? "h-9 min-h-9 items-center px-2.5 py-1"
+              : "min-h-8 items-center py-1",
         )}
         onMouseDown={(event) => {
           if (event.target !== event.currentTarget) return;

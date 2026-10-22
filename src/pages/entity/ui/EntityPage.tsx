@@ -13,6 +13,7 @@ import {
   isEntityBrowseView,
   isEntityInternal,
   resolveEntityDefaultView,
+  resolveEntityTableParentField,
   useEntityConfig,
   useEntityStatus,
   type EntityBrowseView,
@@ -42,9 +43,11 @@ import {
   EntityTableView,
   TableSettingsButton,
 } from "./EntityTableView";
-import { EntityTimelineView } from "./EntityTimelineView";
+import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
+import { EntityTimelineView, TimelineScaleTabs } from "./EntityTimelineView";
 import { HiddenRecordsBar } from "./HiddenRecordsBar";
 import { useEntityRecordScope } from "./use-entity-record-scope";
+import { parseTimelineScale, type TimelineScale } from "../lib/timeline-layout";
 
 function PageHeader({
   title,
@@ -74,16 +77,18 @@ function PageHeader({
         {actions ? <div className="shrink-0 pt-0.5">{actions}</div> : null}
       </div>
       {hasDescriptionRow ? (
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center justify-between gap-4">
           {description ? (
-            <p className="min-w-0 flex-1 text-sm whitespace-pre-wrap text-muted-foreground">
+            <p className="min-w-0 flex-1 text-sm leading-5 text-muted-foreground">
               {description}
             </p>
           ) : (
             <div className="min-w-0 flex-1" />
           )}
           {descriptionActions ? (
-            <div className="shrink-0">{descriptionActions}</div>
+            <div className="flex shrink-0 items-center">
+              {descriptionActions}
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -131,9 +136,17 @@ export function EntityPage({
       ? location.view
       : undefined;
   const [createOpen, setCreateOpen] = useState(false);
+  const [createHierarchyGroupId, setCreateHierarchyGroupId] = useState<
+    string | null
+  >(null);
   const [timelineSettingsOpen, setTimelineSettingsOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<EntityRecord | null>(null);
   const [handledEditId, setHandledEditId] = useState<string | null>(null);
+  const [timelineScale, setTimelineScale] = useLocalStorageState(
+    `entity-timeline-scale:${entityId}`,
+    parseTimelineScale,
+    "week" satisfies TimelineScale,
+  );
 
   const editRecordId = locationState?.editRecordId ?? null;
 
@@ -253,17 +266,6 @@ export function EntityPage({
     );
   }
 
-  const addAction = canCreateRecord ? (
-    <AddRecordButton
-      onClick={() => {
-        setEditingRecord(null);
-        setCreateOpen(true);
-      }}
-    />
-  ) : null;
-  const hiddenRecordsAction =
-    scope.hiddenCount > 0 ? <HiddenRecordsBar scope={scope} /> : undefined;
-
   /** Full record page (kanban / timeline / row). Internal entities use a dialog. */
   function openRecordLocal(record: EntityRecord) {
     if (isInternal) {
@@ -281,6 +283,31 @@ export function EntityPage({
     setEditingRecord(record);
   }
 
+  const tableParentField = resolveEntityTableParentField(currentEntity);
+
+  const addAction = canCreateRecord ? (
+    <AddRecordButton
+      onClick={() => {
+        setEditingRecord(null);
+        setCreateHierarchyGroupId(null);
+        setCreateOpen(true);
+      }}
+    />
+  ) : null;
+  const hiddenRecordsAction =
+    scope.hiddenCount > 0 ? <HiddenRecordsBar scope={scope} /> : undefined;
+  const timelineScaleAction =
+    activeView === "timeline" ? (
+      <TimelineScaleTabs value={timelineScale} onChange={setTimelineScale} />
+    ) : null;
+  const descriptionActions =
+    timelineScaleAction || hiddenRecordsAction ? (
+      <div className="flex items-center gap-2">
+        {hiddenRecordsAction}
+        {timelineScaleAction}
+      </div>
+    ) : undefined;
+
   function renderView(view: EntityBrowseView) {
     if (view === "table") {
       return (
@@ -291,6 +318,15 @@ export function EntityPage({
           onEditRecord={canOpenRecord ? editRecordLocal : undefined}
           onOpenRecord={canOpenRecord ? openRecordLocal : undefined}
           onOpenRelation={onOpenRelation}
+          onCreateChildRecord={
+            canCreateRecord && tableParentField
+              ? (groupValue) => {
+                  setEditingRecord(null);
+                  setCreateHierarchyGroupId(groupValue);
+                  setCreateOpen(true);
+                }
+              : undefined
+          }
         />
       );
     }
@@ -299,7 +335,8 @@ export function EntityPage({
         <EntityTimelineView
           entity={currentEntity}
           records={scope.records}
-          onOpenRecord={canOpenRecord ? openRecordLocal : undefined}
+          scale={timelineScale}
+          onOpenRecord={canOpenRecord ? editRecordLocal : undefined}
           onConfigure={() => setTimelineSettingsOpen(true)}
         />
       );
@@ -384,7 +421,7 @@ export function EntityPage({
             </div>
           }
           actions={addAction}
-          descriptionActions={hiddenRecordsAction}
+          descriptionActions={descriptionActions}
         />
 
         {browseViews.map((view) => (
@@ -412,7 +449,7 @@ export function EntityPage({
             ) : undefined
           }
           actions={addAction}
-          descriptionActions={hiddenRecordsAction}
+          descriptionActions={descriptionActions}
         />
         <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
           {renderView(activeView)}
@@ -426,15 +463,23 @@ export function EntityPage({
       {canCreateRecord ? (
         <EntityRecordDialog
           open={createOpen}
-          onOpenChange={setCreateOpen}
+          onOpenChange={(open) => {
+            setCreateOpen(open);
+            if (!open) setCreateHierarchyGroupId(null);
+          }}
           entity={currentEntity}
           requireAccountPassword={isUsersEntity}
           submitLabel={isUsersEntity ? "Создать аккаунт" : undefined}
-          presetValues={
-            isUsersEntity
+          presetValues={{
+            ...(isUsersEntity
               ? { [SYSTEM_USERS_FIELD_ROLE_ID]: ROLE_EMPLOYEE_ID }
-              : undefined
-          }
+              : {}),
+            ...(createHierarchyGroupId != null &&
+            createHierarchyGroupId !== "" &&
+            tableParentField
+              ? { [tableParentField.id]: createHierarchyGroupId }
+              : {}),
+          }}
           onSubmit={
             isUsersEntity
               ? async (values, meta) => {

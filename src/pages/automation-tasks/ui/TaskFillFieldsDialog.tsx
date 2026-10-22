@@ -25,6 +25,7 @@ import {
   getCurrentUserRecordId,
   getEntityConfig,
   getEntityFieldDisplayName,
+  resolveEntityFieldLabel,
   getEntityListParentField,
   getEntityPreviewValueContext,
   getVisibleListOptions,
@@ -435,10 +436,9 @@ function TaskFillFieldsDialogBody({
       });
     });
     if (missing.length > 0) {
-      const labels = missing.map((fieldId) => {
-        const field = entity.fields.find((item) => item.id === fieldId);
-        return field ? getEntityFieldDisplayName(field) : fieldId;
-      });
+      const labels = missing.map((fieldId) =>
+        resolveEntityFieldLabel(entity.fields, fieldId),
+      );
       return `Заполните обязательные поля: ${labels.join(", ")}`;
     }
     return validateRelatedAskRequired({

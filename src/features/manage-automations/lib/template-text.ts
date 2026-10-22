@@ -53,7 +53,7 @@ export function getTemplateFieldLabel(
   token: string,
 ): string {
   const field = resolveTemplateField(fields, token);
-  return field ? getEntityFieldDisplayName(field) : token;
+  return field ? getEntityFieldDisplayName(field) : "поле";
 }
 
 /**

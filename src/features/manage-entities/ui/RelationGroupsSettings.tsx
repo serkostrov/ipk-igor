@@ -375,7 +375,7 @@ export function RelationGroupsSettings({
       <SettingSelect
         id="entity-field-relation-groups-item"
         title="Строки"
-        description="Что выбирают в первую очередь (например стадии)"
+        description="Что выбирают в первую очередь"
         value={value.itemEntityId}
         options={itemOptions}
         emptyLabel="Выберите сущность"

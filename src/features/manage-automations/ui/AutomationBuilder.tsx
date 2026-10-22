@@ -787,6 +787,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         triggerOptionId: targetStageId,
         stepOrder: at,
         isBlocking: true,
+        enabled: true,
         kind: "decision",
         launchPhase,
         launchConditions: emptyAutomationConditions(),
@@ -898,6 +899,17 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       ...prev,
       templates: prev.templates.map((item) =>
         item.id === next.id ? next : item,
+      ),
+    }));
+  }
+
+  function toggleTemplateEnabled(templateId: string) {
+    updateDraft((prev) => ({
+      ...prev,
+      templates: prev.templates.map((item) =>
+        item.id === templateId
+          ? { ...item, enabled: item.enabled === false }
+          : item,
       ),
     }));
   }
@@ -1598,6 +1610,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   patchCanvasLayout({ positions })
                 }
                 onToggleStageCollapse={toggleStageCollapse}
+                onToggleTemplateEnabled={toggleTemplateEnabled}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

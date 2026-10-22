@@ -7,6 +7,7 @@ import {
   getEntityFieldDisplayName,
   getEntityRecordTitle,
   getEntityRelationTargetId,
+  resolveEntityFieldLabel,
   normalizeEntityFieldInputValue,
   parseEntityRelationIds,
   updateEntityRecord,
@@ -316,15 +317,19 @@ export function validateRelatedAskRequired(options: {
     const relationField = triggerEntity.fields.find(
       (field) => field.id === ask.relationFieldId,
     );
-    const relationLabel = relationField
-      ? getEntityFieldDisplayName(relationField)
-      : ask.relationFieldId;
+    const relationLabel = resolveEntityFieldLabel(
+      triggerEntity.fields,
+      ask.relationFieldId,
+      "Связь",
+    );
     const targetId = relationField
       ? getEntityRelationTargetId(relationField)
       : null;
     const relatedEntity = targetId ? entityById.get(targetId) : undefined;
     const field = relatedEntity?.fields.find((item) => item.id === ask.fieldId);
-    const fieldLabel = field ? getEntityFieldDisplayName(field) : ask.fieldId;
+    const fieldLabel = relatedEntity
+      ? resolveEntityFieldLabel(relatedEntity.fields, ask.fieldId)
+      : "поле";
     const relatedIds = parseEntityRelationIds(values[ask.relationFieldId]);
     if (relatedIds.length === 0) {
       missingLabels.push(`${relationLabel} · ${fieldLabel}`);

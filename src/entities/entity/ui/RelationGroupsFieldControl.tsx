@@ -189,7 +189,7 @@ export function RelationGroupsFieldControl({
 
   if (!config?.itemEntityId || !config.nestedEntityId) {
     return (
-      <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+      <p className="flex h-9 items-center rounded-md border border-dashed border-border px-2.5 text-sm text-muted-foreground">
         Настройте сущности строк и вложенных в поле
       </p>
     );
@@ -197,7 +197,7 @@ export function RelationGroupsFieldControl({
 
   if (!itemEntity || !nestedEntity) {
     return (
-      <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+      <p className="flex h-9 items-center rounded-md border border-dashed border-border px-2.5 text-sm text-muted-foreground">
         Сущность не найдена
       </p>
     );

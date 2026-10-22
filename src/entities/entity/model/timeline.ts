@@ -3,7 +3,15 @@ import {
   businessDaysBetween,
   extractIsoDate,
 } from "@/shared/lib/business-days";
-import { parseEntityDependencies, type EntityDependency } from "./field";
+import {
+  getEntityRelationTargetId,
+  parseEntityDependencies,
+  type EntityDependency,
+} from "./field";
+import {
+  getEntityFieldValueKind,
+  resolveEntityFieldSource,
+} from "./field-value";
 import type {
   Entity,
   EntityField,
@@ -16,7 +24,11 @@ export type EntityTimelineSetup = {
   startField: EntityField;
   endField: EntityField;
   groupField: EntityField | null;
+  /** Field ids resolved later against the related row entity. */
+  clusterFieldId: string | null;
+  splitFieldId: string | null;
   colorField: EntityField | null;
+  labelField: EntityField | null;
   progressField: EntityField | null;
   dependenciesField: EntityField | null;
 };
@@ -31,6 +43,35 @@ function findField(entity: Pick<Entity, "fields">, fieldId: string | null) {
   return fieldId
     ? (entity.fields.find((field) => field.id === fieldId) ?? null)
     : null;
+}
+
+/** Target entity of the «Строки» relation (`null` for list rows / unset). */
+export function getTimelineRowTargetEntity(
+  entity: Pick<Entity, "id" | "fields">,
+  groupField: EntityField | null,
+  entities: ReadonlyArray<Entity>,
+): Entity | null {
+  if (!groupField) return null;
+  const source = resolveEntityFieldSource(entity, groupField, entities);
+  const field = source?.field ?? groupField;
+  if (field.type !== "relation") return null;
+  const targetId = getEntityRelationTargetId(field);
+  if (!targetId) return null;
+  return entities.find((item) => item.id === targetId) ?? null;
+}
+
+/** List/relation fields on the related «Строки» entity (cluster / split). */
+export function getTimelineRowOptionFields(
+  entity: Pick<Entity, "id" | "fields">,
+  groupField: EntityField | null,
+  entities: ReadonlyArray<Entity>,
+): EntityField[] {
+  const target = getTimelineRowTargetEntity(entity, groupField, entities);
+  if (!target) return [];
+  return target.fields.filter((field) => {
+    const kind = getEntityFieldValueKind(target, field, entities);
+    return kind === "list" || kind === "relation";
+  });
 }
 
 /** Timeline settings with resolved fields (`null` when not configured). */
@@ -50,7 +91,10 @@ export function getEntityTimelineSetup(
     startField,
     endField,
     groupField: findField(entity, config.groupFieldId),
+    clusterFieldId: config.clusterFieldId,
+    splitFieldId: config.splitFieldId,
     colorField: findField(entity, config.colorFieldId),
+    labelField: findField(entity, config.labelFieldId),
     progressField: findField(entity, config.progressFieldId),
     dependenciesField:
       dependenciesField?.type === "dependencies" ? dependenciesField : null,

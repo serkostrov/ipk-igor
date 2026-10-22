@@ -149,11 +149,12 @@ export function DefaultValueSettings({
     );
   }
 
-  if (type === "relation") {
-    const isCurrentUser = value?.kind === "currentUser";
+  if (type === "relation" || type === "belonging") {
+    const isCurrentUser = type === "relation" && value?.kind === "currentUser";
     const raw = isCurrentUser ? "" : constantOf(value);
+    const multiple = type === "belonging" ? false : relationMultiple;
     const selectedCount = parseEntityRelationIds(raw).length;
-    const description = relationMultiple
+    const description = multiple
       ? "Предзаполняются в новой записи"
       : DESCRIPTION;
 
@@ -164,7 +165,7 @@ export function DefaultValueSettings({
           title={TITLE}
           description={description}
         />
-        {relationToUsers ? (
+        {type === "relation" && relationToUsers ? (
           <SettingSwitch
             id="entity-field-default-current-user"
             title="Текущий пользователь"
@@ -180,14 +181,14 @@ export function DefaultValueSettings({
             id="entity-field-default"
             options={relationOptions}
             value={raw}
-            multiple={relationMultiple}
+            multiple={multiple}
             placeholder="Не заполнять"
             aria-label={TITLE}
             className={SETTINGS_SELECT_CLASS}
             onChange={(next) => onChange(toConstant(next))}
           />
         )}
-        {!isCurrentUser && relationMultiple && selectedCount > 0 ? (
+        {!isCurrentUser && multiple && selectedCount > 0 ? (
           <p className="text-[11px] text-muted-foreground">
             Выбрано: {selectedCount}
           </p>

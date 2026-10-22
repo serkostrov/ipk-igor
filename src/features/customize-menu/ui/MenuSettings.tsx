@@ -1,5 +1,7 @@
 import {
+  createContext,
   createElement,
+  useContext,
   useMemo,
   useRef,
   useState,
@@ -12,6 +14,7 @@ import { EyeOff, Pencil, Plus, Shield, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Label } from "@/shared/ui/label";
 import { Switch } from "@/shared/ui/switch";
+import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import { cn } from "@/shared/lib/cn";
 import {
   lockDragSelection,
@@ -150,7 +153,21 @@ function DragHandle({
   );
 }
 
-const TREE_DROP_INSET = "left-[34px]";
+/**
+ * Root header: px-1(4) + handle(10) + gap-1(4) + half icon(16) = 34.
+ * Nested header (inside content pad): handle(10) + gap-1(4) + half icon(16) = 30.
+ * Arm w-2 (8px) + 12px gap before child handle — arm must not touch the handle.
+ */
+const TREE_STEM_ROOT = "left-[34px]";
+const TREE_PAD_ROOT = "pl-[54px]";
+const TREE_STEM_NESTED = "left-[30px]";
+const TREE_PAD_NESTED = "pl-[50px]";
+const TREE_DROP_INSET = TREE_STEM_ROOT;
+
+const TreeStemContext = createContext({
+  stemClassName: TREE_STEM_ROOT,
+  contentPadClassName: TREE_PAD_ROOT,
+});
 
 const menuLayoutTransition = {
   type: "spring" as const,
@@ -257,47 +274,37 @@ function InternalMenuBadge() {
   );
 }
 
-const TREE_LINE_LEFT = "left-[34px]";
-const TREE_CONTENT_PAD = "pl-[44px]";
-
 function TreeRail({
   children,
   active = false,
+  /** Children of a nested group — stem under nested parent icon. */
+  nestedParent = false,
 }: {
   children: ReactNode;
   active?: boolean;
+  nestedParent?: boolean;
 }) {
-  return (
-    <ul
-      className={cn(
-        "relative overflow-visible rounded-md bg-muted/15 transition-colors",
-        active && "bg-primary/8 ring-1 ring-primary/30",
-      )}
-    >
-      {children}
-    </ul>
-  );
-}
+  const stem = nestedParent
+    ? {
+        stemClassName: TREE_STEM_NESTED,
+        contentPadClassName: TREE_PAD_NESTED,
+      }
+    : {
+        stemClassName: TREE_STEM_ROOT,
+        contentPadClassName: TREE_PAD_ROOT,
+      };
 
-function TreeBranchLines({ isLast = false }: { isLast?: boolean }) {
   return (
-    <>
-      <span
-        aria-hidden
+    <TreeStemContext.Provider value={stem}>
+      <ul
         className={cn(
-          "pointer-events-none absolute w-px bg-border",
-          TREE_LINE_LEFT,
-          isLast ? "top-0 h-5" : "-top-px bottom-0",
+          "relative overflow-visible rounded-md bg-muted/15 transition-colors",
+          active && "bg-primary/8 ring-1 ring-primary/30",
         )}
-      />
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute top-5 h-px w-2.5 bg-border",
-          TREE_LINE_LEFT,
-        )}
-      />
-    </>
+      >
+        {children}
+      </ul>
+    </TreeStemContext.Provider>
   );
 }
 
@@ -306,6 +313,7 @@ function TreeRow({
   indicator,
   layoutId,
   className,
+  isFirst = false,
   isLast = false,
   children,
   ...props
@@ -313,12 +321,21 @@ function TreeRow({
   actions?: ReactNode;
   indicator?: ReactNode;
   layoutId?: string;
+  isFirst?: boolean;
   isLast?: boolean;
 }) {
+  const { stemClassName, contentPadClassName } = useContext(TreeStemContext);
+
   return (
     <li className={cn("relative", className)} {...props}>
       {indicator}
-      <TreeBranchLines isLast={isLast} />
+      <TreeBranchGuides
+        isFirst={isFirst}
+        isLast={isLast}
+        className={stemClassName}
+        armClassName="w-2"
+        elbowTopPx={20}
+      />
       <motion.div
         layout="position"
         layoutId={layoutId}
@@ -328,7 +345,7 @@ function TreeRow({
         <div
           className={cn(
             "relative flex min-w-0 flex-1 items-center py-0.5",
-            TREE_CONTENT_PAD,
+            contentPadClassName,
           )}
         >
           {children}
@@ -426,6 +443,7 @@ function EntryList({
   return (
     <>
       {visible.map(({ entry, index }, visibleIndex) => {
+        const isFirst = visibleIndex === 0;
         const isLast = visibleIndex === visible.length - 1;
         const isDragging = ctx.draggingId === entry.id;
         const siblingHint =
@@ -443,6 +461,7 @@ function EntryList({
               parentGroupId={parentGroupId}
               index={index}
               nested={nested}
+              isFirst={isFirst}
               isLast={isLast}
               isDragging={isDragging}
               siblingHint={siblingHint}
@@ -458,6 +477,7 @@ function EntryList({
             parentGroupId={parentGroupId}
             index={index}
             nested={nested}
+            isFirst={isFirst}
             isLast={isLast}
             isDragging={isDragging}
             siblingHint={siblingHint}
@@ -474,6 +494,7 @@ function ItemRow({
   parentGroupId,
   index,
   nested,
+  isFirst = false,
   isLast = false,
   isDragging,
   siblingHint,
@@ -483,6 +504,7 @@ function ItemRow({
   parentGroupId: string | null;
   index: number;
   nested: boolean;
+  isFirst?: boolean;
   isLast?: boolean;
   isDragging: boolean;
   siblingHint: Extract<DropHint, { type: "sibling" }> | null;
@@ -584,6 +606,7 @@ function ItemRow({
       <TreeRow
         {...dragProps}
         layoutId={`menu-item-${entry.id}`}
+        isFirst={isFirst}
         isLast={isLast}
         className={cn(isDragging && "opacity-40")}
         indicator={
@@ -623,6 +646,7 @@ function GroupBlock({
   parentGroupId,
   index,
   nested,
+  isFirst = false,
   isLast = false,
   isDragging,
   siblingHint,
@@ -632,11 +656,13 @@ function GroupBlock({
   parentGroupId: string | null;
   index: number;
   nested: boolean;
+  isFirst?: boolean;
   isLast?: boolean;
   isDragging: boolean;
   siblingHint: Extract<DropHint, { type: "sibling" }> | null;
   ctx: MenuSettingsContext;
 }) {
+  const { stemClassName, contentPadClassName } = useContext(TreeStemContext);
   const canRemove = !groupHasProtectedItems(entry);
   const intoActive =
     ctx.dropHint?.type === "into" && ctx.dropHint.groupId === entry.id;
@@ -746,7 +772,7 @@ function GroupBlock({
   );
 
   const children = (
-    <TreeRail active={intoActive}>
+    <TreeRail active={intoActive} nestedParent={nested}>
       <EntryList
         parentGroupId={entry.id}
         entries={entry.entries}
@@ -838,15 +864,21 @@ function GroupBlock({
         onDragStart={dragStart}
         onDragEnd={ctx.clearDrag}
       >
-        <TreeBranchLines isLast={isLast} />
+        <TreeBranchGuides
+          isFirst={isFirst}
+          isLast={isLast}
+          className={stemClassName}
+          armClassName="w-2"
+          elbowTopPx={20}
+        />
         <motion.div
           layout="position"
           layoutId={`menu-group-${entry.id}`}
           transition={menuLayoutTransition}
           className="relative"
         >
-          <div className={TREE_CONTENT_PAD}>{header}</div>
-          <div className={TREE_CONTENT_PAD}>{children}</div>
+          <div className={contentPadClassName}>{header}</div>
+          <div className={contentPadClassName}>{children}</div>
           {afterStrip}
         </motion.div>
       </li>

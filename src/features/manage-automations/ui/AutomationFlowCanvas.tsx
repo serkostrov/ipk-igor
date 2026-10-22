@@ -44,6 +44,8 @@ import {
   Lock,
   MousePointerClick,
   Plus,
+  Power,
+  PowerOff,
   Rows3,
   Timer,
   User,
@@ -561,6 +563,7 @@ type TaskData = {
   template: AutomationTaskTemplate;
   selected: boolean;
   fields: EntityField[];
+  onToggleEnabled: () => void;
 };
 function StageNode({ data }: NodeProps<Node<StageData, "stage">>) {
   const taskLabel =
@@ -847,21 +850,24 @@ function TriggerNode({ data }: NodeProps<Node<TriggerData, "trigger">>) {
 }
 
 function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
-  const { template, selected, fields } = data;
+  const { template, selected, fields, onToggleEnabled } = data;
   const kindMeta = TASK_KIND_META[template.kind] ?? TASK_KIND_META.decision;
   const KindIcon = kindMeta.Icon;
   const isService = template.kind === "autofill";
+  const isDisabled = template.enabled === false;
 
   return (
     <div
       className={cn(
         /* Assignment card — white surface, no left stripe (stage keeps the rail) */
-        "relative flex min-h-[92px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 py-2.5 transition-[box-shadow,border-color] active:cursor-grabbing",
+        "group/task relative flex min-h-[92px] w-[220px] cursor-grab flex-col justify-center rounded-xl border bg-card px-3 py-2.5 transition-[box-shadow,border-color,background-color] active:cursor-grabbing",
         selected
           ? "border-primary/50 shadow-sm ring-2 ring-primary/20"
-          : isService
-            ? "border-dashed border-border/80 hover:border-border"
-            : "border-border/80 shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_4%,transparent)] hover:border-border",
+          : isDisabled
+            ? "border-dashed border-border/70 bg-muted/40"
+            : isService
+              ? "border-dashed border-border/80 hover:border-border"
+              : "border-border/80 shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_4%,transparent)] hover:border-border",
       )}
     >
       <Handle
@@ -888,7 +894,31 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
         id="bottom"
         className={HANDLE_CLASS}
       />
-      <div className="flex items-start gap-2.5">
+      <button
+        type="button"
+        className={cn(
+          "nodrag nopan absolute top-1 right-1 z-10 flex size-6 items-center justify-center rounded-md transition-colors",
+          isDisabled
+            ? "bg-muted/90 text-muted-foreground hover:bg-background hover:text-foreground"
+            : "text-muted-foreground/45 opacity-0 hover:bg-muted hover:text-foreground group-hover/task:opacity-100 focus-visible:opacity-100",
+          selected && !isDisabled && "opacity-60",
+        )}
+        aria-pressed={!isDisabled}
+        aria-label={isDisabled ? "Включить задание" : "Выключить задание"}
+        title={isDisabled ? "Включить" : "Выключить"}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleEnabled();
+        }}
+      >
+        {isDisabled ? (
+          <PowerOff className="size-3" strokeWidth={2.25} aria-hidden />
+        ) : (
+          <Power className="size-3" strokeWidth={2.25} aria-hidden />
+        )}
+      </button>
+      <div className="flex items-start gap-2.5 pr-5">
         <span
           className={cn(
             "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg",
@@ -899,28 +929,40 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
           <KindIcon className="size-3.5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="flex items-start justify-between gap-1.5">
-            <div className="min-w-0">
+          <div className="flex items-start gap-1.5">
+            <div className="min-w-0 flex-1">
               <p className="text-[9px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
                 {kindMeta.label}
+                {isDisabled ? " · выкл" : ""}
               </p>
-              <p className="truncate text-[13px] font-semibold leading-snug tracking-tight">
+              <p
+                className={cn(
+                  "truncate text-[13px] font-semibold leading-snug tracking-tight",
+                  isDisabled &&
+                    "text-muted-foreground line-through decoration-muted-foreground/50",
+                )}
+              >
                 {template.name.trim() ? (
                   <TemplateRichText value={template.name} fields={fields} />
                 ) : (
                   "Без названия"
                 )}
               </p>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">
-                #{template.stepOrder}
-                {(template.launchPhase ?? "onEnter") === "beforeEnter"
-                  ? " · до старта"
-                  : ""}
+              <p className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                <span>
+                  #{template.stepOrder}
+                  {(template.launchPhase ?? "onEnter") === "beforeEnter"
+                    ? " · до старта"
+                    : ""}
+                </span>
+                {!isDisabled && template.isBlocking ? (
+                  <Lock
+                    className="size-2.5 shrink-0 text-muted-foreground/70"
+                    aria-label="Блокирует переход"
+                  />
+                ) : null}
               </p>
             </div>
-            {template.isBlocking ? (
-              <Lock className="mt-0.5 size-3 shrink-0 text-muted-foreground/70" />
-            ) : null}
           </div>
           <div className="mt-2 flex flex-wrap gap-1 border-t border-border/50 pt-1.5 text-[9px] text-muted-foreground">
             {!isService ? (
@@ -1172,6 +1214,7 @@ function buildLayout(input: {
   canvasPositions: AutomationCanvasNodePositions;
   fields: EntityField[];
   onToggleStageCollapse: (stageId: string) => void;
+  onToggleTemplateEnabled: (templateId: string) => void;
   onSelectTransition: (fromOptionId: string, toOptionId: string) => void;
   onTaskReleaseChange: (
     stageId: string,
@@ -1196,6 +1239,7 @@ function buildLayout(input: {
     canvasPositions,
     fields,
     onToggleStageCollapse,
+    onToggleTemplateEnabled,
     onSelectTransition,
     onTaskReleaseChange,
     onAdd,
@@ -1339,7 +1383,8 @@ function buildLayout(input: {
           template,
           selected: selectedTemplateId === template.id,
           fields,
-        },
+          onToggleEnabled: () => onToggleTemplateEnabled(template.id),
+        } satisfies TaskData,
       });
       connect(template.id, "beforeEnter", taskIndex, "#a1a1aa", 1.5);
       y += TASK_H + ROW_GAP;
@@ -1380,7 +1425,8 @@ function buildLayout(input: {
           template,
           selected: selectedTemplateId === template.id,
           fields,
-        },
+          onToggleEnabled: () => onToggleTemplateEnabled(template.id),
+        } satisfies TaskData,
       });
       const chainHint = showReleaseToggle && taskIndex > 0 ? taskRelease : null;
       connect(template.id, "onEnter", taskIndex, "#a1a1aa", 1.5, chainHint);
@@ -1490,6 +1536,7 @@ function FlowInner({
   onMoveTemplate,
   onCanvasPositionsChange,
   onToggleStageCollapse,
+  onToggleTemplateEnabled,
   fitKey,
 }: {
   stages: StageOption[];
@@ -1537,6 +1584,7 @@ function FlowInner({
   ) => void;
   onCanvasPositionsChange: (positions: AutomationCanvasNodePositions) => void;
   onToggleStageCollapse: (stageId: string) => void;
+  onToggleTemplateEnabled: (templateId: string) => void;
   fitKey: string;
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -1599,6 +1647,7 @@ function FlowInner({
       canvasPositions: mergedPositions,
       fields,
       onToggleStageCollapse,
+      onToggleTemplateEnabled,
       onSelectTransition,
       onTaskReleaseChange,
       onAdd: (stageId, launchPhase, insertAt, position) => {
@@ -1671,6 +1720,7 @@ function FlowInner({
     canvasPositions,
     fields,
     onToggleStageCollapse,
+    onToggleTemplateEnabled,
     onSelectTransition,
     onTaskReleaseChange,
     onAdd,
@@ -2043,6 +2093,7 @@ export function AutomationFlowCanvas({
   onMoveTemplate,
   onCanvasPositionsChange,
   onToggleStageCollapse,
+  onToggleTemplateEnabled,
 }: {
   stages: StageOption[];
   templates: AutomationTaskTemplate[];
@@ -2089,6 +2140,7 @@ export function AutomationFlowCanvas({
   ) => void;
   onCanvasPositionsChange: (positions: AutomationCanvasNodePositions) => void;
   onToggleStageCollapse: (stageId: string) => void;
+  onToggleTemplateEnabled: (templateId: string) => void;
 }) {
   // Structural fit only — ignore rename/reorder so drag does not re-fit.
   const fitKey = [
@@ -2131,6 +2183,7 @@ export function AutomationFlowCanvas({
           onMoveTemplate={onMoveTemplate}
           onCanvasPositionsChange={onCanvasPositionsChange}
           onToggleStageCollapse={onToggleStageCollapse}
+          onToggleTemplateEnabled={onToggleTemplateEnabled}
           fitKey={fitKey}
         />
       </div>

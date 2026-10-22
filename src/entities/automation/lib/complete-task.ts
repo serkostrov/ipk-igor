@@ -4,6 +4,7 @@ import {
   getEntityConfig,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
+  resolveEntityFieldLabel,
   getEntityTabRecordsValueKey,
   getEntityValueContext,
   isEntityRecordsTab,
@@ -210,15 +211,19 @@ function validateRelatedRequiredFields(
     const relationField = triggerEntity.fields.find(
       (field) => field.id === ask.relationFieldId,
     );
-    const relationLabel = relationField
-      ? getEntityFieldDisplayName(relationField)
-      : ask.relationFieldId;
+    const relationLabel = resolveEntityFieldLabel(
+      triggerEntity.fields,
+      ask.relationFieldId,
+      "Связь",
+    );
     const targetId = relationField
       ? getEntityRelationTargetId(relationField)
       : null;
     const relatedEntity = targetId ? entityById.get(targetId) : undefined;
     const field = relatedEntity?.fields.find((item) => item.id === ask.fieldId);
-    const fieldLabel = field ? getEntityFieldDisplayName(field) : ask.fieldId;
+    const fieldLabel = relatedEntity
+      ? resolveEntityFieldLabel(relatedEntity.fields, ask.fieldId)
+      : "поле";
     const label = `${relationLabel} · ${fieldLabel}`;
     const relatedIds = parseEntityRelationIds(values[ask.relationFieldId]);
     if (relatedIds.length === 0) {
@@ -288,10 +293,9 @@ export async function completeAutomationTask(
     return !raw.trim();
   });
   if (missingRequired.length > 0) {
-    const labels = missingRequired.map((fieldId) => {
-      const field = entity?.fields.find((item) => item.id === fieldId);
-      return field ? getEntityFieldDisplayName(field) : fieldId;
-    });
+    const labels = missingRequired.map((fieldId) =>
+      resolveEntityFieldLabel(entity?.fields ?? [], fieldId),
+    );
     throw new Error(`Не заполнены обязательные поля: ${labels.join(", ")}`);
   }
   if (entity) {
