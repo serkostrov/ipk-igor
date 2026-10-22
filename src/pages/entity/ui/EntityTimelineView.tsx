@@ -32,6 +32,7 @@ import {
   type TimelineScale,
   type TimelineSegment,
 } from "../lib/timeline-layout";
+import { TimelineGroupRecordsDialog } from "./TimelineGroupRecordsDialog";
 
 const ROW_HEIGHT = 28;
 const HEADER_ROW = 24;
@@ -169,6 +170,11 @@ export function EntityTimelineView({
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const didScrollToToday = useRef(false);
+  const [browse, setBrowse] = useState<{
+    recordIds: string[];
+    title: string;
+    cellLabel: string;
+  } | null>(null);
 
   const groups = useMemo(
     () =>
@@ -206,6 +212,15 @@ export function EntityTimelineView({
     root.scrollLeft = Math.max(0, target);
     didScrollToToday.current = true;
   }, [columns, range.today]);
+
+  const browseRecords = useMemo(() => {
+    if (!browse) return [];
+    const byId = new Map(entity.records.map((record) => [record.id, record]));
+    return browse.recordIds.flatMap((id) => {
+      const record = byId.get(id);
+      return record ? [record] : [];
+    });
+  }, [browse, entity.records]);
 
   if (!setup) {
     return (
@@ -536,10 +551,17 @@ export function EntityTimelineView({
                               row.color ??
                               DEFAULT_CELL_COLOR)
                             : cellTone;
-                        const only = inColumn[0];
-                        const openCell =
-                          inColumn.length === 1 && only && onOpenRecord
-                            ? () => onOpenRecord(only.record)
+                        const openGroupCell =
+                          inColumn.length > 0 && label
+                            ? () => {
+                                setBrowse({
+                                  recordIds: inColumn.map(
+                                    (item) => item.record.id,
+                                  ),
+                                  title: row.label,
+                                  cellLabel: label,
+                                });
+                              }
                             : undefined;
                         return (
                           <div
@@ -558,7 +580,7 @@ export function EntityTimelineView({
                                 label={label}
                                 color={color}
                                 title={label}
-                                onClick={openCell}
+                                onClick={openGroupCell}
                               />
                             ) : null}
                           </div>
@@ -631,6 +653,16 @@ export function EntityTimelineView({
           </div>
         </div>
       </div>
+      <TimelineGroupRecordsDialog
+        open={browse != null && browseRecords.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setBrowse(null);
+        }}
+        entity={entity}
+        records={browseRecords}
+        groupLabel={browse?.title ?? ""}
+        cellLabel={browse?.cellLabel}
+      />
     </div>
   );
 }

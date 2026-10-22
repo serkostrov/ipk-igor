@@ -19,6 +19,7 @@ import {
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { cn } from "@/shared/lib/cn";
+import { formatTimestampDisplay } from "@/shared/lib/format-date";
 import { TaskWorkspace } from "./TaskWorkspace";
 
 export function TaskInbox({
@@ -139,7 +140,7 @@ export function TaskInbox({
                       )}
                       Шаг {task.stepOrder}
                       {task.dueAt
-                        ? ` · до ${new Date(task.dueAt).toLocaleString("ru")}`
+                        ? ` · до ${formatTimestampDisplay(task.dueAt)}`
                         : ""}
                     </span>
                   </button>

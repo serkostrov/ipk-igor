@@ -3,6 +3,7 @@ import {
   todayIsoDate,
   toDayNumber,
 } from "@/shared/lib/business-days";
+import { formatDateDisplay } from "@/shared/lib/format-date";
 import {
   ENTITY_KANBAN_EMPTY_COLUMN_ID,
   getEntityKanbanColumns,
@@ -604,7 +605,7 @@ export function getTimelineWeeks(range: { start: number; end: number }) {
     const iso = fromDayNumber(day);
     segments.push({
       key: iso,
-      label: `${iso.slice(8, 10)}.${iso.slice(5, 7)}`,
+      label: formatDateDisplay(iso),
       start: day,
       days: Math.min(7, range.end - day + 1),
     });

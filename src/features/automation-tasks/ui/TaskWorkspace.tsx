@@ -8,6 +8,7 @@ import {
   type AutomationTask,
 } from "@/entities/automation";
 import { cn } from "@/shared/lib/cn";
+import { formatTimestampDisplay } from "@/shared/lib/format-date";
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
 import { automationUploadTargetBlocksComplete } from "../lib/upload-to-files-tab";
 import { TaskUploadPanel } from "./TaskUploadPanel";
@@ -609,7 +610,7 @@ function TaskWorkspaceBody({
               <span className="text-muted-foreground/40" aria-hidden>
                 ·
               </span>
-              <span>до {new Date(task.dueAt).toLocaleString("ru")}</span>
+              <span>до {formatTimestampDisplay(task.dueAt)}</span>
             </>
           ) : null}
           {title && onOpenRecord ? (

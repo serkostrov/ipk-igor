@@ -10,6 +10,7 @@ import {
 import { useNow } from "@/shared/hooks/use-now";
 import { cn } from "@/shared/lib/cn";
 import { formatElapsed } from "@/shared/lib/datetime";
+import { formatTimestampDisplay } from "@/shared/lib/format-date";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -41,21 +42,15 @@ function sessionDurationMs(
 }
 
 function formatSessionRange(session: AutomationTaskTimeSession) {
-  const start = new Date(session.startedAt);
-  if (!Number.isFinite(start.getTime())) return "—";
-  const startLabel = start.toLocaleString("ru", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  if (!Number.isFinite(new Date(session.startedAt).getTime())) return "—";
+  const startLabel = formatTimestampDisplay(session.startedAt);
   if (!session.endedAt) return `${startLabel} · идёт`;
-  const end = new Date(session.endedAt);
-  if (!Number.isFinite(end.getTime())) return startLabel;
-  return `${startLabel} → ${end.toLocaleTimeString("ru", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  if (!Number.isFinite(new Date(session.endedAt).getTime())) return startLabel;
+  const endLabel = formatTimestampDisplay(session.endedAt);
+  const endTime = endLabel.includes(" ")
+    ? endLabel.slice(endLabel.lastIndexOf(" ") + 1)
+    : endLabel;
+  return `${startLabel} → ${endTime}`;
 }
 
 export function TaskTimeSessionsPanel({
