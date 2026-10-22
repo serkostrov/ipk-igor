@@ -99,7 +99,8 @@ function isAskRelatedTargetField(field: EntityField) {
     !isEntityComputedFieldType(field.type) &&
     field.type !== "file" &&
     field.type !== "dependencies" &&
-    field.type !== "relationGroups"
+    field.type !== "relationGroups" &&
+    field.type !== "period"
   );
 }
 
@@ -484,7 +485,9 @@ function Field({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <Label className="text-xs font-medium text-muted-foreground">{title}</Label>
+      <Label className="text-xs font-medium text-muted-foreground">
+        {title}
+      </Label>
       {description ? (
         <p className="text-[11px] leading-snug text-muted-foreground">
           {description}

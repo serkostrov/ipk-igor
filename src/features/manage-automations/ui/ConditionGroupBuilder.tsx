@@ -65,7 +65,9 @@ function buildSources(entity: Entity | null): ConditionSource[] {
   const fields = entity.fields
     .filter(
       (field) =>
-        field.type !== "dependencies" && field.type !== "relationGroups",
+        field.type !== "dependencies" &&
+        field.type !== "relationGroups" &&
+        field.type !== "period",
     )
     .map((field): ConditionSource => ({ kind: "field", field }));
   const filesTabs = entity.tabs

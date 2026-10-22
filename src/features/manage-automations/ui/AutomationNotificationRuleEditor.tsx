@@ -21,16 +21,12 @@ import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { renderTemplateText } from "../lib/template-text";
 import { TemplateFieldInput } from "./TemplateFieldInput";
 
-function Field({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function Field({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <Label className="text-xs font-medium text-muted-foreground">{title}</Label>
+      <Label className="text-xs font-medium text-muted-foreground">
+        {title}
+      </Label>
       {children}
     </div>
   );

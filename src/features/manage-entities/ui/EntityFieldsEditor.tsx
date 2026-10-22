@@ -1975,12 +1975,8 @@ function FieldCard({
   return (
     <motion.li
       ref={cardRef}
-      initial={
-        enterFromEdit ? { opacity: 0, y: 8, scale: 0.985 } : false
-      }
-      animate={
-        enterFromEdit ? { opacity: 1, y: 0, scale: 1 } : false
-      }
+      initial={enterFromEdit ? { opacity: 0, y: 8, scale: 0.985 } : false}
+      animate={enterFromEdit ? { opacity: 1, y: 0, scale: 1 } : false}
       layout={!isDragging}
       transition={
         enterFromEdit
@@ -4775,7 +4771,10 @@ export function EntityFieldsEditor({
                     })}
                   </TabsList>
                 </div>
-                <EditAppear show={!readOnly} className="inline-flex h-full shrink-0">
+                <EditAppear
+                  show={!readOnly}
+                  className="inline-flex h-full shrink-0"
+                >
                   <Button
                     type="button"
                     variant="ghost"

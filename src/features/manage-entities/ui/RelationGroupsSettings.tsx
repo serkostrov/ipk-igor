@@ -504,9 +504,7 @@ export function RelationGroupsSettings({
             }
             fields={itemDisplayFields}
             selectedIds={itemDisplayFieldIds}
-            onChange={(ids) =>
-              onChange({ ...value, itemDisplayFieldIds: ids })
-            }
+            onChange={(ids) => onChange({ ...value, itemDisplayFieldIds: ids })}
           />
 
           <DisplayFieldsPicker

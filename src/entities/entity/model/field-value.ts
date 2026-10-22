@@ -22,6 +22,9 @@ import {
   parseEntityDecimal,
   parseEntityDependencies,
   parseEntityRelationGroups,
+  parseEntityPeriod,
+  formatEntityPeriodDisplay,
+  serializeEntityPeriod,
   parseEntityListValueIds,
   parseEntityRelationIds,
   serializeEntityRelationIds,
@@ -339,6 +342,8 @@ export function getEntityFieldValueKind(
       return "number";
     case "datetime":
       return "date";
+    case "period":
+      return "date";
     case "time":
       return "text";
     case "lookup": {
@@ -526,6 +531,10 @@ export function getRecordFieldFormulaValue(
       return record.values[field.id] === "true";
     case "datetime":
       return extractIsoDate(record.values[field.id]);
+    case "period": {
+      const period = parseEntityPeriod(record.values[field.id]);
+      return period ? `${period.start}/${period.end}` : null;
+    }
     case "time": {
       const raw = (record.values[field.id] ?? "").trim();
       return /^([01]?\d|2[0-3]):[0-5]\d$/.test(raw) ? raw : null;
@@ -562,6 +571,7 @@ export function getRecordFieldFormulaValue(
     }
     case "dependencies":
     case "relationGroups":
+    case "period":
     case "file":
       return null;
     default: {
@@ -821,6 +831,8 @@ export function formatRecordFieldValue(
       );
       return parts.length > 0 ? parts.join(", ") : "—";
     }
+    case "period":
+      return formatEntityPeriodDisplay(record.values[field.id]);
     case "relationGroups": {
       const config = field.relationGroups;
       const itemEntity = ctx.entityById.get(config?.itemEntityId ?? "");
@@ -831,8 +843,11 @@ export function formatRecordFieldValue(
       const parts = parseEntityRelationGroups(record.values[field.id]).map(
         (group) => {
           const itemTitle =
-            resolveRelationRecordLabel(itemEntity, group.itemId, ctx.entities) ??
-            "Без названия";
+            resolveRelationRecordLabel(
+              itemEntity,
+              group.itemId,
+              ctx.entities,
+            ) ?? "Без названия";
           const itemExtras =
             itemEntity && itemExtraIds.length > 0
               ? formatRelationGroupsExtras(
@@ -915,6 +930,9 @@ export function isRecordFieldEmpty(
   if (field.type === "relationGroups") {
     return parseEntityRelationGroups(record.values[field.id]).length === 0;
   }
+  if (field.type === "period") {
+    return parseEntityPeriod(record.values[field.id]) == null;
+  }
   return formatRecordFieldValue(ctx, entity, record, field) === "—";
 }
 
@@ -933,7 +951,14 @@ export function getRecordFieldSortValue(
   if (kind === "boolean") {
     return cell.record.values[cell.field.id] === "true" ? 1 : 0;
   }
-  if (kind === "date") return extractIsoDate(cell.record.values[cell.field.id]);
+  if (kind === "date") {
+    if (cell.field.type === "period") {
+      return (
+        parseEntityPeriod(cell.record.values[cell.field.id])?.start ?? null
+      );
+    }
+    return extractIsoDate(cell.record.values[cell.field.id]);
+  }
   if (kind === "list") {
     const options = resolveEntityListFieldOptions(cell.field, ctx.entities);
     const id = parseEntityListValueIds(cell.record.values[cell.field.id])[0];
@@ -1535,6 +1560,10 @@ export function resolveEntityFieldDefaultValue(
           field.relationGroups?.defaultNestedIds,
         );
       }
+      if (field.type === "period") {
+        const period = parseEntityPeriod(config.value);
+        return period ? serializeEntityPeriod(period) : null;
+      }
       return config.value;
   }
 }
@@ -1626,7 +1655,8 @@ export function getEntityFormulaOperands(
         field.id !== fieldId &&
         field.type !== "file" &&
         field.type !== "dependencies" &&
-        field.type !== "relationGroups",
+        field.type !== "relationGroups" &&
+        field.type !== "period",
     )
     .map((field) => ({ id: field.id, name: getEntityFieldDisplayName(field) }));
 }

@@ -1,4 +1,5 @@
 import { DatePicker } from "@/shared/ui/date-picker";
+import { DateRangePicker } from "@/shared/ui/date-range-picker";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Switch } from "@/shared/ui/switch";
@@ -22,7 +23,9 @@ import {
   isValidEntityEmail,
   normalizeEntityDecimalInput,
   normalizeEntityPhoneValue,
+  parseEntityPeriod,
   parseEntityRelationIds,
+  serializeEntityPeriod,
   resolveEntityLookupTarget,
   type Entity,
   type EntityField,
@@ -471,6 +474,27 @@ export function RecordFieldControl({
             onChange={(next) => onChange(next)}
           />
         )}
+      </div>
+    );
+  }
+
+  if (field.type === "period") {
+    return (
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={id}>
+          {label}
+          <RequiredMark required={required} />
+        </Label>
+        {hint ? (
+          <span className="text-xs text-muted-foreground">{hint}</span>
+        ) : null}
+        <DateRangePicker
+          id={id}
+          value={parseEntityPeriod(value)}
+          aria-label={label}
+          placeholder="Начало — окончание"
+          onChange={(next) => onChange(serializeEntityPeriod(next))}
+        />
       </div>
     );
   }

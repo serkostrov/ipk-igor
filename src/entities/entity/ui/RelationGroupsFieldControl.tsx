@@ -80,10 +80,7 @@ function recordTitle(
   );
 }
 
-function withExtraLabel(
-  title: string,
-  extras: string,
-): string {
+function withExtraLabel(title: string, extras: string): string {
   return extras ? `${title} · ${extras}` : title;
 }
 
@@ -222,9 +219,7 @@ export function RelationGroupsFieldControl({
   );
 
   const groupsClassName =
-    layout === "row"
-      ? "flex flex-row flex-wrap gap-2"
-      : "flex flex-col gap-2";
+    layout === "row" ? "flex flex-row flex-wrap gap-2" : "flex flex-col gap-2";
   const cardClassName = cn(
     "flex flex-col gap-1.5 rounded-lg border border-border/70 bg-card p-2.5",
     layout === "row" && "min-w-[15rem] flex-1 basis-[min(100%,17rem)]",

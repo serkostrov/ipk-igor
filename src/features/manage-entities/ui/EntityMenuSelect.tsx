@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, EyeOff, Search, Shield } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
@@ -175,6 +175,7 @@ function EntityButton({
       type="button"
       role="option"
       aria-selected={selected}
+      data-entity-picker-item={entity.id}
       title={label}
       className={cn(
         "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors",
@@ -303,6 +304,7 @@ export function EntityMenuSelect({
 }: EntityMenuSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
 
   const tree = useMemo(
     () => buildPickerTree(entities, menuEntries),
@@ -323,6 +325,24 @@ export function EntityMenuSelect({
       : "Выберите сущность";
 
   const isDisabled = disabled || entities.length === 0;
+
+  useEffect(() => {
+    if (!open || !value) return;
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        const item = listRef.current?.querySelector(
+          `[data-entity-picker-item="${CSS.escape(value)}"]`,
+        );
+        item?.scrollIntoView({ block: "center", inline: "nearest" });
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [open, value, filteredTree]);
 
   return (
     <Popover
@@ -371,7 +391,10 @@ export function EntityMenuSelect({
             />
           </div>
         </div>
-        <div className="max-h-[min(70vh,28rem)] overflow-y-auto p-2">
+        <div
+          ref={listRef}
+          className="max-h-[min(70vh,28rem)] overflow-y-auto p-2"
+        >
           {filteredTree.length === 0 ? (
             <p className="px-2.5 py-6 text-center text-sm text-muted-foreground">
               Ничего не найдено

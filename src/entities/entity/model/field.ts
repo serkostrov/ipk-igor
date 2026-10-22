@@ -12,6 +12,7 @@ export type EntityFieldType =
   | "boolean"
   | "datetime"
   | "time"
+  | "period"
   | "phone"
   | "email"
   | "url"
@@ -34,6 +35,7 @@ export const ENTITY_FIELD_TYPE_OPTIONS: Array<{
   { value: "boolean", label: "Да/Нет" },
   { value: "datetime", label: "Дата" },
   { value: "time", label: "Время" },
+  { value: "period", label: "Период" },
   { value: "phone", label: "Телефон" },
   { value: "email", label: "Эл. почта" },
   { value: "url", label: "Ссылка" },
@@ -61,6 +63,7 @@ export const ENTITY_FIELD_TYPE_GROUPS: Array<{
       "boolean",
       "datetime",
       "time",
+      "period",
       "phone",
       "email",
       "url",
@@ -80,7 +83,10 @@ export const ENTITY_FIELD_TYPE_GROUPS: Array<{
  */
 export function isEntityStructuredFieldType(type: EntityFieldType) {
   return (
-    type === "file" || type === "dependencies" || type === "relationGroups"
+    type === "file" ||
+    type === "dependencies" ||
+    type === "relationGroups" ||
+    type === "period"
   );
 }
 
@@ -239,9 +245,7 @@ export function buildEntityRelationGroupsValue(
   nestedIds: readonly string[] = [],
 ): string {
   const nested = [
-    ...new Set(
-      nestedIds.map((id) => id.trim()).filter((id) => id.length > 0),
-    ),
+    ...new Set(nestedIds.map((id) => id.trim()).filter((id) => id.length > 0)),
   ];
   return serializeEntityRelationGroups(
     itemIds
@@ -286,6 +290,71 @@ export function isEntityRelationGroupsFilled(
     return groups.every((group) => group.nestedIds.length > 0);
   }
   return true;
+}
+
+/** Inclusive date range stored as JSON on a `period` field. */
+export type EntityPeriodValue = {
+  start: string;
+  end: string;
+};
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isIsoDate(value: string) {
+  if (!ISO_DATE_RE.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return false;
+  const date = new Date(year, month - 1, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
+export function parseEntityPeriod(
+  value: string | undefined,
+): EntityPeriodValue | null {
+  const raw = value?.trim() ?? "";
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const record = parsed as Record<string, unknown>;
+    const start = typeof record.start === "string" ? record.start.trim() : "";
+    const end = typeof record.end === "string" ? record.end.trim() : "";
+    if (!isIsoDate(start) || !isIsoDate(end)) return null;
+    return start <= end ? { start, end } : { start: end, end: start };
+  } catch {
+    return null;
+  }
+}
+
+export function serializeEntityPeriod(
+  period: EntityPeriodValue | null | undefined,
+): string {
+  if (!period) return "";
+  const start = period.start.trim();
+  const end = period.end.trim();
+  if (!isIsoDate(start) || !isIsoDate(end)) return "";
+  const normalized = start <= end ? { start, end } : { start: end, end: start };
+  return JSON.stringify(normalized);
+}
+
+export function isEntityPeriodFilled(value: string | undefined) {
+  return parseEntityPeriod(value) != null;
+}
+
+/** `DD.MM.YYYY — DD.MM.YYYY` (same day → single date). */
+export function formatEntityPeriodDisplay(value: string | undefined) {
+  const period = parseEntityPeriod(value);
+  if (!period) return "—";
+  const startLabel = formatDateDisplay(period.start);
+  const endLabel = formatDateDisplay(period.end);
+  if (!startLabel || !endLabel) return "—";
+  return period.start === period.end
+    ? startLabel
+    : `${startLabel} — ${endLabel}`;
 }
 
 /** Stored type kept for computed number fields; not shown in the type picker. */
@@ -789,6 +858,7 @@ export function formatEntityScalarFieldValue(
     return "—";
   }
   if (type === "datetime") return formatDatetimeOrDash(raw);
+  if (type === "period") return formatEntityPeriodDisplay(raw);
   if (type === "time") {
     const match = /^(\d{1,2}):(\d{2})$/.exec(raw);
     if (!match) return raw.length > 0 ? raw : "—";

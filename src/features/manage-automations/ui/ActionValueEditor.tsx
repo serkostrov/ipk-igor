@@ -24,10 +24,13 @@ import {
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
   SYSTEM_USERS_ENTITY_ID,
+  parseEntityPeriod,
+  serializeEntityPeriod,
   type Entity,
   type EntityField,
 } from "@/entities/entity";
 import { DatePicker } from "@/shared/ui/date-picker";
+import { DateRangePicker } from "@/shared/ui/date-range-picker";
 import { Input } from "@/shared/ui/input";
 import {
   Select,
@@ -241,6 +244,9 @@ function compatibleNestedFields(
     if (target.type === "list") return item.type === "list";
     if (target.type === "datetime") {
       return item.type === "datetime" || item.type === "text";
+    }
+    if (target.type === "period") {
+      return item.type === "period" || item.type === "text";
     }
     if (target.type === "time") {
       return item.type === "time" || item.type === "text";
@@ -592,6 +598,57 @@ function ActionValueEditorBody({
             className={valueGrowClass}
             fields={sourceFields.filter(
               (item) => item.type === "datetime" || item.type === "text",
+            )}
+            value={fieldRefId(value)}
+            excludeFieldId={excludeSourceFieldId}
+            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
+          />
+        ) : null}
+        {fromEntityPicker}
+      </div>
+    );
+  }
+
+  if (field.type === "period") {
+    return (
+      <div className={shellClass}>
+        <ModeSelect
+          className={modeClass}
+          value={mode}
+          options={[
+            { value: "empty", label: "Очистить" },
+            {
+              value: "custom",
+              label: customModeLabel("Выбрать период", "Период"),
+            },
+            { value: "fromField", label: fromFieldLabel },
+            { value: "fromEntity", label: fromEntityLabel },
+          ]}
+          onChange={(next) => {
+            if (next === "empty") applyMode("empty", "");
+            else if (next === "custom") {
+              applyMode("custom", mode === "custom" ? value : "");
+            } else if (next === "fromField") {
+              applyFromFieldMode(value, applyMode);
+            } else if (next === "fromEntity") {
+              applyFromEntityMode(value, applyMode);
+            }
+          }}
+        />
+        {mode === "custom" ? (
+          <DateRangePicker
+            value={parseEntityPeriod(value)}
+            className={cn("h-8", valueGrowClass)}
+            aria-label="Период"
+            placeholder="Начало — окончание"
+            onChange={(next) => onChange(serializeEntityPeriod(next))}
+          />
+        ) : null}
+        {mode === "fromField" ? (
+          <SourceFieldSelect
+            className={valueGrowClass}
+            fields={sourceFields.filter(
+              (item) => item.type === "period" || item.type === "text",
             )}
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}

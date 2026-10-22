@@ -373,6 +373,7 @@ function RecordCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const fields = getRecordCardFields(entity, parentLinkFieldId);
   const groups = groupEntityFields(fields, entity.fieldGroups);
@@ -451,12 +452,25 @@ function RecordCard({
               field,
             );
             const empty = display === "—";
+            const listPresentation =
+              field.type === "list"
+                ? resolveEntityListFieldPresentation(field, entities)
+                : null;
             return (
               <div key={field.id} className="min-w-0">
                 <p className="truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
                   {label}
                 </p>
-                {isRecordValueDecorated(field) ? (
+                {field.type === "list" && listPresentation ? (
+                  <div className="mt-1">
+                    <ListValueDisplay
+                      options={resolveEntityListFieldOptions(field, entities)}
+                      value={record.values[field.id]}
+                      multiple={listPresentation.listMultiple}
+                      showColors={listPresentation.listUseColors}
+                    />
+                  </div>
+                ) : isRecordValueDecorated(field) ? (
                   <RecordValue
                     ctx={valueContext}
                     entity={entity}

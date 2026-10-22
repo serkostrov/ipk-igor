@@ -262,10 +262,15 @@ export {
   buildEntityRelationGroupsValue,
   withEntityRelationGroupsDefaultNested,
   isEntityRelationGroupsFilled,
+  parseEntityPeriod,
+  serializeEntityPeriod,
+  isEntityPeriodFilled,
+  formatEntityPeriodDisplay,
   type EntityDependency,
   type EntityDependencyType,
   type EntityRelationGroupItem,
   type EntityRelationGroupsMode,
+  type EntityPeriodValue,
 } from "./model/field";
 export { ENTITY_ROLLUP_AGGREGATIONS } from "./model/types";
 export {

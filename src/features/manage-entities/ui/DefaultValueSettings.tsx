@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Input } from "@/shared/ui/input";
+import { DateRangePicker } from "@/shared/ui/date-range-picker";
 import {
   buildEntityRelationGroupsValue,
   getEntityDisplayName,
@@ -7,9 +8,11 @@ import {
   ListSelect,
   normalizeEntityDecimalInput,
   parseEntityListValueIds,
+  parseEntityPeriod,
   parseEntityRelationGroups,
   parseEntityRelationIds,
   RelationSelect,
+  serializeEntityPeriod,
   serializeEntityRelationIds,
   type Entity,
   type EntityFieldDefaultValue,
@@ -123,6 +126,26 @@ export function DefaultValueSettings({
         emptyLabel="Не заполнять"
         onChange={(next) => onChange(next === "now" ? { kind: "now" } : null)}
       />
+    );
+  }
+
+  if (type === "period") {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <SettingLabel
+          htmlFor="entity-field-default"
+          title={TITLE}
+          description={DESCRIPTION}
+        />
+        <DateRangePicker
+          id="entity-field-default"
+          value={parseEntityPeriod(constantOf(value))}
+          placeholder="Не заполнять"
+          aria-label={TITLE}
+          className={SETTINGS_SELECT_CLASS}
+          onChange={(next) => onChange(toConstant(serializeEntityPeriod(next)))}
+        />
+      </div>
     );
   }
 
@@ -270,9 +293,7 @@ export function DefaultValueSettings({
           htmlFor="entity-field-default"
           title={TITLE}
           description={
-            listMultiple
-              ? "Предзаполняются в новой записи"
-              : DESCRIPTION
+            listMultiple ? "Предзаполняются в новой записи" : DESCRIPTION
           }
         />
         <ListSelect

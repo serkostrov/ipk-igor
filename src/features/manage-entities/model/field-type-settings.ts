@@ -62,6 +62,7 @@ const DEFAULT_VALUE_TYPES = new Set<EntityFieldType>([
   "boolean",
   "datetime",
   "time",
+  "period",
   "phone",
   "email",
   "url",

@@ -194,28 +194,39 @@ function EntityPage({
               Записи
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Редактировать сущность"
-            disabled={!editing}
-            onClick={onEdit}
-          >
-            <Pencil />
-          </Button>
-          {onDelete && !system ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Удалить сущность"
-              disabled={!editing}
-              onClick={onDelete}
-            >
-              <Trash2 />
-            </Button>
-          ) : null}
+          <AnimatePresence initial={false}>
+            {editing ? (
+              <motion.div
+                key="entity-edit-actions"
+                className="flex items-center gap-1.5"
+                initial={{ opacity: 0, scale: 0.86, x: 6 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={{ opacity: 0, scale: 0.86, x: 6 }}
+                transition={toolbarIconTransition}
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Редактировать сущность"
+                  onClick={onEdit}
+                >
+                  <Pencil />
+                </Button>
+                {onDelete && !system ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Удалить сущность"
+                    onClick={onDelete}
+                  >
+                    <Trash2 />
+                  </Button>
+                ) : null}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -271,10 +282,14 @@ export function EntitySettings({
     onSelectedEntityIdChange(selected.id);
   }, [status, selected, selectedEntityId, onSelectedEntityIdChange]);
 
-  // Leaving the page / unmount: discard unsaved schema edits.
+  // Leaving the page / unmount: persist dirty schema so switching settings
+  // tabs (which unmounts this panel) does not silently discard work.
   useEffect(() => {
     return () => {
-      if (getEntitySchemaEditSession()) cancelEntitySchemaEdit();
+      const session = getEntitySchemaEditSession();
+      if (!session) return;
+      if (session.dirty) commitEntitySchemaEdit();
+      else cancelEntitySchemaEdit();
     };
   }, []);
 
@@ -337,9 +352,7 @@ export function EntitySettings({
         type="button"
         size="icon"
         variant="outline"
-        aria-label={
-          editing ? "Отменить редактирование" : "Редактировать схему"
-        }
+        aria-label={editing ? "Отменить редактирование" : "Редактировать схему"}
         aria-pressed={editing}
         title={editing ? "Отменить" : "Параметры — режим редактирования схемы"}
         disabled={!selected}

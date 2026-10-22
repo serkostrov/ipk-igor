@@ -111,7 +111,8 @@ function getConditionFields(entity: Entity) {
     (field) =>
       field.type !== "file" &&
       field.type !== "dependencies" &&
-      field.type !== "relationGroups",
+      field.type !== "relationGroups" &&
+      field.type !== "period",
   );
 }
 

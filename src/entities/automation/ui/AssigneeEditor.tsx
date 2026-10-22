@@ -255,9 +255,7 @@ function LeafAssigneeEditor({
         : null;
 
   const canPickFromField =
-    userFields.length > 0 ||
-    bridgeFields.length > 0 ||
-    groupsFields.length > 0;
+    userFields.length > 0 || bridgeFields.length > 0 || groupsFields.length > 0;
   const showFanOut = pathNeedsFanOutChoice(pathValue, rootEntity, entities);
   const fanOutSelected = isFanOutSelected(value);
 
@@ -339,7 +337,9 @@ function LeafAssigneeEditor({
       {source === "fromField" ? (
         <div className="flex flex-col gap-2.5 rounded-lg border border-border/70 bg-muted/15 p-2.5">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-[11px] font-medium text-muted-foreground">Кто</Label>
+            <Label className="text-[11px] font-medium text-muted-foreground">
+              Кто
+            </Label>
             {!canPickFromField ? (
               <p className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
                 Нет полей с пользователями или связей.
@@ -400,7 +400,9 @@ function LeafAssigneeEditor({
       {value.type === "role" ? (
         <div className="flex flex-col gap-1.5">
           {!compact ? (
-            <Label className="text-[11px] font-medium text-muted-foreground">Роль</Label>
+            <Label className="text-[11px] font-medium text-muted-foreground">
+              Роль
+            </Label>
           ) : null}
           <Select
             value={value.roleId || undefined}
@@ -776,7 +778,9 @@ export function AssigneeEditor({
     <div className={compact ? "flex flex-col gap-2" : "flex flex-col gap-3"}>
       {showTopSource ? (
         <div className="flex flex-col gap-1.5">
-          <Label className="text-[11px] font-medium text-muted-foreground">Способ</Label>
+          <Label className="text-[11px] font-medium text-muted-foreground">
+            Способ
+          </Label>
           <Select
             value={source}
             onValueChange={(next) => {

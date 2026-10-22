@@ -271,6 +271,21 @@ function normalizeDefaultValue(
         return undefined;
       }
     }
+    if (type === "period") {
+      try {
+        const parsed = JSON.parse(value.value) as unknown;
+        if (!parsed || typeof parsed !== "object") return undefined;
+        const record = parsed as Record<string, unknown>;
+        if (
+          typeof record.start !== "string" ||
+          typeof record.end !== "string"
+        ) {
+          return undefined;
+        }
+      } catch {
+        return undefined;
+      }
+    }
     return { kind: "value", value: value.value };
   }
   return undefined;

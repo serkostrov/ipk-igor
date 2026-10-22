@@ -169,6 +169,18 @@ function isRecentLocalStructureWrite(entityId: string) {
   return true;
 }
 
+function hasRecentLocalStructureWrites() {
+  const now = Date.now();
+  for (const [id, at] of localStructureWrites) {
+    if (now - at > LOCAL_WRITE_ECHO_MS) {
+      localStructureWrites.delete(id);
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 function sameRecordContent(a: EntityRecord, b: EntityRecord) {
   if (a.authUserId !== b.authUserId) return false;
   if (a.createdBy !== b.createdBy) return false;
@@ -259,7 +271,17 @@ function startStructureSync() {
 /** Pull structure (+ record values) when the tab becomes visible again. */
 async function refreshFromRemote() {
   if (!isSupabaseConfigured || status === "loading") return;
-  if (persistStructureTimer || schemaEditSession) return;
+  // Never clobber local schema while an edit/save is in progress or just
+  // landed — a stale fetch would revert applied changes ("через время откат").
+  if (
+    persistStructureTimer ||
+    schemaEditSession ||
+    structureSaveInFlight ||
+    structureSaveQueued ||
+    hasRecentLocalStructureWrites()
+  ) {
+    return;
+  }
 
   try {
     const remote = await withTimeout(
@@ -268,6 +290,17 @@ async function refreshFromRemote() {
       "entity structure refresh",
     );
     if (!remote) return;
+
+    // Save may have started while we were fetching — keep local.
+    if (
+      persistStructureTimer ||
+      schemaEditSession ||
+      structureSaveInFlight ||
+      structureSaveQueued ||
+      hasRecentLocalStructureWrites()
+    ) {
+      return;
+    }
 
     let recordsByEntity: Record<string, EntityRecord[]> = {};
     try {
@@ -291,6 +324,11 @@ async function refreshFromRemote() {
         const local = localById.get(remoteEntity.id);
         const records =
           recordsByEntity[remoteEntity.id] ?? local?.records ?? [];
+        // Prefer in-memory structure if we recently wrote it (save may still
+        // be racing the fetch).
+        if (local && isRecentLocalStructureWrite(remoteEntity.id)) {
+          return normalizeEntity({ ...local, records });
+        }
         return normalizeEntity({ ...remoteEntity, records });
       }),
     );
@@ -354,22 +392,62 @@ function handlePersistError(error: unknown, fallback: string) {
 }
 
 let persistStructureTimer: ReturnType<typeof setTimeout> | null = null;
+/** True while `saveEntityConfig` is awaiting the network. */
+let structureSaveInFlight = false;
+/** Latest snapshot waiting to save after the in-flight request finishes. */
+let structureSaveQueued: EntityConfig | null = null;
 
 function cloneEntityConfig(source: EntityConfig): EntityConfig {
   return structuredClone(source);
 }
 
-function flushStructureToRemote() {
+function enqueueStructureSave(snapshot: EntityConfig) {
+  if (!isSupabaseConfigured) return;
+
+  if (structureSaveInFlight) {
+    structureSaveQueued = snapshot;
+    markLocalStructureWrite(snapshot.entities.map((entity) => entity.id));
+    return;
+  }
+
+  structureSaveInFlight = true;
+  markLocalStructureWrite(snapshot.entities.map((entity) => entity.id));
+
+  void saveEntityConfig(snapshot)
+    .then(() => {
+      // Extend the echo window after a successful write so realtime / refresh
+      // cannot briefly flash the pre-save remote shape.
+      markLocalStructureWrite(snapshot.entities.map((entity) => entity.id));
+    })
+    .catch((error: unknown) => {
+      handlePersistError(error, "Не удалось сохранить сущности");
+    })
+    .finally(() => {
+      structureSaveInFlight = false;
+      const queued = structureSaveQueued;
+      structureSaveQueued = null;
+      if (queued) enqueueStructureSave(queued);
+    });
+}
+
+function flushStructureToRemote(immediate = false) {
   if (!isSupabaseConfigured) return;
   markLocalStructureWrite(config.entities.map((entity) => entity.id));
   if (persistStructureTimer) clearTimeout(persistStructureTimer);
-  persistStructureTimer = setTimeout(() => {
+
+  const run = () => {
     persistStructureTimer = null;
-    markLocalStructureWrite(config.entities.map((entity) => entity.id));
-    void saveEntityConfig(config).catch((error: unknown) => {
-      handlePersistError(error, "Не удалось сохранить сущности");
-    });
-  }, 400);
+    // Snapshot at flush time so a later refresh/setLocal cannot mutate the
+    // payload mid-save through a shared object reference.
+    enqueueStructureSave(cloneEntityConfig(config));
+  };
+
+  if (immediate) {
+    run();
+    return;
+  }
+
+  persistStructureTimer = setTimeout(run, 400);
 }
 
 /** Persist entity structure (without records) to the entities table. */
@@ -408,7 +486,9 @@ export function commitEntitySchemaEdit() {
   if (!schemaEditSession) return;
   schemaEditSession = null;
   notify();
-  flushStructureToRemote();
+  // Commit must hit the network immediately — debounce races with tab
+  // visibility refresh and would look like a silent revert.
+  flushStructureToRemote(true);
 }
 
 /** Restore the pre-edit snapshot and leave the edit session. */
@@ -807,7 +887,9 @@ export function addEntityField(
     datetimeWithTime:
       type === "datetime" ? Boolean(data?.datetimeWithTime) : false,
     booleanInline: type === "boolean" ? Boolean(data?.booleanInline) : false,
-    colSpan: data?.colSpan ?? (type === "relationGroups" ? 4 : 1),
+    colSpan:
+      data?.colSpan ??
+      (type === "relationGroups" ? 4 : type === "period" ? 2 : 1),
     rowSpan: data?.rowSpan ?? 1,
   });
 

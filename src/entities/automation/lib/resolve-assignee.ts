@@ -31,10 +31,7 @@ function findBridgeField(
   const field = entity?.fields.find((item) => item.id === fieldId);
   if (!field) return null;
   if (field.type === "relation") return field;
-  if (
-    field.type === "relationGroups" &&
-    field.relationGroups?.nestedEntityId
-  ) {
+  if (field.type === "relationGroups" && field.relationGroups?.nestedEntityId) {
     return field;
   }
   return null;

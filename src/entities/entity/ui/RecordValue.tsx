@@ -87,9 +87,7 @@ export function RecordValue({
     <span
       className={cn(
         "block text-sm",
-        relationGroupsColumn
-          ? "whitespace-pre-line break-words"
-          : "truncate",
+        relationGroupsColumn ? "whitespace-pre-line break-words" : "truncate",
         empty ? "text-muted-foreground/70" : (signClass ?? "text-foreground"),
         numeric && "tabular-nums",
         className,

@@ -287,9 +287,10 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
       ).trim();
       if (!relationFieldId || !fieldId) return defaultAssigneeLeafResolver();
       const fanOut = raw.fanOut === true || raw.fan_out === true;
-      const base = via.length > 0
-        ? { type: "relatedField" as const, relationFieldId, via, fieldId }
-        : { type: "relatedField" as const, relationFieldId, fieldId };
+      const base =
+        via.length > 0
+          ? { type: "relatedField" as const, relationFieldId, via, fieldId }
+          : { type: "relatedField" as const, relationFieldId, fieldId };
       return fanOut ? { ...base, fanOut: true } : base;
     }
     case "role": {

@@ -7,6 +7,7 @@ import { NotificationSettings } from "@/features/manage-notifications";
 import { RoleSettings } from "@/features/manage-roles";
 import {
   SETTINGS_TAB_IDS,
+  isSettingsTabId,
   useCanAccessSettings,
   useCanSettingsTab,
   type SettingsTabId,
@@ -19,11 +20,16 @@ import {
   type SettingsPathTab,
 } from "@/shared/lib/navigation";
 
+const SETTINGS_TAB_KEY = "settings.selectedTab";
 const SETTINGS_ENTITY_ID_KEY = "settings.entities.selectedEntityId";
 const SETTINGS_ENTITY_TAB_ID_KEY = "settings.entities.selectedEntityTabId";
 
 function parseStoredId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function parseStoredSettingsTab(value: unknown): SettingsTabId | null {
+  return typeof value === "string" && isSettingsTabId(value) ? value : null;
 }
 
 function SettingsTabsList({ tabs }: { tabs: SettingsTabId[] }) {
@@ -80,6 +86,11 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
   const canAutomations = useCanSettingsTab("automations");
   const canNotifications = useCanSettingsTab("notifications");
   const canRoles = useCanSettingsTab("roles");
+  const [storedTab, setStoredTab] = useLocalStorageState(
+    SETTINGS_TAB_KEY,
+    parseStoredSettingsTab,
+    null,
+  );
   const [storedEntityId, setStoredEntityId] = useLocalStorageState(
     SETTINGS_ENTITY_ID_KEY,
     parseStoredId,
@@ -108,7 +119,8 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
     tabs.includes(location.tab as SettingsTabId)
       ? (location.tab as SettingsTabId)
       : null;
-  const activeTab = locationTab ?? tabs[0] ?? null;
+  const restoredTab = storedTab && tabs.includes(storedTab) ? storedTab : null;
+  const activeTab = locationTab ?? restoredTab ?? tabs[0] ?? null;
 
   const urlEntityId =
     location.type === "settings" && location.tab === "entities"
@@ -144,12 +156,17 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
     );
   }, [location, activeTab, tabs, replace, storedEntityId, storedEntityTabId]);
 
-  // Remember URL selection for restore after leaving settings.
+  // Remember last settings tab / entity for restore after leaving settings.
   useEffect(() => {
-    if (location.type !== "settings" || location.tab !== "entities") return;
-    if (location.entityId) setStoredEntityId(location.entityId);
-    if (location.entityTabId) setStoredEntityTabId(location.entityTabId);
-  }, [location, setStoredEntityId, setStoredEntityTabId]);
+    if (location.type !== "settings") return;
+    if (location.tab && tabs.includes(location.tab as SettingsTabId)) {
+      setStoredTab(location.tab as SettingsTabId);
+    }
+    if (location.tab === "entities") {
+      if (location.entityId) setStoredEntityId(location.entityId);
+      if (location.entityTabId) setStoredEntityTabId(location.entityTabId);
+    }
+  }, [location, tabs, setStoredTab, setStoredEntityId, setStoredEntityTabId]);
 
   if (!canAccess || tabs.length === 0 || !activeTab) {
     return (
@@ -163,6 +180,7 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
   }
 
   function selectTab(tab: SettingsTabId) {
+    setStoredTab(tab);
     go(
       settingsLocation({
         tab: tab as SettingsPathTab,
