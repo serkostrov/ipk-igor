@@ -652,6 +652,9 @@ function OutcomeAskFieldsEditor({
   }
 
   function setRequired(fieldId: string, required: boolean) {
+    const field = fields.find((item) => item.id === fieldId);
+    // Computed fields are derived — never mark them required.
+    if (field && isEntityComputedFieldType(field.type)) return;
     onChange({
       ...access,
       requiredFieldIds: toggleIdList(
@@ -887,7 +890,9 @@ function OutcomeAskFieldsEditor({
         <LayoutGroup id="outcome-ask-fields">
           <ul className="mt-2 flex flex-col gap-1">
             {selected.map((field, index) => {
-              const required = access.requiredFieldIds.includes(field.id);
+              const computed = isEntityComputedFieldType(field.type);
+              const required =
+                !computed && access.requiredFieldIds.includes(field.id);
               const toComments = access.commentFieldIds.includes(field.id);
               const toRecord = access.recordFieldIds.includes(field.id);
               const label = getEntityFieldDisplayName(field);
@@ -996,8 +1001,13 @@ function OutcomeAskFieldsEditor({
                               </span>
                               <FieldFlagCheckbox
                                 checked={required}
+                                disabled={computed}
                                 label="обяз."
-                                title="Обязательное поле"
+                                title={
+                                  computed
+                                    ? "Вычисляемое поле заполняется автоматически"
+                                    : "Обязательное поле"
+                                }
                                 onCheckedChange={(checked) =>
                                   setRequired(field.id, checked)
                                 }

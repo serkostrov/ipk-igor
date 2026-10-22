@@ -20,8 +20,6 @@ import {
 import { cn } from "@/shared/lib/cn";
 import {
   applyEntityFieldValue,
-  createEntityDraftRecord,
-  formatRecordFieldValue,
   getCurrentUserRecordId,
   getEntityConfig,
   getEntityFieldDisplayName,
@@ -29,10 +27,7 @@ import {
   getEntityListParentField,
   getEntityPreviewValueContext,
   getVisibleListOptions,
-  isEntityComputedFieldType,
-  isEntityRelationGroupsFilled,
   normalizeEntityFieldInputValue,
-  parseEntityFieldFileValue,
   parseEntityListValueIds,
   RecordValue,
   resolveEntityListFieldPresentation,
@@ -40,10 +35,7 @@ import {
   updateEntityRecord,
   useEntityConfig,
   useEntityValueContext,
-  type Entity,
   type EntityField,
-  type EntityRelationGroupsMode,
-  type EntityValueContext,
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import {
@@ -60,6 +52,7 @@ import {
   getOutcomeSetFieldActions,
   mergeAutofillIntoFormValues,
 } from "@/features/automation-tasks/lib/apply-outcome-autofill";
+import { isTaskAskFieldFilled } from "@/features/automation-tasks/lib/task-field-filled";
 import {
   buildTaskFormPersistPatch,
   buildTaskRelatedPersistUpdates,
@@ -91,37 +84,6 @@ type TaskFillFieldsDialogProps = {
   onCompleted?: (task: AutomationTask) => void;
   onOpenRecord?: (entityId: string, recordId: string) => void;
 };
-
-function isFieldFilled(
-  field: EntityField,
-  value: string,
-  options?: {
-    ctx: EntityValueContext;
-    entity: Entity;
-    values: Record<string, string>;
-    recordId: string;
-    relationGroupsMode?: EntityRelationGroupsMode;
-  },
-) {
-  if (field.type === "boolean") return true;
-  if (field.type === "file") return parseEntityFieldFileValue(value) != null;
-  if (field.type === "relationGroups") {
-    return isEntityRelationGroupsFilled(
-      value,
-      options?.relationGroupsMode ?? "full",
-    );
-  }
-  if (isEntityComputedFieldType(field.type) && options) {
-    const text = formatRecordFieldValue(
-      options.ctx,
-      options.entity,
-      createEntityDraftRecord(options.values, options.recordId),
-      field,
-    );
-    return text !== "—" && text.trim().length > 0;
-  }
-  return value.trim().length > 0;
-}
 
 function TaskFillFieldsDialogBody({
   taskId,
@@ -289,7 +251,7 @@ function TaskFillFieldsDialogBody({
         const field = entity?.fields.find((item) => item.id === fieldId);
         if (!field) return false;
         if (!entity || !record) return true;
-        return !isFieldFilled(field, values[fieldId] ?? "", {
+        return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
           ctx: previewContext,
           entity,
           values: mergedValues,
@@ -307,7 +269,7 @@ function TaskFillFieldsDialogBody({
           relatedFields: relatedFieldsForForm,
           relatedRequiredIds: relatedRequiredForForm,
           values: mergedValues,
-          isFieldFilled: (field, value) => isFieldFilled(field, value),
+          isFieldFilled: (field, value) => isTaskAskFieldFilled(field, value),
         })
       : 0;
   const missingRequiredCount =
@@ -428,7 +390,7 @@ function TaskFillFieldsDialogBody({
       const field = entity.fields.find((item) => item.id === fieldId);
       if (!field) return false;
       if (!record) return true;
-      return !isFieldFilled(field, values[fieldId] ?? "", {
+      return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
         ctx: previewContext,
         entity,
         values: mergedValues,
@@ -448,7 +410,7 @@ function TaskFillFieldsDialogBody({
       entities,
       fieldAccess: outcome.fieldAccess,
       values: mergedValues,
-      isFieldFilled: (field, value) => isFieldFilled(field, value),
+      isFieldFilled: (field, value) => isTaskAskFieldFilled(field, value),
     });
   }
 

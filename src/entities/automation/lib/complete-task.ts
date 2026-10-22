@@ -7,6 +7,7 @@ import {
   resolveEntityFieldLabel,
   getEntityTabRecordsValueKey,
   getEntityValueContext,
+  isEntityComputedFieldType,
   isEntityRecordsTab,
   notifyRecordMentions,
   parseEntityRelationIds,
@@ -234,6 +235,7 @@ function validateRelatedRequiredFields(
       missing.push(label);
       continue;
     }
+    if (isEntityComputedFieldType(field.type)) continue;
     for (const relatedRecordId of relatedIds) {
       const key = relatedAskValueKey(
         ask.relationFieldId,
@@ -289,6 +291,8 @@ export async function completeAutomationTask(
   const missingRequired = [...new Set(requiredIds)].filter((fieldId) => {
     const field = entity?.fields.find((item) => item.id === fieldId);
     if (!field) return false;
+    // Lookup / formula / rollup — derived, not user-writable.
+    if (isEntityComputedFieldType(field.type)) return false;
     const raw = valuesForForm[fieldId] ?? "";
     if (field.type === "boolean") return false;
     return !raw.trim();

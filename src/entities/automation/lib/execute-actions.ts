@@ -1,6 +1,7 @@
 import {
   addEntityRecord,
   getEntityParentLinkField,
+  isEntityComputedFieldType,
   parseEntityRelationIds,
   resolveEntityFieldLabel,
   serializeEntityRelationIds,
@@ -401,6 +402,7 @@ export async function executeAutomationActions(
           const missing = action.fieldIds.filter((fieldId) => {
             const field = entity?.fields.find((item) => item.id === fieldId);
             if (!field) return false;
+            if (isEntityComputedFieldType(field.type)) return false;
             return !(ctx.values[fieldId] ?? "").trim();
           });
           if (missing.length > 0) {

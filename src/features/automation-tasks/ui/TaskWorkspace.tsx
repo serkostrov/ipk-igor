@@ -14,8 +14,6 @@ import { automationUploadTargetBlocksComplete } from "../lib/upload-to-files-tab
 import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
   applyEntityFieldValue,
-  createEntityDraftRecord,
-  formatRecordFieldValue,
   getCurrentUserRecordId,
   getEntityFieldDisplayName,
   resolveEntityFieldLabel,
@@ -23,11 +21,8 @@ import {
   getEntityPreviewValueContext,
   getEntityRecordTitle,
   getVisibleListOptions,
-  isEntityComputedFieldType,
   isEntityNameField,
-  isEntityRelationGroupsFilled,
   normalizeEntityFieldInputValue,
-  parseEntityFieldFileValue,
   parseEntityListValueIds,
   parseEntityRelationIds,
   RecordValue,
@@ -40,9 +35,9 @@ import {
   type Entity,
   type EntityField,
   type EntityRecord,
-  type EntityRelationGroupsMode,
   type EntityValueContext,
 } from "@/entities/entity";
+import { isTaskAskFieldFilled } from "../lib/task-field-filled";
 import { useSessionUser } from "@/entities/session";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 import {
@@ -77,37 +72,6 @@ import {
 import { resumePendingRecordListChange } from "../model/pending-list-change";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
-
-function isFieldFilled(
-  field: EntityField,
-  value: string,
-  options?: {
-    ctx: EntityValueContext;
-    entity: Entity;
-    values: Record<string, string>;
-    recordId: string;
-    relationGroupsMode?: EntityRelationGroupsMode;
-  },
-) {
-  if (field.type === "boolean") return true;
-  if (field.type === "file") return parseEntityFieldFileValue(value) != null;
-  if (field.type === "relationGroups") {
-    return isEntityRelationGroupsFilled(
-      value,
-      options?.relationGroupsMode ?? "full",
-    );
-  }
-  if (isEntityComputedFieldType(field.type) && options) {
-    const text = formatRecordFieldValue(
-      options.ctx,
-      options.entity,
-      createEntityDraftRecord(options.values, options.recordId),
-      field,
-    );
-    return text !== "—" && text.trim().length > 0;
-  }
-  return value.trim().length > 0;
-}
 
 function recordTitle(
   ctx: EntityValueContext,
@@ -399,7 +363,7 @@ function TaskWorkspaceBody({
         const field = entity?.fields.find((item) => item.id === fieldId);
         if (!field) return false;
         if (!entity || !record) return true;
-        return !isFieldFilled(field, values[fieldId] ?? "", {
+        return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
           ctx: previewContext,
           entity,
           values: mergedValues,
@@ -417,7 +381,7 @@ function TaskWorkspaceBody({
           relatedFields: relatedFieldsForForm,
           relatedRequiredIds: relatedRequiredForForm,
           values: mergedValues,
-          isFieldFilled: (field, value) => isFieldFilled(field, value),
+          isFieldFilled: (field, value) => isTaskAskFieldFilled(field, value),
         })
       : 0;
   const missingRequiredCount =
@@ -505,7 +469,7 @@ function TaskWorkspaceBody({
       // Deleted fields are ignored (purged from config on entity field remove).
       if (!field) return false;
       if (!record) return true;
-      return !isFieldFilled(field, values[fieldId] ?? "", {
+      return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
         ctx: previewContext,
         entity,
         values: mergedValues,
@@ -525,7 +489,7 @@ function TaskWorkspaceBody({
       entities,
       fieldAccess: outcome.fieldAccess,
       values: mergedValues,
-      isFieldFilled: (field, value) => isFieldFilled(field, value),
+      isFieldFilled: (field, value) => isTaskAskFieldFilled(field, value),
     });
   }
 
