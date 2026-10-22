@@ -1,6 +1,7 @@
 import {
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
+  getRelationGroupsLeafEntityId,
   SYSTEM_USERS_ENTITY_ID,
   type Entity,
   type EntityField,
@@ -46,12 +47,12 @@ export function bridgeRelationFields(fields: EntityField[]) {
   });
 }
 
-/** `relationGroups` fields that bridge to their nested entity. */
+/** `relationGroups` fields that bridge to their leaf entity. */
 export function bridgeRelationGroupsFields(fields: EntityField[]) {
   return fields.filter(
     (field) =>
       field.type === "relationGroups" &&
-      Boolean(field.relationGroups?.nestedEntityId),
+      Boolean(field.relationGroups?.levels.length),
   );
 }
 
@@ -67,9 +68,16 @@ export function relationTargetEntity(
     return entities.find((item) => item.id === targetId) ?? null;
   }
   if (field.type === "relationGroups") {
-    const nestedId = field.relationGroups?.nestedEntityId ?? null;
-    if (!nestedId) return null;
-    return entities.find((item) => item.id === nestedId) ?? null;
+    const leafId = getRelationGroupsLeafEntityId(
+      field.relationGroups,
+      (entityId, fieldId) => {
+        const host = entities.find((item) => item.id === entityId);
+        const source = host?.fields.find((item) => item.id === fieldId);
+        return source ? getEntityRelationTargetId(source) : null;
+      },
+    );
+    if (!leafId) return null;
+    return entities.find((item) => item.id === leafId) ?? null;
   }
   return null;
 }

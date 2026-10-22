@@ -120,6 +120,8 @@ export {
   type AutomationOutcomeFieldAccess,
   type AutomationRelationGroupsAskMode,
   AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS,
+  automationRelationGroupsAskModeLabel,
+  automationRelationGroupsAskModes,
   type AutomationProcess,
   type AutomationRun,
   type AutomationScenario,

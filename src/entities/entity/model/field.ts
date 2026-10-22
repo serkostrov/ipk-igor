@@ -194,111 +194,30 @@ export function formatEntityDependencyLag(lag: number) {
   return `${lag > 0 ? "+" : "−"}${Math.abs(lag)} р.д.`;
 }
 
-/**
- * One row of a `relationGroups` field: primary record + nested multi-select.
- * Stored as JSON on the parent record (e.g. lead stages → departments).
- */
-export type EntityRelationGroupItem = {
-  itemId: string;
-  nestedIds: string[];
-};
-
-export function parseEntityRelationGroups(
-  value: string | undefined,
-): EntityRelationGroupItem[] {
-  const raw = value?.trim() ?? "";
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const seen = new Set<string>();
-    const result: EntityRelationGroupItem[] = [];
-    for (const entry of parsed) {
-      if (!entry || typeof entry !== "object") continue;
-      const record = entry as Record<string, unknown>;
-      const itemId =
-        typeof record.itemId === "string" ? record.itemId.trim() : "";
-      if (!itemId || seen.has(itemId)) continue;
-      seen.add(itemId);
-      const nestedRaw = record.nestedIds;
-      const nestedIds = Array.isArray(nestedRaw)
-        ? [
-            ...new Set(
-              nestedRaw
-                .map((id) => (typeof id === "string" ? id.trim() : ""))
-                .filter((id) => id.length > 0),
-            ),
-          ]
-        : [];
-      result.push({ itemId, nestedIds });
-    }
-    return result;
-  } catch {
-    return [];
-  }
-}
-
-export function serializeEntityRelationGroups(
-  groups: readonly EntityRelationGroupItem[],
-): string {
-  return groups.length > 0 ? JSON.stringify(groups) : "";
-}
-
-/**
- * Build a relationGroups value from item ids and shared nested defaults
- * (same nested list on every row).
- */
-export function buildEntityRelationGroupsValue(
-  itemIds: readonly string[],
-  nestedIds: readonly string[] = [],
-): string {
-  const nested = [
-    ...new Set(nestedIds.map((id) => id.trim()).filter((id) => id.length > 0)),
-  ];
-  return serializeEntityRelationGroups(
-    itemIds
-      .map((id) => id.trim())
-      .filter((id) => id.length > 0)
-      .map((itemId) => ({ itemId, nestedIds: [...nested] })),
-  );
-}
-
-/**
- * Apply shared nested defaults onto every row of a stored relationGroups value.
- * No-op when `defaultNestedIds` is empty (keeps per-row nested as stored).
- */
-export function withEntityRelationGroupsDefaultNested(
-  value: string,
-  defaultNestedIds: readonly string[] | undefined,
-): string {
-  if (!defaultNestedIds || defaultNestedIds.length === 0) return value;
-  const groups = parseEntityRelationGroups(value);
-  if (groups.length === 0) return value;
-  return buildEntityRelationGroupsValue(
-    groups.map((group) => group.itemId),
-    defaultNestedIds,
-  );
-}
-
-/** Ask / form presentation for a `relationGroups` field. */
-export type EntityRelationGroupsMode = "full" | "items" | "nested";
-
-/**
- * Whether a relationGroups value satisfies required validation for `mode`.
- * - items / full — at least one row
- * - nested — every row has at least one nested id
- */
-export function isEntityRelationGroupsFilled(
-  value: string | undefined,
-  mode: EntityRelationGroupsMode = "full",
-) {
-  const groups = parseEntityRelationGroups(value);
-  if (groups.length === 0) return false;
-  if (mode === "nested") {
-    return groups.every((group) => group.nestedIds.length > 0);
-  }
-  return true;
-}
+export {
+  buildEntityRelationGroupsValue,
+  buildEntityRelationGroupsValueLegacy,
+  collectRelationGroupsIdsAtDepth,
+  collectRelationGroupsLeafIds,
+  createEntityRelationGroupsLevel,
+  createRelationGroupsLevelId,
+  emptyEntityRelationGroupsConfig,
+  getRelationGroupsLeafEntityId,
+  getRelationGroupsLevelEntityId,
+  isEntityRelationGroupsConfigReady,
+  isEntityRelationGroupsFilled,
+  mapRelationGroupsNodes,
+  normalizeEntityRelationGroupsConfig,
+  parseEntityRelationGroups,
+  resolveRelationGroupsModeDepth,
+  serializeEntityRelationGroups,
+  updateRelationGroupsNodeChildren,
+  withEntityRelationGroupsDefaultNested,
+  withEntityRelationGroupsDefaults,
+  type EntityRelationGroupItem,
+  type EntityRelationGroupNode,
+  type EntityRelationGroupsMode,
+} from "./relation-groups";
 
 /** Inclusive date range stored as JSON on a `period` field. */
 export type EntityPeriodValue = {

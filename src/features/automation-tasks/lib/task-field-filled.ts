@@ -33,6 +33,7 @@ export function isTaskAskFieldFilled(
     return isEntityRelationGroupsFilled(
       value,
       options?.relationGroupsMode ?? "full",
+      field.relationGroups?.levels.length ?? 2,
     );
   }
   return value.trim().length > 0;

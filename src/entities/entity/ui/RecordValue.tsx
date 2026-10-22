@@ -81,7 +81,7 @@ export function RecordValue({
     : null;
   const relationGroupsColumn =
     field.type === "relationGroups" &&
-    field.relationGroups?.layout === "column" &&
+    (field.relationGroups?.levels[0]?.layout ?? "column") === "column" &&
     !empty;
   return (
     <span

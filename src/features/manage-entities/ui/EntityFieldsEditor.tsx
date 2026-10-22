@@ -1498,10 +1498,16 @@ function FieldCardMeta({
   const relationGroupsMeta =
     field.type === "relationGroups"
       ? (() => {
-          const itemId = field.relationGroups?.itemEntityId;
-          const nestedId = field.relationGroups?.nestedEntityId;
-          if (!itemId || !nestedId) return `${typeLabel} · не настроено`;
-          return `${getEntityPathLabel(itemId, entities)} → ${getEntityPathLabel(nestedId, entities)}`;
+          const levels = field.relationGroups?.levels ?? [];
+          const entityIds = levels
+            .map((level) =>
+              level.source.kind === "entity" ? level.source.entityId : null,
+            )
+            .filter((id): id is string => Boolean(id));
+          if (entityIds.length < 2) return `${typeLabel} · не настроено`;
+          return entityIds
+            .map((id) => getEntityPathLabel(id, entities))
+            .join(" → ");
         })()
       : null;
   const plainMeta =

@@ -21,6 +21,8 @@ import {
   normalizeEntitySumFieldIds,
   parseEntityDecimal,
   parseEntityDependencies,
+  collectRelationGroupsLeafIds,
+  getRelationGroupsLeafEntityId,
   parseEntityRelationGroups,
   parseEntityPeriod,
   formatEntityPeriodDisplay,
@@ -28,7 +30,8 @@ import {
   parseEntityListValueIds,
   parseEntityRelationIds,
   serializeEntityRelationIds,
-  withEntityRelationGroupsDefaultNested,
+  withEntityRelationGroupsDefaults,
+  type EntityRelationGroupNode,
 } from "./field";
 import { evaluateFormula, type FormulaValue } from "./formula";
 import {
@@ -179,9 +182,16 @@ export function resolveEntityRelationBridgeTarget<
     return entities.find((item) => item.id === targetId) ?? null;
   }
   if (bridge.type === "relationGroups") {
-    const nestedId = bridge.relationGroups?.nestedEntityId ?? null;
-    return nestedId
-      ? (entities.find((item) => item.id === nestedId) ?? null)
+    const leafId = getRelationGroupsLeafEntityId(
+      bridge.relationGroups,
+      (entityId, fieldId) => {
+        const host = entities.find((item) => item.id === entityId);
+        const source = host?.fields.find((item) => item.id === fieldId);
+        return source ? getEntityRelationTargetId(source) : null;
+      },
+    );
+    return leafId
+      ? (entities.find((item) => item.id === leafId) ?? null)
       : null;
   }
   if (bridge.type !== "lookup") return null;
@@ -200,7 +210,16 @@ export function isEntityLookupBridgeField<
 >(entity: T, field: EntityField, entities: readonly T[]): boolean {
   if (field.type === "relation") return true;
   if (field.type === "relationGroups") {
-    return Boolean(field.relationGroups?.nestedEntityId);
+    return Boolean(
+      getRelationGroupsLeafEntityId(
+        field.relationGroups,
+        (entityId, fieldId) => {
+          const host = entities.find((item) => item.id === entityId);
+          const source = host?.fields.find((item) => item.id === fieldId);
+          return source ? getEntityRelationTargetId(source) : null;
+        },
+      ),
+    );
   }
   if (field.type !== "lookup") return false;
   const source = resolveEntityFieldSource(entity, field, entities);
@@ -238,7 +257,14 @@ function resolveLookupChainLeaf<T extends Pick<Entity, "id" | "fields">>(
       bridge.type === "relation"
         ? getEntityRelationTargetId(bridge)
         : bridge.type === "relationGroups"
-          ? (bridge.relationGroups?.nestedEntityId ?? null)
+          ? getRelationGroupsLeafEntityId(
+              bridge.relationGroups,
+              (entityId, fieldId) => {
+                const host = entities.find((item) => item.id === entityId);
+                const source = host?.fields.find((item) => item.id === fieldId);
+                return source ? getEntityRelationTargetId(source) : null;
+              },
+            )
           : null;
     if (!relatedId) return null;
     const related = entities.find((item) => item.id === relatedId);
@@ -272,11 +298,18 @@ export function resolveEntityLookupTarget<
     return { relationField: bridge, entity: target, field: targetField };
   }
 
-  // Nested records from each row of a relationGroups field.
+  // Leaf records from a relationGroups field.
   if (bridge.type === "relationGroups") {
-    const nestedId = bridge.relationGroups?.nestedEntityId ?? null;
-    const target = nestedId
-      ? entities.find((item) => item.id === nestedId)
+    const leafId = getRelationGroupsLeafEntityId(
+      bridge.relationGroups,
+      (entityId, fieldId) => {
+        const host = entities.find((item) => item.id === entityId);
+        const source = host?.fields.find((item) => item.id === fieldId);
+        return source ? getEntityRelationTargetId(source) : null;
+      },
+    );
+    const target = leafId
+      ? entities.find((item) => item.id === leafId)
       : undefined;
     if (!target) return null;
     const targetField = findField(target, field.lookup.targetFieldId);
@@ -380,13 +413,9 @@ function getLookupBridgeRelationIds(
     return parseEntityRelationIds(record.values[bridge.id]);
   }
   if (bridge.type === "relationGroups") {
-    return [
-      ...new Set(
-        parseEntityRelationGroups(record.values[bridge.id]).flatMap(
-          (group) => group.nestedIds,
-        ),
-      ),
-    ];
+    return collectRelationGroupsLeafIds(
+      parseEntityRelationGroups(record.values[bridge.id]),
+    );
   }
   if (bridge.type !== "lookup") return [];
   return [
@@ -837,52 +866,88 @@ export function formatRecordFieldValue(
       return formatEntityPeriodDisplay(record.values[field.id]);
     case "relationGroups": {
       const config = field.relationGroups;
-      const itemEntity = ctx.entityById.get(config?.itemEntityId ?? "");
-      const nestedEntity = ctx.entityById.get(config?.nestedEntityId ?? "");
-      const itemExtraIds = config?.itemDisplayFieldIds ?? [];
-      const nestedExtraIds = config?.nestedDisplayFieldIds ?? [];
-      const sep = config?.layout === "column" ? "\n" : "; ";
+      const levels = config?.levels ?? [];
+      const sep =
+        (config?.levels[0]?.layout ?? "column") === "column" ? "\n" : "; ";
+
+      function resolveLevelEntityLocal(index: number): Entity | undefined {
+        let previous: string | null = null;
+        for (let i = 0; i <= index; i += 1) {
+          const level = levels[i];
+          if (!level) return undefined;
+          let entityId: string | null = null;
+          if (level.source.kind === "entity") {
+            entityId = level.source.entityId;
+          } else if (
+            level.source.kind === "field" &&
+            previous &&
+            level.source.fieldId
+          ) {
+            const fieldId = level.source.fieldId;
+            const host = ctx.entityById.get(previous);
+            const source = host?.fields.find((item) => item.id === fieldId);
+            entityId = source ? getEntityRelationTargetId(source) : null;
+          }
+          if (!entityId) return undefined;
+          if (i === index) return ctx.entityById.get(entityId);
+          previous = entityId;
+        }
+        return undefined;
+      }
+
+      function formatNode(
+        node: EntityRelationGroupNode,
+        depth: number,
+      ): string {
+        const level = levels[depth];
+        const entity = resolveLevelEntityLocal(depth);
+        const previousEntity =
+          depth > 0 ? resolveLevelEntityLocal(depth - 1) : undefined;
+        const sourceFieldId =
+          level?.source.kind === "field" ? level.source.fieldId : null;
+        const sourceField =
+          sourceFieldId && previousEntity
+            ? previousEntity.fields.find((item) => item.id === sourceFieldId)
+            : null;
+
+        let title: string;
+        if (sourceField?.type === "list") {
+          title =
+            sourceField.listOptions.find((item) => item.id === node.id)?.name ??
+            node.id;
+        } else {
+          title =
+            resolveRelationRecordLabel(entity, node.id, ctx.entities) ??
+            "Без названия";
+        }
+        const extras =
+          entity && level && level.displayFieldIds.length > 0
+            ? formatRelationGroupsExtras(
+                ctx,
+                entity,
+                node.id,
+                level.displayFieldIds,
+              )
+            : "";
+        const label = extras ? `${title} · ${extras}` : title;
+        if (node.children.length === 0 || depth >= levels.length - 1) {
+          return label;
+        }
+        const childLabels = node.children
+          .map((child) => formatNode(child, depth + 1))
+          .filter(Boolean);
+        if (depth === 0) {
+          return childLabels.length > 0
+            ? `${label}: ${childLabels.join(", ")}`
+            : label;
+        }
+        return childLabels.length > 0
+          ? `${label} → ${childLabels.join(", ")}`
+          : label;
+      }
+
       const parts = parseEntityRelationGroups(record.values[field.id]).map(
-        (group) => {
-          const itemTitle =
-            resolveRelationRecordLabel(
-              itemEntity,
-              group.itemId,
-              ctx.entities,
-            ) ?? "Без названия";
-          const itemExtras =
-            itemEntity && itemExtraIds.length > 0
-              ? formatRelationGroupsExtras(
-                  ctx,
-                  itemEntity,
-                  group.itemId,
-                  itemExtraIds,
-                )
-              : "";
-          const itemLabel = itemExtras
-            ? `${itemTitle} · ${itemExtras}`
-            : itemTitle;
-          const nestedLabels = group.nestedIds
-            .map((id) => {
-              const title =
-                resolveRelationRecordLabel(nestedEntity, id, ctx.entities) ??
-                "Без названия";
-              const extras =
-                nestedEntity && nestedExtraIds.length > 0
-                  ? formatRelationGroupsExtras(
-                      ctx,
-                      nestedEntity,
-                      id,
-                      nestedExtraIds,
-                    )
-                  : "";
-              return extras ? `${title} · ${extras}` : title;
-            })
-            .filter(Boolean);
-          return nestedLabels.length > 0
-            ? `${itemLabel}: ${nestedLabels.join(", ")}`
-            : itemLabel;
-        },
+        (node) => formatNode(node, 0),
       );
       return parts.length > 0 ? parts.join(sep) : "—";
     }
@@ -1408,28 +1473,30 @@ function syncRelationsFromLookups(
     const bridgeId = lookup.lookup?.relationFieldId ?? null;
     const bridge = bridgeId ? findField(entity, bridgeId) : null;
 
-    // relationGroups → nested records themselves (not a field on them).
-    if (
-      bridge?.type === "relationGroups" &&
-      bridge.relationGroups?.nestedEntityId &&
-      target.entity.id === bridge.relationGroups.nestedEntityId
-    ) {
-      const nestedIds = [
-        ...new Set(
-          parseEntityRelationGroups(
-            next[bridge.id] ?? values[bridge.id],
-          ).flatMap((group) => group.nestedIds),
-        ),
-      ];
-      next = softFillRelationFromIds(
-        entity,
-        values,
-        next,
-        bridgeId,
-        bridge.relationGroups.nestedEntityId,
-        nestedIds,
-        changedFieldId,
+    // relationGroups → leaf records of the deepest level.
+    if (bridge?.type === "relationGroups" && bridge.relationGroups) {
+      const leafTargetId = getRelationGroupsLeafEntityId(
+        bridge.relationGroups,
+        (entityId, fieldId) => {
+          const host = entities.find((item) => item.id === entityId);
+          const source = host?.fields.find((item) => item.id === fieldId);
+          return source ? getEntityRelationTargetId(source) : null;
+        },
       );
+      if (leafTargetId && target.entity.id === leafTargetId) {
+        const leafIds = collectRelationGroupsLeafIds(
+          parseEntityRelationGroups(next[bridge.id] ?? values[bridge.id]),
+        );
+        next = softFillRelationFromIds(
+          entity,
+          values,
+          next,
+          bridgeId,
+          leafTargetId,
+          leafIds,
+          changedFieldId,
+        );
+      }
     }
 
     if (target.field.type !== "relation") continue;
@@ -1581,9 +1648,9 @@ export function resolveEntityFieldDefaultValue(
         : null;
     case "value":
       if (field.type === "relationGroups") {
-        return withEntityRelationGroupsDefaultNested(
+        return withEntityRelationGroupsDefaults(
           config.value,
-          field.relationGroups?.defaultNestedIds,
+          field.relationGroups,
         );
       }
       if (field.type === "period") {

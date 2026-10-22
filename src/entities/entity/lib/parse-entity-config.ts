@@ -4,6 +4,7 @@ import {
   isEntityComputedFieldType,
   isEntityUnitFieldType,
 } from "../model/field";
+import { normalizeEntityRelationGroupsConfig } from "../model/relation-groups";
 import type {
   Entity,
   EntityConfig,
@@ -194,54 +195,10 @@ function normalizeDependenciesConfig(value: unknown): EntityDependenciesConfig {
   };
 }
 
-function normalizeRelationGroupsLayout(
-  value: unknown,
-): EntityRelationGroupsConfig["layout"] {
-  return value === "row" ? "row" : "column";
-}
-
-function normalizeRelationGroupsDisplayFieldIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const ids: string[] = [];
-  for (const item of value) {
-    const id = normalizeId(item);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
-  }
-  return ids;
-}
-
 function normalizeRelationGroupsConfig(
   value: unknown,
 ): EntityRelationGroupsConfig {
-  if (!isRecord(value)) {
-    return {
-      itemEntityId: null,
-      nestedEntityId: null,
-      nestedSourceFieldId: null,
-      layout: "column",
-      itemDisplayFieldIds: [],
-      nestedDisplayFieldIds: [],
-      defaultNestedIds: [],
-    };
-  }
-  return {
-    itemEntityId: normalizeId(value.itemEntityId),
-    nestedEntityId: normalizeId(value.nestedEntityId),
-    nestedSourceFieldId: normalizeId(value.nestedSourceFieldId),
-    layout: normalizeRelationGroupsLayout(value.layout),
-    itemDisplayFieldIds: normalizeRelationGroupsDisplayFieldIds(
-      value.itemDisplayFieldIds,
-    ),
-    nestedDisplayFieldIds: normalizeRelationGroupsDisplayFieldIds(
-      value.nestedDisplayFieldIds,
-    ),
-    defaultNestedIds: normalizeRelationGroupsDisplayFieldIds(
-      value.defaultNestedIds,
-    ),
-  };
+  return normalizeEntityRelationGroupsConfig(value);
 }
 
 function normalizeDefaultValue(

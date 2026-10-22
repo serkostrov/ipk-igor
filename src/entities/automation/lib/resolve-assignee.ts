@@ -9,7 +9,9 @@ import {
 } from "./evaluate-conditions";
 import {
   SYSTEM_USERS_FIELD_ROLE_ID,
+  collectRelationGroupsLeafIds,
   getEntityRelationTargetId,
+  getRelationGroupsLeafEntityId,
   getSystemUsersEntity,
   parseEntityRelationGroups,
   parseEntityRelationIds,
@@ -23,6 +25,16 @@ export type ResolveAssigneeContext = AutomationConditionEvalContext & {
   triggerEntityId?: string;
 };
 
+function resolveFieldTarget(
+  entities: Entity[],
+  entityId: string,
+  fieldId: string,
+): string | null {
+  const host = entities.find((item) => item.id === entityId);
+  const source = host?.fields.find((item) => item.id === fieldId);
+  return source ? getEntityRelationTargetId(source) : null;
+}
+
 /** Relation or relationGroups hop used in assignee paths. */
 function findBridgeField(
   entity: Entity | null | undefined,
@@ -31,7 +43,10 @@ function findBridgeField(
   const field = entity?.fields.find((item) => item.id === fieldId);
   if (!field) return null;
   if (field.type === "relation") return field;
-  if (field.type === "relationGroups" && field.relationGroups?.nestedEntityId) {
+  if (
+    field.type === "relationGroups" &&
+    (field.relationGroups?.levels.length ?? 0) > 0
+  ) {
     return field;
   }
   return null;
@@ -45,21 +60,23 @@ function bridgeRelatedRecordIds(
     return parseEntityRelationIds(values[field.id]);
   }
   if (field.type === "relationGroups") {
-    return [
-      ...new Set(
-        parseEntityRelationGroups(values[field.id]).flatMap(
-          (group) => group.nestedIds,
-        ),
-      ),
-    ];
+    return collectRelationGroupsLeafIds(
+      parseEntityRelationGroups(values[field.id]),
+    );
   }
   return [];
 }
 
-function bridgeTargetEntityId(field: EntityField): string | null {
+function bridgeTargetEntityId(
+  field: EntityField,
+  entities: Entity[],
+): string | null {
   if (field.type === "relation") return getEntityRelationTargetId(field);
   if (field.type === "relationGroups") {
-    return field.relationGroups?.nestedEntityId ?? null;
+    return getRelationGroupsLeafEntityId(
+      field.relationGroups,
+      (entityId, fieldId) => resolveFieldTarget(entities, entityId, fieldId),
+    );
   }
   return null;
 }
@@ -104,7 +121,7 @@ function resolveRelatedFieldUserIds(
       const hopIds = fanOut ? relatedIds : relatedIds.slice(0, 1);
       if (hopIds.length === 0) continue;
 
-      const targetId = bridgeTargetEntityId(bridgeField);
+      const targetId = bridgeTargetEntityId(bridgeField, entities);
       const relatedEntity =
         (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
         null;

@@ -40,7 +40,8 @@ import {
   defaultAutofillOutcomes,
   defaultDecisionOutcomes,
   emptyAutomationConditions,
-  AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS,
+  automationRelationGroupsAskModeLabel,
+  automationRelationGroupsAskModes,
   emptyAutomationOutcomeFieldAccess,
   getOutcomeStageOptionId,
   normalizeAutomationOutcomeFieldAccess,
@@ -1049,10 +1050,8 @@ function OutcomeAskFieldsEditor({
                                 <span className="mr-0.5 text-[10px] text-muted-foreground">
                                   Спросить
                                 </span>
-                                {(
-                                  Object.keys(
-                                    AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS,
-                                  ) as AutomationRelationGroupsAskMode[]
+                                {automationRelationGroupsAskModes(
+                                  field.relationGroups?.levels.length ?? 2,
                                 ).map((mode) => {
                                   const active =
                                     (access.fieldAskOptions[field.id]
@@ -1067,22 +1066,16 @@ function OutcomeAskFieldsEditor({
                                           ? "bg-primary/10 text-primary"
                                           : "text-muted-foreground hover:bg-muted hover:text-foreground",
                                       )}
-                                      title={
-                                        mode === "items"
-                                          ? "В этом задании выбирают только строки (стадии). Вложенные — в другом."
-                                          : mode === "nested"
-                                            ? "В этом задании заполняют вложенные для уже выбранных строк."
-                                            : "Строки и вложенные в одном задании"
-                                      }
+                                      title={automationRelationGroupsAskModeLabel(
+                                        mode,
+                                      )}
                                       onClick={() =>
                                         setRelationGroupsMode(field.id, mode)
                                       }
                                     >
-                                      {
-                                        AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS[
-                                          mode
-                                        ]
-                                      }
+                                      {automationRelationGroupsAskModeLabel(
+                                        mode,
+                                      )}
                                     </button>
                                   );
                                 })}

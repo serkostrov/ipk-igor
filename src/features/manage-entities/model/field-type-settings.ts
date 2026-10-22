@@ -1,8 +1,10 @@
 import {
   compileFormulaText,
+  emptyEntityRelationGroupsConfig,
   formulaToDisplay,
   getEntityFormulaOperands,
   isEntityNumericFieldType,
+  isEntityRelationGroupsConfigReady,
   type Entity,
   type EntityDeadlineConfig,
   type EntityDependenciesConfig,
@@ -69,7 +71,6 @@ const DEFAULT_VALUE_TYPES = new Set<EntityFieldType>([
   "list",
   "relation",
   "belonging",
-  "relationGroups",
 ]);
 
 export function canShowFieldAsProgress(type: EntityFieldType) {
@@ -82,13 +83,12 @@ export function canHaveDefaultValue(
   {
     hasListOptions,
     hasRelationTarget,
-    hasRelationGroupsConfig,
   }: {
     /** @deprecated kept for call-site compat; ignored. */
     relationToUsers?: boolean;
     hasListOptions: boolean;
     hasRelationTarget?: boolean;
-    /** Both item + nested entities configured. */
+    /** @deprecated defaults live in RelationGroupsSettings levels. */
     hasRelationGroupsConfig?: boolean;
   },
 ) {
@@ -96,7 +96,6 @@ export function canHaveDefaultValue(
   if (type === "relation" || type === "belonging") {
     return Boolean(hasRelationTarget);
   }
-  if (type === "relationGroups") return Boolean(hasRelationGroupsConfig);
   if (type === "list") return hasListOptions;
   return true;
 }
@@ -123,16 +122,20 @@ export function createFieldTypeSettingsDraft(
     rollup: field?.rollup ?? null,
     lookup: field?.lookup ?? null,
     dependencies: field?.dependencies ?? { sameFieldId: null },
-    relationGroups: {
-      itemEntityId: null,
-      nestedEntityId: null,
-      nestedSourceFieldId: null,
-      layout: "column" as const,
-      itemDisplayFieldIds: [],
-      nestedDisplayFieldIds: [],
-      defaultNestedIds: [],
-      ...field?.relationGroups,
-    },
+    relationGroups: field?.relationGroups
+      ? {
+          levels: field.relationGroups.levels.map((level) => ({
+            ...level,
+            displayFieldIds: [...level.displayFieldIds],
+            defaultIds: [...level.defaultIds],
+            layout: level.layout ?? "column",
+            source:
+              level.source.kind === "entity"
+                ? { ...level.source }
+                : { ...level.source },
+          })),
+        }
+      : emptyEntityRelationGroupsConfig(),
     defaultValue: field?.defaultValue ?? null,
     relationFilter: field?.relationFilter ?? null,
     deadline: field?.deadline ?? null,
@@ -179,11 +182,8 @@ export function getFieldTypeSettingsError(
     return "Выберите связь и поле";
   }
   if (type === "relationGroups") {
-    if (!draft.relationGroups.itemEntityId) {
-      return "Выберите сущность строк";
-    }
-    if (!draft.relationGroups.nestedEntityId) {
-      return "Выберите вложенную сущность";
+    if (!isEntityRelationGroupsConfigReady(draft.relationGroups)) {
+      return "Настройте все уровни вложенности";
     }
   }
   return null;

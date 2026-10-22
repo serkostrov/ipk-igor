@@ -66,18 +66,48 @@ export type AutomationAskRelatedField = {
 
 /**
  * How a `relationGroups` field is asked on a task form.
- * Lets one stage pick rows and another fill nested values.
+ * - full — all levels
+ * - items — only level 0 (alias of level:0)
+ * - nested — through level 1 (alias of level:1)
+ * - level:N — through level N
  */
-export type AutomationRelationGroupsAskMode = "full" | "items" | "nested";
+export type AutomationRelationGroupsAskMode =
+  "full" | "items" | "nested" | `level:${number}`;
 
 export const AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS: Record<
-  AutomationRelationGroupsAskMode,
+  "full" | "items" | "nested",
   string
 > = {
   full: "Всё сразу",
   items: "Только строки",
   nested: "Только вложенные",
 };
+
+export function automationRelationGroupsAskModeLabel(
+  mode: AutomationRelationGroupsAskMode,
+): string {
+  if (mode === "full" || mode === "items" || mode === "nested") {
+    return AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS[mode];
+  }
+  const n = Number(mode.slice(6));
+  if (!Number.isFinite(n) || n < 0) return mode;
+  if (n === 0) return AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS.items;
+  if (n === 1) return AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS.nested;
+  return `До уровня ${n + 1}`;
+}
+
+/** Ask modes available for a relationGroups field with `levelCount` levels. */
+export function automationRelationGroupsAskModes(
+  levelCount: number,
+): AutomationRelationGroupsAskMode[] {
+  const count = Math.max(2, levelCount);
+  const modes: AutomationRelationGroupsAskMode[] = ["full", "items"];
+  if (count >= 2) modes.push("nested");
+  for (let i = 2; i < count; i += 1) {
+    modes.push(`level:${i}`);
+  }
+  return modes;
+}
 
 /** Per-field ask presentation overrides (keyed by field id). */
 export type AutomationFieldAskOptions = {
@@ -134,6 +164,12 @@ function normalizeRelationGroupsAskMode(
   value: unknown,
 ): AutomationRelationGroupsAskMode | undefined {
   if (value === "full" || value === "items" || value === "nested") return value;
+  if (typeof value === "string" && value.startsWith("level:")) {
+    const n = Number(value.slice(6));
+    if (Number.isFinite(n) && n >= 0) {
+      return `level:${Math.floor(n)}`;
+    }
+  }
   return undefined;
 }
 

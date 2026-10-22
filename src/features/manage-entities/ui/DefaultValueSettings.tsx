@@ -1,24 +1,16 @@
-import { useMemo } from "react";
 import { Input } from "@/shared/ui/input";
 import { DateRangePicker } from "@/shared/ui/date-range-picker";
 import {
-  buildEntityRelationGroupsValue,
-  getEntityDisplayName,
-  getRelationRecordOptions,
-  ListSelect,
   normalizeEntityDecimalInput,
   parseEntityListValueIds,
   parseEntityPeriod,
-  parseEntityRelationGroups,
   parseEntityRelationIds,
   RelationSelect,
+  ListSelect,
   serializeEntityPeriod,
-  serializeEntityRelationIds,
-  type Entity,
   type EntityFieldDefaultValue,
   type EntityFieldType,
   type EntityListOption,
-  type EntityRelationGroupsConfig,
   type RelationRecordOption,
 } from "@/entities/entity";
 import {
@@ -39,11 +31,6 @@ type DefaultValueSettingsProps = {
   relationMultiple?: boolean;
   /** Target is Users — offer «Текущий пользователь». */
   relationToUsers?: boolean;
-  /** Config for `relationGroups` defaults. */
-  relationGroups?: EntityRelationGroupsConfig | null;
-  /** Persist nested defaults on the field config (shared across rows). */
-  onRelationGroupsChange?: (value: EntityRelationGroupsConfig) => void;
-  entities?: Entity[];
   value: EntityFieldDefaultValue | null;
   onChange: (value: EntityFieldDefaultValue | null) => void;
 };
@@ -74,26 +61,9 @@ export function DefaultValueSettings({
   relationOptions = [],
   relationMultiple = false,
   relationToUsers = false,
-  relationGroups = null,
-  onRelationGroupsChange,
-  entities = [],
   value,
   onChange,
 }: DefaultValueSettingsProps) {
-  const relationGroupsEntities = useMemo(() => {
-    if (!relationGroups?.itemEntityId || !relationGroups.nestedEntityId) {
-      return null;
-    }
-    const itemEntity =
-      entities.find((entity) => entity.id === relationGroups.itemEntityId) ??
-      null;
-    const nestedEntity =
-      entities.find((entity) => entity.id === relationGroups.nestedEntityId) ??
-      null;
-    if (!itemEntity || !nestedEntity) return null;
-    return { itemEntity, nestedEntity };
-  }, [entities, relationGroups]);
-
   if (type === "datetime") {
     return (
       <SettingSelect
@@ -193,80 +163,6 @@ export function DefaultValueSettings({
             Выбрано: {selectedCount}
           </p>
         ) : null}
-      </div>
-    );
-  }
-
-  if (type === "relationGroups" && relationGroups && relationGroupsEntities) {
-    const groupsConfig = relationGroups;
-    const { itemEntity, nestedEntity } = relationGroupsEntities;
-    const itemLabel = getEntityDisplayName(itemEntity);
-    const nestedLabel = getEntityDisplayName(nestedEntity);
-    const itemOptions = getRelationRecordOptions(itemEntity, entities);
-    const nestedOptions = getRelationRecordOptions(nestedEntity, entities);
-    const defaultNestedIds = groupsConfig.defaultNestedIds ?? [];
-    const itemIds = parseEntityRelationGroups(constantOf(value)).map(
-      (group) => group.itemId,
-    );
-
-    function commitItems(nextItemIds: readonly string[]) {
-      onChange(
-        toConstant(
-          buildEntityRelationGroupsValue(nextItemIds, defaultNestedIds),
-        ),
-      );
-    }
-
-    function commitNested(nextNestedIds: readonly string[]) {
-      onRelationGroupsChange?.({
-        ...groupsConfig,
-        defaultNestedIds: [...nextNestedIds],
-      });
-      onChange(
-        toConstant(buildEntityRelationGroupsValue(itemIds, nextNestedIds)),
-      );
-    }
-
-    return (
-      <div className="flex flex-col gap-2">
-        <SettingLabel
-          title={TITLE}
-          description="Строки — в новую запись; вложенные — в каждую строку"
-        />
-        <div className="flex flex-col gap-1.5">
-          <SettingLabel
-            htmlFor="entity-field-default-items"
-            title="Строки"
-            description={`Предзаполнить «${itemLabel}»`}
-          />
-          <RelationSelect
-            id="entity-field-default-items"
-            options={itemOptions}
-            value={serializeEntityRelationIds(itemIds)}
-            multiple
-            placeholder="Не заполнять"
-            aria-label={`Строки по умолчанию: ${itemLabel}`}
-            className={SETTINGS_SELECT_CLASS}
-            onChange={(next) => commitItems(parseEntityRelationIds(next))}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <SettingLabel
-            htmlFor="entity-field-default-nested"
-            title="Вложенные"
-            description={`Подставляются в любую строку «${nestedLabel}»`}
-          />
-          <RelationSelect
-            id="entity-field-default-nested"
-            options={nestedOptions}
-            value={serializeEntityRelationIds(defaultNestedIds)}
-            multiple
-            placeholder="Не заполнять"
-            aria-label={`Вложенные по умолчанию: ${nestedLabel}`}
-            className={SETTINGS_SELECT_CLASS}
-            onChange={(next) => commitNested(parseEntityRelationIds(next))}
-          />
-        </div>
       </div>
     );
   }

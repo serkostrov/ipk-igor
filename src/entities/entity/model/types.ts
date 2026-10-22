@@ -213,36 +213,41 @@ export type EntityDependenciesConfig = {
 export type EntityRelationGroupsLayout = "row" | "column";
 
 /**
- * `relationGroups` field: several primary records, each with its own nested
- * multi-relation (e.g. project stages → departments on a lead).
+ * Where a nesting level gets its candidates from.
+ * - `entity` — catalog of an entity (optional limit via relation on parent)
+ * - `field` — relation / list field on the previous level's entity
+ */
+export type EntityRelationGroupsLevelSource =
+  | {
+      kind: "entity";
+      entityId: string | null;
+      /** Relation field on the previous level's entity that limits candidates. */
+      limitFieldId: string | null;
+    }
+  | {
+      kind: "field";
+      /** Relation or list field id on the previous level's entity. */
+      fieldId: string | null;
+    };
+
+/** One nesting level in a `relationGroups` field (ordered, depth = index). */
+export type EntityRelationGroupsLevel = {
+  id: string;
+  source: EntityRelationGroupsLevelSource;
+  /** Extra fields shown beside the record name (name is always shown). */
+  displayFieldIds: string[];
+  /** Prefill ids when a parent node is added (shared defaults for this level). */
+  defaultIds: string[];
+  /** How siblings at this level are arranged. Default `column`. */
+  layout: EntityRelationGroupsLayout;
+};
+
+/**
+ * `relationGroups` field: ordered nesting levels of records
+ * (e.g. stages → departments → managers). Minimum two levels.
  */
 export type EntityRelationGroupsConfig = {
-  /** Entity of the primary row (e.g. stage catalog). */
-  itemEntityId: string | null;
-  /** Entity of the nested multi-select (e.g. departments). */
-  nestedEntityId: string | null;
-  /**
-   * Optional `relation` field on the item entity that lists allowed nested
-   * records. When set, the nested picker is limited to those ids.
-   */
-  nestedSourceFieldId: string | null;
-  /** Form / value layout. Default `column`. */
-  layout: EntityRelationGroupsLayout;
-  /**
-   * Extra fields of the item entity shown beside the title
-   * (name is always shown).
-   */
-  itemDisplayFieldIds: string[];
-  /**
-   * Extra fields of the nested entity appended to labels
-   * (name is always shown).
-   */
-  nestedDisplayFieldIds: string[];
-  /**
-   * Nested record ids prefilled on every row (new record defaults and
-   * when the user adds a row in the form).
-   */
-  defaultNestedIds: string[];
+  levels: EntityRelationGroupsLevel[];
 };
 
 export type EntityFieldDefaultValue =

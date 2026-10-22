@@ -1393,10 +1393,6 @@ function EntityFieldForm({
       relationToUsers,
       hasListOptions: listDefaultOptions.length > 0,
       hasRelationTarget: Boolean(relationTarget),
-      hasRelationGroupsConfig: Boolean(
-        typeSettings.relationGroups.itemEntityId &&
-        typeSettings.relationGroups.nestedEntityId,
-      ),
     });
   const dependencyScopeOptions = (currentEntity?.fields ?? [])
     .filter(
@@ -1804,6 +1800,10 @@ function EntityFieldForm({
                     onChange={(relationGroups) =>
                       patchTypeSettings({ relationGroups })
                     }
+                    defaultValue={typeSettings.defaultValue}
+                    onDefaultValueChange={(defaultValue) =>
+                      patchTypeSettings({ defaultValue })
+                    }
                   />
                 ) : null}
                 {type === "list" ? (
@@ -1925,15 +1925,6 @@ function EntityFieldForm({
                     relationToUsers={
                       effectiveType === "belonging" ? false : relationToUsers
                     }
-                    relationGroups={
-                      effectiveType === "relationGroups"
-                        ? typeSettings.relationGroups
-                        : null
-                    }
-                    onRelationGroupsChange={(relationGroups) =>
-                      patchTypeSettings({ relationGroups })
-                    }
-                    entities={entities}
                     value={typeSettings.defaultValue}
                     onChange={(defaultValue) =>
                       patchTypeSettings({ defaultValue })
