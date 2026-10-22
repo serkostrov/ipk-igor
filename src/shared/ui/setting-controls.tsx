@@ -22,14 +22,16 @@ export function SettingLabel({
   title: string;
   description?: string;
 }) {
+  const titleClassName = "text-xs font-medium text-muted-foreground";
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <Label
-        htmlFor={htmlFor}
-        className="text-xs font-medium text-muted-foreground"
-      >
-        {title}
-      </Label>
+      {htmlFor ? (
+        <Label htmlFor={htmlFor} className={titleClassName}>
+          {title}
+        </Label>
+      ) : (
+        <span className={titleClassName}>{title}</span>
+      )}
       {description ? (
         <span className="text-[11px] leading-tight text-muted-foreground">
           {description}
@@ -106,7 +108,7 @@ export function SettingSelect({
   return (
     <div className="flex flex-col gap-1.5">
       {title ? (
-        <SettingLabel htmlFor={id} title={title} description={description} />
+        <SettingLabel title={title} description={description} />
       ) : null}
       {options.length === 0 && noOptionsLabel ? (
         <div className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-center text-[11px] leading-snug text-muted-foreground">

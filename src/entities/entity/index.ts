@@ -216,6 +216,8 @@ export {
   formatEntityComputedNumber,
   formatEntityFormulaPreview,
   formatRecordFieldValue,
+  getRelationGroupsDisplayTree,
+  type RelationGroupsDisplayNode,
   getEntityFieldValueKind,
   getEntityFormulaOperands,
   getEntityLinkedRecords,
@@ -419,6 +421,7 @@ export {
 export { DeadlineChip } from "./ui/DeadlineChip";
 export { ProgressValue } from "./ui/ProgressValue";
 export { RecordValue } from "./ui/RecordValue";
+export { RelationGroupsRecordValue } from "./ui/RelationGroupsRecordValue";
 export { ConditionBuilder } from "./ui/ConditionBuilder";
 export { RecordChangeList } from "./ui/RecordChangeList";
 export { RecordMentionText } from "./ui/RecordMentionText";

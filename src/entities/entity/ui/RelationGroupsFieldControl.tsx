@@ -90,19 +90,47 @@ function enrichOptions(
 
 function ItemMeta({ title, extras }: { title: string; extras: string }) {
   return (
-    <span className="min-w-0 flex-1">
-      <span className="block truncate text-sm font-medium" title={title}>
+    <div className="min-w-0 flex-1">
+      <p className="truncate text-sm font-medium leading-snug" title={title}>
         {title}
-      </span>
+      </p>
       {extras ? (
-        <span
-          className="mt-0.5 block truncate text-[11px] leading-tight text-muted-foreground"
+        <p
+          className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground"
           title={extras}
         >
           {extras}
-        </span>
+        </p>
       ) : null}
-    </span>
+    </div>
+  );
+}
+
+function LevelLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] font-medium leading-none text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+function NodesGrid({
+  layout,
+  children,
+}: {
+  layout: "row" | "column";
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        layout === "row"
+          ? "grid grid-cols-1 gap-2 sm:grid-cols-2"
+          : "flex flex-col gap-2",
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -264,106 +292,129 @@ export function RelationGroupsFieldControl({
   ): React.ReactNode {
     if (depth > editableThrough) return null;
     const level = levels[depth];
-    const entity = levelEntityAt(depth);
-    if (!level || !entity) return null;
+    if (!level) return null;
 
     const parentEntity = levelEntityAt(depth - 1);
     const parentId = path[path.length - 1] ?? "";
-    const allowed = allowedIdsFromParent(parentEntity, parentId, level);
-    const selectedIds = node.children.map((child) => child.id);
-    const baseOptions = getRelationRecordOptions(entity, ctx.entities).filter(
-      (option) => (allowed ? allowed.has(option.id) : true),
-    );
-    const options = enrichOptions(
-      ctx,
-      entity,
-      baseOptions,
-      level.displayFieldIds,
-    );
     const parentSourceFieldId =
       level.source.kind === "field" ? level.source.fieldId : null;
     const parentSourceField =
       parentSourceFieldId && parentEntity
         ? parentEntity.fields.find((item) => item.id === parentSourceFieldId)
         : null;
+    const isListSource = parentSourceField?.type === "list";
+    const entity = levelEntityAt(depth);
+    if (!isListSource && !entity) return null;
+
+    const allowed = allowedIdsFromParent(parentEntity, parentId, level);
+    const selectedIds = node.children.map((child) => child.id);
+    const options =
+      entity != null
+        ? enrichOptions(
+            ctx,
+            entity,
+            getRelationRecordOptions(entity, ctx.entities).filter((option) =>
+              allowed ? allowed.has(option.id) : true,
+            ),
+            level.displayFieldIds,
+          )
+        : [];
+
+    const label = isListSource
+      ? getEntityFieldDisplayName(parentSourceField)
+      : entity
+        ? getEntityDisplayName(entity)
+        : "Уровень";
+
+    // Inside root row-columns, nested cards must stack — side-by-side is unreadable.
+    const childLayout =
+      rootLayout === "row"
+        ? "column"
+        : level.layout === "row"
+          ? "row"
+          : "column";
 
     return (
-      <div className="mt-2 flex flex-col gap-2 border-t border-border/40 pt-2">
-        <p className="text-[11px] font-medium text-muted-foreground">
-          {getEntityDisplayName(entity)}
-          {parentSourceField
-            ? ` · ${getEntityFieldDisplayName(parentSourceField)}`
-            : null}
-        </p>
-        {parentSourceField?.type === "list" ? (
-          <ListSelect
-            value={serializeEntityListValueIds(selectedIds)}
-            options={
-              allowed
-                ? parentSourceField.listOptions.filter((option) =>
-                    allowed.has(option.id),
-                  )
-                : parentSourceField.listOptions
-            }
-            multiple
-            onChange={(next) => {
-              const ids = parseEntityListValueIds(next).filter((itemId) =>
-                allowed ? allowed.has(itemId) : true,
-              );
-              setNodeChildren(path, ids);
-            }}
-          />
-        ) : (
-          <RelationSelect
-            id={`${id}-${path.join("-")}`}
-            value={serializeEntityRelationIds(selectedIds)}
-            options={options}
-            multiple
-            placeholder="Выберите…"
-            onChange={(next) => {
-              const ids = parseEntityRelationIds(next).filter((itemId) =>
-                allowed ? allowed.has(itemId) : true,
-              );
-              setNodeChildren(path, ids);
-            }}
-          />
-        )}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
+          <LevelLabel>{label}</LevelLabel>
+          {isListSource && parentSourceField ? (
+            <ListSelect
+              value={serializeEntityListValueIds(selectedIds)}
+              options={
+                allowed
+                  ? parentSourceField.listOptions.filter((option) =>
+                      allowed.has(option.id),
+                    )
+                  : parentSourceField.listOptions
+              }
+              multiple
+              size="sm"
+              showColors={parentSourceField.listUseColors}
+              emptyLabel="Выберите…"
+              className="min-h-8 w-full rounded-md border-input font-normal"
+              onChange={(next) => {
+                const ids = parseEntityListValueIds(next).filter((itemId) =>
+                  allowed ? allowed.has(itemId) : true,
+                );
+                setNodeChildren(path, ids);
+              }}
+            />
+          ) : (
+            <RelationSelect
+              id={`${id}-${path.join("-")}-d${depth}`}
+              value={serializeEntityRelationIds(selectedIds)}
+              options={options}
+              multiple
+              placeholder="Выберите…"
+              className="h-8 min-h-8 bg-background hover:bg-background aria-expanded:bg-background"
+              onChange={(next) => {
+                const ids = parseEntityRelationIds(next).filter((itemId) =>
+                  allowed ? allowed.has(itemId) : true,
+                );
+                setNodeChildren(path, ids);
+              }}
+            />
+          )}
+        </div>
+
         {depth < editableThrough && node.children.length > 0 ? (
-          <div
-            className={cn(
-              "flex gap-2",
-              level.layout === "row" ? "flex-wrap" : "flex-col",
-            )}
-          >
+          <NodesGrid layout={childLayout}>
             {node.children.map((child) => {
-              const title = recordTitle(entity, child.id, ctx);
-              const extras = formatRecordExtras(
-                ctx,
-                entity,
-                child.id,
-                level.displayFieldIds,
-              );
+              const title = isListSource
+                ? (parentSourceField.listOptions.find(
+                    (option) => option.id === child.id,
+                  )?.name ?? child.id)
+                : entity
+                  ? recordTitle(entity, child.id, ctx)
+                  : child.id;
+              const extras =
+                !isListSource && entity
+                  ? formatRecordExtras(
+                      ctx,
+                      entity,
+                      child.id,
+                      level.displayFieldIds,
+                    )
+                  : "";
               return (
                 <div
                   key={child.id}
-                  className={cn(
-                    "rounded-md border border-border/50 bg-background p-2",
-                    level.layout === "row" && "min-w-[12rem] flex-1",
-                  )}
+                  className="flex min-w-0 flex-col gap-2 rounded-md border border-border/60 bg-background/80 p-2.5"
                 >
                   <ItemMeta title={title} extras={extras} />
                   {renderLevel(child, [...path, child.id], depth + 1)}
                 </div>
               );
             })}
-          </div>
+          </NodesGrid>
         ) : null}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex w-full min-w-0 flex-col gap-3">
       {canEditRoot ? (
         <RelationSelect
           id={id}
@@ -371,6 +422,7 @@ export function RelationGroupsFieldControl({
           options={rootOptions.filter((option) => !usedRootIds.has(option.id))}
           multiple={false}
           placeholder={`Добавить «${getEntityDisplayName(rootEntity)}»`}
+          className="h-8 min-h-8 w-full bg-background hover:bg-background aria-expanded:bg-background"
           onChange={(next) => {
             const ids = parseEntityRelationIds(next);
             if (ids.length === 0) return;
@@ -379,58 +431,56 @@ export function RelationGroupsFieldControl({
         />
       ) : null}
 
-      <div
-        className={cn(
-          "flex gap-2",
-          rootLayout === "row" ? "flex-wrap" : "flex-col",
-        )}
-      >
-        {groups.map((node) => {
-          const title = recordTitle(rootEntity, node.id, ctx);
-          const extras = formatRecordExtras(
-            ctx,
-            rootEntity,
-            node.id,
-            rootLevel.displayFieldIds,
-          );
-          return (
-            <div
-              key={node.id}
-              className={cn(
-                "rounded-md border border-border/60 bg-muted/15 p-2.5",
-                rootLayout === "row" && "min-w-[16rem] flex-1",
-              )}
-            >
-              <div className="flex items-start gap-2">
-                <ItemMeta title={title} extras={extras} />
-                {canEditRoot ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-7 shrink-0 text-muted-foreground"
-                    aria-label="Удалить"
-                    onClick={() =>
-                      setRootIds(
-                        groups
-                          .filter((item) => item.id !== node.id)
-                          .map((item) => item.id),
-                      )
-                    }
-                  >
-                    <X className="size-3.5" />
-                  </Button>
-                ) : null}
-              </div>
-              {showDeeper ? renderLevel(node, [node.id], 1) : null}
-            </div>
-          );
-        })}
-      </div>
-
-      {groups.length === 0 ? (
+      {groups.length > 0 ? (
+        <div
+          className={cn(
+            rootLayout === "row"
+              ? "grid grid-cols-1 gap-3 md:grid-cols-[repeat(auto-fit,minmax(15.5rem,1fr))]"
+              : "flex flex-col gap-3",
+          )}
+        >
+          {groups.map((node) => {
+            const title = recordTitle(rootEntity, node.id, ctx);
+            const extras = formatRecordExtras(
+              ctx,
+              rootEntity,
+              node.id,
+              rootLevel.displayFieldIds,
+            );
+            return (
+              <section
+                key={node.id}
+                className="flex min-w-0 flex-col gap-3 rounded-lg border border-border/70 bg-muted/20 p-3"
+              >
+                <header className="flex items-start gap-2">
+                  <ItemMeta title={title} extras={extras} />
+                  {canEditRoot ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Удалить «${title}»`}
+                      onClick={() =>
+                        setRootIds(
+                          groups
+                            .filter((item) => item.id !== node.id)
+                            .map((item) => item.id),
+                        )
+                      }
+                    >
+                      <X className="size-3.5" />
+                    </Button>
+                  ) : null}
+                </header>
+                {showDeeper ? renderLevel(node, [node.id], 1) : null}
+              </section>
+            );
+          })}
+        </div>
+      ) : (
         <p className="text-xs text-muted-foreground">Пока ничего не выбрано</p>
-      ) : null}
+      )}
     </div>
   );
 }

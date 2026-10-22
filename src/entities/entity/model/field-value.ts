@@ -808,6 +808,122 @@ function formatRelationGroupsExtras(
   return parts.join(" · ");
 }
 
+/** Structured node for relationGroups read-only UI. */
+export type RelationGroupsDisplayNode = {
+  id: string;
+  title: string;
+  extras: string;
+  layout: "row" | "column";
+  children: RelationGroupsDisplayNode[];
+};
+
+/** Build a display tree for a relationGroups field value. */
+export function getRelationGroupsDisplayTree(
+  ctx: EntityValueContext,
+  field: EntityField,
+  value: string,
+): RelationGroupsDisplayNode[] {
+  const config = field.relationGroups;
+  const levels = config?.levels ?? [];
+  if (levels.length === 0) return [];
+
+  function resolveLevelEntity(index: number): Entity | undefined {
+    let previous: string | null = null;
+    for (let i = 0; i <= index; i += 1) {
+      const level = levels[i];
+      if (!level) return undefined;
+      let entityId: string | null = null;
+      if (level.source.kind === "entity") {
+        entityId = level.source.entityId;
+      } else if (
+        level.source.kind === "field" &&
+        previous &&
+        level.source.fieldId
+      ) {
+        const fieldId = level.source.fieldId;
+        const host = ctx.entityById.get(previous);
+        const source = host?.fields.find((item) => item.id === fieldId);
+        entityId = source ? getEntityRelationTargetId(source) : null;
+      }
+      if (!entityId) return undefined;
+      if (i === index) return ctx.entityById.get(entityId);
+      previous = entityId;
+    }
+    return undefined;
+  }
+
+  function buildNode(
+    node: EntityRelationGroupNode,
+    depth: number,
+  ): RelationGroupsDisplayNode {
+    const level = levels[depth];
+    const entity = resolveLevelEntity(depth);
+    const previousEntity =
+      depth > 0 ? resolveLevelEntity(depth - 1) : undefined;
+    const sourceFieldId =
+      level?.source.kind === "field" ? level.source.fieldId : null;
+    const sourceField =
+      sourceFieldId && previousEntity
+        ? previousEntity.fields.find((item) => item.id === sourceFieldId)
+        : null;
+
+    let title: string;
+    if (sourceField?.type === "list") {
+      title =
+        sourceField.listOptions.find((item) => item.id === node.id)?.name ??
+        node.id;
+    } else {
+      title =
+        resolveRelationRecordLabel(entity, node.id, ctx.entities) ??
+        "Без названия";
+    }
+    const extras =
+      entity && level && level.displayFieldIds.length > 0
+        ? formatRelationGroupsExtras(
+            ctx,
+            entity,
+            node.id,
+            level.displayFieldIds,
+          )
+        : "";
+    const children =
+      depth >= levels.length - 1
+        ? []
+        : node.children.map((child) => buildNode(child, depth + 1));
+    return {
+      id: node.id,
+      title,
+      extras,
+      layout: level?.layout ?? "column",
+      children,
+    };
+  }
+
+  return parseEntityRelationGroups(value).map((node) => buildNode(node, 0));
+}
+
+function formatRelationGroupsDisplayTree(
+  nodes: readonly RelationGroupsDisplayNode[],
+  depth = 0,
+): string {
+  if (nodes.length === 0) return "";
+  const rootLayout = nodes[0]?.layout ?? "column";
+  const sep = depth === 0 && rootLayout === "column" ? "\n" : "; ";
+  return nodes
+    .map((node) => {
+      const label = node.extras ? `${node.title} · ${node.extras}` : node.title;
+      if (node.children.length === 0) return label;
+      const childText = formatRelationGroupsDisplayTree(
+        node.children,
+        depth + 1,
+      );
+      if (!childText) return label;
+      if (depth === 0) return `${label}: ${childText.replace(/\n/g, ", ")}`;
+      return `${label} → ${childText.replace(/\n/g, ", ")}`;
+    })
+    .join(sep);
+}
+
 /** Display text of any field value (computed types included). */
 export function formatRecordFieldValue(
   ctx: EntityValueContext,
@@ -865,91 +981,13 @@ export function formatRecordFieldValue(
     case "period":
       return formatEntityPeriodDisplay(record.values[field.id]);
     case "relationGroups": {
-      const config = field.relationGroups;
-      const levels = config?.levels ?? [];
-      const sep =
-        (config?.levels[0]?.layout ?? "column") === "column" ? "\n" : "; ";
-
-      function resolveLevelEntityLocal(index: number): Entity | undefined {
-        let previous: string | null = null;
-        for (let i = 0; i <= index; i += 1) {
-          const level = levels[i];
-          if (!level) return undefined;
-          let entityId: string | null = null;
-          if (level.source.kind === "entity") {
-            entityId = level.source.entityId;
-          } else if (
-            level.source.kind === "field" &&
-            previous &&
-            level.source.fieldId
-          ) {
-            const fieldId = level.source.fieldId;
-            const host = ctx.entityById.get(previous);
-            const source = host?.fields.find((item) => item.id === fieldId);
-            entityId = source ? getEntityRelationTargetId(source) : null;
-          }
-          if (!entityId) return undefined;
-          if (i === index) return ctx.entityById.get(entityId);
-          previous = entityId;
-        }
-        return undefined;
-      }
-
-      function formatNode(
-        node: EntityRelationGroupNode,
-        depth: number,
-      ): string {
-        const level = levels[depth];
-        const entity = resolveLevelEntityLocal(depth);
-        const previousEntity =
-          depth > 0 ? resolveLevelEntityLocal(depth - 1) : undefined;
-        const sourceFieldId =
-          level?.source.kind === "field" ? level.source.fieldId : null;
-        const sourceField =
-          sourceFieldId && previousEntity
-            ? previousEntity.fields.find((item) => item.id === sourceFieldId)
-            : null;
-
-        let title: string;
-        if (sourceField?.type === "list") {
-          title =
-            sourceField.listOptions.find((item) => item.id === node.id)?.name ??
-            node.id;
-        } else {
-          title =
-            resolveRelationRecordLabel(entity, node.id, ctx.entities) ??
-            "Без названия";
-        }
-        const extras =
-          entity && level && level.displayFieldIds.length > 0
-            ? formatRelationGroupsExtras(
-                ctx,
-                entity,
-                node.id,
-                level.displayFieldIds,
-              )
-            : "";
-        const label = extras ? `${title} · ${extras}` : title;
-        if (node.children.length === 0 || depth >= levels.length - 1) {
-          return label;
-        }
-        const childLabels = node.children
-          .map((child) => formatNode(child, depth + 1))
-          .filter(Boolean);
-        if (depth === 0) {
-          return childLabels.length > 0
-            ? `${label}: ${childLabels.join(", ")}`
-            : label;
-        }
-        return childLabels.length > 0
-          ? `${label} → ${childLabels.join(", ")}`
-          : label;
-      }
-
-      const parts = parseEntityRelationGroups(record.values[field.id]).map(
-        (node) => formatNode(node, 0),
+      const tree = getRelationGroupsDisplayTree(
+        ctx,
+        field,
+        record.values[field.id] ?? "",
       );
-      return parts.length > 0 ? parts.join(sep) : "—";
+      if (tree.length === 0) return "—";
+      return formatRelationGroupsDisplayTree(tree) || "—";
     }
     default: {
       if (isEntityNameField(field)) {

@@ -193,7 +193,7 @@ function DisplayFieldsPicker({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <SettingLabel htmlFor={id} title={title} description={description} />
+      <SettingLabel title={title} description={description} />
       {fields.length === 0 ? (
         <p className="rounded-md border border-dashed border-border/70 px-2.5 py-2 text-xs text-muted-foreground">
           Нет полей для отображения
@@ -615,7 +615,6 @@ function LevelEditorDialog({
           {canEditDefaults ? (
             <div className="flex flex-col gap-1.5">
               <SettingLabel
-                htmlFor={`entity-field-relation-groups-level-${level.id}-default`}
                 title="По умолчанию"
                 description={defaultDescription}
               />

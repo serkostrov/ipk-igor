@@ -14,6 +14,7 @@ import type {
 } from "../model/types";
 import { DeadlineChip } from "./DeadlineChip";
 import { ProgressValue } from "./ProgressValue";
+import { RelationGroupsRecordValue } from "./RelationGroupsRecordValue";
 
 /**
  * Read-only display of a field value: progress bars, deadline chips and
@@ -36,6 +37,18 @@ export function RecordValue({
     return (
       <ProgressValue
         value={getRecordFieldNumber(ctx, entity, record, field)}
+        className={className}
+      />
+    );
+  }
+
+  if (field.type === "relationGroups") {
+    return (
+      <RelationGroupsRecordValue
+        ctx={ctx}
+        entity={entity}
+        record={record}
+        field={field}
         className={className}
       />
     );
@@ -79,15 +92,10 @@ export function RecordValue({
         getRecordFieldNumber(ctx, entity, record, field),
       )
     : null;
-  const relationGroupsColumn =
-    field.type === "relationGroups" &&
-    (field.relationGroups?.levels[0]?.layout ?? "column") === "column" &&
-    !empty;
   return (
     <span
       className={cn(
-        "block text-sm",
-        relationGroupsColumn ? "whitespace-pre-line break-words" : "truncate",
+        "block truncate text-sm",
         empty ? "text-muted-foreground/70" : (signClass ?? "text-foreground"),
         numeric && "tabular-nums",
         className,
