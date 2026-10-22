@@ -42,6 +42,7 @@ export {
   markNotificationRead,
   reloadNotificationConfig,
   removeNotificationRule,
+  purgeFieldFromNotificationRules,
   saveNotificationRule,
   sendNotification,
   setNotificationToastHandler,

@@ -10,6 +10,7 @@ import {
   upsertAutomationScenario,
   upsertAutomationTemplate,
 } from "../api/automation-config-api";
+import { purgeFieldFromAutomationConfig } from "../lib/purge-field-from-config";
 import {
   emptyAutomationConfig,
   normalizeAutomationTaskTemplate,
@@ -214,4 +215,75 @@ export async function removeNotificationRule(ruleId: string) {
   });
   if (!isSupabaseConfigured) return;
   await deleteAutomationNotificationRule(ruleId);
+}
+
+/**
+ * Drop every reference to a deleted entity field from automation config
+ * and persist changed rows. Safe to call when automation config is not loaded.
+ */
+export async function purgeFieldFromAutomations(
+  entityId: string,
+  fieldId: string,
+): Promise<void> {
+  if (!entityId.trim() || !fieldId.trim()) return;
+  if (status !== "ready" && status !== "error") {
+    // Config may still be loading — apply after init if possible.
+    try {
+      await initAutomationConfig();
+    } catch {
+      return;
+    }
+  }
+
+  const result = purgeFieldFromAutomationConfig(config, entityId, fieldId);
+  const {
+    changedProcessIds,
+    changedScenarioIds,
+    changedTemplateIds,
+    changedRuleIds,
+  } = result;
+  if (
+    changedProcessIds.length === 0 &&
+    changedScenarioIds.length === 0 &&
+    changedTemplateIds.length === 0 &&
+    changedRuleIds.length === 0
+  ) {
+    return;
+  }
+
+  replaceConfig(result.config);
+
+  if (!isSupabaseConfigured) return;
+
+  const processById = new Map(
+    result.config.processes.map((item) => [item.id, item]),
+  );
+  const scenarioById = new Map(
+    result.config.scenarios.map((item) => [item.id, item]),
+  );
+  const templateById = new Map(
+    result.config.templates.map((item) => [item.id, item]),
+  );
+  const ruleById = new Map(
+    result.config.notificationRules.map((item) => [item.id, item]),
+  );
+
+  await Promise.all([
+    ...changedProcessIds.map((id) => {
+      const process = processById.get(id);
+      return process ? upsertAutomationProcess(process) : Promise.resolve();
+    }),
+    ...changedScenarioIds.map((id) => {
+      const scenario = scenarioById.get(id);
+      return scenario ? upsertAutomationScenario(scenario) : Promise.resolve();
+    }),
+    ...changedTemplateIds.map((id) => {
+      const template = templateById.get(id);
+      return template ? upsertAutomationTemplate(template) : Promise.resolve();
+    }),
+    ...changedRuleIds.map((id) => {
+      const rule = ruleById.get(id);
+      return rule ? upsertAutomationNotificationRule(rule) : Promise.resolve();
+    }),
+  ]);
 }

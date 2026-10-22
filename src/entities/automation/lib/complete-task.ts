@@ -288,8 +288,9 @@ export async function completeAutomationTask(
   ];
   const missingRequired = [...new Set(requiredIds)].filter((fieldId) => {
     const field = entity?.fields.find((item) => item.id === fieldId);
+    if (!field) return false;
     const raw = valuesForForm[fieldId] ?? "";
-    if (field?.type === "boolean") return false;
+    if (field.type === "boolean") return false;
     return !raw.trim();
   });
   if (missingRequired.length > 0) {

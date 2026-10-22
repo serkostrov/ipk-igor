@@ -395,13 +395,15 @@ export async function executeAutomationActions(
           break;
         }
         case "requireFields": {
-          const missing = action.fieldIds.filter(
-            (fieldId) => !(ctx.values[fieldId] ?? "").trim(),
+          const entity = ctx.entities.find(
+            (item) => item.id === ctx.triggerEntityId,
           );
+          const missing = action.fieldIds.filter((fieldId) => {
+            const field = entity?.fields.find((item) => item.id === fieldId);
+            if (!field) return false;
+            return !(ctx.values[fieldId] ?? "").trim();
+          });
           if (missing.length > 0) {
-            const entity = ctx.entities.find(
-              (item) => item.id === ctx.triggerEntityId,
-            );
             const labels = missing.map((fieldId) =>
               resolveEntityFieldLabel(entity?.fields ?? [], fieldId),
             );

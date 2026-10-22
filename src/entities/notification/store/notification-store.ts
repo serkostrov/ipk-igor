@@ -13,6 +13,11 @@ import {
   type CreateNotificationInput,
 } from "../api/notifications-api";
 import {
+  scrubAutomationAssignee,
+  scrubAutomationConditions,
+  stripFieldTokensFromText,
+} from "@/entities/automation/lib/purge-field-from-config";
+import {
   emptyNotificationConfig,
   normalizeNotification,
   type Notification,
@@ -139,6 +144,48 @@ export async function removeNotificationRule(ruleId: string) {
   });
   if (!isSupabaseConfigured) return;
   await deleteNotificationRule(ruleId);
+}
+
+/** Drop references to a deleted entity field from notification rules. */
+export async function purgeFieldFromNotificationRules(
+  entityId: string,
+  fieldId: string,
+): Promise<void> {
+  if (!entityId.trim() || !fieldId.trim()) return;
+  if (status !== "ready" && status !== "error") {
+    try {
+      await initNotificationConfig();
+    } catch {
+      return;
+    }
+  }
+
+  const id = fieldId.trim();
+  const changed: NotificationRule[] = [];
+  const rules = config.rules.map((rule) => {
+    if (rule.entityId !== entityId) return rule;
+    const next: NotificationRule = {
+      ...rule,
+      fieldId: rule.fieldId === id ? "" : rule.fieldId,
+      optionId: rule.fieldId === id ? "" : rule.optionId,
+      fromOptionId: rule.fieldId === id ? "" : rule.fromOptionId,
+      toOptionId: rule.fieldId === id ? "" : rule.toOptionId,
+      conditions: scrubAutomationConditions(rule.conditions, id),
+      recipients: scrubAutomationAssignee(rule.recipients, id),
+      titleTemplate: stripFieldTokensFromText(rule.titleTemplate, id),
+      messageTemplate: stripFieldTokensFromText(rule.messageTemplate, id),
+    };
+    if (JSON.stringify(next) !== JSON.stringify(rule)) {
+      changed.push(next);
+      return next;
+    }
+    return rule;
+  });
+
+  if (changed.length === 0) return;
+  replaceConfig({ rules });
+  if (!isSupabaseConfigured) return;
+  await Promise.all(changed.map((rule) => upsertNotificationRule(rule)));
 }
 
 export async function loadNotificationInbox(userIds: string[]) {

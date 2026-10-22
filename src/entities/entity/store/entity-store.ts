@@ -3,7 +3,9 @@ import { parseLocalDatetime, toLocalDatetime } from "@/shared/lib/datetime";
 import { getErrorMessage } from "@/shared/lib/error-message";
 import { formatDateDisplay } from "@/shared/lib/format-date";
 import { withTimeout } from "@/shared/lib/with-timeout";
+import { purgeFieldFromAutomations } from "@/entities/automation/store/automation-store";
 import { syncEntityMenuItems } from "@/entities/menu";
+import { purgeFieldFromNotificationRules } from "@/entities/notification/store/notification-store";
 import {
   fetchEntityConfig,
   saveEntityConfig,
@@ -1117,6 +1119,7 @@ export function updateEntityField(
 }
 
 export function removeEntityField(entityId: string, fieldId: string) {
+  let removed = false;
   mapEntity(entityId, (entity) => {
     const target = entity.fields.find((field) => field.id === fieldId);
     if (target && isSystemEntityField(target)) return entity;
@@ -1124,6 +1127,7 @@ export function removeEntityField(entityId: string, fieldId: string) {
       return entity;
     }
 
+    removed = true;
     const nextFields = entity.fields.filter((field) => field.id !== fieldId);
     const kanbanFieldId =
       entity.kanbanFieldId === fieldId ? null : entity.kanbanFieldId;
@@ -1141,6 +1145,16 @@ export function removeEntityField(entityId: string, fieldId: string) {
         entity.kanbanCardFieldIds,
       ),
     });
+  });
+
+  if (!removed) return;
+
+  // Drop stale field refs so tasks / notifications never ask for a deleted field.
+  void purgeFieldFromAutomations(entityId, fieldId).catch((error) => {
+    console.error("[entity] purge field from automations failed", error);
+  });
+  void purgeFieldFromNotificationRules(entityId, fieldId).catch((error) => {
+    console.error("[entity] purge field from notifications failed", error);
   });
 }
 

@@ -221,6 +221,7 @@ export {
   removeScenario,
   removeTemplate,
   removeNotificationRule,
+  purgeFieldFromAutomations,
   getAutomationConfig,
   getAutomationStatus,
   getAutomationError,

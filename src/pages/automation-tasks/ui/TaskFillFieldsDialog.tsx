@@ -287,7 +287,8 @@ function TaskFillFieldsDialogBody({
   const missingLocalRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {
         const field = entity?.fields.find((item) => item.id === fieldId);
-        if (!field || !entity || !record) return true;
+        if (!field) return false;
+        if (!entity || !record) return true;
         return !isFieldFilled(field, values[fieldId] ?? "", {
           ctx: previewContext,
           entity,
@@ -425,7 +426,8 @@ function TaskFillFieldsDialogBody({
     const outcomeAsk = getAutomationOutcomeAskFields(outcome);
     const missing = outcome.fieldAccess.requiredFieldIds.filter((fieldId) => {
       const field = entity.fields.find((item) => item.id === fieldId);
-      if (!field || !record) return true;
+      if (!field) return false;
+      if (!record) return true;
       return !isFieldFilled(field, values[fieldId] ?? "", {
         ctx: previewContext,
         entity,
