@@ -190,24 +190,30 @@ function relatedMatchesAncestors(
 ) {
   for (const ancestor of ancestors) {
     if (!ancestor.field) continue;
-    const id = getRecordFieldIds(ctx, target, related, ancestor.field)[0] ?? "";
-    if ((id || "__none__") !== (ancestor.valueId || "__none__")) return false;
+    const ids = getRecordFieldIds(ctx, target, related, ancestor.field);
+    const buckets =
+      ids.length === 0
+        ? ["__none__"]
+        : [...new Set(ids.map((id) => id || "__none__"))];
+    const wanted = ancestor.valueId || "__none__";
+    if (!buckets.includes(wanted)) return false;
   }
   return true;
 }
 
-function levelValueId(
+/** All option / relation ids for a nest level (multi-list → several buckets). */
+function levelValueIds(
   ctx: EntityValueContext,
   entity: Entity,
   item: TimelineItem,
   level: NestLevel,
   groupField: EntityField,
   target: Entity | null,
-): string {
+): string[] {
   if (!level.fromRelated) {
-    return getRecordFieldIds(ctx, entity, item.record, level.field)[0] ?? "";
+    return getRecordFieldIds(ctx, entity, item.record, level.field);
   }
-  if (!target) return "";
+  if (!target) return [];
   const related = relatedRowRecord(
     ctx,
     entity,
@@ -215,8 +221,8 @@ function levelValueId(
     groupField,
     target,
   );
-  if (!related) return "";
-  return getRecordFieldIds(ctx, target, related, level.field)[0] ?? "";
+  if (!related) return [];
+  return getRecordFieldIds(ctx, target, related, level.field);
 }
 
 function nestItems(
@@ -268,24 +274,30 @@ function nestItems(
   }
 
   for (const item of items) {
-    const id = levelValueId(ctx, entity, item, level, groupField, target);
-    const bucket = id || "__none__";
-    let group = groups.get(bucket);
-    if (!group) {
-      const meta = describeOption(ctx, level.owner, level.field, id);
-      group = {
-        key: `${path}${level.kind}:${bucket}`,
-        label: meta.label,
-        color: meta.color,
-        kind: level.kind,
-        optionId: bucket,
-        items: [],
-        children: [],
-        depth,
-      };
-      groups.set(bucket, group);
+    const ids = levelValueIds(ctx, entity, item, level, groupField, target);
+    const buckets =
+      ids.length === 0
+        ? ["__none__"]
+        : [...new Set(ids.map((id) => id || "__none__"))];
+    for (const bucket of buckets) {
+      let group = groups.get(bucket);
+      if (!group) {
+        const optionId = bucket === "__none__" ? "" : bucket;
+        const meta = describeOption(ctx, level.owner, level.field, optionId);
+        group = {
+          key: `${path}${level.kind}:${bucket}`,
+          label: meta.label,
+          color: meta.color,
+          kind: level.kind,
+          optionId: bucket,
+          items: [],
+          children: [],
+          depth,
+        };
+        groups.set(bucket, group);
+      }
+      group.items.push(item);
     }
-    group.items.push(item);
   }
 
   const ordered = [...groups.values()].sort((a, b) =>

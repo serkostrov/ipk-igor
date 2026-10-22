@@ -14,6 +14,7 @@ import {
   getRecordFieldNumber,
   resolveEntityListFieldOptions,
   resolveRelationRecordLabel,
+  useEntityConfig,
   useEntityValueContext,
   type Entity,
   type EntityRecord,
@@ -32,6 +33,13 @@ import {
   type TimelineScale,
   type TimelineSegment,
 } from "../lib/timeline-layout";
+import {
+  EntityBrowseFilters,
+  getEntityBrowseFilterFields,
+  recordMatchesFilters,
+  recordMatchesSearch,
+  type EntityFiltersState,
+} from "./EntityBrowseFilters";
 import { TimelineGroupRecordsDialog } from "./TimelineGroupRecordsDialog";
 
 const ROW_HEIGHT = 28;
@@ -111,7 +119,7 @@ function CellValue({
   title?: string;
 }) {
   const className = cn(
-    "flex size-full min-w-0 items-center justify-end border-0 px-1.5 text-right text-[11px] font-normal leading-none tabular-nums outline-none",
+    "flex size-full min-w-0 items-center justify-center border-0 px-1.5 text-center text-[11px] font-normal leading-none tabular-nums outline-none",
     muted && "opacity-90",
     onClick &&
       "cursor-pointer hover:brightness-[0.97] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -158,6 +166,7 @@ export function EntityTimelineView({
   onConfigure?: () => void;
   className?: string;
 }) {
+  const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const setup = useMemo(() => getEntityTimelineSetup(entity), [entity]);
   /** Cluster / split: collapsed when present (default expanded). */
@@ -170,16 +179,41 @@ export function EntityTimelineView({
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const didScrollToToday = useRef(false);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<EntityFiltersState>({});
   const [browse, setBrowse] = useState<{
     recordIds: string[];
     title: string;
     cellLabel: string;
   } | null>(null);
 
+  const filterFields = useMemo(
+    () => getEntityBrowseFilterFields(entity),
+    [entity],
+  );
+
+  const filteredRecords = useMemo(
+    () =>
+      records.filter(
+        (record) =>
+          recordMatchesSearch(valueContext, entity, record, search) &&
+          recordMatchesFilters(
+            valueContext,
+            entity,
+            record,
+            filterFields,
+            filters,
+          ),
+      ),
+    [entity, filterFields, filters, records, search, valueContext],
+  );
+
   const groups = useMemo(
     () =>
-      setup ? buildTimelineGroups(valueContext, entity, setup, records) : [],
-    [entity, records, setup, valueContext],
+      setup
+        ? buildTimelineGroups(valueContext, entity, setup, filteredRecords)
+        : [],
+    [entity, filteredRecords, setup, valueContext],
   );
   const range = useMemo(() => getTimelineRange(groups, scale), [groups, scale]);
   const columns = useMemo(
@@ -386,7 +420,17 @@ export function EntityTimelineView({
   }
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+    <div className={cn("flex min-h-0 flex-1 flex-col gap-3", className)}>
+      <div className="shrink-0">
+        <EntityBrowseFilters
+          fields={filterFields}
+          entities={entities}
+          search={search}
+          onSearchChange={setSearch}
+          filters={filters}
+          onFiltersChange={setFilters}
+        />
+      </div>
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs"
@@ -400,7 +444,7 @@ export function EntityTimelineView({
             style={{ height: headerHeight }}
           >
             <div
-              className="sticky left-0 z-30 flex shrink-0 items-end border-r border-border bg-card px-3 pb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]"
+              className="sticky left-0 z-30 flex h-full shrink-0 items-center border-r border-border bg-card px-3 text-[11px] font-semibold leading-none tracking-wide text-muted-foreground uppercase shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]"
               style={{ width: LIST_WIDTH }}
             >
               Записи
@@ -532,7 +576,7 @@ export function EntityTimelineView({
                       ) : (
                         <span className="size-3.5 shrink-0" aria-hidden />
                       )}
-                      <span className="min-w-0 flex-1 truncate">
+                      <span className="min-w-0 flex-1 truncate leading-none">
                         {row.label}
                       </span>
                     </button>
@@ -616,7 +660,7 @@ export function EntityTimelineView({
                     title={title}
                     onClick={() => onOpenRecord?.(record)}
                   >
-                    <span className="truncate">{title}</span>
+                    <span className="truncate leading-none">{title}</span>
                   </button>
                   <div
                     className="flex h-full shrink-0"
