@@ -12,6 +12,7 @@ import {
   inviteSystemUser,
   isEntityBrowseView,
   isEntityInternal,
+  hasEntityPageLayout,
   resolveEntityDefaultView,
   resolveEntityTableParentField,
   useEntityConfig,
@@ -43,6 +44,7 @@ import {
   EntityTableView,
   TableSettingsButton,
 } from "./EntityTableView";
+import { EntityBoardView } from "./EntityBoardView";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { EntityTimelineView, TimelineScaleTabs } from "./EntityTimelineView";
 import { HiddenRecordsBar } from "./HiddenRecordsBar";
@@ -310,24 +312,26 @@ export function EntityPage({
 
   function renderView(view: EntityBrowseView) {
     if (view === "table") {
-      return (
-        <EntityTableView
-          entity={currentEntity}
-          records={scope.records}
-          title={title}
-          onEditRecord={canOpenRecord ? editRecordLocal : undefined}
-          onOpenRecord={canOpenRecord ? openRecordLocal : undefined}
-          onOpenRelation={onOpenRelation}
-          onCreateChildRecord={
-            canCreateRecord && tableParentField
-              ? (groupValue) => {
-                  setEditingRecord(null);
-                  setCreateHierarchyGroupId(groupValue);
-                  setCreateOpen(true);
-                }
-              : undefined
-          }
-        />
+      const tableProps = {
+        entity: currentEntity,
+        records: scope.records,
+        title,
+        onEditRecord: canOpenRecord ? editRecordLocal : undefined,
+        onOpenRecord: canOpenRecord ? openRecordLocal : undefined,
+        onOpenRelation,
+        onCreateChildRecord:
+          canCreateRecord && tableParentField
+            ? (groupValue: string) => {
+                setEditingRecord(null);
+                setCreateHierarchyGroupId(groupValue);
+                setCreateOpen(true);
+              }
+            : undefined,
+      };
+      return hasEntityPageLayout(currentEntity) ? (
+        <EntityBoardView {...tableProps} />
+      ) : (
+        <EntityTableView {...tableProps} />
       );
     }
     if (view === "timeline") {

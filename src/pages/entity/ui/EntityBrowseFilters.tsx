@@ -40,13 +40,11 @@ import {
   formatDatetimeDisplay,
 } from "@/shared/lib/format-date";
 
-
 /** Fields shown in the browse filter bar (`showInFilters`, excluding name). */
+// eslint-disable-next-line react-refresh/only-export-components -- shared browse helpers
 export function getEntityBrowseFilterFields(entity: Entity): EntityField[] {
   return entity.fields.filter(
-    (field) =>
-      field.showInFilters !== false &&
-      !isEntityNameField(field),
+    (field) => field.showInFilters !== false && !isEntityNameField(field),
   );
 }
 
@@ -90,6 +88,7 @@ function fieldSearchText(
   return display === "—" ? "" : display;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- shared browse helpers
 export function recordMatchesSearch(
   ctx: EntityValueContext,
   entity: Entity,
@@ -111,6 +110,7 @@ function extractDatePart(value: string) {
   return match?.[1] ?? "";
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- shared browse helpers
 export function isEntityFilterActive(filter: EntityFieldFilter | undefined) {
   if (!filter) return false;
   if (filter.kind === "text") return filter.query.trim().length > 0;
@@ -119,6 +119,7 @@ export function isEntityFilterActive(filter: EntityFieldFilter | undefined) {
   return filter.from.trim().length > 0 || filter.to.trim().length > 0;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- shared browse helpers
 export function recordMatchesFilters(
   ctx: EntityValueContext,
   entity: Entity,
@@ -302,6 +303,9 @@ export function EntityBrowseFilters({
   onSearchChange,
   filters,
   onFiltersChange,
+  compact = false,
+  layout = "bar",
+  searchId = "entity-browse-search",
 }: {
   fields: EntityField[];
   entities?: Entity[];
@@ -309,7 +313,13 @@ export function EntityBrowseFilters({
   onSearchChange: (value: string) => void;
   filters: EntityFiltersState;
   onFiltersChange: (next: EntityFiltersState) => void;
+  /** Dense layout for narrow dialogs. */
+  compact?: boolean;
+  /** `sidebar` — vertical stack for a filters panel. */
+  layout?: "bar" | "sidebar";
+  searchId?: string;
 }) {
+  const isSidebar = layout === "sidebar";
   const hasActive =
     search.trim().length > 0 ||
     fields.some((field) => isEntityFilterActive(filters[field.id]));
@@ -330,14 +340,28 @@ export function EntityBrowseFilters({
   }
 
   return (
-    <div className="grid grid-cols-2 items-center gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-      <div className="relative col-span-2 h-8">
+    <div
+      className={cn(
+        "grid items-center gap-2",
+        isSidebar
+          ? "grid-cols-1"
+          : compact
+            ? "grid-cols-1 sm:grid-cols-2"
+            : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6",
+      )}
+    >
+      <div
+        className={cn(
+          "relative h-8",
+          isSidebar || compact ? "col-span-full" : "col-span-2",
+        )}
+      >
         <Search
           className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
           aria-hidden
         />
         <Input
-          id="entity-browse-search"
+          id={searchId}
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Поиск"
@@ -357,7 +381,11 @@ export function EntityBrowseFilters({
               ? current.value
               : ENTITY_FILTER_ALL_OPTION;
           const display =
-            value === ENTITY_FILTER_ALL_OPTION ? "все" : value === "true" ? "Да" : "Нет";
+            value === ENTITY_FILTER_ALL_OPTION
+              ? "все"
+              : value === "true"
+                ? "Да"
+                : "Нет";
           return (
             <Select
               key={field.id}
@@ -647,4 +675,3 @@ export function EntityBrowseFilters({
     </div>
   );
 }
-

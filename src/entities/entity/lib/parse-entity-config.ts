@@ -28,6 +28,7 @@ import type {
   EntityView,
 } from "../model/types";
 import { ENTITY_ROLLUP_AGGREGATIONS, isEntityBrowseView } from "../model/types";
+import { normalizeEntityPageLayout } from "../model/page-layout";
 import {
   ENTITY_OVERVIEW_TAB_ID,
   ensureEntityFieldGroups,
@@ -899,6 +900,9 @@ export function normalizeEntity(
     ),
     timeTracking: normalizeEntityTimeTracking(entity.timeTracking),
     timeline: normalizeEntityTimeline(entity.timeline),
+    pageLayout: normalizeEntityPageLayout(
+      (entity as { pageLayout?: unknown }).pageLayout,
+    ),
     records: (entity.records ?? []).map((record) =>
       normalizeEntityRecord(record),
     ),
@@ -939,6 +943,7 @@ export function toEntityStructure(entity: Entity) {
     recordsDisplay: normalizeEntityRecordsDisplay(entity.recordsDisplay),
     timeTracking: normalizeEntityTimeTracking(entity.timeTracking),
     timeline: normalizeEntityTimeline(entity.timeline),
+    pageLayout: normalizeEntityPageLayout(entity.pageLayout),
   };
 }
 
@@ -1033,6 +1038,7 @@ export function parseEntityConfig(value: unknown): EntityConfig {
         recordsDisplay: normalizeEntityRecordsDisplay(item.recordsDisplay),
         timeTracking: normalizeEntityTimeTracking(item.timeTracking),
         timeline: normalizeEntityTimeline(item.timeline),
+        pageLayout: normalizeEntityPageLayout(item.pageLayout),
         records: [],
       }),
     );

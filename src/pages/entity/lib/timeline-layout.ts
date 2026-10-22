@@ -544,9 +544,7 @@ function alignTimelineRangeStart(day: number, scale: TimelineScale) {
   if (scale === "month") {
     const iso = fromDayNumber(day);
     const [year, month] = iso.split("-").map(Number);
-    return toDayNumber(
-      `${year}-${String(month).padStart(2, "0")}-01`,
-    )!;
+    return toDayNumber(`${year}-${String(month).padStart(2, "0")}-01`)!;
   }
   let start = day;
   // 1970-01-01 was a Thursday: (day + 3) % 7 === 0 on Mondays.

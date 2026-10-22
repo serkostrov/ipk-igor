@@ -100,6 +100,7 @@ import type {
   EntityRecord,
   EntityRecordColumns,
   EntityRecordsDisplay,
+  EntityPageLayout,
   EntityTab,
   EntityTimelineConfig,
   EntityTimeTracking,
@@ -776,6 +777,7 @@ export function addEntity(data: {
     recordsDisplay: "cards",
     timeTracking: null,
     timeline: null,
+    pageLayout: null,
     records: [],
   });
 
@@ -1423,6 +1425,7 @@ export function addEntityTabWithLinkedEntity(
     recordsDisplay,
     timeTracking: null,
     timeline: null,
+    pageLayout: null,
     records: [],
   });
 
@@ -2891,6 +2894,16 @@ export function setEntityTimeline(
   timeline: EntityTimelineConfig | null,
 ) {
   mapEntity(entityId, (entity) => ({ ...entity, timeline }));
+  if (!schemaEditSession) {
+    flushStructureToRemote(true);
+  }
+}
+
+export function setEntityPageLayout(
+  entityId: string,
+  pageLayout: EntityPageLayout | null,
+) {
+  mapEntity(entityId, (entity) => ({ ...entity, pageLayout }));
   if (!schemaEditSession) {
     flushStructureToRemote(true);
   }

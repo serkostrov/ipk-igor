@@ -269,6 +269,7 @@ export function createSystemUsersEntity(): Entity {
     recordsDisplay: "cards",
     timeTracking: null,
     timeline: null,
+    pageLayout: null,
     records: [],
   };
 }

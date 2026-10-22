@@ -94,6 +94,7 @@ import {
 } from "@/entities/entity";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { pluralRu } from "@/shared/lib/plural";
+import { EntityPageLayoutSettingsDialog } from "@/features/manage-entities";
 import { SettingSelect, SettingSwitch } from "@/shared/ui/setting-controls";
 import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import {
@@ -335,9 +336,11 @@ function HierarchyTreeGuides({
 function TableSettingsForm({
   entity,
   onClose,
+  onOpenPageLayout,
 }: {
   entity: Entity;
   onClose: () => void;
+  onOpenPageLayout: () => void;
 }) {
   const [massSelection, setMassSelection] = useState(
     entity.tableMassSelection === true,
@@ -378,6 +381,23 @@ function TableSettingsForm({
           noOptionsLabel="Нужен список, связь или принадлежность."
           onChange={setParentFieldId}
         />
+        <div className="flex flex-col gap-1.5 rounded-lg border border-border/70 bg-muted/15 p-3">
+          <p className="text-xs font-medium text-muted-foreground">
+            Макет страницы
+          </p>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Обычная таблица или сводка с фильтрами над списком записей.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-1 self-start"
+            onClick={onOpenPageLayout}
+          >
+            Настроить…
+          </Button>
+        </div>
       </div>
 
       <DialogFooter>
@@ -410,6 +430,7 @@ export function TableSettingsButton({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [pageLayoutOpen, setPageLayoutOpen] = useState(false);
 
   return (
     <>
@@ -435,10 +456,20 @@ export function TableSettingsButton({
               key={entity.id}
               entity={entity}
               onClose={() => setOpen(false)}
+              onOpenPageLayout={() => {
+                setOpen(false);
+                setPageLayoutOpen(true);
+              }}
             />
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <EntityPageLayoutSettingsDialog
+        open={pageLayoutOpen}
+        onOpenChange={setPageLayoutOpen}
+        entity={entity}
+      />
     </>
   );
 }
@@ -455,6 +486,8 @@ type EntityTableViewProps = {
   onOpenRelation?: (entityId: string, recordId: string) => void;
   /** Create a record under this hierarchy group (list option id). */
   onCreateChildRecord?: (groupValue: string) => void;
+  /** Hide the filter bar (filters applied upstream, e.g. board layout). */
+  hideFilters?: boolean;
 };
 
 function SortIcon({
@@ -506,6 +539,7 @@ export function EntityTableView({
   onOpenRecord,
   onOpenRelation,
   onCreateChildRecord,
+  hideFilters = false,
 }: EntityTableViewProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
@@ -923,16 +957,18 @@ export function EntityTableView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="shrink-0">
-        <EntityBrowseFilters
-          fields={filterFields}
-          entities={entities}
-          search={search}
-          onSearchChange={setSearch}
-          filters={filters}
-          onFiltersChange={setFilters}
-        />
-      </div>
+      {hideFilters ? null : (
+        <div className="shrink-0">
+          <EntityBrowseFilters
+            fields={filterFields}
+            entities={entities}
+            search={search}
+            onSearchChange={setSearch}
+            filters={filters}
+            onFiltersChange={setFilters}
+          />
+        </div>
+      )}
 
       {massSelection && selectedCount > 0 ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/40 px-3 py-2">

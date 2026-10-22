@@ -27,6 +27,13 @@ export type {
   EntityRecordsDisplay,
   EntityTab,
   EntityTabDefaultFolder,
+  EntityPageAggregatePanel,
+  EntityPageFiltersPanel,
+  EntityPageLayout,
+  EntityPagePanel,
+  EntityPagePanelType,
+  EntityPageRecordsPanel,
+  EntityPageRow,
   EntityTimelineConfig,
   EntityTimeTracking,
   EntityTabFileEntry,
@@ -385,6 +392,15 @@ export {
   type EntityTableHierarchyRecordRow,
   type EntityTableHierarchyRow,
 } from "./model/table-hierarchy";
+export {
+  buildEntityAggregateRows,
+  createSummaryBoardLayout,
+  getEntityPagePanel,
+  hasEntityPageLayout,
+  normalizeEntityPageLayout,
+  type EntityAggregateGroupKey,
+  type EntityAggregateRow,
+} from "./model/page-layout";
 export { DeadlineChip } from "./ui/DeadlineChip";
 export { ProgressValue } from "./ui/ProgressValue";
 export { RecordValue } from "./ui/RecordValue";
@@ -477,6 +493,7 @@ export {
   isEntitySchemaEditDirty,
   setEntityTimeTracking,
   setEntityTimeline,
+  setEntityPageLayout,
   rescheduleEntityRecord,
   addManualTimeEntries,
   startRecordTimer,

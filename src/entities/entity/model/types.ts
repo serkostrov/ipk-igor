@@ -67,6 +67,50 @@ export function isEntityBrowseView(value: unknown): value is EntityBrowseView {
   return value === "table" || value === "kanban" || value === "timeline";
 }
 
+/** Browse table tab: composable panels (aggregate / filters / records). */
+export type EntityPagePanelType = "records" | "aggregate" | "filters";
+
+export type EntityPageRecordsPanel = {
+  id: string;
+  type: "records";
+  title: string | null;
+};
+
+export type EntityPageAggregatePanel = {
+  id: string;
+  type: "aggregate";
+  title: string | null;
+  /** List / relation fields — group keys (order = column order). */
+  groupFieldIds: string[];
+  /** Number fields to sum. */
+  valueFieldIds: string[];
+  showRecordCount: boolean;
+};
+
+export type EntityPageFiltersPanel = {
+  id: string;
+  type: "filters";
+  title: string | null;
+  /** `null` — all fields with showInFilters. */
+  fieldIds: string[] | null;
+  placement: "inline" | "sidebar";
+};
+
+export type EntityPagePanel =
+  EntityPageRecordsPanel | EntityPageAggregatePanel | EntityPageFiltersPanel;
+
+export type EntityPageRow = {
+  id: string;
+  /** CSS grid fractions, e.g. `[2, 1]`. */
+  columns: number[];
+  panelIds: string[];
+};
+
+export type EntityPageLayout = {
+  rows: EntityPageRow[];
+  panels: EntityPagePanel[];
+};
+
 /** «График»: bars from start to end, grouped and linked by dependencies. */
 export type EntityTimelineConfig = {
   startFieldId: string;
@@ -574,6 +618,11 @@ export type Entity = {
   recordsDisplay: EntityRecordsDisplay;
   timeTracking: EntityTimeTracking | null;
   timeline: EntityTimelineConfig | null;
+  /**
+   * Table-tab board: aggregate / filters / records panels.
+   * `null` or empty — classic single table view.
+   */
+  pageLayout: EntityPageLayout | null;
   records: EntityRecord[];
 };
 

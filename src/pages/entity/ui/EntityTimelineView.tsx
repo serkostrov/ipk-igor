@@ -174,9 +174,7 @@ export function EntityTimelineView({
     () => new Set<string>(),
   );
   /** Belonging / nested «Строки»: expanded when present (default collapsed). */
-  const [expandedRowIds, setExpandedRowIds] = useState(
-    () => new Set<string>(),
-  );
+  const [expandedRowIds, setExpandedRowIds] = useState(() => new Set<string>());
   const scrollRef = useRef<HTMLDivElement>(null);
   const didScrollToToday = useRef(false);
   const [search, setSearch] = useState("");
@@ -235,8 +233,7 @@ export function EntityTimelineView({
     if (!root) return;
     const todayIndex = columns.findIndex(
       (column) =>
-        range.today >= column.start &&
-        range.today < column.start + column.days,
+        range.today >= column.start && range.today < column.start + column.days,
     );
     if (todayIndex < 0) return;
     const target =
@@ -246,15 +243,6 @@ export function EntityTimelineView({
     root.scrollLeft = Math.max(0, target);
     didScrollToToday.current = true;
   }, [columns, range.today]);
-
-  const browseRecords = useMemo(() => {
-    if (!browse) return [];
-    const byId = new Map(entity.records.map((record) => [record.id, record]));
-    return browse.recordIds.flatMap((id) => {
-      const record = byId.get(id);
-      return record ? [record] : [];
-    });
-  }, [browse, entity.records]);
 
   if (!setup) {
     return (
@@ -435,10 +423,7 @@ export function EntityTimelineView({
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs"
       >
-        <div
-          className="relative"
-          style={{ width: LIST_WIDTH + chartWidth }}
-        >
+        <div className="relative" style={{ width: LIST_WIDTH + chartWidth }}>
           <div
             className="sticky top-0 z-20 flex border-b border-border bg-card"
             style={{ height: headerHeight }}
@@ -698,12 +683,12 @@ export function EntityTimelineView({
         </div>
       </div>
       <TimelineGroupRecordsDialog
-        open={browse != null && browseRecords.length > 0}
+        open={browse != null && (browse.recordIds.length ?? 0) > 0}
         onOpenChange={(open) => {
           if (!open) setBrowse(null);
         }}
         entity={entity}
-        records={browseRecords}
+        recordIds={browse?.recordIds ?? []}
         groupLabel={browse?.title ?? ""}
         cellLabel={browse?.cellLabel}
       />
