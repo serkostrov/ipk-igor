@@ -107,9 +107,7 @@ export function SettingSelect({
 
   return (
     <div className="flex flex-col gap-1.5">
-      {title ? (
-        <SettingLabel title={title} description={description} />
-      ) : null}
+      {title ? <SettingLabel title={title} description={description} /> : null}
       {options.length === 0 && noOptionsLabel ? (
         <div className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-center text-[11px] leading-snug text-muted-foreground">
           {noOptionsLabel}

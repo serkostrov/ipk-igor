@@ -1,6 +1,6 @@
 /**
  * Relation-groups config + value helpers.
- * Value is a tree of nodes; config is an ordered list of levels (min 2).
+ * Exactly two levels: «Строки» (roots) and «Вложенные» (children).
  */
 
 import type {
@@ -10,6 +10,9 @@ import type {
   EntityRelationGroupsLevelSource,
 } from "./types";
 
+/** Max nesting depth for relationGroups (0 = roots, 1 = nested). */
+export const RELATION_GROUPS_MAX_DEPTH = 1;
+
 export type EntityRelationGroupNode = {
   id: string;
   children: EntityRelationGroupNode[];
@@ -17,13 +20,11 @@ export type EntityRelationGroupNode = {
 
 /**
  * Ask / form presentation:
- * - `full` — all configured levels
- * - `items` — only level 0 (legacy alias)
- * - `nested` — through level 1 (legacy alias)
- * - `level:N` — through level N (0-based)
+ * - `full` — both levels
+ * - `items` — only roots («Строки»)
+ * - `nested` — roots + nested («Вложенные»)
  */
-export type EntityRelationGroupsMode =
-  "full" | "items" | "nested" | `level:${number}`;
+export type EntityRelationGroupsMode = "full" | "items" | "nested";
 
 /** @deprecated Prefer EntityRelationGroupNode — kept for gradual migration. */
 export type EntityRelationGroupItem = {
@@ -136,11 +137,33 @@ function normalizeLevel(
   };
 }
 
+function ensureTwoLevels(
+  levels: EntityRelationGroupsLevel[],
+): EntityRelationGroupsLevel[] {
+  const next = levels.slice(0, 2);
+  while (next.length < 2) {
+    next.push(
+      createEntityRelationGroupsLevel({
+        kind: "entity",
+        entityId: null,
+        limitFieldId: null,
+      }),
+    );
+  }
+  // First level must be an entity catalog.
+  if (next[0]!.source.kind !== "entity") {
+    next[0] = {
+      ...next[0]!,
+      source: { kind: "entity", entityId: null, limitFieldId: null },
+    };
+  }
+  return next;
+}
+
 /**
  * Normalize config from storage. Accepts:
- * - new `{ levels, layout }`
+ * - `{ levels }` (extra levels beyond 2 are dropped)
  * - legacy `{ itemEntityId, nestedEntityId, … }`
- * - WIP 3-level `{ childKind, childEntityId, … }`
  */
 export function normalizeEntityRelationGroupsConfig(
   value: unknown,
@@ -157,84 +180,49 @@ export function normalizeEntityRelationGroupsConfig(
     const levels = raw.levels
       .map((item, index) => normalizeLevel(item, index, legacyLayout))
       .filter((item): item is EntityRelationGroupsLevel => item != null);
-    while (levels.length < 2) {
-      levels.push(
-        createEntityRelationGroupsLevel({
-          kind: "entity",
-          entityId: null,
-          limitFieldId: null,
-        }),
-      );
-    }
-    // First level must be entity catalog.
-    if (levels[0].source.kind !== "entity") {
-      levels[0] = {
-        ...levels[0],
-        source: { kind: "entity", entityId: null, limitFieldId: null },
-      };
-    }
-    return { levels };
+    return { levels: ensureTwoLevels(levels) };
   }
 
-  // Legacy 2-level (+ optional WIP 3rd).
+  // Legacy flat 2-level shape.
   const itemEntityId = normalizeId(raw.itemEntityId);
   const nestedEntityId = normalizeId(raw.nestedEntityId);
   const nestedSourceFieldId = normalizeId(raw.nestedSourceFieldId);
-  const levels: EntityRelationGroupsLevel[] = [
-    {
-      id: normalizeId(raw.itemLevelId) ?? "rgl-item",
-      source: {
-        kind: "entity",
-        entityId: itemEntityId,
-        limitFieldId: null,
-      },
-      displayFieldIds: normalizeIdList(raw.itemDisplayFieldIds),
-      defaultIds: normalizeIdList(raw.defaultItemIds),
-      layout: legacyLayout,
-    },
-    {
-      id: normalizeId(raw.nestedLevelId) ?? "rgl-nested",
-      source: {
-        kind: "entity",
-        entityId: nestedEntityId,
-        limitFieldId: nestedSourceFieldId,
-      },
-      displayFieldIds: normalizeIdList(raw.nestedDisplayFieldIds),
-      defaultIds: normalizeIdList(raw.defaultNestedIds),
-      layout: legacyLayout,
-    },
-  ];
+  const nestedFieldId = normalizeId(raw.nestedFieldId);
+  const nestedKind =
+    raw.nestedKind === "field" || nestedFieldId ? "field" : "entity";
 
-  const childKind =
-    raw.childKind === "entity" || raw.childKind === "field"
-      ? raw.childKind
-      : "none";
-  if (childKind === "entity") {
-    levels.push({
-      id: normalizeId(raw.childLevelId) ?? "rgl-child",
-      source: {
-        kind: "entity",
-        entityId: normalizeId(raw.childEntityId),
-        limitFieldId: normalizeId(raw.childSourceFieldId),
+  return {
+    levels: ensureTwoLevels([
+      {
+        id: normalizeId(raw.itemLevelId) ?? "rgl-item",
+        source: {
+          kind: "entity",
+          entityId: itemEntityId,
+          limitFieldId: null,
+        },
+        displayFieldIds: normalizeIdList(raw.itemDisplayFieldIds),
+        defaultIds: normalizeIdList(raw.defaultItemIds),
+        layout: legacyLayout,
       },
-      displayFieldIds: normalizeIdList(raw.childDisplayFieldIds),
-      defaultIds: normalizeIdList(raw.defaultChildIds),
-      layout: legacyLayout,
-    });
-  } else if (childKind === "field") {
-    levels.push({
-      id: normalizeId(raw.childLevelId) ?? "rgl-child",
-      source: {
-        kind: "field",
-        fieldId: normalizeId(raw.childSourceFieldId),
+      {
+        id: normalizeId(raw.nestedLevelId) ?? "rgl-nested",
+        source:
+          nestedKind === "field"
+            ? {
+                kind: "field",
+                fieldId: nestedFieldId ?? nestedSourceFieldId,
+              }
+            : {
+                kind: "entity",
+                entityId: nestedEntityId,
+                limitFieldId: nestedSourceFieldId,
+              },
+        displayFieldIds: normalizeIdList(raw.nestedDisplayFieldIds),
+        defaultIds: normalizeIdList(raw.defaultNestedIds),
+        layout: legacyLayout,
       },
-      displayFieldIds: normalizeIdList(raw.childDisplayFieldIds),
-      defaultIds: normalizeIdList(raw.defaultChildIds),
-      layout: legacyLayout,
-    });
-  }
-
-  return { levels };
+    ]),
+  };
 }
 
 /** Whether every level has a usable source (for field dialog validation). */
@@ -322,6 +310,19 @@ function parseNode(raw: unknown): EntityRelationGroupNode | null {
   return { id: itemId, children };
 }
 
+/** Keep only roots + one nested level (drop deeper grandchildren). */
+function clampRelationGroupsDepth(
+  nodes: readonly EntityRelationGroupNode[],
+): EntityRelationGroupNode[] {
+  return nodes.map((node) => ({
+    id: node.id,
+    children: node.children.map((child) => ({
+      id: child.id,
+      children: [],
+    })),
+  }));
+}
+
 export function parseEntityRelationGroups(
   value: string | undefined,
 ): EntityRelationGroupNode[] {
@@ -338,7 +339,7 @@ export function parseEntityRelationGroups(
       seen.add(node.id);
       result.push(node);
     }
-    return result;
+    return clampRelationGroupsDepth(result);
   } catch {
     return [];
   }
@@ -452,31 +453,24 @@ export function withEntityRelationGroupsDefaultNested(
   defaultNestedIds: readonly string[] | undefined,
   defaultChildIds: readonly string[] | undefined = undefined,
 ): string {
-  if (
-    (!defaultNestedIds || defaultNestedIds.length === 0) &&
-    (!defaultChildIds || defaultChildIds.length === 0)
-  ) {
+  void defaultChildIds;
+  if (!defaultNestedIds || defaultNestedIds.length === 0) {
     return value;
   }
-  const levels = [
-    createEntityRelationGroupsLevel(),
-    {
-      ...createEntityRelationGroupsLevel(),
-      defaultIds: [...(defaultNestedIds ?? [])],
-    },
-  ];
-  if (defaultChildIds && defaultChildIds.length > 0) {
-    levels.push({
-      ...createEntityRelationGroupsLevel(),
-      defaultIds: [...defaultChildIds],
-    });
-  }
-  return withEntityRelationGroupsDefaults(value, { levels });
+  return withEntityRelationGroupsDefaults(value, {
+    levels: [
+      createEntityRelationGroupsLevel(),
+      {
+        ...createEntityRelationGroupsLevel(),
+        defaultIds: [...defaultNestedIds],
+      },
+    ],
+  });
 }
 
 /**
  * Max level index that must be filled for `mode`.
- * `null` means all configured levels (`full`).
+ * `null` means both levels (`full`).
  */
 export function resolveRelationGroupsModeDepth(
   mode: EntityRelationGroupsMode,
@@ -484,10 +478,6 @@ export function resolveRelationGroupsModeDepth(
   if (mode === "full") return null;
   if (mode === "items") return 0;
   if (mode === "nested") return 1;
-  if (mode.startsWith("level:")) {
-    const n = Number(mode.slice(6));
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
-  }
   return null;
 }
 

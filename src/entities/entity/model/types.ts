@@ -243,8 +243,8 @@ export type EntityRelationGroupsLevel = {
 };
 
 /**
- * `relationGroups` field: ordered nesting levels of records
- * (e.g. stages → departments → managers). Minimum two levels.
+ * `relationGroups` field: exactly two nesting levels —
+ * «Строки» (index 0) and «Вложенные» (index 1).
  */
 export type EntityRelationGroupsConfig = {
   levels: EntityRelationGroupsLevel[];

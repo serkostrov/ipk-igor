@@ -56,10 +56,7 @@ function DialogContent({
 }) {
   return (
     <DialogPortal>
-      <DialogOverlay
-        forceRender={forceOverlay}
-        className={overlayClassName}
-      />
+      <DialogOverlay forceRender={forceOverlay} className={overlayClassName} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(

@@ -1,15 +1,8 @@
-import { useMemo, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Plus,
-  Trash2,
-  X,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
 import {
   buildEntityRelationGroupsValue,
-  createEntityRelationGroupsLevel,
+  emptyEntityRelationGroupsConfig,
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityFieldTypeLabel,
@@ -112,15 +105,20 @@ function isLevelSourceReady(
 }
 
 function levelTitle(index: number) {
-  if (index === 0) return "Строки";
-  if (index === 1) return "Вложенные";
-  return `Уровень ${index + 1}`;
+  return index === 0 ? "Строки" : "Вложенные";
 }
 
 function levelDescription(index: number) {
   return index === 0
     ? "Что выбирают в первую очередь"
-    : "Мультивыбор внутри каждого родителя";
+    : "Мультивыбор внутри каждой строки";
+}
+
+function twoLevels(
+  levels: readonly EntityRelationGroupsLevel[],
+): EntityRelationGroupsLevel[] {
+  const fallback = emptyEntityRelationGroupsConfig().levels;
+  return [levels[0] ?? fallback[0]!, levels[1] ?? fallback[1]!];
 }
 
 type DisplayFieldOption = {
@@ -492,9 +490,7 @@ function LevelEditorDialog({
         overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-[2px]"
       >
         <DialogHeader>
-          <DialogTitle>
-            {index + 1}. {levelTitle(index)}
-          </DialogTitle>
+          <DialogTitle>{levelTitle(index)}</DialogTitle>
           <DialogDescription>{levelDescription(index)}</DialogDescription>
         </DialogHeader>
 
@@ -669,8 +665,15 @@ export function RelationGroupsSettings({
   defaultValue,
   onDefaultValueChange,
 }: RelationGroupsSettingsProps) {
-  const levels = value.levels;
+  const levels = twoLevels(value.levels);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
+  // Drop extra levels left over from unlimited nesting.
+  useEffect(() => {
+    if (value.levels.length === 2) return;
+    onChange({ ...value, levels: twoLevels(value.levels) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when length drifts
+  }, [value.levels.length]);
 
   const selectOptions = useMemo(
     () =>
@@ -682,7 +685,7 @@ export function RelationGroupsSettings({
   );
 
   function patchLevels(next: EntityRelationGroupsLevel[]) {
-    onChange({ ...value, levels: next });
+    onChange({ ...value, levels: twoLevels(next) });
   }
 
   function updateLevel(
@@ -690,10 +693,19 @@ export function RelationGroupsSettings({
     patch: Partial<EntityRelationGroupsLevel>,
     resetFollowing = false,
   ) {
-    const next = levels.map((level, i) =>
-      i === index ? { ...level, ...patch } : level,
-    );
-    patchLevels(resetFollowing ? next.slice(0, index + 1) : next);
+    const blankNested = emptyEntityRelationGroupsConfig().levels[1]!;
+    const next: EntityRelationGroupsLevel[] = [
+      index === 0 ? { ...levels[0]!, ...patch } : levels[0]!,
+      index === 1
+        ? { ...levels[1]!, ...patch }
+        : resetFollowing
+          ? {
+              ...blankNested,
+              id: levels[1]!.id,
+            }
+          : levels[1]!,
+    ];
+    patchLevels(next);
   }
 
   function setLevelSource(
@@ -710,7 +722,6 @@ export function RelationGroupsSettings({
         : parseEntityRelationGroups(constantDefaultValue(defaultValue)).map(
             (node) => node.id,
           );
-    // Keep level.defaultIds in sync for every level, including roots.
     const nextLevels = levels.map((level, i) =>
       i === index ? { ...level, defaultIds: [...nextIds] } : level,
     );
@@ -723,33 +734,10 @@ export function RelationGroupsSettings({
     );
   }
 
-  function addLevel() {
-    const nextIndex = levels.length;
-    patchLevels([
-      ...levels,
-      createEntityRelationGroupsLevel({
-        kind: "entity",
-        entityId: null,
-        limitFieldId: null,
-      }),
-    ]);
-    setEditingIndex(nextIndex);
-  }
-
-  function removeLevel(index: number) {
-    if (levels.length <= 2) return;
-    if (editingIndex === index) setEditingIndex(null);
-    else if (editingIndex != null && editingIndex > index) {
-      setEditingIndex(editingIndex - 1);
-    }
-    patchLevels(levels.filter((_, i) => i !== index));
-  }
-
-  const canAddLevel = levels.every((level, index) =>
-    isLevelSourceReady(level.source, index > 0),
-  );
   const editingLevel =
-    editingIndex != null ? (levels[editingIndex] ?? null) : null;
+    editingIndex === 0 || editingIndex === 1
+      ? (levels[editingIndex] ?? null)
+      : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -763,77 +751,39 @@ export function RelationGroupsSettings({
             entities,
             entityOptions,
           );
-          const canRemove =
-            levels.length > 2 && (index >= 2 || index === levels.length - 1);
 
           return (
-            <div key={level.id} className="flex items-stretch gap-1">
-              <button
-                type="button"
-                onClick={() => setEditingIndex(index)}
-                className={cn(
-                  "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
-                  ready
-                    ? "border-border/70 bg-background hover:border-foreground/20 hover:bg-muted/40"
-                    : "border-dashed border-border bg-muted/15 hover:border-foreground/20 hover:bg-muted/30",
-                )}
-              >
+            <button
+              key={level.id}
+              type="button"
+              onClick={() => setEditingIndex(index)}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
+                ready
+                  ? "border-border/70 bg-background hover:border-foreground/20 hover:bg-muted/40"
+                  : "border-dashed border-border bg-muted/15 hover:border-foreground/20 hover:bg-muted/30",
+              )}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium leading-none">
+                  {levelTitle(index)}
+                </span>
                 <span
                   className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                    "mt-1 block truncate text-[11px] leading-snug",
                     ready
-                      ? "bg-foreground text-background"
-                      : "bg-muted text-muted-foreground",
+                      ? "text-muted-foreground"
+                      : "text-muted-foreground/80",
                   )}
-                  aria-hidden
                 >
-                  {index + 1}
+                  {summary}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium leading-none">
-                    {levelTitle(index)}
-                  </span>
-                  <span
-                    className={cn(
-                      "mt-1 block truncate text-[11px] leading-snug",
-                      ready
-                        ? "text-muted-foreground"
-                        : "text-muted-foreground/80",
-                    )}
-                  >
-                    {summary}
-                  </span>
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-              </button>
-              {canRemove ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-9 shrink-0 self-center text-muted-foreground hover:text-destructive"
-                  aria-label={`Удалить уровень ${index + 1}`}
-                  onClick={() => removeLevel(index)}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              ) : null}
-            </div>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            </button>
           );
         })}
       </div>
-
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="w-full justify-center gap-1.5"
-        disabled={!canAddLevel}
-        onClick={addLevel}
-      >
-        <Plus className="size-3.5" />
-        Добавить уровень
-      </Button>
 
       {editingLevel != null && editingIndex != null ? (
         <LevelEditorDialog

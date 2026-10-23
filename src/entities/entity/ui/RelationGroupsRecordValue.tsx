@@ -29,7 +29,11 @@ function LeafChip({ node }: { node: RelationGroupsDisplayNode }) {
   );
 }
 
-function NestedList({ nodes }: { nodes: readonly RelationGroupsDisplayNode[] }) {
+function NestedList({
+  nodes,
+}: {
+  nodes: readonly RelationGroupsDisplayNode[];
+}) {
   if (nodes.length === 0) return null;
   const layout = nodes[0]?.layout ?? "column";
 
@@ -45,7 +49,9 @@ function NestedList({ nodes }: { nodes: readonly RelationGroupsDisplayNode[] }) 
               className="flex min-w-0 max-w-full flex-col gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5"
             >
               <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate text-xs font-medium">{node.title}</span>
+                <span className="truncate text-xs font-medium">
+                  {node.title}
+                </span>
                 <NodeExtras extras={node.extras} />
               </div>
               <NestedList nodes={node.children} />
@@ -134,9 +140,7 @@ export function RelationGroupsRecordValue({
     <div
       className={cn(
         "min-w-0",
-        rootLayout === "row"
-          ? "flex flex-wrap gap-3"
-          : "flex flex-col gap-2.5",
+        rootLayout === "row" ? "flex flex-wrap gap-3" : "flex flex-col gap-2.5",
         className,
       )}
     >

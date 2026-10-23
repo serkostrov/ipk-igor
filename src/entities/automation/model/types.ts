@@ -66,16 +66,14 @@ export type AutomationAskRelatedField = {
 
 /**
  * How a `relationGroups` field is asked on a task form.
- * - full — all levels
- * - items — only level 0 (alias of level:0)
- * - nested — through level 1 (alias of level:1)
- * - level:N — through level N
+ * - full — both levels
+ * - items — only «Строки»
+ * - nested — «Строки» + «Вложенные»
  */
-export type AutomationRelationGroupsAskMode =
-  "full" | "items" | "nested" | `level:${number}`;
+export type AutomationRelationGroupsAskMode = "full" | "items" | "nested";
 
 export const AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS: Record<
-  "full" | "items" | "nested",
+  AutomationRelationGroupsAskMode,
   string
 > = {
   full: "Всё сразу",
@@ -86,27 +84,16 @@ export const AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS: Record<
 export function automationRelationGroupsAskModeLabel(
   mode: AutomationRelationGroupsAskMode,
 ): string {
-  if (mode === "full" || mode === "items" || mode === "nested") {
-    return AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS[mode];
-  }
-  const n = Number(mode.slice(6));
-  if (!Number.isFinite(n) || n < 0) return mode;
-  if (n === 0) return AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS.items;
-  if (n === 1) return AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS.nested;
-  return `До уровня ${n + 1}`;
+  return AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS[mode] ?? mode;
 }
 
-/** Ask modes available for a relationGroups field with `levelCount` levels. */
+/** Ask modes for a 2-level relationGroups field. */
 export function automationRelationGroupsAskModes(
-  levelCount: number,
+  // Kept for call-site compat (was levelCount when nesting was unlimited).
+  levelCount?: number,
 ): AutomationRelationGroupsAskMode[] {
-  const count = Math.max(2, levelCount);
-  const modes: AutomationRelationGroupsAskMode[] = ["full", "items"];
-  if (count >= 2) modes.push("nested");
-  for (let i = 2; i < count; i += 1) {
-    modes.push(`level:${i}`);
-  }
-  return modes;
+  void levelCount;
+  return ["full", "items", "nested"];
 }
 
 /** Per-field ask presentation overrides (keyed by field id). */
@@ -164,11 +151,13 @@ function normalizeRelationGroupsAskMode(
   value: unknown,
 ): AutomationRelationGroupsAskMode | undefined {
   if (value === "full" || value === "items" || value === "nested") return value;
+  // Legacy `level:N` from unlimited nesting — map back to 2-level modes.
   if (typeof value === "string" && value.startsWith("level:")) {
     const n = Number(value.slice(6));
-    if (Number.isFinite(n) && n >= 0) {
-      return `level:${Math.floor(n)}`;
-    }
+    if (!Number.isFinite(n) || n < 0) return undefined;
+    if (n <= 0) return "items";
+    if (n === 1) return "nested";
+    return "full";
   }
   return undefined;
 }
