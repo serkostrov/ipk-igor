@@ -62,7 +62,12 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
     <SelectPrimitive.Group
       data-slot="select-group"
-      className={cn("scroll-my-1 p-1", className)}
+      className={cn(
+        // Hide when search filters out every item in the group.
+        "scroll-my-1 [&:not(:has([data-slot=select-item]))]:hidden",
+        "not-first:mt-1 not-first:border-t not-first:border-border/60 not-first:pt-1",
+        className,
+      )}
       {...props}
     />
   );
@@ -212,9 +217,51 @@ function SelectLabel({
   return (
     <SelectPrimitive.GroupLabel
       data-slot="select-label"
-      className={cn("px-2 py-1.5 text-xs text-muted-foreground", className)}
+      className={cn(
+        "px-2 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase",
+        className,
+      )}
       {...props}
     />
+  );
+}
+
+/** Renders labeled groups; skips empty groups when `available` filters items. */
+function SelectOptionGroups<T extends string>({
+  groups,
+  available,
+  getLabel,
+}: {
+  groups: ReadonlyArray<{ label: string; items: readonly T[] }>;
+  available?: readonly T[] | ReadonlySet<T>;
+  getLabel: (item: T) => string;
+}) {
+  const allowed =
+    available == null
+      ? null
+      : available instanceof Set
+        ? available
+        : new Set(available);
+
+  return (
+    <>
+      {groups.map((group) => {
+        const items = allowed
+          ? group.items.filter((item) => allowed.has(item))
+          : group.items;
+        if (items.length === 0) return null;
+        return (
+          <SelectGroup key={group.label}>
+            <SelectLabel>{group.label}</SelectLabel>
+            {items.map((item) => (
+              <SelectItem key={item} value={item} label={getLabel(item)}>
+                {getLabel(item)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        );
+      })}
+    </>
   );
 }
 
@@ -343,6 +390,7 @@ export {
   SelectGroup,
   SelectItem,
   SelectLabel,
+  SelectOptionGroups,
   SelectScrollDownButton,
   SelectScrollUpButton,
   SelectSeparator,

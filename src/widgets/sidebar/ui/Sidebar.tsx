@@ -25,6 +25,7 @@ import {
   filterVisibleMenuEntries,
   flattenMenuEntriesToItems,
   flattenMenuGroupItems,
+  flattenMenuSubtreeItems,
   getMenuIcon,
   isEntityLinkedMenuItem,
   useMenuConfig,
@@ -32,6 +33,7 @@ import {
   type MenuEntry,
   type MenuGroupEntry,
   type MenuIconName,
+  type MenuItemEntry,
 } from "@/entities/menu";
 import { canMenuItem, roleMenuFlat, useCurrentRole } from "@/entities/access";
 import { signOut, useSessionUser } from "@/entities/session";
@@ -127,6 +129,241 @@ function SidebarTreeRow({
   );
 }
 
+type SidebarTreeProps = {
+  collapsed: boolean;
+  activeId: string;
+  collapsedGroupIds: Set<string>;
+  onToggleGroup: (groupId: string) => void;
+  onNavigate?: (id: string) => void;
+  pathLabel?: string;
+  nested?: boolean;
+};
+
+function renderNestedEntries({
+  entries,
+  activeId,
+  collapsedGroupIds,
+  onToggleGroup,
+  onNavigate,
+  pathLabel,
+}: {
+  entries: MenuEntry[];
+  activeId: string;
+  collapsedGroupIds: Set<string>;
+  onToggleGroup: (groupId: string) => void;
+  onNavigate?: (id: string) => void;
+  pathLabel?: string;
+}) {
+  return entries.map((entry, entryIndex) => {
+    const isFirst = entryIndex === 0;
+    const isLast = entryIndex === entries.length - 1;
+    return (
+      <SidebarTreeRow key={entry.id} isFirst={isFirst} isLast={isLast}>
+        <div className="min-w-0 flex-1">
+          {entry.type === "item" ? (
+            entry.entries?.length ? (
+              <SidebarItemFolder
+                item={entry}
+                collapsed={false}
+                activeId={activeId}
+                collapsedGroupIds={collapsedGroupIds}
+                onToggleGroup={onToggleGroup}
+                onNavigate={onNavigate}
+                pathLabel={pathLabel}
+                nested
+              />
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                aria-current={entry.id === activeId ? "page" : undefined}
+                onClick={() => onNavigate?.(entry.id)}
+                className={cn(
+                  navItemClass({
+                    collapsed: false,
+                    isActive: entry.id === activeId,
+                  }),
+                  "h-9 min-w-0 w-full px-2 py-0",
+                )}
+              >
+                <SidebarMenuIcon
+                  name={entry.icon}
+                  className="size-4 shrink-0"
+                />
+                <span className="truncate text-sm">{entry.label}</span>
+              </Button>
+            )
+          ) : (
+            <SidebarGroupTree
+              group={entry}
+              collapsed={false}
+              activeId={activeId}
+              collapsedGroupIds={collapsedGroupIds}
+              onToggleGroup={onToggleGroup}
+              onNavigate={onNavigate}
+              pathLabel={pathLabel}
+              nested
+            />
+          )}
+        </div>
+      </SidebarTreeRow>
+    );
+  });
+}
+
+function SidebarCollapsedLeaves({
+  leaves,
+  activeId,
+  pathLabel,
+  onNavigate,
+}: {
+  leaves: Array<{ id: string; label: string; icon: MenuIconName }>;
+  activeId: string;
+  pathLabel: string;
+  onNavigate?: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-col">
+      <span
+        aria-hidden
+        className="mx-auto block h-2 w-px bg-sidebar-foreground/30"
+      />
+      {leaves.map((item) => {
+        const isActive = item.id === activeId;
+        return (
+          <Button
+            key={item.id}
+            type="button"
+            variant="ghost"
+            aria-current={isActive ? "page" : undefined}
+            title={`${pathLabel} → ${item.label}`}
+            onClick={() => onNavigate?.(item.id)}
+            className={cn(
+              navItemClass({
+                collapsed: true,
+                isActive,
+              }),
+              "rounded-md",
+            )}
+          >
+            <SidebarMenuIcon name={item.icon} className="size-4 shrink-0" />
+            <NavLabel collapsed>{item.label}</NavLabel>
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SidebarItemFolder({
+  item,
+  collapsed,
+  activeId,
+  collapsedGroupIds,
+  onToggleGroup,
+  onNavigate,
+  pathLabel,
+  nested = false,
+}: SidebarTreeProps & { item: MenuItemEntry }) {
+  const childEntries = item.entries ?? [];
+  const isExpanded = !collapsedGroupIds.has(item.id);
+  const isActive = item.id === activeId;
+  const leafItems = flattenMenuSubtreeItems(childEntries);
+  const showCollapsedCluster = collapsed && isExpanded && leafItems.length > 0;
+  const titlePath = pathLabel ? `${pathLabel} → ${item.label}` : item.label;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col",
+        showCollapsedCluster &&
+          "overflow-hidden rounded-md border border-sidebar-border/70 bg-transparent p-0.5",
+      )}
+    >
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-0.5",
+          nested && !collapsed && "h-9",
+        )}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          aria-current={isActive ? "page" : undefined}
+          title={item.label}
+          onClick={() => onNavigate?.(item.id)}
+          className={cn(
+            navItemClass({
+              collapsed,
+              isActive,
+            }),
+            "min-w-0 flex-1",
+            nested && !collapsed && "h-9 px-2 py-0",
+            showCollapsedCluster &&
+              "rounded-md py-1.5 hover:bg-sidebar-accent/35",
+          )}
+        >
+          <SidebarMenuIcon name={item.icon} className="size-4 shrink-0" />
+          <NavLabel collapsed={collapsed}>{item.label}</NavLabel>
+        </Button>
+        {!collapsed ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? "Свернуть" : "Развернуть"}
+            title={isExpanded ? "Свернуть" : "Развернуть"}
+            onClick={() => onToggleGroup(item.id)}
+            className="size-8 shrink-0 text-sidebar-foreground/55 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
+          >
+            <ChevronDown
+              className={cn(
+                "size-4 transition-transform duration-200",
+                isExpanded && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </Button>
+        ) : null}
+      </div>
+
+      <AnimatePresence initial={false}>
+        {isExpanded ? (
+          <motion.div
+            key={`${item.id}-entries`}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={groupRevealTransition}
+            className="overflow-hidden"
+          >
+            {collapsed ? (
+              <SidebarCollapsedLeaves
+                leaves={leafItems}
+                activeId={activeId}
+                pathLabel={titlePath}
+                onNavigate={onNavigate}
+              />
+            ) : (
+              <div className="flex flex-col">
+                {renderNestedEntries({
+                  entries: childEntries,
+                  activeId,
+                  collapsedGroupIds,
+                  onToggleGroup,
+                  onNavigate,
+                  pathLabel: titlePath,
+                })}
+              </div>
+            )}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function SidebarGroupTree({
   group,
   collapsed,
@@ -136,17 +373,7 @@ function SidebarGroupTree({
   onNavigate,
   pathLabel,
   nested = false,
-}: {
-  group: MenuGroupEntry;
-  collapsed: boolean;
-  activeId: string;
-  collapsedGroupIds: Set<string>;
-  onToggleGroup: (groupId: string) => void;
-  onNavigate?: (id: string) => void;
-  pathLabel?: string;
-  /** Nested under another group — tighter row for tree elbow alignment. */
-  nested?: boolean;
-}) {
+}: SidebarTreeProps & { group: MenuGroupEntry }) {
   const isExpanded = !collapsedGroupIds.has(group.id);
   const leafItems = flattenMenuGroupItems(group);
   const showCollapsedCluster = collapsed && isExpanded && leafItems.length > 0;
@@ -200,96 +427,21 @@ function SidebarGroupTree({
             className="overflow-hidden"
           >
             {collapsed ? (
-              <div className="flex flex-col">
-                <span
-                  aria-hidden
-                  className="mx-auto block h-2 w-px bg-sidebar-foreground/30"
-                />
-                {leafItems.map((item) => {
-                  const isActive = item.id === activeId;
-                  return (
-                    <Button
-                      key={item.id}
-                      type="button"
-                      variant="ghost"
-                      aria-current={isActive ? "page" : undefined}
-                      title={`${titlePath} → ${item.label}`}
-                      onClick={() => onNavigate?.(item.id)}
-                      className={cn(
-                        navItemClass({
-                          collapsed: true,
-                          isActive,
-                        }),
-                        "rounded-md",
-                      )}
-                    >
-                      <SidebarMenuIcon
-                        name={item.icon}
-                        className="size-4 shrink-0"
-                      />
-                      <NavLabel collapsed>{item.label}</NavLabel>
-                    </Button>
-                  );
-                })}
-              </div>
+              <SidebarCollapsedLeaves
+                leaves={leafItems}
+                activeId={activeId}
+                pathLabel={titlePath}
+                onNavigate={onNavigate}
+              />
             ) : (
               <div className="flex flex-col">
-                {group.entries.map((entry, entryIndex) => {
-                  const isFirst = entryIndex === 0;
-                  const isLast = entryIndex === group.entries.length - 1;
-                  if (entry.type === "item") {
-                    const isActive = entry.id === activeId;
-                    return (
-                      <SidebarTreeRow
-                        key={entry.id}
-                        isFirst={isFirst}
-                        isLast={isLast}
-                      >
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          aria-current={isActive ? "page" : undefined}
-                          onClick={() => onNavigate?.(entry.id)}
-                          className={cn(
-                            navItemClass({
-                              collapsed: false,
-                              isActive,
-                            }),
-                            "h-9 min-w-0 flex-1 px-2 py-0",
-                          )}
-                        >
-                          <SidebarMenuIcon
-                            name={entry.icon}
-                            className="size-4 shrink-0"
-                          />
-                          <span className="truncate text-sm">
-                            {entry.label}
-                          </span>
-                        </Button>
-                      </SidebarTreeRow>
-                    );
-                  }
-
-                  return (
-                    <SidebarTreeRow
-                      key={entry.id}
-                      isFirst={isFirst}
-                      isLast={isLast}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <SidebarGroupTree
-                          group={entry}
-                          collapsed={false}
-                          activeId={activeId}
-                          collapsedGroupIds={collapsedGroupIds}
-                          onToggleGroup={onToggleGroup}
-                          onNavigate={onNavigate}
-                          pathLabel={titlePath}
-                          nested
-                        />
-                      </div>
-                    </SidebarTreeRow>
-                  );
+                {renderNestedEntries({
+                  entries: group.entries,
+                  activeId,
+                  collapsedGroupIds,
+                  onToggleGroup,
+                  onNavigate,
+                  pathLabel: titlePath,
                 })}
               </div>
             )}
@@ -317,6 +469,19 @@ function renderSidebarEntries({
 }) {
   return entries.map((entry) => {
     if (entry.type === "item") {
+      if (entry.entries?.length) {
+        return (
+          <SidebarItemFolder
+            key={entry.id}
+            item={entry}
+            collapsed={collapsed}
+            activeId={activeId}
+            collapsedGroupIds={collapsedGroupIds}
+            onToggleGroup={onToggleGroup}
+            onNavigate={onNavigate}
+          />
+        );
+      }
       const isActive = entry.id === activeId;
       return (
         <Button

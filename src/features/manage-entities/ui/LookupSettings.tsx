@@ -3,6 +3,7 @@ import {
   getEntityFieldDisplayName,
   isEntityLookupBridgeField,
   resolveEntityRelationBridgeTarget,
+  resolveRelationGroupsBridgeEntityId,
   type Entity,
   type EntityLookupConfig,
 } from "@/entities/entity";
@@ -24,6 +25,10 @@ type LookupSettingsProps = {
 
 function entityLabel(entity: Pick<Entity, "name" | "namePlural">) {
   return entity.namePlural.trim() || entity.name.trim() || "Без названия";
+}
+
+function relationGroupsLevelLabel(index: number) {
+  return index === 0 ? "Строки" : "Вложенные";
 }
 
 /** Same pattern as field cards: name + Link2 + target entity. */
@@ -54,7 +59,7 @@ export function LookupSettings({
   value,
   onChange,
 }: LookupSettingsProps) {
-  // Relations, relationGroups (nested), lookups that yield relation ids.
+  // Relations, relationGroups, lookups that yield relation ids.
   const relationFields =
     entity?.fields.filter((field) =>
       isEntityLookupBridgeField(entity, field, entities),
@@ -62,24 +67,59 @@ export function LookupSettings({
   const relationField = relationFields.find(
     (field) => field.id === value?.relationFieldId,
   );
+  const isGroupsBridge = relationField?.type === "relationGroups";
+  const groupsLevels = relationField?.relationGroups?.levels ?? [];
+  const groupsDepth =
+    value?.relationGroupsDepth ??
+    (isGroupsBridge ? Math.max(0, groupsLevels.length - 1) : undefined);
+
   const target =
     entity && relationField
-      ? resolveEntityRelationBridgeTarget(entity, relationField, entities)
+      ? resolveEntityRelationBridgeTarget(
+          entity,
+          relationField,
+          entities,
+          groupsDepth,
+        )
       : null;
   const targetFields =
     target?.fields.filter(
-      (field) =>
-        field.type !== "file" &&
-        field.type !== "dependencies" &&
-        field.type !== "relationGroups",
+      (field) => field.type !== "file" && field.type !== "dependencies",
     ) ?? [];
 
-  const isGroupsBridge = relationField?.type === "relationGroups";
   const selectedRelation = relationField
     ? {
         name: getEntityFieldDisplayName(relationField),
-        targetName: target ? entityLabel(target) : null,
+        targetName: target
+          ? entityLabel(target)
+          : isGroupsBridge
+            ? "набор связей"
+            : null,
       }
+    : null;
+
+  const selectedTarget = targetFields.find(
+    (field) => field.id === value?.targetFieldId,
+  );
+  const selectedTargetMeta = selectedTarget
+    ? selectedTarget.type === "relationGroups"
+      ? (() => {
+          const leafId = resolveRelationGroupsBridgeEntityId(
+            selectedTarget,
+            entities,
+          );
+          const leaf = leafId
+            ? entities.find((item) => item.id === leafId)
+            : null;
+          return {
+            name: getEntityFieldDisplayName(selectedTarget),
+            suffix: leaf ? `набор · ${entityLabel(leaf)}` : "набор связей",
+          };
+        })()
+      : {
+          name: getEntityFieldDisplayName(selectedTarget),
+          suffix: null as string | null,
+        }
     : null;
 
   return (
@@ -99,7 +139,23 @@ export function LookupSettings({
             value={value?.relationFieldId || undefined}
             onValueChange={(next) => {
               if (next == null || next === "") return;
-              onChange({ relationFieldId: String(next), targetFieldId: "" });
+              const nextBridge = relationFields.find(
+                (field) => field.id === String(next),
+              );
+              const nextDepth =
+                nextBridge?.type === "relationGroups"
+                  ? Math.max(
+                      0,
+                      (nextBridge.relationGroups?.levels.length ?? 1) - 1,
+                    )
+                  : undefined;
+              onChange({
+                relationFieldId: String(next),
+                targetFieldId: "",
+                ...(nextDepth != null
+                  ? { relationGroupsDepth: nextDepth }
+                  : {}),
+              });
             }}
           >
             <SelectTrigger
@@ -122,12 +178,27 @@ export function LookupSettings({
             <SelectContent>
               {relationFields.map((field) => {
                 const fieldTarget = entity
-                  ? resolveEntityRelationBridgeTarget(entity, field, entities)
+                  ? resolveEntityRelationBridgeTarget(
+                      entity,
+                      field,
+                      entities,
+                      field.type === "relationGroups"
+                        ? Math.max(
+                            0,
+                            (field.relationGroups?.levels.length ?? 1) - 1,
+                          )
+                        : undefined,
+                    )
                   : null;
                 const fieldName = getEntityFieldDisplayName(field);
-                const targetName = fieldTarget
-                  ? entityLabel(fieldTarget)
-                  : null;
+                const targetName =
+                  field.type === "relationGroups"
+                    ? fieldTarget
+                      ? `набор · ${entityLabel(fieldTarget)}`
+                      : "набор связей"
+                    : fieldTarget
+                      ? entityLabel(fieldTarget)
+                      : null;
                 return (
                   <SelectItem
                     key={field.id}
@@ -146,31 +217,112 @@ export function LookupSettings({
         )}
       </div>
 
-      {relationField ? (
+      {isGroupsBridge && groupsLevels.length > 0 && value ? (
         <SettingSelect
-          id="entity-field-lookup-target"
-          title="Поле"
-          description={
-            target
-              ? isGroupsBridge
-                ? `Из вложенных «${entityLabel(target)}» в наборах`
-                : `Значение из «${entityLabel(target)}»`
-              : "Значение связанной записи"
-          }
-          value={value?.targetFieldId || null}
-          options={targetFields.map((field) => ({
-            value: field.id,
-            label: getEntityFieldDisplayName(field),
+          id="entity-field-lookup-groups-depth"
+          title="Уровень набора"
+          description="Строки или вложенные записи набора связей"
+          value={String(groupsDepth ?? 0)}
+          options={groupsLevels.map((_, index) => ({
+            value: String(index),
+            label: relationGroupsLevelLabel(index),
           }))}
-          noOptionsLabel={
-            isGroupsBridge
-              ? "У вложенной сущности нет полей"
-              : "У связанной сущности нет полей"
-          }
           onChange={(next) => {
-            if (next && value) onChange({ ...value, targetFieldId: next });
+            if (next == null) return;
+            const depth = Number.parseInt(next, 10);
+            if (!Number.isFinite(depth)) return;
+            onChange({
+              ...value,
+              relationGroupsDepth: depth,
+              targetFieldId: "",
+            });
           }}
         />
+      ) : null}
+
+      {relationField ? (
+        <div className="flex flex-col gap-1.5">
+          <SettingLabel
+            htmlFor="entity-field-lookup-target"
+            title="Поле"
+            description={
+              target
+                ? isGroupsBridge
+                  ? `Из «${entityLabel(target)}» (${relationGroupsLevelLabel(groupsDepth ?? 0).toLowerCase()})`
+                  : `Значение из «${entityLabel(target)}»`
+                : "Значение связанной записи"
+            }
+          />
+          <Select
+            value={value?.targetFieldId || undefined}
+            onValueChange={(next) => {
+              if (next && value) {
+                onChange({ ...value, targetFieldId: String(next) });
+              }
+            }}
+          >
+            <SelectTrigger
+              id="entity-field-lookup-target"
+              size="sm"
+              className="w-full"
+              aria-label="Поле"
+            >
+              <SelectValue placeholder="Выберите">
+                {selectedTargetMeta ? (
+                  selectedTargetMeta.suffix ? (
+                    <RelationLinkLabel
+                      fieldName={selectedTargetMeta.name}
+                      targetName={selectedTargetMeta.suffix}
+                    />
+                  ) : (
+                    selectedTargetMeta.name
+                  )
+                ) : (
+                  <span className="text-muted-foreground">Выберите</span>
+                )}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {targetFields.map((field) => {
+                if (field.type === "relationGroups") {
+                  const leafId = resolveRelationGroupsBridgeEntityId(
+                    field,
+                    entities,
+                  );
+                  const leaf = leafId
+                    ? entities.find((item) => item.id === leafId)
+                    : null;
+                  const name = getEntityFieldDisplayName(field);
+                  const suffix = leaf
+                    ? `набор · ${entityLabel(leaf)}`
+                    : "набор связей";
+                  return (
+                    <SelectItem
+                      key={field.id}
+                      value={field.id}
+                      label={`${name} ${suffix}`}
+                    >
+                      <RelationLinkLabel fieldName={name} targetName={suffix} />
+                    </SelectItem>
+                  );
+                }
+                const name = getEntityFieldDisplayName(field);
+                return (
+                  <SelectItem key={field.id} value={field.id} label={name}>
+                    {name}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          {targetFields.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              {isGroupsBridge
+                ? "У выбранного уровня нет полей"
+                : "У связанной сущности нет полей"}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

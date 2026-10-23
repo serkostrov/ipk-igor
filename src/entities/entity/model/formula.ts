@@ -86,6 +86,16 @@ export const FORMULA_FUNCTIONS: Array<{
   },
 ];
 
+/** Formula function picker sections. */
+export const FORMULA_FUNCTION_GROUPS: Array<{
+  label: string;
+  names: string[];
+}> = [
+  { label: "Логика", names: ["IF"] },
+  { label: "Числа", names: ["MIN", "MAX", "ROUND", "ABS", "COALESCE"] },
+  { label: "Даты", names: ["WORKDAYS", "DAYS", "TODAY"] },
+];
+
 const FUNCTION_ALIASES = new Map<string, string>(
   FORMULA_FUNCTIONS.flatMap((item) => [
     [item.name, item.name],

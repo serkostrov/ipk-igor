@@ -23,20 +23,31 @@ function isMenuIconName(value: unknown): value is MenuIconName {
   return typeof value === "string" && value in menuIconMap;
 }
 
-function isMenuItem(value: unknown): value is MenuItem {
+function isMenuItemShape(value: unknown): value is MenuItem {
   if (!value || typeof value !== "object") return false;
   const item = value as MenuItem;
-  return (
-    typeof item.id === "string" &&
-    typeof item.label === "string" &&
-    isMenuIconName(item.icon)
+  if (
+    typeof item.id !== "string" ||
+    typeof item.label !== "string" ||
+    !isMenuIconName(item.icon)
+  ) {
+    return false;
+  }
+  if (item.entries === undefined) return true;
+  if (!Array.isArray(item.entries)) return false;
+  return item.entries.every(
+    (child) => isRawGroupEntry(child) || isRawItemEntry(child),
   );
+}
+
+function isMenuItem(value: unknown): value is MenuItem {
+  return isMenuItemShape(value);
 }
 
 function isRawItemEntry(value: unknown): value is MenuItemEntry {
   if (!value || typeof value !== "object") return false;
   const entry = value as MenuEntry;
-  return entry.type === "item" && isMenuItem(entry);
+  return entry.type === "item" && isMenuItemShape(entry);
 }
 
 type RawMenuGroup = {
@@ -80,12 +91,23 @@ function isRawMenuGroup(value: unknown): boolean {
   return isRawGroupShape(value);
 }
 
+function normalizeChildEntries(entries: MenuEntry[] | undefined): MenuEntry[] {
+  if (!Array.isArray(entries) || entries.length === 0) return [];
+  return entries.map((entry) =>
+    entry.type === "group"
+      ? normalizeGroupEntry(entry)
+      : normalizeItemEntry(entry),
+  );
+}
+
 export function normalizeItemEntry(item: MenuItem): MenuItemEntry {
+  const nested = normalizeChildEntries(item.entries);
   return {
     type: "item",
     id: item.id,
     label: item.label.trim() || "Новый пункт",
     icon: isMenuIconName(item.icon) ? item.icon : DEFAULT_MENU_ITEM_ICON,
+    ...(nested.length > 0 ? { entries: nested } : {}),
   };
 }
 
@@ -98,11 +120,7 @@ export function normalizeGroup(group: {
   entries?: MenuEntry[];
 }): MenuGroup {
   const entries = Array.isArray(group.entries)
-    ? group.entries.map((entry) =>
-        entry.type === "group"
-          ? normalizeGroupEntry(entry)
-          : normalizeItemEntry(entry),
-      )
+    ? normalizeChildEntries(group.entries)
     : (group.items ?? []).map((item) => normalizeItemEntry(item));
 
   return {
@@ -138,10 +156,14 @@ const SYSTEM_PAGE_ITEMS: MenuItem[] = [
 
 function hasMenuItem(entries: MenuEntry[], itemId: string): boolean {
   for (const entry of entries) {
-    if (entry.type === "item" && entry.id === itemId) return true;
-    if (entry.type === "group" && hasMenuItem(entry.entries, itemId)) {
-      return true;
+    if (entry.type === "item") {
+      if (entry.id === itemId) return true;
+      if (entry.entries?.length && hasMenuItem(entry.entries, itemId)) {
+        return true;
+      }
+      continue;
     }
+    if (hasMenuItem(entry.entries, itemId)) return true;
   }
   return false;
 }
@@ -172,9 +194,24 @@ export function stripLegacyReportMenuEntries(config: MenuConfig): {
       if (entry.type === "item") {
         if (entry.id.startsWith("report-")) {
           changed = true;
+          if (entry.entries?.length) {
+            const nested = strip(entry.entries);
+            if (nested.changed) changed = true;
+            next.push(...nested.entries);
+          }
           continue;
         }
-        next.push(entry);
+        if (!entry.entries?.length) {
+          next.push(entry);
+          continue;
+        }
+        const nested = strip(entry.entries);
+        if (nested.changed) changed = true;
+        next.push(
+          nested.changed
+            ? normalizeItemEntry({ ...entry, entries: nested.entries })
+            : entry,
+        );
         continue;
       }
       const children = strip(entry.entries);
@@ -201,7 +238,7 @@ function parseRawGroup(value: RawMenuGroup): MenuGroupEntry {
       entries: value.entries.map((entry) =>
         isRawGroupEntry(entry)
           ? parseRawGroup(entry as RawMenuGroup)
-          : normalizeItemEntry(entry as MenuItem),
+          : parseRawItem(entry as MenuItemEntry),
       ),
     });
   }
@@ -215,6 +252,22 @@ function parseRawGroup(value: RawMenuGroup): MenuGroupEntry {
     icon: value.icon,
     internal: value.internal,
     items,
+  });
+}
+
+function parseRawItem(value: MenuItem | MenuItemEntry): MenuItemEntry {
+  const nested = Array.isArray(value.entries)
+    ? value.entries.map((entry) =>
+        entry.type === "group"
+          ? parseRawGroup(entry as RawMenuGroup)
+          : parseRawItem(entry as MenuItemEntry),
+      )
+    : undefined;
+  return normalizeItemEntry({
+    id: value.id,
+    label: value.label,
+    icon: value.icon,
+    ...(nested && nested.length > 0 ? { entries: nested } : {}),
   });
 }
 
@@ -236,7 +289,7 @@ export function parseMenuConfig(value: unknown): MenuConfig | null {
       entries: data.entries.map((entry) =>
         isRawGroupEntry(entry)
           ? parseRawGroup(entry as RawMenuGroup)
-          : normalizeItemEntry(entry as MenuItem),
+          : parseRawItem(entry as MenuItemEntry),
       ),
     });
   }

@@ -11,7 +11,6 @@ import {
   parseEntityRelationIds,
   serializeEntityRelationIds,
 } from "./field";
-
 export type { EntityFieldType } from "./field";
 export type { EntityFieldFileValue } from "./field";
 export {
@@ -76,6 +75,19 @@ export type EntityPageRecordsPanel = {
   title: string | null;
 };
 
+/**
+ * Cash-flow columns on the aggregate board: opening / income / expense / closing
+ * for a period (datetime filter on `dateFieldId`). Amount is unsigned; sign
+ * comes from the direction list options.
+ */
+export type EntityPageAggregateCashFlow = {
+  dateFieldId: string;
+  directionFieldId: string;
+  incomeOptionIds: string[];
+  expenseOptionIds: string[];
+  amountFieldId: string;
+};
+
 export type EntityPageAggregatePanel = {
   id: string;
   type: "aggregate";
@@ -85,6 +97,8 @@ export type EntityPageAggregatePanel = {
   /** Number fields to sum. */
   valueFieldIds: string[];
   showRecordCount: boolean;
+  /** When set — show period balance columns instead of plain sums only. */
+  cashFlow?: EntityPageAggregateCashFlow;
 };
 
 export type EntityPageFiltersPanel = {
@@ -180,6 +194,21 @@ export const ENTITY_ROLLUP_AGGREGATIONS = [
 export type EntityRollupAggregation =
   (typeof ENTITY_ROLLUP_AGGREGATIONS)[number];
 
+/** Aggregation picker sections for rollup fields. */
+export const ENTITY_ROLLUP_AGGREGATION_GROUPS: Array<{
+  label: string;
+  items: EntityRollupAggregation[];
+}> = [
+  {
+    label: "Агрегаты",
+    items: ["count", "sum", "avg", "min", "max"],
+  },
+  {
+    label: "Завершённость",
+    items: ["countFinal", "percentFinal"],
+  },
+];
+
 /** `rollup` field: aggregate over records of another entity linked to this one. */
 export type EntityRollupConfig = {
   sourceEntityId: string;
@@ -196,11 +225,16 @@ export type EntityRollupConfig = {
 export type EntityLookupConfig = {
   /**
    * Bridge on this entity: `relation`, nested-lookup of relations, or
-   * `relationGroups` (reads nested record ids from each group).
+   * `relationGroups` (reads record ids from the chosen level).
    */
   relationFieldId: string;
-  /** Field of the related / nested entity. */
+  /** Field of the related / nested entity (incl. whole `relationGroups`). */
   targetFieldId: string;
+  /**
+   * For a `relationGroups` bridge: 0 = «Строки», 1 = «Вложенные».
+   * Default / omitted = deepest (вложенные).
+   */
+  relationGroupsDepth?: number;
 };
 
 /** `dependencies` field: predecessors among records of the same entity. */
@@ -599,9 +633,15 @@ export type Entity = {
   /**
    * Table view: single-choice list or relation field used to group rows.
    * When set, records are shown under their option / related record.
-   * `null` — flat table.
+   * `null` — flat table. Mutually exclusive with `tableNestedEntityId`.
    */
   tableParentFieldId: string | null;
+  /**
+   * Table view (linked tab): nest records of this child entity under each row.
+   * Child must be linked via an entity tab on this entity.
+   * `null` — no nesting. Mutually exclusive with `tableParentFieldId`.
+   */
+  tableNestedEntityId: string | null;
   tabs: EntityTab[];
   /** Order, colSpan and area for named groups (excludes ungrouped «Основное» fields). */
   fieldGroups: EntityFieldGroup[];
@@ -659,6 +699,21 @@ export const ENTITY_TAB_KIND_LABELS: Record<EntityTabKind, string> = {
   entity: "Сущность",
   mirror: "Из записи",
 };
+
+/** Tab kind picker sections in entity settings. */
+export const ENTITY_TAB_KIND_GROUPS: Array<{
+  label: string;
+  items: EntityTabKind[];
+}> = [
+  {
+    label: "На этой записи",
+    items: ["fields", "records", "files", "history"],
+  },
+  {
+    label: "Связанные данные",
+    items: ["entity", "mirror"],
+  },
+];
 
 export function normalizeEntityTabKind(value: unknown): EntityTabKind {
   return ENTITY_TAB_KINDS.includes(value as EntityTabKind)
@@ -1645,33 +1700,40 @@ function resolveRecordNameLabel(
   const entityTemplate = entity.nameTemplate?.trim() ?? "";
   const raw = entityTemplate || (values[nameField.id] ?? "").trim();
   if (!raw) return "Без названия";
-  if (!/\{\{[^}]+\}\}/.test(raw)) return raw;
-
-  const text = raw
-    .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
-      const fieldId = rawId.trim();
-      const field = entity.fields.find((item) => item.id === fieldId);
-      if (!field || isEntityNameField(field)) return "";
-      if (field.type === "list") {
-        const label = formatEntityListFieldValue(
-          field,
-          values[field.id],
-          entities,
-        );
+  let text = raw;
+  if (/\{\{[^}]+\}\}/.test(raw)) {
+    text = raw
+      .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
+        const fieldId = rawId.trim();
+        const field = entity.fields.find((item) => item.id === fieldId);
+        if (!field || isEntityNameField(field)) return "";
+        if (field.type === "list") {
+          const label = formatEntityListFieldValue(
+            field,
+            values[field.id],
+            entities,
+          );
+          return !label || label === "—" ? "" : label;
+        }
+        if (field.type === "relation") {
+          const targetId = getEntityRelationTargetId(field);
+          const target = targetId
+            ? entities?.find((item) => item.id === targetId)
+            : null;
+          return resolveRelationRecordLabel(target, values[field.id]) ?? "";
+        }
+        const label = formatEntityFieldScalarValue(field, values[field.id]);
         return !label || label === "—" ? "" : label;
-      }
-      if (field.type === "relation") {
-        const targetId = getEntityRelationTargetId(field);
-        const target = targetId
-          ? entities?.find((item) => item.id === targetId)
-          : null;
-        return resolveRelationRecordLabel(target, values[field.id]) ?? "";
-      }
-      const label = formatEntityFieldScalarValue(field, values[field.id]);
-      return !label || label === "—" ? "" : label;
-    })
-    .replace(/\s+/g, " ")
-    .trim();
+      })
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  if (entityTemplate) {
+    const suffix = (values[nameField.id] ?? "").trim();
+    if (suffix && !/\{\{[^}]+\}\}/.test(suffix)) {
+      text = `${text} ${suffix}`.replace(/\s+/g, " ").trim();
+    }
+  }
   return text || "Без названия";
 }
 

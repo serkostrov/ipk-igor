@@ -139,6 +139,20 @@ export const AUTOMATION_ASSIGNEE_SOURCE_ORDER: AutomationAssigneeSourceKind[] =
     "recordCreator",
   ];
 
+/** Assignee/watcher source picker sections. */
+export const AUTOMATION_ASSIGNEE_SOURCE_GROUPS: Array<{
+  label: string;
+  items: AutomationAssigneeSourceKind[];
+}> = [
+  { label: "Без адресата", items: ["none"] },
+  { label: "Условие", items: ["conditional"] },
+  {
+    label: "Из данных",
+    items: ["fromField", "fixedUsers", "role", "recordCreator"],
+  },
+  { label: "Инициатор", items: ["currentUser"] },
+];
+
 export const AUTOMATION_ASSIGNEE_SOURCE_LABELS: Record<
   AutomationAssigneeEditorMode,
   Record<AutomationAssigneeSourceKind, string>

@@ -1,4 +1,5 @@
 import {
+  entityRelationIncludesId,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   parseEntityListValueIds,
@@ -6,11 +7,13 @@ import {
 } from "./field";
 import {
   getRelationRecordOptions,
+  isEntityTabWithLinkedEntity,
   resolveEntityListFieldOptions,
   resolveRelationRecordLabel,
   type Entity,
   type EntityField,
   type EntityRecord,
+  type EntityTab,
 } from "./types";
 
 /** Empty value — records without a selected option / relation. */
@@ -190,5 +193,146 @@ export function getEntityTableParentFieldOptions(entity: Entity) {
   return getEntityTableParentFieldCandidates(entity).map((field) => ({
     value: field.id,
     label: getEntityFieldDisplayName(field),
+  }));
+}
+
+/** Child entity linked from a host entity tab — can nest under each host row. */
+export type EntityTableNestedTarget = {
+  entityId: string;
+  entity: Entity;
+  /** Relation field on the child that points at the host record. */
+  parentLinkFieldId: string;
+  label: string;
+};
+
+/** Entity tabs on `host` that link a child entity with a parent relation field. */
+export function getEntityTableNestedTargets(
+  host: Entity,
+  entities: readonly Entity[],
+): EntityTableNestedTarget[] {
+  const byId = new Map(entities.map((item) => [item.id, item]));
+  const seen = new Set<string>();
+  const result: EntityTableNestedTarget[] = [];
+
+  function push(tab: EntityTab, nested: Entity, linkFieldId: string) {
+    if (seen.has(nested.id)) return;
+    const linkField = nested.fields.find((field) => field.id === linkFieldId);
+    if (!linkField) return;
+    if (linkField.type !== "relation" && linkField.type !== "belonging") {
+      return;
+    }
+    const targetId = getEntityRelationTargetId(linkField);
+    if (targetId !== host.id) return;
+    seen.add(nested.id);
+    result.push({
+      entityId: nested.id,
+      entity: nested,
+      parentLinkFieldId: linkFieldId,
+      label:
+        tab.name.trim() ||
+        nested.namePlural.trim() ||
+        nested.name.trim() ||
+        "Сущность",
+    });
+  }
+
+  for (const tab of host.tabs) {
+    if (!isEntityTabWithLinkedEntity(tab) || !tab.linkedEntityId) continue;
+    const nested = byId.get(tab.linkedEntityId);
+    if (!nested) continue;
+    const linkFieldId = tab.parentLinkFieldId?.trim();
+    if (linkFieldId) {
+      push(tab, nested, linkFieldId);
+      continue;
+    }
+    const inferred = nested.fields.find(
+      (field) =>
+        (field.type === "relation" || field.type === "belonging") &&
+        getEntityRelationTargetId(field) === host.id,
+    );
+    if (inferred) push(tab, nested, inferred.id);
+  }
+
+  return result;
+}
+
+export function resolveEntityTableNestedTarget(
+  host: Entity,
+  entities: readonly Entity[],
+): EntityTableNestedTarget | null {
+  const id = host.tableNestedEntityId?.trim() ?? "";
+  if (!id) return null;
+  return (
+    getEntityTableNestedTargets(host, entities).find(
+      (item) => item.entityId === id,
+    ) ?? null
+  );
+}
+
+export type EntityTableNestedHierarchyGroupRow = {
+  kind: "group";
+  id: string;
+  label: string;
+  childCount: number;
+  parentRecord: EntityRecord;
+  depth: 0;
+};
+
+export type EntityTableNestedHierarchyChildRow = {
+  kind: "nested";
+  record: EntityRecord;
+  groupId: string;
+  depth: 1;
+};
+
+export type EntityTableNestedHierarchyRow =
+  EntityTableNestedHierarchyGroupRow | EntityTableNestedHierarchyChildRow;
+
+/**
+ * Each host record is a group; expanded groups list child-entity records
+ * linked to that host via `parentLinkFieldId`.
+ */
+export function flattenEntityTableNestedRows(
+  parentRecords: readonly EntityRecord[],
+  nested: EntityTableNestedTarget,
+  expandedIds: ReadonlySet<string>,
+  getParentLabel: (record: EntityRecord) => string,
+): EntityTableNestedHierarchyRow[] {
+  const rows: EntityTableNestedHierarchyRow[] = [];
+  for (const parent of parentRecords) {
+    const children = nested.entity.records.filter((record) =>
+      entityRelationIncludesId(
+        record.values[nested.parentLinkFieldId],
+        parent.id,
+      ),
+    );
+    rows.push({
+      kind: "group",
+      id: parent.id,
+      label: getParentLabel(parent).trim() || "Без названия",
+      childCount: children.length,
+      parentRecord: parent,
+      depth: 0,
+    });
+    if (!expandedIds.has(parent.id)) continue;
+    for (const child of children) {
+      rows.push({
+        kind: "nested",
+        record: child,
+        groupId: parent.id,
+        depth: 1,
+      });
+    }
+  }
+  return rows;
+}
+
+export function getEntityTableNestedEntityOptions(
+  host: Entity,
+  entities: readonly Entity[],
+) {
+  return getEntityTableNestedTargets(host, entities).map((item) => ({
+    value: item.entityId,
+    label: item.label,
   }));
 }

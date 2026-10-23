@@ -17,7 +17,7 @@ import {
 } from "@/entities/menu";
 
 type PickerNode =
-  | { type: "entity"; entity: Entity }
+  | { type: "entity"; entity: Entity; children: PickerNode[] }
   | {
       type: "group";
       id: string;
@@ -65,9 +65,16 @@ function resolveMenuTree(
   for (const node of nodes) {
     if (node.type === "entity") {
       const entity = byId.get(node.entityId);
-      if (!entity || seen.has(entity.id)) continue;
+      if (!entity || seen.has(entity.id)) {
+        result.push(...resolveMenuTree(node.children, byId, seen));
+        continue;
+      }
       seen.add(entity.id);
-      result.push({ type: "entity", entity });
+      result.push({
+        type: "entity",
+        entity,
+        children: resolveMenuTree(node.children, byId, seen),
+      });
       continue;
     }
     const children = resolveMenuTree(node.children, byId, seen);
@@ -95,7 +102,11 @@ function buildPickerTree(
       type: "group",
       id: "outside-menu",
       title: "Вне меню",
-      children: leftovers.map((entity) => ({ type: "entity", entity })),
+      children: leftovers.map((entity) => ({
+        type: "entity",
+        entity,
+        children: [],
+      })),
     });
   }
   return tree;
@@ -108,9 +119,13 @@ function filterPickerTree(nodes: PickerNode[], needle: string): PickerNode[] {
     if (node.type === "entity") {
       const name = node.entity.name.trim().toLowerCase();
       const plural = node.entity.namePlural.trim().toLowerCase();
-      if (name.includes(needle) || plural.includes(needle)) {
-        result.push(node);
-      }
+      const children = filterPickerTree(node.children, needle);
+      const selfMatch = name.includes(needle) || plural.includes(needle);
+      if (!selfMatch && children.length === 0) continue;
+      result.push({
+        ...node,
+        children: selfMatch && children.length === 0 ? node.children : children,
+      });
       continue;
     }
     const children = filterPickerTree(node.children, needle);
@@ -184,6 +199,81 @@ function EntityButton({
   );
 }
 
+function EntityBlock({
+  node,
+  selectedId,
+  forceExpanded,
+  onSelect,
+}: {
+  node: Extract<PickerNode, { type: "entity" }>;
+  selectedId: string | undefined;
+  forceExpanded: boolean;
+  onSelect: (entityId: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const hasChildren = node.children.length > 0;
+  const expanded = !hasChildren || forceExpanded || open;
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex min-w-0 items-center gap-0.5">
+        <div className="min-w-0 flex-1">
+          <EntityButton
+            entity={node.entity}
+            selected={node.entity.id === selectedId}
+            onSelect={() => onSelect(node.entity.id)}
+          />
+        </div>
+        {hasChildren ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            title={expanded ? "Свернуть" : "Развернуть"}
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            onClick={() => setOpen((prev) => !prev)}
+          >
+            <ChevronDown
+              className={cn(
+                "size-3.5 opacity-60 transition-transform duration-150",
+                expanded && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </button>
+        ) : null}
+      </div>
+
+      {hasChildren && expanded ? (
+        <div className="flex flex-col">
+          {node.children.map((child, index) => (
+            <TreeChild
+              key={child.type === "entity" ? child.entity.id : child.id}
+              isFirst={index === 0}
+              isLast={index === node.children.length - 1}
+            >
+              {child.type === "entity" ? (
+                <EntityBlock
+                  node={child}
+                  selectedId={selectedId}
+                  forceExpanded={forceExpanded}
+                  onSelect={onSelect}
+                />
+              ) : (
+                <GroupBlock
+                  node={child}
+                  selectedId={selectedId}
+                  forceExpanded={forceExpanded}
+                  onSelect={onSelect}
+                />
+              )}
+            </TreeChild>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function GroupBlock({
   node,
   selectedId,
@@ -226,10 +316,11 @@ function GroupBlock({
               isLast={index === node.children.length - 1}
             >
               {child.type === "entity" ? (
-                <EntityButton
-                  entity={child.entity}
-                  selected={child.entity.id === selectedId}
-                  onSelect={() => onSelect(child.entity.id)}
+                <EntityBlock
+                  node={child}
+                  selectedId={selectedId}
+                  forceExpanded={forceExpanded}
+                  onSelect={onSelect}
                 />
               ) : (
                 <GroupBlock
@@ -262,11 +353,12 @@ function PickerTree({
     <div className="flex flex-col gap-0.5" role="listbox">
       {nodes.map((node) =>
         node.type === "entity" ? (
-          <EntityButton
+          <EntityBlock
             key={node.entity.id}
-            entity={node.entity}
-            selected={node.entity.id === selectedId}
-            onSelect={() => onSelect(node.entity.id)}
+            node={node}
+            selectedId={selectedId}
+            forceExpanded={forceExpanded}
+            onSelect={onSelect}
           />
         ) : (
           <GroupBlock

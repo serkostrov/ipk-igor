@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   completeAutomationTask,
   fetchAutomationTasks,
+  isAutomationSilentTaskKind,
   pickAutomationOutcome,
   subscribeAutomationTasks,
   type AutomationTask,
@@ -58,9 +59,11 @@ export function AutomationTasksHost() {
 
     let cancelled = false;
 
-    async function completeAutofillTasks(tasks: AutomationTask[]) {
-      const autofill = tasks.filter((task) => task.config.kind === "autofill");
-      for (const task of autofill) {
+    async function completeSilentTasks(tasks: AutomationTask[]) {
+      const silent = tasks.filter((task) =>
+        isAutomationSilentTaskKind(task.config.kind),
+      );
+      for (const task of silent) {
         if (cancelled) return;
         const entity = entities.find((item) => item.id === task.entityId);
         const record = entity?.records.find(
@@ -79,7 +82,7 @@ export function AutomationTasksHost() {
             sessionUser?.id ?? null,
           );
         } catch (error: unknown) {
-          console.error("[automation] autofill complete failed", error);
+          console.error("[automation] silent step complete failed", error);
         }
       }
     }
@@ -91,11 +94,11 @@ export function AutomationTasksHost() {
         });
         if (cancelled) return;
 
-        await completeAutofillTasks(tasks);
+        await completeSilentTasks(tasks);
         if (cancelled) return;
 
         const interactiveTasks = tasks.filter(
-          (task) => task.config.kind !== "autofill",
+          (task) => !isAutomationSilentTaskKind(task.config.kind),
         );
         const mine = interactiveTasks.filter((task) =>
           isAssignedToUser(task, ids),

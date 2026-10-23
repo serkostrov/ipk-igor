@@ -29,6 +29,7 @@ export type {
   EntityRecordsDisplay,
   EntityTab,
   EntityTabDefaultFolder,
+  EntityPageAggregateCashFlow,
   EntityPageAggregatePanel,
   EntityPageFiltersPanel,
   EntityPageLayout,
@@ -58,6 +59,7 @@ export {
   ENTITY_NAME_FIELD_NAME,
   ENTITY_OVERVIEW_TAB_ID,
   ENTITY_OVERVIEW_TAB_NAME,
+  ENTITY_TAB_KIND_GROUPS,
   ENTITY_TAB_KIND_LABELS,
   ENTITY_TAB_KINDS,
   ENTITY_RECORD_COLUMN_OPTIONS,
@@ -212,6 +214,7 @@ export {
   applyEntityFieldDefaults,
   applyEntityFilesTabDefaults,
   applyEntityFieldValue,
+  collectLookupSoftFillPatchesFromRelated,
   createEntityDraftRecord,
   formatEntityComputedNumber,
   formatEntityFormulaPreview,
@@ -241,6 +244,7 @@ export {
   resolveEntityFieldSource,
   resolveEntityLookupTarget,
   resolveEntityRelationBridgeTarget,
+  resolveRelationGroupsBridgeEntityId,
   isEntityLookupBridgeField,
   resolveRecordFieldCells,
   type EntityConditionSource,
@@ -250,7 +254,9 @@ export {
 export {
   entityNameValueHasTemplate,
   fieldNameTemplateToken,
+  getEntityNameTemplateSuffix,
   getEntityRecordTitle,
+  joinEntityNameTemplateWithSuffix,
   parseEntityNameTemplateParts,
   renderEntityNameTemplate,
   resolveEntityRecordNameTemplate,
@@ -299,8 +305,12 @@ export {
   type EntityRelationGroupsMode,
   type EntityPeriodValue,
 } from "./model/field";
-export { ENTITY_ROLLUP_AGGREGATIONS } from "./model/types";
 export {
+  ENTITY_ROLLUP_AGGREGATIONS,
+  ENTITY_ROLLUP_AGGREGATION_GROUPS,
+} from "./model/types";
+export {
+  ENTITY_CONDITION_OPERATOR_GROUPS,
   ENTITY_CONDITION_OPERATOR_LABELS,
   ENTITY_VALUE_KIND_LABELS,
   createEntityConditionId,
@@ -315,6 +325,7 @@ export {
 export {
   compileFormulaText,
   FORMULA_FUNCTIONS,
+  FORMULA_FUNCTION_GROUPS,
   formulaFromDisplay,
   formulaToDisplay,
   parseFormula,
@@ -400,23 +411,33 @@ export { RelationGroupsFieldControl } from "./ui/RelationGroupsFieldControl";
 export {
   ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID,
   flattenEntityTableHierarchyRows,
+  flattenEntityTableNestedRows,
+  getEntityTableNestedEntityOptions,
+  getEntityTableNestedTargets,
   getEntityTableParentFieldCandidates,
   getEntityTableParentFieldOptions,
   isEntityTableParentField,
   parseEntityTableParentId,
+  resolveEntityTableNestedTarget,
   resolveEntityTableParentField,
   type EntityTableHierarchyGroupRow,
   type EntityTableHierarchyRecordRow,
   type EntityTableHierarchyRow,
+  type EntityTableNestedHierarchyRow,
+  type EntityTableNestedTarget,
 } from "./model/table-hierarchy";
 export {
   buildEntityAggregateRows,
+  buildEntityCashFlowRows,
   createSummaryBoardLayout,
+  resizeEntityPageLayoutRowColumn,
+  swapEntityPageLayoutPanels,
   getEntityPagePanel,
   hasEntityPageLayout,
   normalizeEntityPageLayout,
   type EntityAggregateGroupKey,
   type EntityAggregateRow,
+  type EntityCashFlowPeriod,
 } from "./model/page-layout";
 export { DeadlineChip } from "./ui/DeadlineChip";
 export { ProgressValue } from "./ui/ProgressValue";

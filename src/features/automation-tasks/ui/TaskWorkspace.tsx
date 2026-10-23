@@ -51,6 +51,8 @@ import {
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
+  getOutcomeCreateAskSlots,
+  validateCreateAskRequired,
 } from "../lib/task-ask-fields";
 import {
   buildTaskFormPersistPatch,
@@ -70,6 +72,7 @@ import {
   useTaskFormAutosave,
 } from "../lib/use-task-form-autosave";
 import { resumePendingRecordListChange } from "../model/pending-list-change";
+import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
@@ -227,6 +230,9 @@ function TaskWorkspaceBody({
   const ask = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
+  const createAskSlots = selectedOutcome
+    ? getOutcomeCreateAskSlots(selectedOutcome, entities)
+    : [];
   const requiredIds = new Set(ask?.requiredFieldIds ?? []);
 
   const [values, setValues] = useState<Record<string, string>>(() => {
@@ -355,9 +361,13 @@ function TaskWorkspaceBody({
   const earlyViewTabIds = taskAsk.viewTabIds;
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
+  const hasCreateAsk = createAskSlots.length > 0;
   const hasFillForm =
     ask != null &&
-    (fields.length > 0 || viewFields.length > 0 || hasRelatedAsk);
+    (fields.length > 0 ||
+      viewFields.length > 0 ||
+      hasRelatedAsk ||
+      hasCreateAsk);
   const missingLocalRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {
         const field = entity?.fields.find((item) => item.id === fieldId);
@@ -432,6 +442,16 @@ function TaskWorkspaceBody({
     setValues((current) => ({ ...current, [valueKey]: value }));
   }
 
+  function setCreateDraftValue(draftKey: string, value: string) {
+    autosave.markDirty();
+    setValues((current) => ({ ...current, [draftKey]: value }));
+  }
+
+  function replaceCreateDraftValues(next: Record<string, string>) {
+    autosave.markDirty();
+    setValues(next);
+  }
+
   async function persistValues(outcomeId?: string) {
     if (!entity || !record) return;
     const outcomes = outcomeId
@@ -484,12 +504,25 @@ function TaskWorkspaceBody({
       );
       return `Заполните: ${labels.join(", ")}`;
     }
-    return validateRelatedAskRequired({
+    const relatedError = validateRelatedAskRequired({
       triggerEntity: entity,
       entities,
       fieldAccess: outcome.fieldAccess,
       values: mergedValues,
       isFieldFilled: (field, value) => isTaskAskFieldFilled(field, value),
+    });
+    if (relatedError) return relatedError;
+    return validateCreateAskRequired({
+      outcome,
+      entities,
+      values,
+      isFieldFilled: (field, value, relationGroupsMode) =>
+        isTaskAskFieldFilled(field, value, {
+          relationGroupsMode:
+            relationGroupsMode === "items" || relationGroupsMode === "nested"
+              ? relationGroupsMode
+              : "full",
+        }),
     });
   }
 
@@ -753,6 +786,18 @@ function TaskWorkspaceBody({
                     ctx={previewContext}
                     disabled={busy}
                     onChange={setRelatedValue}
+                  />
+                ) : null}
+
+                {hasCreateAsk ? (
+                  <TaskCreateRecordAsk
+                    slots={createAskSlots}
+                    values={values}
+                    entities={entities}
+                    ctx={previewContext}
+                    disabled={busy}
+                    onChange={setCreateDraftValue}
+                    onValuesChange={replaceCreateDraftValues}
                   />
                 ) : null}
               </div>

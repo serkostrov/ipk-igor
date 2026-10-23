@@ -9,15 +9,18 @@ import type {
   MenuGroupEntry,
   MenuIconName,
   MenuItem,
+  MenuItemEntry,
   MenuItemLocation,
 } from "../model/types";
 import {
   DEFAULT_MENU_GROUP_ICON,
   DEFAULT_MENU_ITEM_ICON,
+  getMenuEntryChildren,
   groupHasProtectedItems,
   isEntityLinkedMenuItem,
-  isMenuGroupDescendant,
+  isMenuEntryDescendant,
   isProtectedMenuItem,
+  itemHasProtectedChildren,
   toMenuEntryLocation,
 } from "../model/types";
 import {
@@ -78,7 +81,9 @@ function cloneEntries(entries: MenuEntry[]): MenuEntry[] {
   return entries.map((entry) =>
     entry.type === "group"
       ? { ...entry, entries: cloneEntries(entry.entries) }
-      : { ...entry },
+      : entry.entries?.length
+        ? { ...entry, entries: cloneEntries(entry.entries) }
+        : { ...entry },
   );
 }
 
@@ -91,39 +96,68 @@ function findGroupEntry(
   groupId: string,
 ): MenuGroupEntry | null {
   for (const entry of entries) {
-    if (entry.type !== "group") continue;
-    if (entry.id === groupId) return entry;
-    const nested = findGroupEntry(entry.entries, groupId);
-    if (nested) return nested;
+    if (entry.type === "group") {
+      if (entry.id === groupId) return entry;
+      const nested = findGroupEntry(entry.entries, groupId);
+      if (nested) return nested;
+      continue;
+    }
+    if (entry.entries?.length) {
+      const nested = findGroupEntry(entry.entries, groupId);
+      if (nested) return nested;
+    }
   }
   return null;
 }
 
+/** Mutable child list of a container (group or item folder). */
 function getListAt(
   entries: MenuEntry[],
-  parentGroupId: string | null,
+  parentId: string | null,
 ): MenuEntry[] | null {
-  if (parentGroupId == null) return entries;
-  return findGroupEntry(entries, parentGroupId)?.entries ?? null;
+  if (parentId == null) return entries;
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]!;
+    if (entry.id === parentId) {
+      if (entry.type === "group") return entry.entries;
+      if (!entry.entries) {
+        const withEntries: MenuItemEntry = { ...entry, entries: [] };
+        entries[index] = withEntries;
+        return withEntries.entries!;
+      }
+      return entry.entries;
+    }
+    if (entry.type === "group") {
+      const nested = getListAt(entry.entries, parentId);
+      if (nested) return nested;
+      continue;
+    }
+    if (entry.entries?.length) {
+      const nested = getListAt(entry.entries, parentId);
+      if (nested) return nested;
+    }
+  }
+  return null;
 }
 
 function findItem(
   itemId: string,
   entries: MenuEntry[] = config.entries,
   parentGroupId: string | null = null,
-): { item: MenuItem; location: MenuEntryLocation } | null {
+): { item: MenuItemEntry; location: MenuEntryLocation } | null {
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]!;
     if (entry.type === "item" && entry.id === itemId) {
       return {
-        item: { id: entry.id, label: entry.label, icon: entry.icon },
+        item: entry,
         location: { parentGroupId, index },
       };
     }
-    if (entry.type === "group") {
-      const nested = findItem(itemId, entry.entries, entry.id);
-      if (nested) return nested;
-    }
+    const children = getMenuEntryChildren(entry);
+    if (children.length === 0) continue;
+    const nested = findItem(itemId, children, entry.id);
+    if (nested) return nested;
   }
   return null;
 }
@@ -138,10 +172,10 @@ function findEntryLocation(
     if (entry.id === entryId) {
       return { parentGroupId, index };
     }
-    if (entry.type === "group") {
-      const nested = findEntryLocation(entryId, entry.entries, entry.id);
-      if (nested) return nested;
-    }
+    const children = getMenuEntryChildren(entry);
+    if (children.length === 0) continue;
+    const nested = findEntryLocation(entryId, children, entry.id);
+    if (nested) return nested;
   }
   return null;
 }
@@ -156,19 +190,37 @@ function syncEntries(
 
   for (const entry of entries) {
     if (entry.type === "item") {
+      const nested = entry.entries?.length
+        ? syncEntries(entry.entries, pending, isManaged)
+        : { entries: [] as MenuEntry[], changed: false };
+      if (nested.changed) changed = true;
+
       if (isManaged(entry.id) && !pending.has(entry.id)) {
+        // Entity removed — promote nested entries instead of dropping them.
         changed = true;
+        nextEntries.push(...nested.entries);
         continue;
       }
 
       const nextLabel = pending.get(entry.id);
       if (nextLabel !== undefined) {
         pending.delete(entry.id);
-        nextEntries.push(entry);
+        nextEntries.push(
+          nested.changed || nested.entries.length > 0
+            ? normalizeItemEntry({
+                ...entry,
+                entries: nested.entries,
+              })
+            : entry,
+        );
         continue;
       }
 
-      nextEntries.push(entry);
+      nextEntries.push(
+        nested.changed
+          ? normalizeItemEntry({ ...entry, entries: nested.entries })
+          : entry,
+      );
       continue;
     }
 
@@ -252,8 +304,8 @@ export function setMenuConfig(next: MenuConfig) {
 /**
  * Keeps managed menu items in sync with their sources:
  * - creates missing root items
- * - removes orphaned managed items
- * Existing labels and group placement stay as configured in the menu.
+ * - removes orphaned managed items (nested children are promoted)
+ * Existing labels and placement stay as configured in the menu.
  *
  * An empty `sources` list must not run: it would delete every managed item
  * from groups, and the next full sync would re-append them at the root.
@@ -317,14 +369,22 @@ export function updateMenuGroup(
 ) {
   function mapEntries(entries: MenuEntry[]): MenuEntry[] {
     return entries.map((entry) => {
-      if (entry.type !== "group") return entry;
-      if (entry.id === groupId) {
-        return normalizeGroupEntry({ ...entry, ...patch });
+      if (entry.type === "group") {
+        if (entry.id === groupId) {
+          return normalizeGroupEntry({ ...entry, ...patch });
+        }
+        return {
+          ...entry,
+          entries: mapEntries(entry.entries),
+        };
       }
-      return {
-        ...entry,
-        entries: mapEntries(entry.entries),
-      };
+      if (entry.entries?.length) {
+        return {
+          ...entry,
+          entries: mapEntries(entry.entries),
+        };
+      }
+      return entry;
     });
   }
 
@@ -339,11 +399,18 @@ export function removeMenuGroup(groupId: string) {
   function filterEntries(entries: MenuEntry[]): MenuEntry[] {
     return entries
       .filter((entry) => !(entry.type === "group" && entry.id === groupId))
-      .map((entry) =>
-        entry.type === "group"
-          ? { ...entry, entries: filterEntries(entry.entries) }
-          : entry,
-      );
+      .map((entry) => {
+        if (entry.type === "group") {
+          return { ...entry, entries: filterEntries(entry.entries) };
+        }
+        if (entry.entries?.length) {
+          return normalizeItemEntry({
+            ...entry,
+            entries: filterEntries(entry.entries),
+          });
+        }
+        return entry;
+      });
   }
 
   persist({ entries: filterEntries(config.entries) });
@@ -360,14 +427,12 @@ export function moveMenuEntry(from: MenuEntryLocation, to: MenuEntryLocation) {
   const [moving] = fromList.splice(from.index, 1);
   if (!moving) return;
 
-  if (moving.type === "group") {
-    const targetParentId = to.parentGroupId;
-    if (
-      targetParentId != null &&
-      isMenuGroupDescendant(config.entries, moving.id, targetParentId)
-    ) {
-      return;
-    }
+  const targetParentId = to.parentGroupId;
+  if (
+    targetParentId != null &&
+    isMenuEntryDescendant(config.entries, moving.id, targetParentId)
+  ) {
+    return;
   }
 
   const toList = getListAt(entries, to.parentGroupId);
@@ -400,16 +465,27 @@ export function updateMenuItem(
   if (!found) return;
 
   const { groupId: nextGroupId, ...itemPatch } = patch;
-  const updatedItem: MenuItem = { ...found.item, ...itemPatch };
+  const updatedItem: MenuItem = {
+    id: found.item.id,
+    label: itemPatch.label ?? found.item.label,
+    icon: itemPatch.icon ?? found.item.icon,
+    ...(found.item.entries?.length ? { entries: found.item.entries } : {}),
+  };
   const currentParent = found.location.parentGroupId;
 
   if (nextGroupId === undefined || nextGroupId === currentParent) {
     function mapEntries(entries: MenuEntry[]): MenuEntry[] {
       return entries.map((entry) => {
         if (entry.type === "item" && entry.id === itemId) {
-          return normalizeItemEntry(updatedItem);
+          return normalizeItemEntry({
+            ...updatedItem,
+            entries: entry.entries,
+          });
         }
         if (entry.type === "group") {
+          return { ...entry, entries: mapEntries(entry.entries) };
+        }
+        if (entry.entries?.length) {
           return { ...entry, entries: mapEntries(entry.entries) };
         }
         return entry;
@@ -419,33 +495,53 @@ export function updateMenuItem(
     return;
   }
 
-  const targetGroup =
-    nextGroupId == null ? null : findGroupEntry(config.entries, nextGroupId);
-  if (nextGroupId != null && !targetGroup) return;
+  if (nextGroupId != null) {
+    if (isMenuEntryDescendant(config.entries, itemId, nextGroupId)) return;
+    const targetExists =
+      findGroupEntry(config.entries, nextGroupId) != null ||
+      findItem(nextGroupId) != null;
+    if (!targetExists) return;
+  }
 
   const entries = cloneEntries(config.entries);
   const fromList = getListAt(entries, found.location.parentGroupId);
   if (!fromList) return;
-  fromList.splice(found.location.index, 1);
+  const [removed] = fromList.splice(found.location.index, 1);
+  if (!removed || removed.type !== "item") return;
 
   const toList = getListAt(entries, nextGroupId);
   if (!toList) return;
-  toList.push({ type: "item", ...updatedItem });
+  toList.push(
+    normalizeItemEntry({
+      ...updatedItem,
+      entries: removed.entries,
+    }),
+  );
 
   persist({ entries });
 }
 
 export function removeMenuItem(itemId: string) {
   if (isProtectedMenuItem(itemId)) return;
+  const found = findItem(itemId);
+  if (!found) return;
+  if (itemHasProtectedChildren(found.item)) return;
 
   function filterEntries(entries: MenuEntry[]): MenuEntry[] {
     return entries
       .filter((entry) => !(entry.type === "item" && entry.id === itemId))
-      .map((entry) =>
-        entry.type === "group"
-          ? { ...entry, entries: filterEntries(entry.entries) }
-          : entry,
-      );
+      .map((entry) => {
+        if (entry.type === "group") {
+          return { ...entry, entries: filterEntries(entry.entries) };
+        }
+        if (entry.entries?.length) {
+          return normalizeItemEntry({
+            ...entry,
+            entries: filterEntries(entry.entries),
+          });
+        }
+        return entry;
+      });
   }
 
   persist({ entries: filterEntries(config.entries) });

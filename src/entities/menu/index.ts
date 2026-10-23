@@ -9,6 +9,7 @@ export type {
   MenuItem,
   MenuItemEntry,
   MenuItemLocation,
+  MenuParentOption,
 } from "./model/types";
 export type { MenuStatus } from "./store/menu-store";
 export {
@@ -22,13 +23,20 @@ export {
   filterVisibleMenuEntries,
   flattenMenuEntriesToItems,
   flattenMenuGroupItems,
+  flattenMenuSubtreeItems,
   getEntityLinkedMenuItemIds,
   getMenuEntityTree,
+  getMenuEntryChildren,
+  getMenuParentOptions,
   groupHasProtectedItems,
   isEntityLinkedMenuItem,
+  isMenuContainer,
+  isMenuEntryDescendant,
   isMenuGroupDescendant,
   isProtectedMenuItem,
   isSystemMenuItem,
+  itemHasProtectedChildren,
+  menuEntriesHaveProtectedItems,
   toMenuEntryLocation,
   toMenuItemLocation,
   walkMenuGroups,

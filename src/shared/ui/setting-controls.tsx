@@ -2,7 +2,9 @@ import { Label } from "@/shared/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
@@ -11,6 +13,11 @@ import { Switch } from "@/shared/ui/switch";
 const EMPTY_VALUE = "__none__";
 
 export type SettingOption = { value: string; label: string };
+
+export type SettingOptionGroup = {
+  label: string;
+  options: SettingOption[];
+};
 
 /** Compact caption for nested settings: title and a one-line hint. */
 export function SettingLabel({
@@ -84,6 +91,7 @@ export function SettingSelect({
   description,
   value,
   options,
+  optionGroups,
   placeholder = "Выберите",
   emptyLabel,
   noOptionsLabel,
@@ -94,6 +102,8 @@ export function SettingSelect({
   description?: string;
   value: string | null;
   options: SettingOption[];
+  /** When set, options are shown under labeled sections (must cover `options`). */
+  optionGroups?: SettingOptionGroup[];
   placeholder?: string;
   /** When set, the value can be cleared with this item. */
   emptyLabel?: string;
@@ -104,6 +114,16 @@ export function SettingSelect({
   const selected = options.find((option) => option.value === value);
   const label =
     selected?.label ?? (value ? "Поле удалено" : (emptyLabel ?? placeholder));
+  const byValue = new Map(options.map((option) => [option.value, option]));
+  const groups =
+    optionGroups
+      ?.map((group) => ({
+        label: group.label,
+        options: group.options
+          .map((option) => byValue.get(option.value) ?? option)
+          .filter((option) => byValue.has(option.value)),
+      }))
+      .filter((group) => group.options.length > 0) ?? null;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -137,11 +157,22 @@ export function SettingSelect({
             {emptyLabel ? (
               <SelectItem value={EMPTY_VALUE}>{emptyLabel}</SelectItem>
             ) : null}
-            {options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
+            {groups
+              ? groups.map((group) => (
+                  <SelectGroup key={group.label}>
+                    <SelectLabel>{group.label}</SelectLabel>
+                    {group.options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))
+              : options.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
           </SelectContent>
         </Select>
       )}

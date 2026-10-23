@@ -14,10 +14,13 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectOptionGroups,
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
 import {
+  ENTITY_TAB_KIND_GROUPS,
+  ENTITY_TAB_KIND_LABELS,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   isEntityMirrorTab,
@@ -70,33 +73,6 @@ type EntityTabDialogProps = {
 
 const DEFAULT_RECORDS_DISPLAY: EntityRecordsDisplay = "cards";
 const DEFAULT_RECORD_COLUMNS: EntityRecordColumns = 2;
-
-const TAB_KIND_LABELS: Record<EntityTabKind, string> = {
-  fields: "Поля",
-  records: "Записи",
-  files: "Файлы",
-  history: "История",
-  entity: "Сущность",
-  mirror: "Из записи",
-};
-
-const TAB_KIND_ORDER: EntityTabKind[] = [
-  "fields",
-  "records",
-  "files",
-  "history",
-  "entity",
-  "mirror",
-];
-
-const SOURCE_TAB_KIND_LABELS: Record<EntityTabKind, string> = {
-  fields: "Поля",
-  records: "Записи",
-  files: "Файлы",
-  history: "История",
-  entity: "Сущность",
-  mirror: "Из записи",
-};
 
 function relationFieldsOf(entity: Entity | null | undefined): EntityField[] {
   if (!entity) return [];
@@ -250,7 +226,10 @@ function EntityTabForm({
   function submit() {
     if (!canSubmit) return;
     if (isEdit) {
-      onSubmit({ name: name.trim(), kind: initialKind });
+      onSubmit({
+        name: name.trim(),
+        kind: initialKind,
+      });
       onCancel();
       return;
     }
@@ -299,7 +278,7 @@ function EntityTabForm({
         <DialogDescription>
           {isEdit
             ? "Измените название вкладки."
-            : "Поля, записи, файлы, связанная сущность или вкладка записи из связи."}
+            : "Поля, записи, файлы, связанная сущность или вкладка из связи."}
         </DialogDescription>
       </DialogHeader>
 
@@ -333,14 +312,13 @@ function EntityTabForm({
                 }}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue>{TAB_KIND_LABELS[kind]}</SelectValue>
+                  <SelectValue>{ENTITY_TAB_KIND_LABELS[kind]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {TAB_KIND_ORDER.map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {TAB_KIND_LABELS[item]}
-                    </SelectItem>
-                  ))}
+                  <SelectOptionGroups
+                    groups={ENTITY_TAB_KIND_GROUPS}
+                    getLabel={(item) => ENTITY_TAB_KIND_LABELS[item]}
+                  />
                 </SelectContent>
               </Select>
             </div>
@@ -401,7 +379,7 @@ function EntityTabForm({
                     <SelectTrigger className="w-full">
                       <SelectValue>
                         {selectedSourceTab
-                          ? `${selectedSourceTab.name} · ${SOURCE_TAB_KIND_LABELS[selectedSourceTab.kind]}`
+                          ? `${selectedSourceTab.name} · ${ENTITY_TAB_KIND_LABELS[selectedSourceTab.kind]}`
                           : "Выберите вкладку"}
                       </SelectValue>
                     </SelectTrigger>
@@ -411,7 +389,7 @@ function EntityTabForm({
                           {tab.name}
                           <span className="text-muted-foreground">
                             {" "}
-                            · {SOURCE_TAB_KIND_LABELS[tab.kind]}
+                            · {ENTITY_TAB_KIND_LABELS[tab.kind]}
                           </span>
                         </SelectItem>
                       ))}
@@ -597,7 +575,13 @@ export function EntityTabDialog({
 }: EntityTabDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className={
+          mode === "create"
+            ? "max-h-[90vh] overflow-y-auto sm:max-w-lg"
+            : "sm:max-w-md"
+        }
+      >
         {open ? (
           <EntityTabForm
             key={`${mode}-${initialName}-${initialKind}-${hostEntity?.id ?? ""}-${entityOptions.length}`}

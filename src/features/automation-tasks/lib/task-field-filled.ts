@@ -9,10 +9,10 @@ import {
 } from "@/entities/entity";
 
 export type TaskFieldFilledOptions = {
-  ctx: EntityValueContext;
-  entity: Entity;
-  values: Record<string, string>;
-  recordId: string;
+  ctx?: EntityValueContext;
+  entity?: Entity;
+  values?: Record<string, string>;
+  recordId?: string;
   relationGroupsMode?: EntityRelationGroupsMode;
 };
 

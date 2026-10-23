@@ -424,9 +424,13 @@ function resolveMenuEntityRows(
   for (const node of nodes) {
     if (node.type === "entity") {
       const entity = byId.get(node.entityId);
-      if (!entity || seen.has(entity.id)) continue;
+      if (!entity || seen.has(entity.id)) {
+        rows.push(...resolveMenuEntityRows(node.children, byId, seen, depth));
+        continue;
+      }
       seen.add(entity.id);
       rows.push({ type: "entity", entity, depth });
+      rows.push(...resolveMenuEntityRows(node.children, byId, seen, depth + 1));
       continue;
     }
     const children = resolveMenuEntityRows(

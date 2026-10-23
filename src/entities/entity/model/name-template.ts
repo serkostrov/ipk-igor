@@ -84,7 +84,38 @@ export function resolveEntityRecordNameTemplate(
 }
 
 /**
+ * Free-text addition to an entity-wide name template (stored in the name field).
+ * Empty when there is no entity template or the name value still looks like a
+ * per-record template (`{{fieldId}}`).
+ */
+export function getEntityNameTemplateSuffix(
+  entity: Pick<Entity, "nameTemplate" | "fields">,
+  record: Pick<EntityRecord, "values">,
+): string {
+  if (!entity.nameTemplate.trim()) return "";
+  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  if (!nameField) return "";
+  const raw = (record.values[nameField.id] ?? "").trim();
+  if (!raw || entityNameValueHasTemplate(raw)) return "";
+  return raw;
+}
+
+/** Join resolved template text with an optional free-text suffix. */
+export function joinEntityNameTemplateWithSuffix(
+  renderedTemplate: string,
+  suffix: string,
+): string {
+  const base = renderedTemplate.trim();
+  const extra = suffix.trim();
+  if (!base) return extra;
+  if (!extra) return base;
+  return `${base} ${extra}`.replace(/\s+/g, " ").trim();
+}
+
+/**
  * Record title for UI: entity template or name field value, with tokens resolved.
+ * When the entity has a name template, the name field may hold an optional
+ * free-text suffix the user typed after the template.
  */
 export function getEntityRecordTitle(
   ctx: EntityValueContext,
@@ -94,9 +125,13 @@ export function getEntityRecordTitle(
 ): string {
   const template = resolveEntityRecordNameTemplate(entity, record);
   if (!template) return empty;
-  const text = entityNameValueHasTemplate(template)
+  const rendered = entityNameValueHasTemplate(template)
     ? renderEntityNameTemplate(ctx, entity, record, template)
     : template;
+  const text = joinEntityNameTemplateWithSuffix(
+    rendered,
+    getEntityNameTemplateSuffix(entity, record),
+  );
   if (!text || text === "—") return empty;
   return text;
 }

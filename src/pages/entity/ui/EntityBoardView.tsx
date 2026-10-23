@@ -1,6 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import {
   buildEntityAggregateRows,
+  buildEntityCashFlowRows,
   formatEntityDecimalTotal,
   getEntityFieldDisplayName,
   getEntityPagePanel,
@@ -9,6 +11,7 @@ import {
   useEntityValueContext,
   type Entity,
   type EntityAggregateRow,
+  type EntityCashFlowPeriod,
   type EntityPageAggregatePanel,
   type EntityPageFiltersPanel,
   type EntityPagePanel,
@@ -19,6 +22,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -26,16 +30,42 @@ import {
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
+  isEntityFilterActive,
   recordMatchesFilters,
   recordMatchesSearch,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 import { EntityTableView } from "./EntityTableView";
 
+function cashFlowPeriodFromFilters(
+  filters: EntityFiltersState,
+  dateFieldId: string,
+): EntityCashFlowPeriod {
+  const filter = filters[dateFieldId];
+  if (filter?.kind !== "datetime") return { from: "", to: "" };
+  return { from: filter.from.trim(), to: filter.to.trim() };
+}
+
+function filtersWithoutField(
+  filters: EntityFiltersState,
+  fieldId: string,
+): EntityFiltersState {
+  if (!(fieldId in filters)) return filters;
+  const next = { ...filters };
+  delete next[fieldId];
+  return next;
+}
+
+function formatCashFlowExpense(value: number) {
+  return formatEntityDecimalTotal(-Math.abs(value));
+}
+
 type EntityBoardViewProps = {
   entity: Entity;
   records: EntityRecord[];
   title: string;
+  chromeCollapsed?: boolean;
+  onChromeCollapsedChange?: (collapsed: boolean) => void;
   onEditRecord?: (record: EntityRecord) => void;
   onOpenRecord?: (record: EntityRecord) => void;
   onOpenRelation?: (entityId: string, recordId: string) => void;
@@ -54,16 +84,18 @@ function PanelChrome({
   return (
     <section
       className={cn(
-        "flex min-h-0 min-w-0 flex-col gap-2 rounded-xl border border-border/70 bg-card/40 p-3",
+        "flex min-h-0 min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-card p-3 shadow-xs",
         className,
       )}
     >
       {title ? (
-        <h2 className="shrink-0 px-0.5 text-sm font-medium tracking-tight">
+        <h2 className="shrink-0 px-0.5 text-sm font-medium tracking-tight text-foreground">
           {title}
         </h2>
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
+        {children}
+      </div>
     </section>
   );
 }
@@ -87,6 +119,7 @@ function AggregatePanelView({
   const valueFields = panel.valueFieldIds
     .map((id) => entity.fields.find((field) => field.id === id) ?? null)
     .filter((field): field is NonNullable<typeof field> => field != null);
+  const showCashFlow = Boolean(panel.cashFlow);
 
   if (groupFields.length === 0) {
     return (
@@ -104,8 +137,34 @@ function AggregatePanelView({
     );
   }
 
+  const footer = showCashFlow
+    ? rows.reduce(
+        (acc, row) => {
+          const cf = row.cashFlow;
+          if (!cf) return acc;
+          return {
+            opening:
+              cf.opening == null
+                ? acc.opening
+                : (acc.opening ?? 0) + cf.opening,
+            income: acc.income + cf.income,
+            expense: acc.expense + cf.expense,
+            closing: acc.closing + cf.closing,
+            hasOpening: acc.hasOpening || cf.opening != null,
+          };
+        },
+        {
+          opening: null as number | null,
+          income: 0,
+          expense: 0,
+          closing: 0,
+          hasOpening: false,
+        },
+      )
+    : null;
+
   return (
-    <div className="min-h-0 overflow-auto rounded-lg border border-border/60">
+    <div className="min-h-0 flex-1 overflow-auto">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -114,6 +173,22 @@ function AggregatePanelView({
                 {getEntityFieldDisplayName(field)}
               </TableHead>
             ))}
+            {showCashFlow ? (
+              <>
+                <TableHead className="whitespace-nowrap text-right">
+                  Остаток на начало периода
+                </TableHead>
+                <TableHead className="whitespace-nowrap text-right">
+                  Сумма прихода
+                </TableHead>
+                <TableHead className="whitespace-nowrap text-right">
+                  Сумма расхода
+                </TableHead>
+                <TableHead className="whitespace-nowrap text-right">
+                  Остаток на конец периода
+                </TableHead>
+              </>
+            ) : null}
             {panel.showRecordCount ? (
               <TableHead className="whitespace-nowrap text-right">
                 Кол-во
@@ -132,6 +207,7 @@ function AggregatePanelView({
         <TableBody>
           {rows.map((row) => {
             const active = activeKey === row.key;
+            const cf = row.cashFlow;
             return (
               <TableRow
                 key={row.key}
@@ -146,6 +222,24 @@ function AggregatePanelView({
                     {group.label}
                   </TableCell>
                 ))}
+                {showCashFlow ? (
+                  <>
+                    <TableCell className="text-right tabular-nums text-foreground">
+                      {cf?.opening == null
+                        ? "—"
+                        : formatEntityDecimalTotal(cf.opening)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-[#16a34a]">
+                      {formatEntityDecimalTotal(cf?.income ?? 0)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-[#dc2626]">
+                      {formatCashFlowExpense(cf?.expense ?? 0)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-foreground">
+                      {formatEntityDecimalTotal(cf?.closing ?? 0)}
+                    </TableCell>
+                  </>
+                ) : null}
                 {panel.showRecordCount ? (
                   <TableCell className="text-right tabular-nums">
                     {row.count}
@@ -160,6 +254,50 @@ function AggregatePanelView({
             );
           })}
         </TableBody>
+        {footer ? (
+          <TableFooter>
+            <TableRow className="hover:bg-transparent">
+              <TableCell
+                colSpan={groupFields.length}
+                className="font-medium text-foreground"
+              >
+                Итого
+              </TableCell>
+              <TableCell className="text-right font-medium tabular-nums text-foreground">
+                {footer.hasOpening
+                  ? formatEntityDecimalTotal(footer.opening ?? 0)
+                  : "—"}
+              </TableCell>
+              <TableCell className="text-right font-medium tabular-nums text-[#16a34a]">
+                {formatEntityDecimalTotal(footer.income)}
+              </TableCell>
+              <TableCell className="text-right font-medium tabular-nums text-[#dc2626]">
+                {formatCashFlowExpense(footer.expense)}
+              </TableCell>
+              <TableCell className="text-right font-medium tabular-nums text-foreground">
+                {formatEntityDecimalTotal(footer.closing)}
+              </TableCell>
+              {panel.showRecordCount ? (
+                <TableCell className="text-right font-medium tabular-nums">
+                  {rows.reduce((sum, row) => sum + row.count, 0)}
+                </TableCell>
+              ) : null}
+              {valueFields.map((field) => (
+                <TableCell
+                  key={field.id}
+                  className="text-right font-medium tabular-nums"
+                >
+                  {formatEntityDecimalTotal(
+                    rows.reduce(
+                      (sum, row) => sum + (row.totals[field.id] ?? 0),
+                      0,
+                    ),
+                  )}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableFooter>
+        ) : null}
       </Table>
     </div>
   );
@@ -251,7 +389,12 @@ function BoardPanel({
 }) {
   if (panel.type === "records") {
     return (
-      <PanelChrome title={panel.title} className="min-h-[16rem] flex-1">
+      <div className="flex h-full min-h-0 min-w-0 flex-col">
+        {panel.title ? (
+          <h2 className="mb-2 shrink-0 px-0.5 text-sm font-medium tracking-tight">
+            {panel.title}
+          </h2>
+        ) : null}
         <EntityTableView
           entity={entity}
           records={filteredRecords}
@@ -262,16 +405,13 @@ function BoardPanel({
           onOpenRelation={onOpenRelation}
           onCreateChildRecord={onCreateChildRecord}
         />
-      </PanelChrome>
+      </div>
     );
   }
 
   if (panel.type === "aggregate") {
     return (
-      <PanelChrome
-        title={panel.title ?? "Сводная таблица"}
-        className="min-h-[12rem]"
-      >
+      <PanelChrome title={null} className="max-h-[min(20rem,40vh)] gap-0 p-0">
         <AggregatePanelView
           entity={entity}
           panel={panel}
@@ -284,7 +424,10 @@ function BoardPanel({
   }
 
   return (
-    <PanelChrome title={panel.title ?? "Фильтры"}>
+    <PanelChrome
+      title={panel.title ?? "Фильтры"}
+      className="max-h-[min(20rem,40vh)]"
+    >
       <FiltersPanelView
         entity={entity}
         panel={panel}
@@ -301,6 +444,8 @@ export function EntityBoardView({
   entity,
   records,
   title,
+  chromeCollapsed = false,
+  onChromeCollapsedChange,
   onEditRecord,
   onOpenRecord,
   onOpenRelation,
@@ -321,6 +466,15 @@ export function EntityBoardView({
   const hasFiltersPanel = Boolean(
     layout?.panels.some((panel) => panel.type === "filters"),
   );
+
+  const activeFilterCount = useMemo(() => {
+    let count = filterFields.filter((field) =>
+      isEntityFilterActive(filters[field.id]),
+    ).length;
+    if (search.trim()) count += 1;
+    if (drillRow) count += 1;
+    return count;
+  }, [drillRow, filterFields, filters, search]);
 
   /** Shared search + filters (drill-down does not shrink the aggregate). */
   const scopedRecords = useMemo(
@@ -359,13 +513,48 @@ export function EntityBoardView({
   const aggregateByPanelId = useMemo(() => {
     const map = new Map<string, EntityAggregateRow[]>();
     for (const panel of aggregatePanels) {
+      if (panel.cashFlow) {
+        const dateFieldId = panel.cashFlow.dateFieldId;
+        const historyFilters = filtersWithoutField(filters, dateFieldId);
+        const historyRecords = records.filter(
+          (record) =>
+            recordMatchesSearch(valueContext, entity, record, search) &&
+            recordMatchesFilters(
+              valueContext,
+              entity,
+              record,
+              filterFields,
+              historyFilters,
+            ),
+        );
+        map.set(
+          panel.id,
+          buildEntityCashFlowRows(
+            valueContext,
+            entity,
+            historyRecords,
+            panel,
+            cashFlowPeriodFromFilters(filters, dateFieldId),
+          ),
+        );
+        continue;
+      }
       map.set(
         panel.id,
         buildEntityAggregateRows(valueContext, entity, scopedRecords, panel),
       );
     }
     return map;
-  }, [aggregatePanels, entity, scopedRecords, valueContext]);
+  }, [
+    aggregatePanels,
+    entity,
+    filterFields,
+    filters,
+    records,
+    scopedRecords,
+    search,
+    valueContext,
+  ]);
 
   if (!layout || !hasEntityPageLayout(entity)) {
     return (
@@ -381,6 +570,9 @@ export function EntityBoardView({
     );
   }
 
+  // Narrowed copy — nested helpers below don't retain the null guard.
+  const pageLayout = layout;
+
   function handleDrill(row: EntityAggregateRow) {
     setDrillRow((current) => (current?.key === row.key ? null : row));
   }
@@ -395,60 +587,106 @@ export function EntityBoardView({
     setSearch(value);
   }
 
+  const isRecordsRow = (panelIds: string[]) =>
+    panelIds.some(
+      (id) => getEntityPagePanel(pageLayout, id)?.type === "records",
+    );
+
+  const chromeRows = pageLayout.rows.filter(
+    (row) => !isRecordsRow(row.panelIds),
+  );
+  const fillRows = pageLayout.rows.filter((row) => isRecordsRow(row.panelIds));
+  const hasChrome = chromeRows.length > 0 || !hasFiltersPanel;
+
+  function renderRow(
+    row: (typeof pageLayout.rows)[number],
+    opts: { fill: boolean },
+  ) {
+    return (
+      <div
+        key={row.id}
+        className={cn(
+          "grid min-w-0 gap-3",
+          opts.fill ? "min-h-0 flex-1" : "shrink-0",
+        )}
+        style={{
+          gridTemplateColumns: row.columns
+            .map((fraction) => `${fraction}fr`)
+            .join(" "),
+        }}
+      >
+        {row.panelIds.map((panelId) => {
+          const panel = getEntityPagePanel(pageLayout, panelId);
+          if (!panel) return null;
+          return (
+            <BoardPanel
+              key={panelId}
+              entity={entity}
+              panel={panel}
+              title={title}
+              filteredRecords={registryRecords}
+              aggregateRows={aggregateByPanelId.get(panelId) ?? []}
+              drillKey={drillRow?.key ?? null}
+              onDrill={handleDrill}
+              search={search}
+              onSearchChange={handleSearchChange}
+              filters={filters}
+              onFiltersChange={handleFiltersChange}
+              onEditRecord={onEditRecord}
+              onOpenRecord={onOpenRecord}
+              onOpenRelation={onOpenRelation}
+              onCreateChildRecord={onCreateChildRecord}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {hasFiltersPanel ? null : (
-        <div className="shrink-0">
-          <EntityBrowseFilters
-            fields={filterFields}
-            entities={entities}
-            search={search}
-            onSearchChange={handleSearchChange}
-            filters={filters}
-            onFiltersChange={handleFiltersChange}
-            searchId="entity-board-shared-search"
-          />
-        </div>
-      )}
-
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
-        {layout.rows.map((row) => (
-          <div
-            key={row.id}
-            className="grid min-h-0 gap-3"
-            style={{
-              gridTemplateColumns: row.columns
-                .map((fraction) => `${fraction}fr`)
-                .join(" "),
-            }}
+      {hasChrome ? (
+        chromeCollapsed ? (
+          <button
+            type="button"
+            onClick={() => onChromeCollapsedChange?.(false)}
+            className="flex h-9 w-full shrink-0 items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 text-left shadow-xs transition-colors hover:bg-muted/40"
           >
-            {row.panelIds.map((panelId) => {
-              const panel = getEntityPagePanel(layout, panelId);
-              if (!panel) return null;
-              return (
-                <BoardPanel
-                  key={panelId}
-                  entity={entity}
-                  panel={panel}
-                  title={title}
-                  filteredRecords={registryRecords}
-                  aggregateRows={aggregateByPanelId.get(panelId) ?? []}
-                  drillKey={drillRow?.key ?? null}
-                  onDrill={handleDrill}
-                  search={search}
-                  onSearchChange={handleSearchChange}
-                  filters={filters}
-                  onFiltersChange={handleFiltersChange}
-                  onEditRecord={onEditRecord}
-                  onOpenRecord={onOpenRecord}
-                  onOpenRelation={onOpenRelation}
-                  onCreateChildRecord={onCreateChildRecord}
-                />
-              );
-            })}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-medium">
+                Сводка и фильтры
+              </span>
+              {activeFilterCount > 0 ? (
+                <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/10 px-1.5 text-[11px] font-medium tabular-nums text-primary">
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </span>
+            <ChevronDown
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+          </button>
+        ) : (
+          <div className="flex shrink-0 flex-col gap-3">
+            {hasFiltersPanel ? null : (
+              <EntityBrowseFilters
+                fields={filterFields}
+                entities={entities}
+                search={search}
+                onSearchChange={handleSearchChange}
+                filters={filters}
+                onFiltersChange={handleFiltersChange}
+                searchId="entity-board-shared-search"
+              />
+            )}
+
+            {chromeRows.map((row) => renderRow(row, { fill: false }))}
           </div>
-        ))}
-      </div>
+        )
+      ) : null}
+
+      {fillRows.map((row) => renderRow(row, { fill: true }))}
     </div>
   );
 }

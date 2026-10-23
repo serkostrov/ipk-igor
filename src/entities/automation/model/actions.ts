@@ -3,6 +3,8 @@
  * Domain scenarios compose these; no commercial_* action kinds.
  */
 
+import type { AutomationFieldAskOptions } from "./types";
+
 export const AUTOMATION_ACTION_KINDS = [
   "noop",
   "setField",
@@ -10,7 +12,6 @@ export const AUTOMATION_ACTION_KINDS = [
   "viewField",
   "viewTabs",
   "createRecord",
-  "createRecordsFromMapping",
   "updateRecords",
   "copyFields",
   "setRelation",
@@ -29,6 +30,20 @@ export type AutomationFieldMapping = {
   targetFieldId: string;
   /** Literal value, or `{{sourceFieldId}}` / `{{triggerFieldId}}`. */
   source: string;
+};
+
+/**
+ * Nested create under a `createRecord` parent — assignee may add several
+ * drafts on the task form; each becomes a child record linked to the parent.
+ */
+export type AutomationCreateNestedSpec = {
+  id: string;
+  entityId: string;
+  askFieldIds: string[];
+  askRequiredFieldIds?: string[];
+  fieldAskOptions?: Record<string, AutomationFieldAskOptions>;
+  /** Prefill from trigger (and later parent) before ask values. */
+  mappings?: AutomationFieldMapping[];
 };
 
 export type AutomationAction =
@@ -64,16 +79,12 @@ export type AutomationAction =
       mappings: AutomationFieldMapping[];
       /** Store created record id into trigger record field (relation). */
       linkBackFieldId?: string;
-    }
-  | {
-      id: string;
-      kind: "createRecordsFromMapping";
-      entityId: string;
-      /** Multi-relation on trigger record — one created row per id. */
-      fanOutFieldId: string;
-      mappings: AutomationFieldMapping[];
-      /** Place fan-out id into this field on each created row. */
-      fanOutTargetFieldId: string;
+      /** Fields the assignee fills on the task form for this new record. */
+      askFieldIds?: string[];
+      askRequiredFieldIds?: string[];
+      fieldAskOptions?: Record<string, AutomationFieldAskOptions>;
+      /** Child records under the created parent (task form list). */
+      nestedCreates?: AutomationCreateNestedSpec[];
     }
   | {
       id: string;
@@ -155,7 +166,6 @@ export const AUTOMATION_ACTION_KIND_LABELS: Record<
   viewField: "Просмотреть поле",
   viewTabs: "Просмотреть вкладки",
   createRecord: "Создать запись",
-  createRecordsFromMapping: "Создать записи по списку",
   updateRecords: "Обновить поля",
   copyFields: "Скопировать поля",
   setRelation: "Установить связь",
@@ -167,6 +177,42 @@ export const AUTOMATION_ACTION_KIND_LABELS: Record<
   requireFields: "Обязательные поля",
   attachToFolder: "Сохранить вложение",
 };
+
+/** Action kind picker sections in the automation builder. */
+export const AUTOMATION_ACTION_KIND_GROUPS: Array<{
+  label: string;
+  items: AutomationActionKind[];
+}> = [
+  {
+    label: "Поля и форма",
+    items: [
+      "setField",
+      "setFieldPrevious",
+      "viewField",
+      "viewTabs",
+      "requireFields",
+      "attachToFolder",
+    ],
+  },
+  {
+    label: "Записи и связи",
+    items: [
+      "createRecord",
+      "updateRecords",
+      "copyFields",
+      "setRelation",
+      "addRelation",
+    ],
+  },
+  {
+    label: "Процесс и задачи",
+    items: ["startProcess", "spawnTasks", "cancelTasks"],
+  },
+  {
+    label: "Прочее",
+    items: ["notify", "noop"],
+  },
+];
 
 export function createAutomationActionId() {
   return `act-${crypto.randomUUID()}`;
@@ -193,15 +239,6 @@ export function defaultAutomationAction(
       };
     case "createRecord":
       return { id, kind, entityId: "", mappings: [] };
-    case "createRecordsFromMapping":
-      return {
-        id,
-        kind,
-        entityId: "",
-        fanOutFieldId: "",
-        fanOutTargetFieldId: "",
-        mappings: [],
-      };
     case "updateRecords":
       return {
         id,
@@ -276,6 +313,119 @@ function normalizeMappings(value: unknown): AutomationFieldMapping[] {
   return result;
 }
 
+function normalizeStringIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (id): id is string => typeof id === "string" && id.trim().length > 0,
+  );
+}
+
+function normalizeCreateFieldAskOptions(
+  value: unknown,
+  visibleFieldIds: readonly string[],
+): Record<string, AutomationFieldAskOptions> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const visible = new Set(visibleFieldIds);
+  const result: Record<string, AutomationFieldAskOptions> = {};
+  for (const [fieldId, raw] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (!visible.has(fieldId) || !raw || typeof raw !== "object") continue;
+    const mode = (raw as Record<string, unknown>).relationGroupsMode;
+    if (mode !== "items" && mode !== "nested") continue;
+    result[fieldId] = { relationGroupsMode: mode };
+  }
+  return result;
+}
+
+function normalizeNestedCreates(value: unknown): AutomationCreateNestedSpec[] {
+  if (!Array.isArray(value)) return [];
+  const result: AutomationCreateNestedSpec[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : `nested-${crypto.randomUUID()}`;
+    const entityId =
+      typeof raw.entityId === "string" ? raw.entityId.trim() : "";
+    if (!entityId) continue;
+    const askFieldIds = normalizeStringIdList(raw.askFieldIds);
+    const askRequiredFieldIds = normalizeStringIdList(
+      raw.askRequiredFieldIds,
+    ).filter((fieldId) => askFieldIds.includes(fieldId));
+    const fieldAskOptions = normalizeCreateFieldAskOptions(
+      raw.fieldAskOptions,
+      askFieldIds,
+    );
+    const mappings = normalizeMappings(raw.mappings);
+    result.push({
+      id,
+      entityId,
+      askFieldIds,
+      ...(askRequiredFieldIds.length > 0 ? { askRequiredFieldIds } : {}),
+      ...(Object.keys(fieldAskOptions).length > 0 ? { fieldAskOptions } : {}),
+      ...(mappings.length > 0 ? { mappings } : {}),
+    });
+  }
+  return result;
+}
+
+export function createAutomationNestedCreateId() {
+  return `nested-${crypto.randomUUID()}`;
+}
+
+/** Draft key for a field on a createRecord parent form. */
+export function createRecordAskDraftKey(actionId: string, fieldId: string) {
+  return `create:${actionId}:${fieldId}`;
+}
+
+/** Draft key for a field on a nested create draft row. */
+export function createRecordNestedAskDraftKey(
+  actionId: string,
+  nestedId: string,
+  index: number,
+  fieldId: string,
+) {
+  return `create:${actionId}:nested:${nestedId}:${index}:${fieldId}`;
+}
+
+/** Draft key storing how many nested rows exist for a nestedCreate slot. */
+export function createRecordNestedCountDraftKey(
+  actionId: string,
+  nestedId: string,
+) {
+  return `create:${actionId}:nested:${nestedId}:__count__`;
+}
+
+export function parseCreateRecordAskDraftKey(key: string): {
+  actionId: string;
+  fieldId: string;
+} | null {
+  const match = /^create:([^:]+):([^:]+)$/.exec(key);
+  if (!match) return null;
+  const fieldId = match[2]!;
+  if (fieldId.startsWith("nested:")) return null;
+  return { actionId: match[1]!, fieldId };
+}
+
+export function parseCreateRecordNestedAskDraftKey(key: string): {
+  actionId: string;
+  nestedId: string;
+  index: number;
+  fieldId: string;
+} | null {
+  const match = /^create:([^:]+):nested:([^:]+):(\d+):(.+)$/.exec(key);
+  if (!match) return null;
+  return {
+    actionId: match[1]!,
+    nestedId: match[2]!,
+    index: Number(match[3]),
+    fieldId: match[4]!,
+  };
+}
+
 export function normalizeAutomationAction(
   value: unknown,
 ): AutomationAction | null {
@@ -304,28 +454,30 @@ export function normalizeAutomationAction(
         ...withId,
         fieldId: typeof raw.fieldId === "string" ? raw.fieldId : "",
       };
-    case "createRecord":
+    case "createRecord": {
+      const askFieldIds = normalizeStringIdList(raw.askFieldIds);
+      const askRequiredFieldIds = normalizeStringIdList(
+        raw.askRequiredFieldIds,
+      ).filter((fieldId) => askFieldIds.includes(fieldId));
+      const fieldAskOptions = normalizeCreateFieldAskOptions(
+        raw.fieldAskOptions,
+        askFieldIds,
+      );
+      const nestedCreates = normalizeNestedCreates(raw.nestedCreates);
       return {
         ...withId,
         entityId: typeof raw.entityId === "string" ? raw.entityId : "",
         mappings: normalizeMappings(raw.mappings),
         linkBackFieldId:
-          typeof raw.linkBackFieldId === "string"
-            ? raw.linkBackFieldId
+          typeof raw.linkBackFieldId === "string" && raw.linkBackFieldId.trim()
+            ? raw.linkBackFieldId.trim()
             : undefined,
+        ...(askFieldIds.length > 0 ? { askFieldIds } : {}),
+        ...(askRequiredFieldIds.length > 0 ? { askRequiredFieldIds } : {}),
+        ...(Object.keys(fieldAskOptions).length > 0 ? { fieldAskOptions } : {}),
+        ...(nestedCreates.length > 0 ? { nestedCreates } : {}),
       };
-    case "createRecordsFromMapping":
-      return {
-        ...withId,
-        entityId: typeof raw.entityId === "string" ? raw.entityId : "",
-        fanOutFieldId:
-          typeof raw.fanOutFieldId === "string" ? raw.fanOutFieldId : "",
-        fanOutTargetFieldId:
-          typeof raw.fanOutTargetFieldId === "string"
-            ? raw.fanOutTargetFieldId
-            : "",
-        mappings: normalizeMappings(raw.mappings),
-      };
+    }
     case "updateRecords":
       return {
         ...withId,
@@ -462,10 +614,14 @@ export function describeAutomationAction(
           : `Вкладки: ${action.tabIds.length}`;
       return action.filesTabAllowMove ? `${base} · перемещение` : base;
     }
-    case "createRecord":
-      return `Создать запись в «${entity(action.entityId)}»`;
-    case "createRecordsFromMapping":
-      return `Создать записи в «${entity(action.entityId)}»`;
+    case "createRecord": {
+      const askCount = action.askFieldIds?.length ?? 0;
+      const nestedCount = action.nestedCreates?.length ?? 0;
+      const bits = [`Создать запись в «${entity(action.entityId)}»`];
+      if (askCount > 0) bits.push(`запрос: ${askCount}`);
+      if (nestedCount > 0) bits.push(`вложенные: ${nestedCount}`);
+      return bits.join(" · ");
+    }
     case "updateRecords":
       return action.mappings.length > 0
         ? `Обновить «${entity(action.entityId)}» · ${action.mappings.length}`

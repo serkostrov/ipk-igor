@@ -1,5 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link2, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Link2,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
@@ -28,14 +42,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
+import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import {
   addEntityRecord,
   updateEntityRecord,
   waitForEntityRecordInsert,
   entityRelationIncludesId,
+  flattenEntityTableHierarchyRows,
+  flattenEntityTableNestedRows,
   formatEntityDecimalTotal,
   formatRecordFieldValue,
   getEntityFieldDisplayName,
+  getEntityRecordTitle,
   getEntityTableFields,
   isEntityFieldVisibleOnRecord,
   isEntityInternal,
@@ -54,11 +72,14 @@ import {
   removeEntityRecord,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
+  resolveEntityTableNestedTarget,
+  resolveEntityTableParentField,
   RecordValue,
   serializeEntityRelationIds,
   useEntityConfig,
   useEntityValueContext,
   type Entity,
+  type EntityField,
   type EntityRecord,
   type EntityTab,
   type EntityValueContext,
@@ -68,6 +89,7 @@ import {
   ENTITY_TABLE_ACTIONS_WIDTH,
   getEntityTableHeaderMinWidth,
 } from "../lib/table-column-width";
+import { getEntityBrowseFilterFields } from "./EntityBrowseFilters";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 
 const dataTableHeadClass =
@@ -115,21 +137,295 @@ function getLinkedTableColumns(
   return nameField ? [nameField, ...fallback] : fallback;
 }
 
+/** Nested-row fields: browse filters of the child entity (not the parent link). */
+function getNestedRowDisplayFields(
+  nestedEntity: Entity,
+  parentLinkFieldId: string | null,
+) {
+  return getEntityBrowseFilterFields(nestedEntity).filter(
+    (field) => !isEntityParentLinkField(field, parentLinkFieldId),
+  );
+}
+
+function NestedRecordFieldValue({
+  entity,
+  record,
+  field,
+  entities,
+  valueContext,
+}: {
+  entity: Entity;
+  record: EntityRecord;
+  field: EntityField;
+  entities: Entity[];
+  valueContext: EntityValueContext;
+}) {
+  const display = formatRecordFieldValue(valueContext, entity, record, field);
+  if (field.type === "list") {
+    const presentation = resolveEntityListFieldPresentation(field, entities);
+    return (
+      <ListValueDisplay
+        options={resolveEntityListFieldOptions(field, entities)}
+        value={record.values[field.id]}
+        multiple={presentation.listMultiple}
+        showColors={presentation.listUseColors}
+      />
+    );
+  }
+  if (isRecordValueDecorated(field)) {
+    return (
+      <RecordValue
+        ctx={valueContext}
+        entity={entity}
+        record={record}
+        field={field}
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "block truncate",
+        display === "—" && "text-muted-foreground/60",
+      )}
+    >
+      {display}
+    </span>
+  );
+}
+
+function NestedRecordFieldsStrip({
+  entity,
+  record,
+  fields,
+  entities,
+  valueContext,
+}: {
+  entity: Entity;
+  record: EntityRecord;
+  fields: EntityField[];
+  entities: Entity[];
+  valueContext: EntityValueContext;
+}) {
+  if (fields.length === 0) return null;
+  return (
+    <div className="flex min-w-0 flex-wrap items-start gap-x-5 gap-y-1.5">
+      {fields.map((field) => {
+        const display = formatRecordFieldValue(
+          valueContext,
+          entity,
+          record,
+          field,
+        );
+        return (
+          <div key={field.id} className="min-w-0 max-w-[14rem]">
+            <p className="truncate text-[10px] font-medium tracking-wide text-muted-foreground/75 uppercase">
+              {getEntityFieldDisplayName(field)}
+            </p>
+            <div
+              className="mt-0.5 min-w-0 text-sm text-foreground/90"
+              title={display === "—" ? undefined : display}
+            >
+              <NestedRecordFieldValue
+                entity={entity}
+                record={record}
+                field={field}
+                entities={entities}
+                valueContext={valueContext}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RecordsTableFieldCell({
+  entity,
+  record,
+  field,
+  entities,
+  valueContext,
+  indent = false,
+  isGroupStart = false,
+  isGroupEnd = false,
+  leading = null,
+  emphasize = false,
+}: {
+  entity: Entity;
+  record: EntityRecord;
+  field: EntityField;
+  entities: Entity[];
+  valueContext: EntityValueContext;
+  indent?: boolean;
+  isGroupStart?: boolean;
+  isGroupEnd?: boolean;
+  /** Content before the value (e.g. hierarchy expand control). */
+  leading?: ReactNode;
+  emphasize?: boolean;
+}) {
+  const display = formatRecordFieldValue(valueContext, entity, record, field);
+  const listPresentation =
+    field.type === "list"
+      ? resolveEntityListFieldPresentation(field, entities)
+      : null;
+
+  const value = (
+    <>
+      {field.type === "list" && listPresentation ? (
+        <ListValueDisplay
+          options={resolveEntityListFieldOptions(field, entities)}
+          value={record.values[field.id]}
+          multiple={listPresentation.listMultiple}
+          showColors={listPresentation.listUseColors}
+        />
+      ) : isRecordValueDecorated(field) ? (
+        <RecordValue
+          ctx={valueContext}
+          entity={entity}
+          record={record}
+          field={field}
+        />
+      ) : (
+        <span
+          className={cn(
+            "block truncate",
+            display === "—" && "text-muted-foreground/70",
+          )}
+        >
+          {display}
+        </span>
+      )}
+    </>
+  );
+
+  return (
+    <TableCell
+      className={cn(
+        "relative min-w-0 overflow-hidden px-3 py-2 text-foreground/90",
+        (indent || leading) && "pl-3.5",
+        emphasize && "font-medium text-foreground",
+      )}
+      title={display === "—" ? undefined : display}
+    >
+      {indent ? (
+        <TreeBranchGuides
+          isFirst={isGroupStart}
+          isLast={isGroupEnd}
+          className="left-[11px]"
+          armClassName="w-3"
+          elbowTopPx={18}
+        />
+      ) : null}
+      {leading ? (
+        <div className="flex min-w-0 items-center gap-1.5">
+          {leading}
+          <div className="min-w-0 flex-1">{value}</div>
+        </div>
+      ) : (
+        <div className={cn(indent && "relative pl-5")}>{value}</div>
+      )}
+    </TableCell>
+  );
+}
+
 function RecordsTable({
   entity,
   records,
   parentLinkFieldId,
   onEdit,
   onDelete,
+  onOpenNested,
+  onCreateNestedChild,
 }: {
   entity: Entity;
   records: EntityRecord[];
   parentLinkFieldId: string | null;
   onEdit: (record: EntityRecord) => void;
   onDelete: (record: EntityRecord) => void;
+  onOpenNested?: (entityId: string, recordId: string) => void;
+  /** Create a nested-entity record under this host row (nested hierarchy). */
+  onCreateNestedChild?: (parentRecordId: string) => void;
 }) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
+  const nestedTarget = resolveEntityTableNestedTarget(entity, entities);
+  const parentField = nestedTarget
+    ? null
+    : resolveEntityTableParentField(entity);
+  /** `null` — all groups expanded by default until the user toggles. */
+  const [expandedIds, setExpandedIds] = useState<Set<string> | null>(null);
+
+  const hierarchyGroupIds = useMemo(() => {
+    if (nestedTarget) {
+      return flattenEntityTableNestedRows(
+        records,
+        nestedTarget,
+        new Set(),
+        (record) => getEntityRecordTitle(valueContext, entity, record),
+      )
+        .filter((row) => row.kind === "group")
+        .map((row) => row.id);
+    }
+    if (!parentField) return [] as string[];
+    return flattenEntityTableHierarchyRows(
+      records,
+      parentField,
+      new Set(),
+      entities,
+    )
+      .filter((row) => row.kind === "group")
+      .map((row) => row.id);
+  }, [entities, entity, nestedTarget, parentField, records, valueContext]);
+
+  const effectiveExpandedIds = useMemo(
+    () => expandedIds ?? new Set(hierarchyGroupIds),
+    [expandedIds, hierarchyGroupIds],
+  );
+
+  const hierarchyRows = useMemo(() => {
+    if (nestedTarget) {
+      return flattenEntityTableNestedRows(
+        records,
+        nestedTarget,
+        effectiveExpandedIds,
+        (record) => getEntityRecordTitle(valueContext, entity, record),
+      );
+    }
+    if (!parentField) return null;
+    return flattenEntityTableHierarchyRows(
+      records,
+      parentField,
+      effectiveExpandedIds,
+      entities,
+    );
+  }, [
+    effectiveExpandedIds,
+    entities,
+    entity,
+    nestedTarget,
+    parentField,
+    records,
+    valueContext,
+  ]);
+
+  /** Child counts for nested groups (even when collapsed). */
+  const nestedChildCountByParentId = useMemo(() => {
+    if (!nestedTarget) return null;
+    const map = new Map<string, number>();
+    for (const parent of records) {
+      const count = nestedTarget.entity.records.filter((record) =>
+        entityRelationIncludesId(
+          record.values[nestedTarget.parentLinkFieldId],
+          parent.id,
+        ),
+      ).length;
+      map.set(parent.id, count);
+    }
+    return map;
+  }, [nestedTarget, records]);
+
   const columns = getLinkedTableColumns(entity, parentLinkFieldId);
   const columnMinWidths = columns.map((field, index) => {
     const listLabels =
@@ -151,7 +447,8 @@ function RecordsTable({
   const totalFields = columns.filter(
     (field) => isEntityNumericFieldType(field.type) && field.includeInTotal,
   );
-  const showTotalsRow = totalFields.length > 0 && records.length > 0;
+  const showTotalsRow =
+    !nestedTarget && totalFields.length > 0 && records.length > 0;
   const columnTotals = showTotalsRow
     ? Object.fromEntries(
         totalFields.map((field) => [
@@ -165,6 +462,34 @@ function RecordsTable({
         ]),
       )
     : {};
+
+  const bodyRows =
+    hierarchyRows ??
+    records.map((record) => ({
+      kind: "record" as const,
+      record,
+      groupId: "",
+      depth: 1 as const,
+    }));
+
+  const recordMeta = useMemo(() => {
+    if (!hierarchyRows) return null;
+    const meta = new Map<
+      string,
+      { isGroupStart: boolean; isGroupEnd: boolean }
+    >();
+    for (let i = 0; i < hierarchyRows.length; i += 1) {
+      const row = hierarchyRows[i];
+      if (!row || (row.kind !== "record" && row.kind !== "nested")) continue;
+      const prev = hierarchyRows[i - 1];
+      const next = hierarchyRows[i + 1];
+      meta.set(row.record.id, {
+        isGroupStart: !prev || prev.kind === "group",
+        isGroupEnd: !next || next.kind === "group",
+      });
+    }
+    return meta;
+  }, [hierarchyRows]);
 
   return (
     <div className="min-w-0 overflow-x-auto">
@@ -213,89 +538,345 @@ function RecordsTable({
           </TableRow>
         </TableHeader>
         <TableBody className="[&_tr:last-child]:border-0">
-          {records.map((record) => (
-            <TableRow
-              key={record.id}
-              className="cursor-pointer border-border/70 hover:bg-muted/35"
-              onClick={() => onEdit(record)}
-            >
-              {columns.map((field, index) => {
-                const display = formatRecordFieldValue(
-                  valueContext,
-                  entity,
-                  record,
-                  field,
-                );
-                const listPresentation =
-                  field.type === "list"
-                    ? resolveEntityListFieldPresentation(field, entities)
-                    : null;
+          {bodyRows.map((row) => {
+            if (row.kind === "group") {
+              const groupId = row.id;
+              const expanded = effectiveExpandedIds.has(groupId);
+              const parentRecord =
+                "parentRecord" in row ? row.parentRecord : null;
+              const nestedCount =
+                nestedChildCountByParentId?.get(groupId) ?? row.childCount;
 
-                return (
-                  <TableCell
-                    key={field.id}
-                    className={cn(
-                      "min-w-0 overflow-hidden px-3 py-2 text-foreground/90",
-                      index === 0 && "pl-3.5 font-medium text-foreground",
-                    )}
-                    title={display === "—" ? undefined : display}
-                  >
-                    {field.type === "list" && listPresentation ? (
-                      <ListValueDisplay
-                        options={resolveEntityListFieldOptions(field, entities)}
-                        value={record.values[field.id]}
-                        multiple={listPresentation.listMultiple}
-                        showColors={listPresentation.listUseColors}
-                      />
-                    ) : isRecordValueDecorated(field) ? (
-                      <RecordValue
-                        ctx={valueContext}
-                        entity={entity}
-                        record={record}
-                        field={field}
-                      />
-                    ) : (
-                      <span
-                        className={cn(
-                          "block truncate",
-                          display === "—" && "text-muted-foreground/70",
-                        )}
-                      >
-                        {display}
-                      </span>
-                    )}
-                  </TableCell>
-                );
-              })}
-              <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
-                <div
-                  className="inline-flex items-center justify-end gap-0"
-                  onClick={(event) => event.stopPropagation()}
+              function toggleExpanded(event: { stopPropagation: () => void }) {
+                event.stopPropagation();
+                setExpandedIds((prev) => {
+                  const next = new Set(prev ?? effectiveExpandedIds);
+                  if (expanded) next.delete(groupId);
+                  else next.add(groupId);
+                  return next;
+                });
+              }
+
+              const expandButton = (
+                <button
+                  type="button"
+                  className={cn(
+                    "relative z-[1] inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                    expanded && "bg-muted text-foreground",
+                  )}
+                  aria-label={expanded ? "Свернуть" : "Развернуть"}
+                  aria-expanded={expanded}
+                  onClick={toggleExpanded}
                 >
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-7 text-foreground"
-                    aria-label="Редактировать запись"
-                    onClick={() => onEdit(record)}
+                  {expanded ? (
+                    <ChevronDown className="size-3.5" />
+                  ) : (
+                    <ChevronRight className="size-3.5" />
+                  )}
+                </button>
+              );
+
+              // Nested hierarchy: parent is a normal record row; children follow as list rows.
+              if (parentRecord && nestedTarget) {
+                const nestedLabel = nestedTarget.label.trim() || "Связанные";
+                const showEmptyAdd = expanded && nestedCount === 0;
+                return (
+                  <Fragment key={`group:${groupId}`}>
+                    <TableRow
+                      className={cn(
+                        "cursor-pointer border-border/70 hover:bg-muted/35",
+                        expanded && "border-b-transparent",
+                      )}
+                      onClick={() => onEdit(parentRecord)}
+                    >
+                      {columns.map((field, index) => (
+                        <RecordsTableFieldCell
+                          key={field.id}
+                          entity={entity}
+                          record={parentRecord}
+                          field={field}
+                          entities={entities}
+                          valueContext={valueContext}
+                          emphasize={index === 0}
+                          leading={
+                            index === 0 ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                {expandButton}
+                                {!expanded && nestedCount > 0 ? (
+                                  <span
+                                    className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground"
+                                    title={`${nestedLabel}: ${nestedCount}`}
+                                  >
+                                    {nestedCount}
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : null
+                          }
+                        />
+                      ))}
+                      <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
+                        <div
+                          className="inline-flex items-center justify-end gap-0.5"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="size-7 text-foreground"
+                            aria-label="Редактировать запись"
+                            onClick={() => onEdit(parentRecord)}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="size-7 text-foreground hover:text-destructive"
+                            aria-label="Удалить запись"
+                            onClick={() => onDelete(parentRecord)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {showEmptyAdd && onCreateNestedChild ? (
+                      <TableRow className="border-border/70 hover:bg-transparent">
+                        <TableCell
+                          colSpan={columns.length + 1}
+                          className="relative px-3 py-1.5 pl-3.5"
+                        >
+                          <TreeBranchGuides
+                            isFirst
+                            isLast
+                            className="left-[23px]"
+                            armClassName="w-3"
+                            elbowTopPx={18}
+                          />
+                          <button
+                            type="button"
+                            className="relative ml-8 flex h-8 w-full max-w-md items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                            onClick={() => onCreateNestedChild(groupId)}
+                          >
+                            <Plus className="size-3.5 shrink-0" />
+                            Добавить в «{nestedLabel}»
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </Fragment>
+                );
+              }
+
+              // List-field hierarchy: option label only.
+              return (
+                <TableRow
+                  key={`group:${groupId}`}
+                  className={cn(
+                    "border-border/70 bg-muted/55",
+                    expanded ? "border-b-transparent" : "border-b-border/70",
+                  )}
+                >
+                  <TableCell
+                    colSpan={Math.max(columns.length, 1)}
+                    className="relative min-w-0 px-3 py-2 font-semibold text-foreground"
                   >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-7 text-foreground hover:text-destructive"
-                    aria-label="Удалить запись"
-                    onClick={() => onDelete(record)}
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {expandButton}
+                      <span className="min-w-0 flex-1 truncate">
+                        {row.label}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
+                    <span className="px-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+                      {row.childCount}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              );
+            }
+
+            if (row.kind === "nested") {
+              const nestedEntity = nestedTarget!.entity;
+              const meta = recordMeta?.get(row.record.id);
+              const title = getEntityRecordTitle(
+                valueContext,
+                nestedEntity,
+                row.record,
+              );
+              const nestedFields = getNestedRowDisplayFields(
+                nestedEntity,
+                nestedTarget!.parentLinkFieldId,
+              );
+              const isLastChild = meta?.isGroupEnd === true;
+              const showAddAfter =
+                isLastChild && Boolean(onCreateNestedChild) && nestedTarget;
+              const restColSpan = Math.max(columns.length - 1, 0);
+
+              return (
+                <Fragment key={`nested:${row.record.id}`}>
+                  <TableRow
+                    className={cn(
+                      "group/nested cursor-pointer border-border/70 hover:bg-muted/40",
+                      isLastChild && !showAddAfter
+                        ? "border-b-border/70"
+                        : "border-b-transparent",
+                    )}
+                    onClick={() =>
+                      onOpenNested?.(nestedTarget!.entityId, row.record.id)
+                    }
                   >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+                    <TableCell className="relative min-w-0 overflow-hidden px-3 py-2 pl-3.5">
+                      <TreeBranchGuides
+                        isFirst={meta?.isGroupStart}
+                        isLast={isLastChild && !showAddAfter}
+                        className="left-[23px]"
+                        armClassName="w-3"
+                        elbowTopPx={18}
+                      />
+                      <div className="relative ml-8 min-w-0 py-0.5">
+                        <span
+                          className="block truncate text-sm font-medium text-foreground"
+                          title={title}
+                        >
+                          {title}
+                        </span>
+                        {nestedFields.length > 0 && restColSpan === 0 ? (
+                          <div className="mt-1.5">
+                            <NestedRecordFieldsStrip
+                              entity={nestedEntity}
+                              record={row.record}
+                              fields={nestedFields}
+                              entities={entities}
+                              valueContext={valueContext}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    {restColSpan > 0 ? (
+                      <TableCell
+                        colSpan={restColSpan}
+                        className="min-w-0 overflow-hidden px-3 py-2 align-middle"
+                      >
+                        <NestedRecordFieldsStrip
+                          entity={nestedEntity}
+                          record={row.record}
+                          fields={nestedFields}
+                          entities={entities}
+                          valueContext={valueContext}
+                        />
+                      </TableCell>
+                    ) : null}
+                    <TableCell className="w-24 min-w-24 max-w-24 px-2 py-2 text-right align-middle">
+                      <div
+                        className="inline-flex items-center justify-end opacity-0 transition-opacity group-hover/nested:opacity-100"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 text-muted-foreground hover:text-foreground"
+                          aria-label="Открыть"
+                          title="Открыть"
+                          onClick={() =>
+                            onOpenNested?.(
+                              nestedTarget!.entityId,
+                              row.record.id,
+                            )
+                          }
+                        >
+                          <ChevronRight className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {showAddAfter ? (
+                    <TableRow className="border-border/70 hover:bg-transparent">
+                      <TableCell
+                        colSpan={columns.length + 1}
+                        className="relative px-3 py-1 pl-3.5"
+                      >
+                        <TreeBranchGuides
+                          isFirst={false}
+                          isLast
+                          className="left-[23px]"
+                          armClassName="w-3"
+                          elbowTopPx={16}
+                        />
+                        <button
+                          type="button"
+                          className="relative ml-8 flex h-8 w-full max-w-md items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                          onClick={() => onCreateNestedChild?.(row.groupId)}
+                        >
+                          <Plus className="size-3.5 shrink-0" />
+                          Добавить
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </Fragment>
+              );
+            }
+
+            const record = row.record;
+            const meta = recordMeta?.get(record.id);
+            const indented = Boolean(parentField);
+
+            return (
+              <TableRow
+                key={record.id}
+                className="cursor-pointer border-border/70 hover:bg-muted/35"
+                onClick={() => onEdit(record)}
+              >
+                {columns.map((field, index) => (
+                  <RecordsTableFieldCell
+                    key={field.id}
+                    entity={entity}
+                    record={record}
+                    field={field}
+                    entities={entities}
+                    valueContext={valueContext}
+                    indent={indented && index === 0}
+                    isGroupStart={meta?.isGroupStart}
+                    isGroupEnd={meta?.isGroupEnd}
+                  />
+                ))}
+                <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
+                  <div
+                    className="inline-flex items-center justify-end gap-0"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-7 text-foreground"
+                      aria-label="Редактировать запись"
+                      onClick={() => onEdit(record)}
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-7 text-foreground hover:text-destructive"
+                      aria-label="Удалить запись"
+                      onClick={() => onDelete(record)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
         {showTotalsRow ? (
           <TableFooter className="sticky bottom-0 z-[5] border-t border-border bg-muted [&>tr]:h-9 [&>tr]:border-0">
@@ -682,6 +1263,7 @@ export function RecordEntityTabPanel({
   parentEntityId,
   parentRecordId,
   entities,
+  onOpenRelation,
 }: RecordEntityTabPanelProps) {
   const valueContext = useEntityValueContext();
   const parentLinkFieldId = tab.parentLinkFieldId;
@@ -691,6 +1273,19 @@ export function RecordEntityTabPanel({
     null,
   );
   const [pendingDelete, setPendingDelete] = useState<EntityRecord | null>(null);
+  /** Host record id for creating a nested-entity child under it. */
+  const [nestedCreateParentId, setNestedCreateParentId] = useState<
+    string | null
+  >(null);
+
+  const nestedTarget = useMemo(
+    () => resolveEntityTableNestedTarget(linkedEntity, entities),
+    [entities, linkedEntity],
+  );
+  const nestedEntity = nestedTarget
+    ? (entities.find((item) => item.id === nestedTarget.entityId) ??
+      nestedTarget.entity)
+    : null;
 
   const parentRecord = useMemo(
     () =>
@@ -819,6 +1414,12 @@ export function RecordEntityTabPanel({
           parentLinkFieldId={parentLinkFieldId}
           onEdit={(record) => setDialogRecord(record)}
           onDelete={(record) => setPendingDelete(record)}
+          onOpenNested={onOpenRelation}
+          onCreateNestedChild={
+            nestedTarget
+              ? (hostRecordId) => setNestedCreateParentId(hostRecordId)
+              : undefined
+          }
         />
       ) : (
         <div className={cn("grid gap-3 p-4", columnsClass)}>
@@ -902,6 +1503,10 @@ export function RecordEntityTabPanel({
           if (dialogRecord === "new") {
             const created = addEntityRecord(linkedEntity.id, nextValues);
             await waitForEntityRecordInsert(created.id);
+            // Nested hierarchy: open child create right after the parent.
+            if (nestedTarget) {
+              setNestedCreateParentId(created.id);
+            }
             return;
           }
           if (dialogRecord) {
@@ -913,6 +1518,39 @@ export function RecordEntityTabPanel({
           }
         }}
       />
+
+      {nestedEntity && nestedTarget ? (
+        <EntityRecordDialog
+          open={nestedCreateParentId != null}
+          onOpenChange={(open) => {
+            if (!open) setNestedCreateParentId(null);
+          }}
+          entity={nestedEntity}
+          record={null}
+          entities={entities}
+          presetValues={
+            nestedCreateParentId
+              ? { [nestedTarget.parentLinkFieldId]: nestedCreateParentId }
+              : undefined
+          }
+          hiddenFieldIds={new Set([nestedTarget.parentLinkFieldId])}
+          titleOverride={`Новый ${
+            nestedEntity.name.trim().toLowerCase() ||
+            nestedTarget.label.trim().toLowerCase() ||
+            "элемент"
+          }`}
+          submitLabel="Сохранить"
+          onSubmit={async (values) => {
+            if (!nestedCreateParentId) return;
+            const nextValues = {
+              ...values,
+              [nestedTarget.parentLinkFieldId]: nestedCreateParentId,
+            };
+            const created = addEntityRecord(nestedEntity.id, nextValues);
+            await waitForEntityRecordInsert(created.id);
+          }}
+        />
+      ) : null}
 
       {ownsLinkedRecords ? (
         <RecordDeleteConfirmDialog

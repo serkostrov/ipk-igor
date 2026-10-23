@@ -67,7 +67,7 @@ function SettingsTabsSticky({ tabs }: { tabs: SettingsTabId[] }) {
 
 function SettingsTabPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-0 flex min-h-0 flex-1 flex-col outline-none">
+    <div className="mt-0 flex min-h-0 min-w-0 flex-1 flex-col outline-none">
       {children}
     </div>
   );
@@ -170,7 +170,7 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
 
   if (!canAccess || tabs.length === 0 || !activeTab) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-8">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-8">
         <h1 className="text-2xl font-semibold tracking-tight">Настройки</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Недостаточно прав для просмотра настроек.
@@ -193,7 +193,7 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-8">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-8">
       <div className="flex shrink-0 flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Настройки</h1>
       </div>
@@ -205,12 +205,12 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
             selectTab(value as SettingsTabId);
           }
         }}
-        className="flex min-h-0 flex-1 flex-col"
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
       >
         {canMenu ? (
           <TabsContent
             value="menu"
-            className="mt-0 min-h-0 flex-1 overflow-auto"
+            className="mt-0 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
           >
             <SettingsTabPanel>
               <SettingsTabsSticky tabs={tabs} />
@@ -224,7 +224,7 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
         {canEntities ? (
           <TabsContent
             value="entities"
-            className="mt-0 min-h-0 flex-1 overflow-auto"
+            className="mt-0 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
           >
             <SettingsTabPanel>
               <EntitySettings
@@ -278,7 +278,7 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
         {canAutomations ? (
           <TabsContent
             value="automations"
-            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            className="mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           >
             <SettingsTabPanel>
               <AutomationSettings leading={<SettingsTabsList tabs={tabs} />} />
@@ -289,7 +289,7 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
         {canNotifications ? (
           <TabsContent
             value="notifications"
-            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            className="mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           >
             <SettingsTabPanel>
               <NotificationSettings
@@ -302,7 +302,7 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
         {canRoles ? (
           <TabsContent
             value="roles"
-            className="mt-0 min-h-0 flex-1 overflow-auto"
+            className="mt-0 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
           >
             <SettingsTabPanel>
               <RoleSettings leading={<SettingsTabsList tabs={tabs} />} />

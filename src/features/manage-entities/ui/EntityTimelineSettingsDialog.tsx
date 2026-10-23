@@ -312,7 +312,7 @@ export function EntityTimelineSettingsDialog({
 }: EntityTimelineSettingsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent forceOverlay className="sm:max-w-lg">
         {open ? (
           <TimelineSettingsForm
             key={entity.id}

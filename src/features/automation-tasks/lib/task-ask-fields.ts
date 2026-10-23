@@ -1,9 +1,19 @@
-import type {
-  AutomationAskRelatedField,
-  AutomationFieldAskOptions,
-  AutomationOutcome,
-  AutomationTask,
+import {
+  createRecordAskDraftKey,
+  createRecordNestedAskDraftKey,
+  createRecordNestedCountDraftKey,
+  type AutomationAskRelatedField,
+  type AutomationCreateNestedSpec,
+  type AutomationFieldAskOptions,
+  type AutomationOutcome,
+  type AutomationTask,
 } from "@/entities/automation";
+import {
+  getEntityDisplayName,
+  getEntityFieldDisplayName,
+  type Entity,
+  type EntityField,
+} from "@/entities/entity";
 
 export type AutomationAskFields = {
   requiredFieldIds: string[];
@@ -255,6 +265,271 @@ export function getAutomationTaskAskFields(
   };
 }
 
+export type AutomationCreateAskNestedSlot = {
+  nestedId: string;
+  entityId: string;
+  entityLabel: string;
+  askFieldIds: string[];
+  askRequiredFieldIds: string[];
+  fieldAskOptions: Record<string, AutomationFieldAskOptions>;
+};
+
+/** createRecord ask block rendered on the task form. */
+export type AutomationCreateAskSlot = {
+  actionId: string;
+  entityId: string;
+  entityLabel: string;
+  askFieldIds: string[];
+  askRequiredFieldIds: string[];
+  fieldAskOptions: Record<string, AutomationFieldAskOptions>;
+  nested: AutomationCreateAskNestedSlot[];
+};
+
+function nestedSpecToSlot(
+  nested: AutomationCreateNestedSpec,
+  entities: Entity[],
+): AutomationCreateAskNestedSlot | null {
+  const entity = entities.find((item) => item.id === nested.entityId);
+  if (!entity) return null;
+  const askFieldIds = uniquePreserveOrder(nested.askFieldIds);
+  return {
+    nestedId: nested.id,
+    entityId: nested.entityId,
+    entityLabel: getEntityDisplayName(entity),
+    askFieldIds,
+    askRequiredFieldIds: uniquePreserveOrder(
+      (nested.askRequiredFieldIds ?? []).filter((id) =>
+        askFieldIds.includes(id),
+      ),
+    ),
+    fieldAskOptions: nested.fieldAskOptions ?? {},
+  };
+}
+
+/** createRecord actions that need a task-form section. */
+export function getOutcomeCreateAskSlots(
+  outcome: AutomationOutcome,
+  entities: Entity[],
+): AutomationCreateAskSlot[] {
+  const slots: AutomationCreateAskSlot[] = [];
+  for (const action of outcome.actions) {
+    if (action.kind !== "createRecord") continue;
+    const askFieldIds = uniquePreserveOrder(action.askFieldIds ?? []);
+    const nested = (action.nestedCreates ?? [])
+      .map((item) => nestedSpecToSlot(item, entities))
+      .filter((item): item is AutomationCreateAskNestedSlot => item != null);
+    if (askFieldIds.length === 0 && nested.length === 0) continue;
+    const entity = entities.find((item) => item.id === action.entityId);
+    if (!entity) continue;
+    slots.push({
+      actionId: action.id,
+      entityId: action.entityId,
+      entityLabel: getEntityDisplayName(entity),
+      askFieldIds,
+      askRequiredFieldIds: uniquePreserveOrder(
+        (action.askRequiredFieldIds ?? []).filter((id) =>
+          askFieldIds.includes(id),
+        ),
+      ),
+      fieldAskOptions: action.fieldAskOptions ?? {},
+      nested,
+    });
+  }
+  return slots;
+}
+
+export function outcomeHasCreateAsk(outcome: AutomationOutcome) {
+  return outcome.actions.some((action) => {
+    if (action.kind !== "createRecord") return false;
+    return (
+      (action.askFieldIds?.length ?? 0) > 0 ||
+      (action.nestedCreates?.length ?? 0) > 0
+    );
+  });
+}
+
+export function getNestedDraftCount(
+  values: Record<string, string>,
+  actionId: string,
+  nestedId: string,
+): number {
+  const raw = values[createRecordNestedCountDraftKey(actionId, nestedId)] ?? "";
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.floor(n), 50);
+}
+
+export function setNestedDraftCount(
+  values: Record<string, string>,
+  actionId: string,
+  nestedId: string,
+  count: number,
+): Record<string, string> {
+  const next = { ...values };
+  const safe = Math.max(0, Math.min(Math.floor(count), 50));
+  next[createRecordNestedCountDraftKey(actionId, nestedId)] = String(safe);
+  return next;
+}
+
+/** Drop one nested row and renumber higher indices. */
+export function removeNestedDraftRow(
+  values: Record<string, string>,
+  actionId: string,
+  nested: AutomationCreateAskNestedSlot,
+  index: number,
+): Record<string, string> {
+  const count = getNestedDraftCount(values, actionId, nested.nestedId);
+  if (index < 0 || index >= count) return values;
+  const next = { ...values };
+  for (const fieldId of nested.askFieldIds) {
+    delete next[
+      createRecordNestedAskDraftKey(actionId, nested.nestedId, index, fieldId)
+    ];
+  }
+  for (let from = index + 1; from < count; from++) {
+    const to = from - 1;
+    for (const fieldId of nested.askFieldIds) {
+      const fromKey = createRecordNestedAskDraftKey(
+        actionId,
+        nested.nestedId,
+        from,
+        fieldId,
+      );
+      const toKey = createRecordNestedAskDraftKey(
+        actionId,
+        nested.nestedId,
+        to,
+        fieldId,
+      );
+      if (fromKey in next) {
+        next[toKey] = next[fromKey]!;
+        delete next[fromKey];
+      } else {
+        delete next[toKey];
+      }
+    }
+  }
+  return setNestedDraftCount(next, actionId, nested.nestedId, count - 1);
+}
+
+export function addNestedDraftRow(
+  values: Record<string, string>,
+  actionId: string,
+  nested: AutomationCreateAskNestedSlot,
+): Record<string, string> {
+  const count = getNestedDraftCount(values, actionId, nested.nestedId);
+  const next = setNestedDraftCount(
+    values,
+    actionId,
+    nested.nestedId,
+    count + 1,
+  );
+  for (const fieldId of nested.askFieldIds) {
+    const key = createRecordNestedAskDraftKey(
+      actionId,
+      nested.nestedId,
+      count,
+      fieldId,
+    );
+    if (!(key in next)) next[key] = "";
+  }
+  return next;
+}
+
+export function collectCreateAskFieldValues(
+  values: Record<string, string>,
+  actionId: string,
+  askFieldIds: string[],
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const fieldId of askFieldIds) {
+    const key = createRecordAskDraftKey(actionId, fieldId);
+    if (key in values) result[fieldId] = values[key] ?? "";
+  }
+  return result;
+}
+
+export function collectNestedAskFieldValues(
+  values: Record<string, string>,
+  actionId: string,
+  nestedId: string,
+  index: number,
+  askFieldIds: string[],
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const fieldId of askFieldIds) {
+    const key = createRecordNestedAskDraftKey(
+      actionId,
+      nestedId,
+      index,
+      fieldId,
+    );
+    if (key in values) result[fieldId] = values[key] ?? "";
+  }
+  return result;
+}
+
+export function validateCreateAskRequired(options: {
+  outcome: AutomationOutcome;
+  entities: Entity[];
+  values: Record<string, string>;
+  isFieldFilled: (
+    field: EntityField,
+    value: string,
+    relationGroupsMode?: string,
+  ) => boolean;
+}): string | null {
+  const slots = getOutcomeCreateAskSlots(options.outcome, options.entities);
+  const missingLabels: string[] = [];
+  for (const slot of slots) {
+    const entity = options.entities.find((item) => item.id === slot.entityId);
+    if (!entity) continue;
+    for (const fieldId of slot.askRequiredFieldIds) {
+      const field = entity.fields.find((item) => item.id === fieldId);
+      if (!field) continue;
+      const key = createRecordAskDraftKey(slot.actionId, fieldId);
+      const mode = slot.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full";
+      if (!options.isFieldFilled(field, options.values[key] ?? "", mode)) {
+        missingLabels.push(
+          `${slot.entityLabel}: ${getEntityFieldDisplayName(field)}`,
+        );
+      }
+    }
+    for (const nested of slot.nested) {
+      const child = options.entities.find(
+        (item) => item.id === nested.entityId,
+      );
+      if (!child) continue;
+      const count = getNestedDraftCount(
+        options.values,
+        slot.actionId,
+        nested.nestedId,
+      );
+      for (let index = 0; index < count; index++) {
+        for (const fieldId of nested.askRequiredFieldIds) {
+          const field = child.fields.find((item) => item.id === fieldId);
+          if (!field) continue;
+          const key = createRecordNestedAskDraftKey(
+            slot.actionId,
+            nested.nestedId,
+            index,
+            fieldId,
+          );
+          const mode =
+            nested.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full";
+          if (!options.isFieldFilled(field, options.values[key] ?? "", mode)) {
+            missingLabels.push(
+              `${nested.entityLabel} #${index + 1}: ${getEntityFieldDisplayName(field)}`,
+            );
+          }
+        }
+      }
+    }
+  }
+  if (missingLabels.length === 0) return null;
+  return `Заполните: ${missingLabels.join(", ")}`;
+}
+
 export function automationOutcomeNeedsInput(outcome: AutomationOutcome) {
   const ask = getAutomationOutcomeAskFields(outcome);
   return (
@@ -263,7 +538,8 @@ export function automationOutcomeNeedsInput(outcome: AutomationOutcome) {
     ask.viewFieldIds.length > 0 ||
     ask.viewTabIds.length > 0 ||
     ask.relatedVisibleFields.length > 0 ||
-    ask.requireAttachment
+    ask.requireAttachment ||
+    outcomeHasCreateAsk(outcome)
   );
 }
 

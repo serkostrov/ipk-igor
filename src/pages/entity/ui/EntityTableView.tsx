@@ -9,20 +9,11 @@ import {
   ChevronRight,
   Pencil,
   Plus,
-  Settings,
   Table2,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/shared/ui/dialog";
 import { Switch } from "@/shared/ui/switch";
 import {
   Select,
@@ -73,10 +64,8 @@ import {
   resolveRelationRecordLabel,
   getEntityFileDownloadUrl,
   flattenEntityTableHierarchyRows,
-  getEntityTableParentFieldOptions,
   parseEntityTableParentId,
   resolveEntityTableParentField,
-  setEntityTableSettings,
   updateEntityRecord,
   useEntityConfig,
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
@@ -94,8 +83,6 @@ import {
 } from "@/entities/entity";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { pluralRu } from "@/shared/lib/plural";
-import { EntityPageLayoutSettingsDialog } from "@/features/manage-entities";
-import { SettingSelect, SettingSwitch } from "@/shared/ui/setting-controls";
 import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import {
   ENTITY_TABLE_ACTIONS_WIDTH,
@@ -330,147 +317,6 @@ function HierarchyTreeGuides({
         armClassName="w-2"
       />
     </div>
-  );
-}
-
-function TableSettingsForm({
-  entity,
-  onClose,
-  onOpenPageLayout,
-}: {
-  entity: Entity;
-  onClose: () => void;
-  onOpenPageLayout: () => void;
-}) {
-  const [massSelection, setMassSelection] = useState(
-    entity.tableMassSelection === true,
-  );
-  const parentOptions = useMemo(
-    () => getEntityTableParentFieldOptions(entity),
-    [entity],
-  );
-  const [parentFieldId, setParentFieldId] = useState<string | null>(
-    () => resolveEntityTableParentField(entity)?.id ?? null,
-  );
-
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Настройки таблицы</DialogTitle>
-        <DialogDescription>
-          Как выглядит и работает таблица записей «
-          {entity.namePlural.trim() || entity.name.trim() || "сущность"}»
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="flex flex-col gap-4 py-1">
-        <SettingSwitch
-          id="entity-table-mass-selection"
-          title="Массовый выбор"
-          description="Чекбоксы в строках — действия сразу для нескольких записей. Выбор сохраняется при смене страницы."
-          checked={massSelection}
-          onCheckedChange={setMassSelection}
-        />
-        <SettingSelect
-          id="entity-table-parent-field"
-          title="Иерархия"
-          description="Группы как у категорий: родительские строки и вложенные записи."
-          value={parentFieldId}
-          options={parentOptions}
-          emptyLabel="Без иерархии"
-          noOptionsLabel="Нужен список, связь или принадлежность."
-          onChange={setParentFieldId}
-        />
-        <div className="flex flex-col gap-1.5 rounded-lg border border-border/70 bg-muted/15 p-3">
-          <p className="text-xs font-medium text-muted-foreground">
-            Макет страницы
-          </p>
-          <p className="text-[11px] leading-snug text-muted-foreground">
-            Обычная таблица или сводка с фильтрами над списком записей.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-1 self-start"
-            onClick={onOpenPageLayout}
-          >
-            Настроить…
-          </Button>
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose}>
-          Отмена
-        </Button>
-        <Button
-          type="button"
-          onClick={() => {
-            setEntityTableSettings(entity.id, {
-              massSelection,
-              parentFieldId,
-            });
-            onClose();
-          }}
-        >
-          Сохранить
-        </Button>
-      </DialogFooter>
-    </>
-  );
-}
-
-/** Gear next to the «Таблица» view tab — same pattern as kanban settings. */
-export function TableSettingsButton({
-  entity,
-  className,
-}: {
-  entity: Entity;
-  className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [pageLayoutOpen, setPageLayoutOpen] = useState(false);
-
-  return (
-    <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        className={cn(
-          "size-6 shrink-0 text-muted-foreground hover:text-foreground",
-          className,
-        )}
-        aria-label="Настройки таблицы"
-        title="Настройки таблицы"
-        onClick={() => setOpen(true)}
-      >
-        <Settings className="size-3.5" />
-      </Button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="w-fit min-w-[min(100%,22rem)] max-w-[min(92vw,28rem)] gap-4 overflow-x-hidden sm:max-w-[min(92vw,28rem)]">
-          {open ? (
-            <TableSettingsForm
-              key={entity.id}
-              entity={entity}
-              onClose={() => setOpen(false)}
-              onOpenPageLayout={() => {
-                setOpen(false);
-                setPageLayoutOpen(true);
-              }}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      <EntityPageLayoutSettingsDialog
-        open={pageLayoutOpen}
-        onOpenChange={setPageLayoutOpen}
-        entity={entity}
-      />
-    </>
   );
 }
 

@@ -1,8 +1,15 @@
 import {
+  collectRelationGroupsIdsAtDepth,
+  collectRelationGroupsLeafIds,
   getCurrentUserRecordId,
   getEntityRelationTargetId,
+  getRelationGroupsLeafEntityId,
+  getRelationGroupsLevelEntityId,
   isEntityNameField,
+  isEntityRelationLikeFieldType,
+  parseEntityRelationGroups,
   parseEntityRelationIds,
+  resolveEntityLookupTarget,
   resolveRelationRecordLabel,
   serializeEntityRelationIds,
   type Entity,
@@ -93,14 +100,29 @@ export const AUTOMATION_VALUE_CURRENT_USER = "__currentUser__";
 /** Trigger record of the running automation (link from createRecord mappings). */
 export const AUTOMATION_VALUE_CURRENT_RECORD = "__currentRecord__";
 
+/**
+ * Nested path segment meaning «the related record itself» (its id),
+ * not a field on that record — e.g. `{{stages@1.__record__}}` → department ids.
+ */
+export const AUTOMATION_PATH_RELATED_RECORD = "__record__";
+
+export function isAutomationPathRelatedRecord(fieldId: string) {
+  return fieldId.trim() === AUTOMATION_PATH_RELATED_RECORD;
+}
+
 /** `{{fieldId}}` — value from a field on the same record. */
 export function isAutomationFieldRef(value: string) {
   return /^\{\{[^.}]+\}\}$/.test(value.trim());
 }
 
-/** `{{relationFieldId.nestedFieldId}}` — value from a related record. */
+/**
+ * `{{relationFieldId.nestedFieldId}}` — related record field.
+ * `{{groupsFieldId@depth.nestedFieldId}}` — relationGroups at level depth
+ * (0 = «Строки», 1 = «Вложенные»). Omit `@depth` → leaf level.
+ * Nested id may be {@link AUTOMATION_PATH_RELATED_RECORD} for the record itself.
+ */
 export function isAutomationEntityPathRef(value: string) {
-  return /^\{\{[^.}]+\.[^}]+\}\}$/.test(value.trim());
+  return /^\{\{[^.@}]+(?:@\d+)?\.[^}]+\}\}$/.test(value.trim());
 }
 
 export function parseAutomationFieldRef(value: string): string | null {
@@ -108,15 +130,33 @@ export function parseAutomationFieldRef(value: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
+export type AutomationEntityPathRef = {
+  relationFieldId: string;
+  fieldId: string;
+  /** Level index for relationGroups; undefined = leaf. */
+  relationGroupsDepth?: number;
+};
+
 export function parseAutomationEntityPathRef(
   value: string,
-): { relationFieldId: string; fieldId: string } | null {
-  const match = value.trim().match(/^\{\{([^.}]+)\.([^}]+)\}\}$/);
+): AutomationEntityPathRef | null {
+  const match = value.trim().match(/^\{\{([^.@}]+)(?:@(\d+))?\.([^}]+)\}\}$/);
   if (!match) return null;
   const relationFieldId = match[1]?.trim() ?? "";
-  const fieldId = match[2]?.trim() ?? "";
+  const fieldId = match[3]?.trim() ?? "";
   if (!relationFieldId || !fieldId) return null;
-  return { relationFieldId, fieldId };
+  const depthRaw = match[2];
+  const relationGroupsDepth =
+    depthRaw != null && depthRaw !== ""
+      ? Number.parseInt(depthRaw, 10)
+      : undefined;
+  return {
+    relationFieldId,
+    fieldId,
+    ...(relationGroupsDepth != null && Number.isFinite(relationGroupsDepth)
+      ? { relationGroupsDepth }
+      : {}),
+  };
 }
 
 export function toAutomationFieldRef(fieldId: string) {
@@ -126,8 +166,134 @@ export function toAutomationFieldRef(fieldId: string) {
 export function toAutomationEntityPathRef(
   relationFieldId: string,
   fieldId: string,
+  relationGroupsDepth?: number,
 ) {
-  return relationFieldId && fieldId ? `{{${relationFieldId}.${fieldId}}}` : "";
+  if (!relationFieldId || !fieldId) return "";
+  if (relationGroupsDepth != null && Number.isFinite(relationGroupsDepth)) {
+    return `{{${relationFieldId}@${relationGroupsDepth}.${fieldId}}}`;
+  }
+  return `{{${relationFieldId}.${fieldId}}}`;
+}
+
+function resolveFieldTargetAmongEntities(
+  entities: Entity[],
+  entityId: string,
+  fieldId: string,
+): string | null {
+  const host = entities.find((item) => item.id === entityId);
+  const source = host?.fields.find((item) => item.id === fieldId);
+  return source ? getEntityRelationTargetId(source) : null;
+}
+
+/**
+ * Lookup whose target is a `relationGroups` field — hop through it like a
+ * groups bridge (`{{lookup@depth.nestedField}}`).
+ */
+export function automationLookupRelationGroupsField(
+  host: Pick<Entity, "id" | "fields">,
+  field: EntityField,
+  entities: readonly Entity[],
+): EntityField | null {
+  if (field.type !== "lookup") return null;
+  const target = resolveEntityLookupTarget(host, field, entities);
+  return target?.field.type === "relationGroups" ? target.field : null;
+}
+
+/** Entity id for a relation / belonging / relationGroups / lookup→groups hop. */
+export function automationBridgeTargetEntityId(
+  field: EntityField,
+  entities: Entity[],
+  relationGroupsDepth?: number,
+  host?: Pick<Entity, "id" | "fields"> | null,
+): string | null {
+  if (isEntityRelationLikeFieldType(field.type)) {
+    return getEntityRelationTargetId(field);
+  }
+  if (field.type === "lookup" && host) {
+    const groupsField = automationLookupRelationGroupsField(
+      host,
+      field,
+      entities,
+    );
+    if (groupsField) {
+      return automationBridgeTargetEntityId(
+        groupsField,
+        entities,
+        relationGroupsDepth,
+      );
+    }
+    return null;
+  }
+  if (field.type !== "relationGroups" || !field.relationGroups) return null;
+  const resolve = (entityId: string, fieldId: string) =>
+    resolveFieldTargetAmongEntities(entities, entityId, fieldId);
+  if (relationGroupsDepth != null && Number.isFinite(relationGroupsDepth)) {
+    let previous: string | null = null;
+    let atDepth: string | null = null;
+    for (let i = 0; i <= relationGroupsDepth; i++) {
+      const level = field.relationGroups.levels[i];
+      if (!level) return null;
+      atDepth = getRelationGroupsLevelEntityId(level, previous, resolve);
+      if (!atDepth) return null;
+      previous = atDepth;
+    }
+    return atDepth;
+  }
+  return getRelationGroupsLeafEntityId(field.relationGroups, resolve);
+}
+
+function collectGroupsIdsAtDepth(
+  raw: string | undefined,
+  relationGroupsDepth?: number,
+): string[] {
+  const nodes = parseEntityRelationGroups(raw);
+  if (relationGroupsDepth != null && Number.isFinite(relationGroupsDepth)) {
+    return collectRelationGroupsIdsAtDepth(nodes, relationGroupsDepth);
+  }
+  return collectRelationGroupsLeafIds(nodes);
+}
+
+function automationBridgeRelatedIds(
+  values: Record<string, string | undefined>,
+  field: EntityField,
+  relationGroupsDepth: number | undefined,
+  entities: Entity[],
+  host: Entity,
+): string[] {
+  if (isEntityRelationLikeFieldType(field.type)) {
+    return parseEntityRelationIds(values[field.id]);
+  }
+  if (field.type === "relationGroups") {
+    return collectGroupsIdsAtDepth(values[field.id], relationGroupsDepth);
+  }
+  if (field.type !== "lookup" || !field.lookup) return [];
+  const target = resolveEntityLookupTarget(host, field, entities);
+  if (!target || target.field.type !== "relationGroups") return [];
+  const outerBridge = host.fields.find(
+    (item) => item.id === field.lookup!.relationFieldId,
+  );
+  if (!outerBridge) return [];
+  const outerIds = automationBridgeRelatedIds(
+    values,
+    outerBridge,
+    field.lookup.relationGroupsDepth,
+    entities,
+    host,
+  );
+  const ids: string[] = [];
+  for (const outerId of outerIds) {
+    const relatedRecord = target.entity.records.find(
+      (record) => record.id === outerId,
+    );
+    if (!relatedRecord) continue;
+    ids.push(
+      ...collectGroupsIdsAtDepth(
+        relatedRecord.values[target.field.id],
+        relationGroupsDepth,
+      ),
+    );
+  }
+  return [...new Set(ids)];
 }
 
 export type ResolveAutomationActionValueOptions = {
@@ -150,31 +316,79 @@ export type ResolveAutomationActionValueOptions = {
 };
 
 function resolveRelatedFieldValue(
-  relationFieldId: string,
-  nestedFieldId: string,
+  path: AutomationEntityPathRef,
   options: ResolveAutomationActionValueOptions,
 ): string {
+  const { relationFieldId, fieldId: nestedFieldId, relationGroupsDepth } = path;
   const values = options.values;
   const entities = options.entities;
   const triggerEntityId = options.triggerEntityId;
+
+  if (!values || !entities || !triggerEntityId) {
+    // Legacy callback path (no depth / record-self support).
+    if (
+      options.getRelatedFieldValue &&
+      !isAutomationPathRelatedRecord(nestedFieldId)
+    ) {
+      return options.getRelatedFieldValue(relationFieldId, nestedFieldId);
+    }
+    return "";
+  }
+
+  const trigger = entities.find((entity) => entity.id === triggerEntityId);
+  const bridgeField = trigger?.fields.find(
+    (field) => field.id === relationFieldId,
+  );
+  if (!bridgeField || !trigger) return "";
+
+  const relatedIds = automationBridgeRelatedIds(
+    values,
+    bridgeField,
+    relationGroupsDepth,
+    entities,
+    trigger,
+  );
+  if (relatedIds.length === 0) return "";
+
+  if (isAutomationPathRelatedRecord(nestedFieldId)) {
+    const unique = [...new Set(relatedIds)];
+    if (wantsRelationIds(options.fieldType)) {
+      return serializeEntityRelationIds(unique);
+    }
+    const targetId = automationBridgeTargetEntityId(
+      bridgeField,
+      entities,
+      relationGroupsDepth,
+      trigger,
+    );
+    const relatedEntity = targetId
+      ? (entities.find((entity) => entity.id === targetId) ?? null)
+      : null;
+    if (!relatedEntity) return unique.join(", ");
+    const labels = unique
+      .map((id) => resolveRelationRecordLabel(relatedEntity, id)?.trim() || id)
+      .filter(Boolean);
+    return [...new Set(labels)].join(", ");
+  }
+
+  const targetId = automationBridgeTargetEntityId(
+    bridgeField,
+    entities,
+    relationGroupsDepth,
+    trigger,
+  );
+  const relatedEntity =
+    (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
+    entities.find((entity) =>
+      entity.records.some((record) => record.id === relatedIds[0]),
+    );
+  if (!relatedEntity) return "";
 
   if (options.getRelatedFieldValue) {
     const rawValue = options.getRelatedFieldValue(
       relationFieldId,
       nestedFieldId,
     );
-    if (!entities || !triggerEntityId) return rawValue;
-    const trigger = entities.find((entity) => entity.id === triggerEntityId);
-    const relationField = trigger?.fields.find(
-      (field) => field.id === relationFieldId && field.type === "relation",
-    );
-    const targetId = relationField
-      ? getEntityRelationTargetId(relationField)
-      : null;
-    const relatedEntity = targetId
-      ? (entities.find((entity) => entity.id === targetId) ?? null)
-      : null;
-    if (!relatedEntity) return rawValue;
     return resolveNestedFieldDisplayValue(
       relatedEntity,
       nestedFieldId,
@@ -183,26 +397,7 @@ function resolveRelatedFieldValue(
     );
   }
 
-  if (!values || !entities || !triggerEntityId) return "";
-
-  const trigger = entities.find((entity) => entity.id === triggerEntityId);
-  const relationField = trigger?.fields.find(
-    (field) => field.id === relationFieldId && field.type === "relation",
-  );
-  if (!relationField) return "";
-
-  const relatedIds = parseEntityRelationIds(values[relationFieldId]);
-  if (relatedIds.length === 0) return "";
-
-  const targetId = getEntityRelationTargetId(relationField);
-  const relatedEntity =
-    (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
-    entities.find((entity) =>
-      entity.records.some((record) => record.id === relatedIds[0]),
-    );
-  if (!relatedEntity) return "";
-
-  // Union nested values across every selected related record (multi-relations).
+  // Union nested values across every selected related record (multi / groups).
   const nestedParts: string[] = [];
   for (const relatedId of relatedIds) {
     const relatedRecord = relatedEntity.records.find(
@@ -275,7 +470,7 @@ export function resolveAutomationActionValue(
 
   const path = parseAutomationEntityPathRef(raw);
   if (path) {
-    return resolveRelatedFieldValue(path.relationFieldId, path.fieldId, {
+    return resolveRelatedFieldValue(path, {
       ...options,
       values: options.values ?? values,
     });
@@ -324,8 +519,16 @@ export function describeAutomationActionValue(
   const path = parseAutomationEntityPathRef(raw);
   if (path) {
     const relationName = fieldNameById?.(path.relationFieldId) ?? "связь";
-    const nestedName = fieldNameById?.(path.fieldId) ?? "поле";
-    return `Из «${relationName}» · «${nestedName}»`;
+    const nestedName = isAutomationPathRelatedRecord(path.fieldId)
+      ? "запись"
+      : (fieldNameById?.(path.fieldId) ?? "поле");
+    const depthLabel =
+      path.relationGroupsDepth === 0
+        ? " · строки"
+        : path.relationGroupsDepth === 1
+          ? " · вложенные"
+          : "";
+    return `Из «${relationName}»${depthLabel} · «${nestedName}»`;
   }
 
   const match = raw.match(/^\{\{([^}]+)\}\}$/);

@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import type { MenuGroup, MenuIconName, MenuItem } from "@/entities/menu";
+import type { MenuIconName, MenuItem, MenuParentOption } from "@/entities/menu";
 import { IconPicker } from "./IconPicker";
 
 const ROOT_VALUE = "__root__";
@@ -25,7 +25,7 @@ const ROOT_VALUE = "__root__";
 type MenuItemDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  groups: MenuGroup[];
+  parents: MenuParentOption[];
   initialGroupId: string | null;
   item?: MenuItem;
   onSubmit: (data: {
@@ -36,13 +36,13 @@ type MenuItemDialogProps = {
 };
 
 function MenuItemForm({
-  groups,
+  parents,
   initialGroupId,
   item,
   onCancel,
   onSubmit,
 }: {
-  groups: MenuGroup[];
+  parents: MenuParentOption[];
   initialGroupId: string | null;
   item: MenuItem;
   onCancel: () => void;
@@ -57,18 +57,23 @@ function MenuItemForm({
   const [groupId, setGroupId] = useState<string | null>(initialGroupId);
 
   const canSubmit = label.trim().length > 0;
-  const selectedGroupTitle =
+  const selectedParent = parents.find((parent) => parent.id === groupId);
+  const selectedParentTitle =
     groupId == null
-      ? "Без группы"
-      : groups.find((group) => group.id === groupId)?.title.trim() ||
-        "Без названия";
+      ? "Без родителя"
+      : selectedParent
+        ? selectedParent.kind === "group"
+          ? `Группа: ${selectedParent.label}`
+          : `Сущность: ${selectedParent.label}`
+        : "Без родителя";
 
   return (
     <>
       <DialogHeader>
         <DialogTitle>Редактировать пункт</DialogTitle>
         <DialogDescription>
-          Название, иконка и место в навигации. Без группы — обычная вкладка.
+          Название, иконка и место в навигации. Можно вложить в группу или в
+          другую сущность.
         </DialogDescription>
       </DialogHeader>
 
@@ -85,7 +90,7 @@ function MenuItemForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label>Группа</Label>
+          <Label>Родитель</Label>
           <Select
             value={groupId ?? ROOT_VALUE}
             onValueChange={(value) => {
@@ -97,13 +102,23 @@ function MenuItemForm({
             }}
           >
             <SelectTrigger className="w-full">
-              <SelectValue>{selectedGroupTitle}</SelectValue>
+              <SelectValue>{selectedParentTitle}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ROOT_VALUE}>Без группы</SelectItem>
-              {groups.map((group) => (
-                <SelectItem key={group.id} value={group.id}>
-                  {group.title.trim() || "Без названия"}
+              <SelectItem value={ROOT_VALUE}>Без родителя</SelectItem>
+              {parents.map((parent) => (
+                <SelectItem key={parent.id} value={parent.id}>
+                  <span
+                    style={
+                      parent.depth > 0
+                        ? { paddingLeft: Math.min(parent.depth, 4) * 12 }
+                        : undefined
+                    }
+                  >
+                    {parent.kind === "group"
+                      ? `Группа: ${parent.label}`
+                      : `Сущность: ${parent.label}`}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -142,7 +157,7 @@ function MenuItemForm({
 export function MenuItemDialog({
   open,
   onOpenChange,
-  groups,
+  parents,
   initialGroupId,
   item,
   onSubmit,
@@ -153,7 +168,7 @@ export function MenuItemDialog({
         {open && item ? (
           <MenuItemForm
             key={item.id}
-            groups={groups}
+            parents={parents}
             initialGroupId={initialGroupId}
             item={item}
             onCancel={() => onOpenChange(false)}

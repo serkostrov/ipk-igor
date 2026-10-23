@@ -50,8 +50,25 @@ function EntitySubEntitySettingsForm({
   const [recordColumns, setRecordColumns] = useState<EntityRecordColumns>(
     normalizeEntityRecordColumns(entity.recordColumns),
   );
+  const [tableParentFieldId, setTableParentFieldId] = useState<string | null>(
+    entity.tableParentFieldId,
+  );
+  const [tableNestedEntityId, setTableNestedEntityId] = useState<string | null>(
+    entity.tableNestedEntityId,
+  );
   const trimmedName = name.trim();
   const canSubmit = trimmedName.length > 0;
+
+  function persist() {
+    updateEntityTab(parentEntityId, tabId, { name: trimmedName });
+    updateEntity(entity.id, {
+      recordsDisplay,
+      recordColumns,
+      tableParentFieldId,
+      tableNestedEntityId,
+    });
+    onCancel();
+  }
 
   return (
     <>
@@ -74,9 +91,7 @@ function EntitySubEntitySettingsForm({
             onKeyDown={(event) => {
               if (event.key !== "Enter" || !canSubmit) return;
               event.preventDefault();
-              updateEntityTab(parentEntityId, tabId, { name: trimmedName });
-              updateEntity(entity.id, { recordsDisplay, recordColumns });
-              onCancel();
+              persist();
             }}
           />
         </div>
@@ -86,6 +101,16 @@ function EntitySubEntitySettingsForm({
           recordColumns={recordColumns}
           onRecordsDisplayChange={setRecordsDisplay}
           onRecordColumnsChange={setRecordColumns}
+          entity={entity}
+          tableParentFieldId={tableParentFieldId}
+          tableNestedEntityId={tableNestedEntityId}
+          onTableHierarchyChange={({
+            tableParentFieldId: nextParent,
+            tableNestedEntityId: nextNested,
+          }) => {
+            setTableParentFieldId(nextParent);
+            setTableNestedEntityId(nextNested);
+          }}
           columnsSelectId="sub-entity-columns"
         />
       </div>
@@ -94,15 +119,7 @@ function EntitySubEntitySettingsForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           Отмена
         </Button>
-        <Button
-          type="button"
-          disabled={!canSubmit}
-          onClick={() => {
-            updateEntityTab(parentEntityId, tabId, { name: trimmedName });
-            updateEntity(entity.id, { recordsDisplay, recordColumns });
-            onCancel();
-          }}
-        >
+        <Button type="button" disabled={!canSubmit} onClick={persist}>
           Сохранить
         </Button>
       </DialogFooter>
@@ -123,7 +140,7 @@ export function EntitySubEntitySettingsDialog({
       <DialogContent className="sm:max-w-md">
         {open ? (
           <EntitySubEntitySettingsForm
-            key={`${tabId}-${tabName}-${entity.id}-${entity.recordColumns}-${entity.recordsDisplay}`}
+            key={`${tabId}-${tabName}-${entity.id}-${entity.recordColumns}-${entity.recordsDisplay}-${entity.tableParentFieldId ?? ""}-${entity.tableNestedEntityId ?? ""}`}
             parentEntityId={parentEntityId}
             tabId={tabId}
             tabName={tabName}

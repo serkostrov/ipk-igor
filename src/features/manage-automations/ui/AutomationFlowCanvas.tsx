@@ -48,6 +48,7 @@ import {
   PowerOff,
   Rows3,
   Timer,
+  Wand2,
   User,
   Zap,
 } from "lucide-react";
@@ -65,6 +66,7 @@ import type {
 import {
   AUTOMATION_ASSIGNEE_TYPE_LABELS,
   getStageTaskRelease,
+  isAutomationSilentTaskKind,
 } from "@/entities/automation";
 import { isEntityListOptionFinal, type EntityField } from "@/entities/entity";
 import { TemplateRichText } from "./TemplateRichText";
@@ -101,9 +103,14 @@ const TASK_KIND_META: Record<
     Icon: MousePointerClick,
   },
   autofill: {
-    label: "Сервис",
+    label: "Переход",
     markerClass: "bg-muted text-muted-foreground",
     Icon: Cog,
+  },
+  actions: {
+    label: "Автозаполнение",
+    markerClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    Icon: Wand2,
   },
 };
 
@@ -853,7 +860,7 @@ function TaskNode({ data }: NodeProps<Node<TaskData, "task">>) {
   const { template, selected, fields, onToggleEnabled } = data;
   const kindMeta = TASK_KIND_META[template.kind] ?? TASK_KIND_META.decision;
   const KindIcon = kindMeta.Icon;
-  const isService = template.kind === "autofill";
+  const isService = isAutomationSilentTaskKind(template.kind);
   const isDisabled = template.enabled === false;
 
   return (
@@ -2058,6 +2065,7 @@ function FlowInner({
           if (node.type === "task") {
             const kind = (node.data as TaskData).template?.kind;
             if (kind === "autofill") return "#94a3b8";
+            if (kind === "actions") return "#f59e0b";
             if (kind === "single") return "#8b5cf6";
             return "#38bdf8";
           }

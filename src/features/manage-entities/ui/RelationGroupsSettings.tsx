@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Columns2,
+  Rows2,
+  X,
+} from "lucide-react";
 import {
   buildEntityRelationGroupsValue,
   emptyEntityRelationGroupsConfig,
@@ -27,14 +35,6 @@ import {
 } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { SettingLabel, SettingSelect } from "@/shared/ui/setting-controls";
@@ -69,15 +69,102 @@ function toConstantDefaultValue(value: string): EntityFieldDefaultValue | null {
 const LAYOUT_OPTIONS: Array<{
   value: EntityRelationGroupsLayout;
   label: string;
+  description: string;
+  icon: typeof Columns2;
 }> = [
-  { value: "column", label: "Столбец" },
-  { value: "row", label: "Строка" },
+  {
+    value: "column",
+    label: "Столбец",
+    description: "Друг под другом",
+    icon: Rows2,
+  },
+  {
+    value: "row",
+    label: "Строка",
+    description: "В одну линию",
+    icon: Columns2,
+  },
 ];
 
 const SOURCE_KIND_OPTIONS = [
   { value: "entity", label: "Сущность" },
   { value: "field", label: "Поле" },
 ] as const;
+
+function LayoutPicker({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: EntityRelationGroupsLayout;
+  onChange: (layout: EntityRelationGroupsLayout) => void;
+}) {
+  const current = value === "row" ? "row" : "column";
+  return (
+    <div className="flex flex-col gap-1.5">
+      <SettingLabel
+        title="Отображение"
+        description="Как элементы этого уровня выглядят в форме"
+      />
+      <div
+        className="grid grid-cols-2 gap-1.5"
+        role="group"
+        aria-labelledby={id}
+      >
+        {LAYOUT_OPTIONS.map((option) => {
+          const Icon = option.icon;
+          const selected = current === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              id={selected ? id : undefined}
+              aria-pressed={selected}
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "relative flex items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors",
+                selected
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                  : "border-border bg-background hover:border-foreground/20 hover:bg-muted/40",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-md",
+                  selected
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                <Icon className="size-3.5" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1 pr-4">
+                <span className="block truncate text-sm font-medium">
+                  {option.label}
+                </span>
+                <span className="block truncate text-[11px] leading-tight text-muted-foreground">
+                  {option.description}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "absolute top-1.5 right-1.5 flex size-3.5 items-center justify-center rounded-full border",
+                  selected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-background text-transparent",
+                )}
+                aria-hidden
+              >
+                <Check className="size-2.5" strokeWidth={3} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function optionLabel(option: EntityOption) {
   if (option.parentName) return `${option.parentName} → ${option.name}`;
@@ -387,27 +474,26 @@ function levelSummary(
   return getEntityFieldDisplayName(field);
 }
 
-function LevelEditorDialog({
-  open,
-  onOpenChange,
+/** Inline panel — not a nested Dialog (Select/Popover break under stacked modals). */
+function LevelEditorPanel({
   index,
   level,
   levels,
   entities,
   selectOptions,
   defaultValue,
+  onBack,
   onCommitDefaults,
   onUpdateLevel,
   onSetLevelSource,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   index: number;
   level: EntityRelationGroupsLevel;
   levels: readonly EntityRelationGroupsLevel[];
   entities: Entity[];
   selectOptions: Array<{ value: string; label: string }>;
   defaultValue: EntityFieldDefaultValue | null;
+  onBack: () => void;
   onCommitDefaults: (index: number, nextIds: readonly string[]) => void;
   onUpdateLevel: (
     index: number,
@@ -483,177 +569,173 @@ function LevelEditorDialog({
     : [];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="w-[min(100%,28rem)] sm:w-md sm:max-w-md"
-        forceOverlay
-        overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-[2px]"
-      >
-        <DialogHeader>
-          <DialogTitle>{levelTitle(index)}</DialogTitle>
-          <DialogDescription>{levelDescription(index)}</DialogDescription>
-        </DialogHeader>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="-ml-1.5 mt-0.5 shrink-0"
+          aria-label="Назад к уровням"
+          onClick={onBack}
+        >
+          <ChevronLeft className="size-4" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium leading-none">
+            {levelTitle(index)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {levelDescription(index)}
+          </p>
+        </div>
+      </div>
 
-        <div className="flex flex-col gap-3">
-          {index > 0 ? (
-            <SettingSelect
-              id={`entity-field-relation-groups-level-${level.id}-source`}
-              title="Источник"
-              description="Откуда брать записи этого уровня"
-              value={level.source.kind}
-              options={[...SOURCE_KIND_OPTIONS]}
-              onChange={(kind) => {
-                if (kind === "field") {
-                  onSetLevelSource(index, { kind: "field", fieldId: null });
-                  return;
-                }
-                onSetLevelSource(index, {
-                  kind: "entity",
-                  entityId: null,
-                  limitFieldId: null,
-                });
-              }}
-            />
-          ) : null}
+      {index > 0 ? (
+        <SettingSelect
+          id={`entity-field-relation-groups-level-${level.id}-source`}
+          title="Источник"
+          description="Откуда брать записи этого уровня"
+          value={level.source.kind}
+          options={[...SOURCE_KIND_OPTIONS]}
+          onChange={(kind) => {
+            if (kind === "field") {
+              onSetLevelSource(index, { kind: "field", fieldId: null });
+              return;
+            }
+            onSetLevelSource(index, {
+              kind: "entity",
+              entityId: null,
+              limitFieldId: null,
+            });
+          }}
+        />
+      ) : null}
 
-          {level.source.kind === "entity" ? (
-            <>
-              <SettingSelect
-                id={`entity-field-relation-groups-level-${level.id}-entity`}
-                title="Сущность"
-                description={
-                  index === 0
-                    ? "Каталог записей для строк"
-                    : "Каталог записей этого уровня"
-                }
-                value={level.source.entityId}
-                options={entitySelectOptions}
-                emptyLabel="Выберите сущность"
-                onChange={(entityId) =>
-                  onSetLevelSource(index, {
-                    kind: "entity",
-                    entityId,
-                    limitFieldId: null,
-                  })
-                }
-              />
-              {index > 0 && level.source.entityId && previousEntity ? (
-                <SettingSelect
-                  id={`entity-field-relation-groups-level-${level.id}-limit`}
-                  title="Ограничить"
-                  description={
-                    entityName
-                      ? `Необязательно: связь на предыдущем уровне → «${entityName}»`
-                      : "Необязательно: поле связи на предыдущем уровне"
-                  }
-                  value={level.source.limitFieldId}
-                  options={limitOptions}
-                  emptyLabel="Все записи"
-                  onChange={(limitFieldId) =>
-                    onUpdateLevel(index, {
-                      source: {
-                        kind: "entity",
-                        entityId:
-                          level.source.kind === "entity"
-                            ? level.source.entityId
-                            : null,
-                        limitFieldId,
-                      },
-                    })
-                  }
-                />
-              ) : null}
-            </>
-          ) : (
-            <SettingSelect
-              id={`entity-field-relation-groups-level-${level.id}-field`}
-              title="Поле"
-              description={
-                previousEntity
-                  ? `Связь или список у «${getEntityDisplayName(previousEntity)}»`
-                  : "Связь или список на предыдущем уровне"
-              }
-              value={level.source.fieldId}
-              options={fieldSourceOptions}
-              emptyLabel="Выберите поле"
-              onChange={(fieldId) =>
-                onSetLevelSource(index, { kind: "field", fieldId })
-              }
-            />
-          )}
-
-          {levelEntity ? (
-            <DisplayFieldsPicker
-              id={`entity-field-relation-groups-level-${level.id}-display`}
-              title="Поля отображения"
-              description={
-                entityName ? `Кроме названия «${entityName}»` : "Кроме названия"
-              }
-              fields={displayFields}
-              selectedIds={displayFieldIds}
-              onChange={(ids) => onUpdateLevel(index, { displayFieldIds: ids })}
-            />
-          ) : null}
-
+      {level.source.kind === "entity" ? (
+        <>
           <SettingSelect
-            id={`entity-field-relation-groups-level-${level.id}-layout`}
-            title="Отображение"
-            description="Как элементы этого уровня выглядят в форме"
-            value={level.layout ?? "column"}
-            options={LAYOUT_OPTIONS}
-            onChange={(layout) =>
-              onUpdateLevel(index, {
-                layout: layout === "row" ? "row" : "column",
+            id={`entity-field-relation-groups-level-${level.id}-entity`}
+            title="Сущность"
+            description={
+              index === 0
+                ? "Каталог записей для строк"
+                : "Каталог записей этого уровня"
+            }
+            value={level.source.entityId}
+            options={entitySelectOptions}
+            emptyLabel="Выберите сущность"
+            onChange={(entityId) =>
+              onSetLevelSource(index, {
+                kind: "entity",
+                entityId,
+                limitFieldId: null,
               })
             }
           />
+          {index > 0 && level.source.entityId && previousEntity ? (
+            <SettingSelect
+              id={`entity-field-relation-groups-level-${level.id}-limit`}
+              title="Ограничить"
+              description={
+                entityName
+                  ? `Необязательно: связь на предыдущем уровне → «${entityName}»`
+                  : "Необязательно: поле связи на предыдущем уровне"
+              }
+              value={level.source.limitFieldId}
+              options={limitOptions}
+              emptyLabel="Все записи"
+              onChange={(limitFieldId) =>
+                onUpdateLevel(index, {
+                  source: {
+                    kind: "entity",
+                    entityId:
+                      level.source.kind === "entity"
+                        ? level.source.entityId
+                        : null,
+                    limitFieldId,
+                  },
+                })
+              }
+            />
+          ) : null}
+        </>
+      ) : (
+        <SettingSelect
+          id={`entity-field-relation-groups-level-${level.id}-field`}
+          title="Поле"
+          description={
+            previousEntity
+              ? `Связь или список у «${getEntityDisplayName(previousEntity)}»`
+              : "Связь или список на предыдущем уровне"
+          }
+          value={level.source.fieldId}
+          options={fieldSourceOptions}
+          emptyLabel="Выберите поле"
+          onChange={(fieldId) =>
+            onSetLevelSource(index, { kind: "field", fieldId })
+          }
+        />
+      )}
 
-          {canEditDefaults ? (
-            <div className="flex flex-col gap-1.5">
-              <SettingLabel
-                title="По умолчанию"
-                description={defaultDescription}
-              />
-              {sourceField?.type === "list" ? (
-                <ListSelect
-                  options={sourceField.listOptions}
-                  value={serializeEntityListValueIds(defaultIds)}
-                  multiple
-                  allowEmpty
-                  showColors={sourceField.listUseColors}
-                  size="sm"
-                  emptyLabel="Не заполнять"
-                  aria-label={`${levelTitle(index)} по умолчанию`}
-                  className="h-8 min-h-8 rounded-md border-input font-normal"
-                  onChange={(next) =>
-                    onCommitDefaults(index, parseEntityListValueIds(next))
-                  }
-                />
-              ) : levelEntity ? (
-                <RelationSelect
-                  id={`entity-field-relation-groups-level-${level.id}-default`}
-                  options={getRelationRecordOptions(levelEntity, entities)}
-                  value={serializeEntityRelationIds(defaultIds)}
-                  multiple
-                  placeholder="Не заполнять"
-                  aria-label={`${levelTitle(index)} по умолчанию`}
-                  className={SETTINGS_SELECT_CLASS}
-                  onChange={(next) =>
-                    onCommitDefaults(index, parseEntityRelationIds(next))
-                  }
-                />
-              ) : null}
-            </div>
+      {levelEntity ? (
+        <DisplayFieldsPicker
+          id={`entity-field-relation-groups-level-${level.id}-display`}
+          title="Поля отображения"
+          description={
+            entityName ? `Кроме названия «${entityName}»` : "Кроме названия"
+          }
+          fields={displayFields}
+          selectedIds={displayFieldIds}
+          onChange={(ids) => onUpdateLevel(index, { displayFieldIds: ids })}
+        />
+      ) : null}
+
+      <LayoutPicker
+        id={`entity-field-relation-groups-level-${level.id}-layout`}
+        value={level.layout === "row" ? "row" : "column"}
+        onChange={(layout) => onUpdateLevel(index, { layout })}
+      />
+
+      {canEditDefaults ? (
+        <div className="flex flex-col gap-1.5">
+          <SettingLabel title="По умолчанию" description={defaultDescription} />
+          {sourceField?.type === "list" ? (
+            <ListSelect
+              options={sourceField.listOptions}
+              value={serializeEntityListValueIds(defaultIds)}
+              multiple
+              allowEmpty
+              showColors={sourceField.listUseColors}
+              size="sm"
+              emptyLabel="Не заполнять"
+              aria-label={`${levelTitle(index)} по умолчанию`}
+              className="h-8 min-h-8 rounded-md border-input font-normal"
+              onChange={(next) =>
+                onCommitDefaults(index, parseEntityListValueIds(next))
+              }
+            />
+          ) : levelEntity ? (
+            <RelationSelect
+              id={`entity-field-relation-groups-level-${level.id}-default`}
+              options={getRelationRecordOptions(levelEntity, entities)}
+              value={serializeEntityRelationIds(defaultIds)}
+              multiple
+              placeholder="Не заполнять"
+              aria-label={`${levelTitle(index)} по умолчанию`}
+              className={SETTINGS_SELECT_CLASS}
+              onChange={(next) =>
+                onCommitDefaults(index, parseEntityRelationIds(next))
+              }
+            />
           ) : null}
         </div>
+      ) : null}
 
-        <DialogFooter>
-          <Button type="button" onClick={() => onOpenChange(false)}>
-            Готово
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <Button type="button" className="w-full" onClick={onBack}>
+        Готово
+      </Button>
+    </div>
   );
 }
 
@@ -739,69 +821,65 @@ export function RelationGroupsSettings({
       ? (levels[editingIndex] ?? null)
       : null;
 
+  if (editingLevel != null && editingIndex != null) {
+    return (
+      <LevelEditorPanel
+        index={editingIndex}
+        level={editingLevel}
+        levels={levels}
+        entities={entities}
+        selectOptions={selectOptions}
+        defaultValue={defaultValue}
+        onBack={() => setEditingIndex(null)}
+        onCommitDefaults={commitDefaults}
+        onUpdateLevel={updateLevel}
+        onSetLevelSource={setLevelSource}
+      />
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1.5">
-        {levels.map((level, index) => {
-          const ready = isLevelSourceReady(level.source, index > 0);
-          const summary = levelSummary(
-            level,
-            index,
-            levels,
-            entities,
-            entityOptions,
-          );
+    <div className="flex flex-col gap-1.5">
+      {levels.map((level, index) => {
+        const ready = isLevelSourceReady(level.source, index > 0);
+        const summary = levelSummary(
+          level,
+          index,
+          levels,
+          entities,
+          entityOptions,
+        );
+        const layoutLabel = level.layout === "row" ? "Строка" : "Столбец";
 
-          return (
-            <button
-              key={level.id}
-              type="button"
-              onClick={() => setEditingIndex(index)}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
-                ready
-                  ? "border-border/70 bg-background hover:border-foreground/20 hover:bg-muted/40"
-                  : "border-dashed border-border bg-muted/15 hover:border-foreground/20 hover:bg-muted/30",
-              )}
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium leading-none">
-                  {levelTitle(index)}
-                </span>
-                <span
-                  className={cn(
-                    "mt-1 block truncate text-[11px] leading-snug",
-                    ready
-                      ? "text-muted-foreground"
-                      : "text-muted-foreground/80",
-                  )}
-                >
-                  {summary}
-                </span>
+        return (
+          <button
+            key={level.id}
+            type="button"
+            onClick={() => setEditingIndex(index)}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors",
+              ready
+                ? "border-border/70 bg-background hover:border-foreground/20 hover:bg-muted/40"
+                : "border-dashed border-border bg-muted/15 hover:border-foreground/20 hover:bg-muted/30",
+            )}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium leading-none">
+                {levelTitle(index)}
               </span>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-            </button>
-          );
-        })}
-      </div>
-
-      {editingLevel != null && editingIndex != null ? (
-        <LevelEditorDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setEditingIndex(null);
-          }}
-          index={editingIndex}
-          level={editingLevel}
-          levels={levels}
-          entities={entities}
-          selectOptions={selectOptions}
-          defaultValue={defaultValue}
-          onCommitDefaults={commitDefaults}
-          onUpdateLevel={updateLevel}
-          onSetLevelSource={setLevelSource}
-        />
-      ) : null}
+              <span
+                className={cn(
+                  "mt-1 block truncate text-[11px] leading-snug",
+                  ready ? "text-muted-foreground" : "text-muted-foreground/80",
+                )}
+              >
+                {ready ? `${summary} · ${layoutLabel}` : summary}
+              </span>
+            </span>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          </button>
+        );
+      })}
     </div>
   );
 }

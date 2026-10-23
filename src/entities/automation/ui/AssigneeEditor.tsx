@@ -1,6 +1,7 @@
 import { GitBranch, Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
+  AUTOMATION_ASSIGNEE_SOURCE_GROUPS,
   AUTOMATION_ASSIGNEE_SOURCE_LABELS,
   AUTOMATION_ASSIGNEE_SOURCE_ORDER,
   assigneeSourceKind,
@@ -36,6 +37,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectOptionGroups,
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
@@ -324,11 +326,11 @@ function LeafAssigneeEditor({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {sourceOptions.map((kind) => (
-                <SelectItem key={kind} value={kind}>
-                  {sourceLabels[kind]}
-                </SelectItem>
-              ))}
+              <SelectOptionGroups
+                groups={AUTOMATION_ASSIGNEE_SOURCE_GROUPS}
+                available={sourceOptions}
+                getLabel={(kind) => sourceLabels[kind]}
+              />
             </SelectContent>
           </Select>
         </div>
@@ -792,11 +794,11 @@ export function AssigneeEditor({
               <SelectValue>{sourceLabels[source]}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {sourceOptions.map((kind) => (
-                <SelectItem key={kind} value={kind}>
-                  {sourceLabels[kind]}
-                </SelectItem>
-              ))}
+              <SelectOptionGroups
+                groups={AUTOMATION_ASSIGNEE_SOURCE_GROUPS}
+                available={sourceOptions}
+                getLabel={(kind) => sourceLabels[kind]}
+              />
             </SelectContent>
           </Select>
         </div>

@@ -29,6 +29,21 @@ export const NOTIFICATION_TRIGGER_KIND_LABELS: Record<
   fieldTransition: "Переход значения",
 };
 
+/** Trigger kind picker sections in notification rules. */
+export const NOTIFICATION_TRIGGER_KIND_GROUPS: Array<{
+  label: string;
+  items: NotificationTriggerKind[];
+}> = [
+  {
+    label: "События записи",
+    items: ["recordCreated", "recordUpdated"],
+  },
+  {
+    label: "События поля списка",
+    items: ["fieldEnter", "fieldLeave", "fieldTransition"],
+  },
+];
+
 export type Notification = {
   id: string;
   userId: string;

@@ -200,3 +200,32 @@ export const AUTOMATION_CONDITION_OPERATOR_LABELS: Record<
   folderHasFiles: "есть файлы в папке",
   folderEmpty: "папка пуста",
 };
+
+/** Operator picker sections; filtered per field at render time. */
+export const AUTOMATION_CONDITION_OPERATOR_GROUPS: Array<{
+  label: string;
+  items: AutomationConditionOperator[];
+}> = [
+  { label: "Наличие", items: ["empty", "notEmpty"] },
+  {
+    label: "Сравнение",
+    items: [
+      "equals",
+      "notEquals",
+      "contains",
+      "notContains",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "true",
+      "false",
+    ],
+  },
+  {
+    label: "Множества",
+    items: ["in", "notIn", "includesAny", "includesAll"],
+  },
+  { label: "Изменения", items: ["fieldChanged", "fieldTransition"] },
+  { label: "Файлы", items: ["folderHasFiles", "folderEmpty"] },
+];

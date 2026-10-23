@@ -35,6 +35,10 @@ type OutcomeAutofillEditorProps = {
   hint?: string;
   /** Fields managed elsewhere (e.g. process stage via «Перейти на стадию»). */
   excludeFieldIds?: readonly string[];
+  /** Remove the whole block (clears setField actions). */
+  onRemove?: () => void;
+  /** When true, omit the local «+ Поле» (parent provides Add). */
+  hideAdd?: boolean;
 };
 
 function isSetField(
@@ -99,6 +103,8 @@ export function OutcomeAutofillEditor({
   className,
   hint = "Значение запишется в поле; «комм.» — ещё и во вкладку «Записи»",
   excludeFieldIds = [],
+  onRemove,
+  hideAdd = false,
 }: OutcomeAutofillEditorProps) {
   const access = normalizeAutomationOutcomeFieldAccess(fieldAccess);
   const excluded = new Set(excludeFieldIds.filter(Boolean));
@@ -131,25 +137,37 @@ export function OutcomeAutofillEditor({
   return (
     <div
       className={cn(
-        "rounded-lg border border-border/60 bg-background/80 p-3",
+        "flex flex-col gap-2.5 rounded-lg border border-border bg-card p-2.5 shadow-xs",
         className,
       )}
     >
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="text-xs font-medium text-muted-foreground">
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 text-xs font-medium leading-none text-muted-foreground">
           Управление полями
         </p>
-        {hint ? (
-          <p className="text-[11px] leading-snug text-muted-foreground">
-            {hint}
-          </p>
+        {onRemove ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+            aria-label="Убрать управление полями"
+            onClick={onRemove}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
         ) : null}
       </div>
+      {hint ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p>
+      ) : null}
 
       {setFields.length === 0 ? (
-        <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Нет полей
+        </p>
       ) : (
-        <div className="mt-2 flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           {setFields.map((action, index) => {
             const selected =
               writable.find((field) => field.id === action.fieldId) ??
@@ -165,7 +183,7 @@ export function OutcomeAutofillEditor({
             return (
               <div
                 key={action.id || `set-field-${index}`}
-                className="flex flex-col gap-1.5 rounded-md border border-border/50 p-2"
+                className="flex flex-col gap-1.5 rounded-md bg-muted/30 px-2.5 py-2"
               >
                 <div className="flex items-center gap-1.5">
                   <FieldSelect
@@ -250,27 +268,29 @@ export function OutcomeAutofillEditor({
         </div>
       )}
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="mt-2 h-7 gap-1 self-start px-2 text-xs"
-        disabled={writable.length === 0}
-        onClick={() =>
-          updateSetFields([
-            ...setFields,
-            {
-              id: createAutomationActionId(),
-              kind: "setField",
-              fieldId: writable[0]?.id ?? "",
-              value: "",
-            },
-          ])
-        }
-      >
-        <Plus className="size-3.5" />
-        Поле
-      </Button>
+      {hideAdd ? null : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-2 h-7 gap-1 self-start px-2 text-xs"
+          disabled={writable.length === 0}
+          onClick={() =>
+            updateSetFields([
+              ...setFields,
+              {
+                id: createAutomationActionId(),
+                kind: "setField",
+                fieldId: writable[0]?.id ?? "",
+                value: "",
+              },
+            ])
+          }
+        >
+          <Plus className="size-3.5" />
+          Поле
+        </Button>
+      )}
     </div>
   );
 }

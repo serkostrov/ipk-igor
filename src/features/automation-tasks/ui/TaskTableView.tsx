@@ -21,7 +21,9 @@ import { Input } from "@/shared/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
@@ -95,6 +97,18 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "completed", label: STATUS_LABELS.completed },
   { value: "cancelled", label: STATUS_LABELS.cancelled },
   { value: "all", label: "Все" },
+];
+
+const STATUS_FILTER_GROUPS: Array<{
+  label: string;
+  values: StatusFilter[];
+}> = [
+  { label: "Сводка", values: ["active"] },
+  {
+    label: "По статусу",
+    values: ["pending", "returned", "completed", "cancelled"],
+  },
+  { label: "Все", values: ["all"] },
 ];
 
 function FilterValueLabel({
@@ -680,10 +694,21 @@ export function TaskTableView({
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {STATUS_FILTER_OPTIONS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
+            {STATUS_FILTER_GROUPS.map((group) => (
+              <SelectGroup key={group.label}>
+                <SelectLabel>{group.label}</SelectLabel>
+                {group.values.map((value) => {
+                  const item = STATUS_FILTER_OPTIONS.find(
+                    (option) => option.value === value,
+                  );
+                  if (!item) return null;
+                  return (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  );
+                })}
+              </SelectGroup>
             ))}
           </SelectContent>
         </Select>

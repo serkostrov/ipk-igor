@@ -1,6 +1,7 @@
 import {
   addEntityRecord,
   getEntityParentLinkField,
+  getEntityRelationTargetId,
   isEntityComputedFieldType,
   parseEntityRelationIds,
   resolveEntityFieldLabel,
@@ -8,14 +9,18 @@ import {
   updateEntityRecord,
   waitForEntityRecordInsert,
   type Entity,
+  type EntityField,
   type EntityFieldType,
 } from "@/entities/entity";
 import { createNotification } from "@/entities/notification/api/notifications-api";
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
 import { getErrorMessage } from "@/shared/lib/error-message";
-import type {
-  AutomationAction,
-  AutomationFieldMapping,
+import {
+  createRecordAskDraftKey,
+  createRecordNestedAskDraftKey,
+  createRecordNestedCountDraftKey,
+  type AutomationAction,
+  type AutomationFieldMapping,
 } from "../model/actions";
 import { resolveAutomationActionValue } from "../model/action-values";
 import type { AutomationAssigneeResolver } from "../model/assignee";
@@ -31,6 +36,11 @@ export type AutomationExecutionContext = {
   actorUserId: string | null;
   /** Depth guard — incremented on nested startProcess. */
   depth: number;
+  /**
+   * Task-form draft (incl. create:{actionId}:… keys). Ask values override
+   * mappings when creating records from createRecord.
+   */
+  formValues?: Record<string, string>;
 };
 
 export type AutomationExecutionResult = {
@@ -121,19 +131,102 @@ function withParentLink(
   };
 }
 
+/** Link a child to an arbitrary parent record (e.g. just-created createRecord). */
+function withExplicitParentLink(
+  values: Record<string, string>,
+  target: Entity | null | undefined,
+  parentEntityId: string,
+  parentRecordId: string,
+): Record<string, string> {
+  if (!target || !parentEntityId.trim() || !parentRecordId.trim()) {
+    return values;
+  }
+  const parentLink =
+    (target.parentEntityId?.trim() === parentEntityId
+      ? getEntityParentLinkField(target)
+      : null) ?? resolveChildParentLinkField(target, parentEntityId);
+  if (!parentLink) return values;
+  if (values[parentLink.id]?.trim()) return values;
+  return {
+    ...values,
+    [parentLink.id]: serializeEntityRelationIds([parentRecordId]),
+  };
+}
+
+function resolveChildParentLinkField(
+  child: Entity,
+  parentEntityId: string,
+): EntityField | null {
+  return (
+    child.fields.find(
+      (field) =>
+        (field.type === "relation" || field.type === "belonging") &&
+        getEntityRelationTargetId(field) === parentEntityId,
+    ) ?? null
+  );
+}
+
+function readAskDraftValues(
+  formValues: Record<string, string> | undefined,
+  fieldIds: string[] | undefined,
+  keyFor: (fieldId: string) => string,
+): Record<string, string> {
+  if (!formValues || !fieldIds?.length) return {};
+  const result: Record<string, string> = {};
+  for (const fieldId of fieldIds) {
+    const key = keyFor(fieldId);
+    if (key in formValues) result[fieldId] = formValues[key] ?? "";
+  }
+  return result;
+}
+
+function readNestedDraftCount(
+  formValues: Record<string, string> | undefined,
+  actionId: string,
+  nestedId: string,
+): number {
+  if (!formValues) return 0;
+  const raw =
+    formValues[createRecordNestedCountDraftKey(actionId, nestedId)] ?? "";
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.floor(n), 50);
+}
+
 async function createMappedRecord(
   entityId: string,
   mappings: AutomationFieldMapping[],
   ctx: AutomationExecutionContext,
   createdRecordIds: string[],
-  extra?: Record<string, string>,
+  options?: {
+    extra?: Record<string, string>;
+    /** Ask-form values — win over mappings. */
+    askOverrides?: Record<string, string>;
+    /** Link to this parent instead of the trigger (nested creates). */
+    parentLink?: { parentEntityId: string; parentRecordId: string };
+  },
 ) {
   const target = ctx.entities.find((entity) => entity.id === entityId) ?? null;
-  const values = withParentLink(
-    applyMappings(mappings, ctx, createdRecordIds, extra, target),
-    target,
+  let values = applyMappings(
+    mappings,
     ctx,
+    createdRecordIds,
+    options?.extra,
+    target,
   );
+  if (options?.askOverrides) {
+    values = { ...values, ...options.askOverrides };
+  }
+  if (options?.parentLink) {
+    values = withExplicitParentLink(
+      values,
+      target,
+      options.parentLink.parentEntityId,
+      options.parentLink.parentRecordId,
+    );
+  } else {
+    values = withParentLink(values, target, ctx);
+  }
   const record = addEntityRecord(entityId, values);
   if (!record) {
     throw new Error("Не удалось создать запись");
@@ -220,11 +313,17 @@ export async function executeAutomationActions(
           if (!action.entityId.trim()) {
             throw new Error("Не выбрана сущность для создания записи");
           }
+          const parentAsk = readAskDraftValues(
+            ctx.formValues,
+            action.askFieldIds,
+            (fieldId) => createRecordAskDraftKey(action.id, fieldId),
+          );
           const record = await createMappedRecord(
             action.entityId,
             action.mappings,
             ctx,
             createdRecordIds,
+            { askOverrides: parentAsk },
           );
           createdRecordIds.push(record.id);
           if (action.linkBackFieldId) {
@@ -234,39 +333,49 @@ export async function executeAutomationActions(
             });
             ctx.values[action.linkBackFieldId] = linked;
           }
+          const nestedCreatedIds: string[] = [];
+          for (const nested of action.nestedCreates ?? []) {
+            if (!nested.entityId.trim()) continue;
+            const count = readNestedDraftCount(
+              ctx.formValues,
+              action.id,
+              nested.id,
+            );
+            for (let index = 0; index < count; index++) {
+              const nestedAsk = readAskDraftValues(
+                ctx.formValues,
+                nested.askFieldIds,
+                (fieldId) =>
+                  createRecordNestedAskDraftKey(
+                    action.id,
+                    nested.id,
+                    index,
+                    fieldId,
+                  ),
+              );
+              const child = await createMappedRecord(
+                nested.entityId,
+                nested.mappings ?? [],
+                ctx,
+                createdRecordIds,
+                {
+                  askOverrides: nestedAsk,
+                  parentLink: {
+                    parentEntityId: action.entityId,
+                    parentRecordId: record.id,
+                  },
+                },
+              );
+              nestedCreatedIds.push(child.id);
+            }
+          }
           logs.push({
             kind: "createRecord",
             entityId: action.entityId,
             recordId: record.id,
+            // `"created"` in later setRelation / addRelation = parent id only.
+            nestedRecordIds: nestedCreatedIds,
           });
-          break;
-        }
-        case "createRecordsFromMapping": {
-          if (!action.entityId.trim()) {
-            throw new Error("Не выбрана сущность для создания записей");
-          }
-          const fanOut = parseEntityRelationIds(
-            ctx.values[action.fanOutFieldId],
-          );
-          for (const itemId of fanOut) {
-            const record = await createMappedRecord(
-              action.entityId,
-              action.mappings,
-              ctx,
-              createdRecordIds,
-              {
-                [action.fanOutTargetFieldId]: serializeEntityRelationIds([
-                  itemId,
-                ]),
-              },
-            );
-            createdRecordIds.push(record.id);
-            logs.push({
-              kind: "createRecordsFromMapping",
-              recordId: record.id,
-              fanOutId: itemId,
-            });
-          }
           break;
         }
         case "updateRecords": {

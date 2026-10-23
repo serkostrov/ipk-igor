@@ -7,12 +7,14 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectOptionGroups,
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/lib/cn";
 import {
   createEntityConditionId,
+  ENTITY_CONDITION_OPERATOR_GROUPS,
   ENTITY_CONDITION_OPERATOR_LABELS,
   ENTITY_VALUE_KIND_LABELS,
   entityConditionNeedsValue,
@@ -595,11 +597,11 @@ export function ConditionBuilder({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {operators.map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {ENTITY_CONDITION_OPERATOR_LABELS[item]}
-                    </SelectItem>
-                  ))}
+                  <SelectOptionGroups
+                    groups={ENTITY_CONDITION_OPERATOR_GROUPS}
+                    available={operators}
+                    getLabel={(item) => ENTITY_CONDITION_OPERATOR_LABELS[item]}
+                  />
                 </SelectContent>
               </Select>
               <Button

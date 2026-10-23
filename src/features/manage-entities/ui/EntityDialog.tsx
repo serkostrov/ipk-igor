@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { ChartGantt, Check, Columns3, EyeOff, Pin, Table2 } from "lucide-react";
+import {
+  ChartGantt,
+  Check,
+  Columns3,
+  EyeOff,
+  Pin,
+  Settings,
+  Table2,
+} from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -18,10 +26,14 @@ import {
   getEntityBrowseViews,
   isEntityBrowseView,
   resolveEntityDefaultView,
+  useEntityConfig,
   type Entity,
   type EntityBrowseView,
   type EntityView,
 } from "@/entities/entity";
+import { EntityKanbanSettingsDialog } from "./EntityKanbanSettingsDialog";
+import { EntityTableSettingsDialog } from "./EntityTableSettingsDialog";
+import { EntityTimelineSettingsDialog } from "./EntityTimelineSettingsDialog";
 
 type EntityFormData = {
   name: string;
@@ -45,14 +57,23 @@ const viewIcons: Record<EntityView, typeof Table2> = {
   internal: EyeOff,
 };
 
+type ViewSettingsKind = Extract<
+  EntityBrowseView,
+  "table" | "kanban" | "timeline"
+>;
+
 function EntityForm({
   entity,
+  canConfigureViews,
   onCancel,
   onSubmit,
+  onOpenViewSettings,
 }: {
   entity?: Entity | null;
+  canConfigureViews: boolean;
   onCancel: () => void;
   onSubmit: (data: EntityFormData) => void;
+  onOpenViewSettings: (view: ViewSettingsKind) => void;
 }) {
   const isEdit = Boolean(entity);
   const [name, setName] = useState(entity?.name ?? "");
@@ -146,37 +167,49 @@ function EntityForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label>Отображение</Label>
+          <div className="flex flex-col gap-0.5">
+            <Label>Отображение</Label>
+            <p className="text-xs text-muted-foreground">
+              Включите виды списка записей
+              {canConfigureViews ? " и настройте каждый" : ""}
+            </p>
+          </div>
 
-          <div className="flex flex-wrap gap-2">
-            {ENTITY_VIEW_OPTIONS.map((option) => {
+          <div className="overflow-hidden rounded-lg border border-border">
+            {ENTITY_VIEW_OPTIONS.map((option, index) => {
               const Icon = viewIcons[option.value];
               const selected = views.includes(option.value);
               const isBrowse = isEntityBrowseView(option.value);
               const isDefault =
                 selected && isBrowse && activeDefault === option.value;
+              const canConfigure =
+                canConfigureViews &&
+                (option.value === "table" ||
+                  option.value === "kanban" ||
+                  option.value === "timeline");
 
               return (
                 <div
                   key={option.value}
                   className={cn(
-                    "relative inline-flex w-fit max-w-full select-none items-center gap-2 rounded-md border px-2.5 py-2 transition-colors",
+                    "relative flex items-center gap-2.5 px-3 py-2.5 transition-colors",
+                    index > 0 && "border-t border-border",
                     selected
-                      ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                      : "border-border bg-background hover:border-foreground/20 hover:bg-muted/40",
+                      ? "bg-primary/5"
+                      : "bg-background hover:bg-muted/40",
                   )}
                 >
                   <button
                     type="button"
                     aria-pressed={selected}
                     onClick={() => toggleView(option.value)}
-                    className="absolute inset-0 z-0 rounded-md"
+                    className="absolute inset-0 z-0"
                     aria-label={option.label}
                   />
 
                   <span
                     className={cn(
-                      "relative z-10 flex size-7 shrink-0 items-center justify-center rounded-md pointer-events-none",
+                      "relative z-10 flex size-8 shrink-0 items-center justify-center rounded-md pointer-events-none",
                       selected
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground",
@@ -186,62 +219,85 @@ function EntityForm({
                     <Icon className="size-3.5" />
                   </span>
 
-                  <div className="relative z-10 flex min-w-0 flex-col justify-center gap-0.5 pointer-events-none">
-                    <div className="flex w-full items-center gap-1.5">
-                      <span className="min-w-0 flex-1 text-left text-sm font-medium leading-none whitespace-nowrap">
-                        {option.label}
-                      </span>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {selected && isBrowse ? (
-                          <button
-                            type="button"
-                            aria-pressed={isDefault}
-                            aria-label={
-                              isDefault
-                                ? "Открывается по умолчанию"
-                                : "Открывать по умолчанию"
-                            }
-                            title={
-                              isDefault
-                                ? "Открывается по умолчанию"
-                                : "Открывать по умолчанию"
-                            }
-                            className={cn(
-                              "pointer-events-auto inline-grid size-3.5 shrink-0 place-items-center rounded-full border transition-colors",
-                              isDefault
-                                ? "border-primary bg-primary text-primary-foreground"
-                                : "border-border bg-background text-muted-foreground hover:text-foreground",
-                            )}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (isEntityBrowseView(option.value)) {
-                                setDefaultView(option.value);
-                              }
-                            }}
-                          >
-                            <Pin
-                              className="size-2"
-                              strokeWidth={2.5}
-                              fill={isDefault ? "currentColor" : "none"}
-                              aria-hidden
-                            />
-                          </button>
-                        ) : null}
-                        <span
-                          className={cn(
-                            "inline-grid size-3.5 shrink-0 place-items-center rounded-full border",
-                            selected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-border bg-background text-transparent",
-                          )}
-                          aria-hidden
-                        >
-                          <Check className="size-2" strokeWidth={3} />
-                        </span>
-                      </div>
+                  <div className="relative z-10 min-w-0 flex-1 pointer-events-none">
+                    <div className="truncate text-sm font-medium leading-none">
+                      {option.label}
                     </div>
-                    <span className="text-left text-[11px] leading-none whitespace-nowrap text-muted-foreground">
+                    <div className="mt-1 truncate text-[11px] leading-none text-muted-foreground">
                       {option.description}
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 flex shrink-0 items-center gap-0.5">
+                    {canConfigure ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-7 text-muted-foreground hover:text-foreground"
+                        aria-label={`Настройки: ${option.label}`}
+                        title="Настройки"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (
+                            option.value === "table" ||
+                            option.value === "kanban" ||
+                            option.value === "timeline"
+                          ) {
+                            onOpenViewSettings(option.value);
+                          }
+                        }}
+                      >
+                        <Settings className="size-3.5" />
+                      </Button>
+                    ) : null}
+
+                    {selected && isBrowse ? (
+                      <button
+                        type="button"
+                        aria-pressed={isDefault}
+                        aria-label={
+                          isDefault
+                            ? "Открывается по умолчанию"
+                            : "Открывать по умолчанию"
+                        }
+                        title={
+                          isDefault
+                            ? "Открывается по умолчанию"
+                            : "Открывать по умолчанию"
+                        }
+                        className={cn(
+                          "inline-grid size-7 shrink-0 place-items-center rounded-md transition-colors",
+                          isDefault
+                            ? "text-primary"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (isEntityBrowseView(option.value)) {
+                            setDefaultView(option.value);
+                          }
+                        }}
+                      >
+                        <Pin
+                          className="size-3.5"
+                          strokeWidth={2.25}
+                          fill={isDefault ? "currentColor" : "none"}
+                          aria-hidden
+                        />
+                      </button>
+                    ) : null}
+
+                    <span
+                      className={cn(
+                        "ml-1 inline-grid size-3.5 shrink-0 place-items-center rounded-full border",
+                        selected
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background text-transparent",
+                      )}
+                      aria-hidden
+                    >
+                      <Check className="size-2" strokeWidth={3} />
                     </span>
                   </div>
                 </div>
@@ -283,19 +339,62 @@ export function EntityDialog({
   onSubmit,
 }: EntityDialogProps) {
   const formKey = entity?.id ?? "new-entity";
+  const { entities } = useEntityConfig();
+  const liveEntity = entity
+    ? (entities.find((item) => item.id === entity.id) ?? entity)
+    : null;
+  const [viewSettings, setViewSettings] = useState<ViewSettingsKind | null>(
+    null,
+  );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        {open ? (
-          <EntityForm
-            key={formKey}
-            entity={entity}
-            onCancel={() => onOpenChange(false)}
-            onSubmit={onSubmit}
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) setViewSettings(null);
+          onOpenChange(next);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {open ? (
+            <EntityForm
+              key={formKey}
+              entity={entity}
+              canConfigureViews={liveEntity != null}
+              onCancel={() => onOpenChange(false)}
+              onSubmit={onSubmit}
+              onOpenViewSettings={setViewSettings}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {liveEntity ? (
+        <>
+          <EntityTableSettingsDialog
+            open={viewSettings === "table"}
+            onOpenChange={(next) => {
+              if (!next) setViewSettings(null);
+            }}
+            entity={liveEntity}
           />
-        ) : null}
-      </DialogContent>
-    </Dialog>
+          <EntityKanbanSettingsDialog
+            open={viewSettings === "kanban"}
+            onOpenChange={(next) => {
+              if (!next) setViewSettings(null);
+            }}
+            entity={liveEntity}
+          />
+          <EntityTimelineSettingsDialog
+            open={viewSettings === "timeline"}
+            onOpenChange={(next) => {
+              if (!next) setViewSettings(null);
+            }}
+            entity={liveEntity}
+          />
+        </>
+      ) : null}
+    </>
   );
 }

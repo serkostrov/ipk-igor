@@ -8,7 +8,6 @@ import {
 } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { Plus, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -34,9 +33,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { SettingSwitch } from "@/shared/ui/setting-controls";
 import {
+  AUTOMATION_ACTION_KIND_GROUPS,
+  AUTOMATION_ACTION_KIND_LABELS,
+  createAutomationActionId,
   createAutomationNotificationRuleId,
   createAutomationOutcomeId,
   defaultAssigneeResolver,
+  defaultAutomationAction,
+  defaultActionsOutcomes,
   defaultAutofillOutcomes,
   defaultDecisionOutcomes,
   emptyAutomationConditions,
@@ -53,6 +57,7 @@ import {
   setAutomationUploadTarget,
   withOutcomeStageAction,
   withoutOutcomeStageAction,
+  type AutomationActionKind,
   type AutomationAskRelatedField,
   type AutomationLaunchPhase,
   type AutomationNotificationRule,
@@ -243,7 +248,8 @@ function FieldDragHandle({
 const KIND_LABELS: Record<AutomationTaskKind, string> = {
   decision: "Решение",
   single: "Одна кнопка",
-  autofill: "Автозаполнение",
+  autofill: "Переход",
+  actions: "Автозаполнение",
 };
 
 const UPLOAD_ROOT_VALUE = "__root__";
@@ -416,6 +422,21 @@ function outcomesForKind(
       };
     });
   }
+  if (kind === "actions") {
+    const source =
+      current.find((item) => item.label === "Авто") ??
+      current.find((item) => item.label === "Иначе") ??
+      current[0];
+    if (!source) return defaultActionsOutcomes();
+    return [
+      {
+        ...source,
+        label: "Авто",
+        fieldAccess: emptyAutomationOutcomeFieldAccess(),
+        conditions: emptyAutomationConditions(),
+      },
+    ];
+  }
   if (kind === "single") {
     return current.length >= 1
       ? [
@@ -564,12 +585,15 @@ function OutcomeAskFieldsEditor({
   value,
   onChange,
   hasRecordsTab,
+  onRemove,
 }: {
   fields: EntityField[];
   entities: Entity[];
   value: AutomationOutcomeFieldAccess;
   onChange: (next: AutomationOutcomeFieldAccess) => void;
   hasRecordsTab: boolean;
+  /** Remove the whole «Запрос полей» block. */
+  onRemove?: () => void;
 }) {
   const access = normalizeAutomationOutcomeFieldAccess(value);
   const entityById = new Map(entities.map((item) => [item.id, item]));
@@ -798,98 +822,116 @@ function OutcomeAskFieldsEditor({
   }
 
   return (
-    <div className="rounded-lg border border-border/60 bg-background/80 p-3">
-      <div className="flex h-7 items-center justify-between gap-2">
-        <p className="text-xs font-medium text-muted-foreground">Поля формы</p>
-        {canAddField ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 border-dashed px-2 text-xs text-muted-foreground"
-                />
-              }
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-2.5 shadow-xs">
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 text-xs font-medium leading-none text-muted-foreground">
+          Запросить заполнение полей
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          {canAddField ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 border-dashed px-2 text-xs text-muted-foreground"
+                  />
+                }
+              >
+                <Plus className="size-3.5 shrink-0" />
+                Поле
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-72 min-w-52">
+                {available.length > 0 ? (
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                      Эта сущность
+                    </DropdownMenuLabel>
+                    {available.map((field) => (
+                      <DropdownMenuItem
+                        key={field.id}
+                        onClick={() =>
+                          onChange({
+                            ...access,
+                            visibleFieldIds: [
+                              ...access.visibleFieldIds,
+                              field.id,
+                            ],
+                            recordFieldIds: access.recordFieldIds.includes(
+                              field.id,
+                            )
+                              ? access.recordFieldIds
+                              : [...access.recordFieldIds, field.id],
+                          })
+                        }
+                      >
+                        {getEntityFieldDisplayName(field)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                ) : null}
+                {available.length > 0 && relatedPickers.length > 0 ? (
+                  <DropdownMenuSeparator />
+                ) : null}
+                {relatedPickers.length > 0 ? (
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                      Через связь
+                    </DropdownMenuLabel>
+                    {relatedPickers.map(
+                      ({ relation, target, availableFields }) => (
+                        <DropdownMenuSub key={relation.id}>
+                          <DropdownMenuSubTrigger>
+                            {getEntityFieldDisplayName(relation)}
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="max-h-64 min-w-44">
+                            <DropdownMenuGroup>
+                              <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+                                {target.name}
+                              </DropdownMenuLabel>
+                              {availableFields.map((field) => (
+                                <DropdownMenuItem
+                                  key={field.id}
+                                  onClick={() =>
+                                    addRelatedField(relation.id, field.id)
+                                  }
+                                >
+                                  {getEntityFieldDisplayName(field)}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuGroup>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      ),
+                    )}
+                  </DropdownMenuGroup>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          {onRemove ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+              aria-label="Убрать запрос полей"
+              onClick={onRemove}
             >
-              <Plus className="size-3 shrink-0" />
-              Поле
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-72 min-w-52">
-              {available.length > 0 ? (
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
-                    Эта сущность
-                  </DropdownMenuLabel>
-                  {available.map((field) => (
-                    <DropdownMenuItem
-                      key={field.id}
-                      onClick={() =>
-                        onChange({
-                          ...access,
-                          visibleFieldIds: [
-                            ...access.visibleFieldIds,
-                            field.id,
-                          ],
-                          recordFieldIds: access.recordFieldIds.includes(
-                            field.id,
-                          )
-                            ? access.recordFieldIds
-                            : [...access.recordFieldIds, field.id],
-                        })
-                      }
-                    >
-                      {getEntityFieldDisplayName(field)}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              ) : null}
-              {available.length > 0 && relatedPickers.length > 0 ? (
-                <DropdownMenuSeparator />
-              ) : null}
-              {relatedPickers.length > 0 ? (
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
-                    Через связь
-                  </DropdownMenuLabel>
-                  {relatedPickers.map(
-                    ({ relation, target, availableFields }) => (
-                      <DropdownMenuSub key={relation.id}>
-                        <DropdownMenuSubTrigger>
-                          {getEntityFieldDisplayName(relation)}
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="max-h-64 min-w-44">
-                          <DropdownMenuGroup>
-                            <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
-                              {target.name}
-                            </DropdownMenuLabel>
-                            {availableFields.map((field) => (
-                              <DropdownMenuItem
-                                key={field.id}
-                                onClick={() =>
-                                  addRelatedField(relation.id, field.id)
-                                }
-                              >
-                                {getEntityFieldDisplayName(field)}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuGroup>
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    ),
-                  )}
-                </DropdownMenuGroup>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+              <Trash2 className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </div>
       {selected.length === 0 ? (
-        <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Добавьте поля, которые нужно заполнить при нажатии
+        </p>
       ) : (
         <LayoutGroup id="outcome-ask-fields">
-          <ul className="mt-2 flex flex-col gap-1">
+          <ul className="flex flex-col gap-1">
             {selected.map((field, index) => {
               const computed = isEntityComputedFieldType(field.type);
               const required =
@@ -994,7 +1036,7 @@ function OutcomeAskFieldsEditor({
                         ) : (
                           <div
                             data-outcome-field-card
-                            className="flex flex-col gap-1 rounded border border-border/50 bg-card px-2 py-1.5 transition-[border-color,box-shadow] duration-150 group-hover/field:border-border"
+                            className="flex flex-col gap-1 rounded-md bg-muted/30 px-2 py-1.5 transition-colors duration-150 group-hover/field:bg-muted/45"
                           >
                             <div className="flex h-6 items-center gap-1.5">
                               <span className="min-w-0 flex-1 truncate text-xs">
@@ -1093,13 +1135,11 @@ function OutcomeAskFieldsEditor({
         </LayoutGroup>
       )}
 
-      <div className="mt-3 border-t border-border/60 pt-2.5">
-        <p className="text-xs font-medium text-muted-foreground">
-          Поля связанных записей
-        </p>
-        {relatedSelected.length === 0 ? (
-          <p className="mt-2 text-[11px] text-muted-foreground">Нет полей</p>
-        ) : (
+      {relatedSelected.length > 0 ? (
+        <div className="mt-3 border-t border-border/60 pt-2.5">
+          <p className="text-xs font-medium text-muted-foreground">
+            Поля связанных записей
+          </p>
           <ul className="mt-2 flex flex-col gap-1">
             {relatedSelected.map((item) => {
               const row = resolveRelatedRow(item);
@@ -1108,7 +1148,7 @@ function OutcomeAskFieldsEditor({
               const toRecord = access.relatedRecordIds.includes(item.id);
               return (
                 <li key={item.id} className="list-none">
-                  <div className="flex h-8 items-center gap-1.5 rounded border border-border/50 bg-card px-2">
+                  <div className="flex h-8 items-center gap-1.5 rounded-md bg-muted/30 px-2">
                     <span className="min-w-0 flex-1 truncate text-xs">
                       <span className="text-muted-foreground">
                         {row.relationLabel}
@@ -1160,8 +1200,245 @@ function OutcomeAskFieldsEditor({
               );
             })}
           </ul>
-        )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function outcomeHasAskFields(access: AutomationOutcomeFieldAccess) {
+  const normalized = normalizeAutomationOutcomeFieldAccess(access);
+  return (
+    normalized.visibleFieldIds.length > 0 ||
+    normalized.relatedVisibleFields.length > 0
+  );
+}
+
+/** Drop ask-form config; keep comment flags still used by setField autofill. */
+function clearOutcomeAskFields(
+  access: AutomationOutcomeFieldAccess,
+  keepCommentFieldIds: ReadonlySet<string>,
+): AutomationOutcomeFieldAccess {
+  const normalized = normalizeAutomationOutcomeFieldAccess(access);
+  return {
+    ...normalized,
+    visibleFieldIds: [],
+    requiredFieldIds: [],
+    recordFieldIds: [],
+    relatedVisibleFields: [],
+    relatedRequiredIds: [],
+    relatedCommentIds: [],
+    relatedRecordIds: [],
+    fieldAskOptions: {},
+    commentFieldIds: normalized.commentFieldIds.filter((id) =>
+      keepCommentFieldIds.has(id),
+    ),
+  };
+}
+
+/**
+ * Shared «Действия» list: ask fields, autofill, and other pipeline actions.
+ * Used for both outcome buttons and «actions»-kind templates.
+ */
+function OutcomeActionsPanel({
+  outcome,
+  actions,
+  entity,
+  entities,
+  triggerFieldId,
+  stageOptionId,
+  hasRecordsTab,
+  askFieldsDraft,
+  onAskFieldsDraftChange,
+  onPatchOutcome,
+}: {
+  outcome: AutomationOutcome;
+  actions: AutomationOutcome["actions"];
+  entity: Entity;
+  entities: Entity[];
+  triggerFieldId: string;
+  stageOptionId: string;
+  hasRecordsTab: boolean;
+  askFieldsDraft: boolean;
+  onAskFieldsDraftChange: (open: boolean) => void;
+  onPatchOutcome: (patch: Partial<AutomationOutcome>) => void;
+}) {
+  const setFieldActions = actions.filter(
+    (action) => action.kind === "setField",
+  );
+  const otherActions = actions.filter((action) => action.kind !== "setField");
+  const setFieldIds = new Set(setFieldActions.map((action) => action.fieldId));
+  const hasAskData = outcomeHasAskFields(outcome.fieldAccess);
+  const showAskFields = hasAskData || askFieldsDraft;
+  const showAutofill = setFieldActions.length > 0;
+  const showOther = otherActions.length > 0;
+  const writableForAutofill = entity.fields.filter(
+    (field) =>
+      !isEntityComputedFieldType(field.type) &&
+      field.type !== "file" &&
+      field.id !== triggerFieldId,
+  );
+
+  function patchActions(nextActions: typeof actions) {
+    onPatchOutcome({
+      actions: withOutcomeStageAction(
+        nextActions,
+        triggerFieldId,
+        stageOptionId,
+      ),
+    });
+  }
+
+  function addAction(kind: AutomationActionKind) {
+    if (kind === "setField") {
+      patchActions([
+        ...actions,
+        {
+          id: createAutomationActionId(),
+          kind: "setField",
+          fieldId: writableForAutofill[0]?.id ?? "",
+          value: "",
+        },
+      ]);
+      return;
+    }
+    patchActions([...actions, defaultAutomationAction(kind)]);
+  }
+
+  function removeAskFields() {
+    onAskFieldsDraftChange(false);
+    onPatchOutcome({
+      fieldAccess: clearOutcomeAskFields(outcome.fieldAccess, setFieldIds),
+    });
+  }
+
+  function removeAutofill() {
+    const access = normalizeAutomationOutcomeFieldAccess(outcome.fieldAccess);
+    const askVisible = new Set(access.visibleFieldIds);
+    onPatchOutcome({
+      actions: withOutcomeStageAction(
+        otherActions,
+        triggerFieldId,
+        stageOptionId,
+      ),
+      fieldAccess: {
+        ...access,
+        commentFieldIds: access.commentFieldIds.filter(
+          (id) => askVisible.has(id) || !setFieldIds.has(id),
+        ),
+      },
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium leading-none text-muted-foreground">
+          Действия
+        </p>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 gap-1 px-2 text-xs"
+              />
+            }
+          >
+            <Plus className="size-3.5 shrink-0" />
+            Добавить
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-56"
+            searchable={false}
+          >
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                Форма и поля
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                disabled={showAskFields}
+                onClick={() => onAskFieldsDraftChange(true)}
+              >
+                Запросить заполнение полей
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={showAutofill || writableForAutofill.length === 0}
+                onClick={() => addAction("setField")}
+              >
+                Управление полями
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            {AUTOMATION_ACTION_KIND_GROUPS.map((group) => {
+              const items = group.items.filter((kind) => kind !== "setField");
+              if (items.length === 0) return null;
+              return (
+                <DropdownMenuGroup key={group.label}>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                    {group.label}
+                  </DropdownMenuLabel>
+                  {items.map((kind) => (
+                    <DropdownMenuItem
+                      key={kind}
+                      onClick={() => addAction(kind)}
+                    >
+                      {AUTOMATION_ACTION_KIND_LABELS[kind]}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+
+      {!showAskFields && !showAutofill && !showOther ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Нет действий — добавьте запрос полей, управление полями или другое
+          действие
+        </p>
+      ) : null}
+
+      {showAskFields ? (
+        <OutcomeAskFieldsEditor
+          fields={entity.fields}
+          entities={entities}
+          value={outcome.fieldAccess}
+          hasRecordsTab={hasRecordsTab}
+          onRemove={removeAskFields}
+          onChange={(fieldAccess) => onPatchOutcome({ fieldAccess })}
+        />
+      ) : null}
+
+      {showAutofill ? (
+        <OutcomeAutofillEditor
+          actions={actions}
+          fieldAccess={outcome.fieldAccess}
+          sourceEntity={entity}
+          entities={entities}
+          hasRecordsTab={hasRecordsTab}
+          excludeFieldIds={triggerFieldId ? [triggerFieldId] : undefined}
+          hint="Значения подставятся сами; «комм.» — ещё и в «Записи»"
+          onRemove={removeAutofill}
+          onChange={patchActions}
+          onFieldAccessChange={(fieldAccess) => onPatchOutcome({ fieldAccess })}
+        />
+      ) : null}
+
+      {showOther ? (
+        <ActionPipelineEditor
+          actions={actions}
+          entities={entities}
+          sourceEntity={entity}
+          omitKinds={["setField"]}
+          hideAdd
+          onChange={patchActions}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1175,8 +1452,6 @@ export function TemplateInspector({
   notificationRules,
   onSave,
   onDelete,
-  commitLabel = "Сохранить",
-  commitSuccessMessage = "Шаг сохранён",
 }: {
   template: AutomationTaskTemplate;
   entity: Entity;
@@ -1185,11 +1460,9 @@ export function TemplateInspector({
   /** Process trigger list field — stage moves on outcome complete. */
   triggerFieldId: string;
   notificationRules: AutomationNotificationRule[];
+  /** Push edits into the builder draft (toolbar «Сохранить» persists). */
   onSave: (template: AutomationTaskTemplate) => void | Promise<void>;
   onDelete: () => void;
-  /** Label for the inspector commit button (applies to parent draft). */
-  commitLabel?: string;
-  commitSuccessMessage?: string;
 }) {
   const [draft, setDraft] = useState(template);
   const [tab, setTab] = useState("general");
@@ -1197,7 +1470,10 @@ export function TemplateInspector({
   const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(
     template.outcomes[0]?.id ?? null,
   );
-  const [saving, setSaving] = useState(false);
+  /** Show empty «Запрос полей» after Add until fields exist or user removes it. */
+  const [askFieldsDraftOutcomeIds, setAskFieldsDraftOutcomeIds] = useState(
+    () => new Set<string>(),
+  );
   const onSaveRef = useRef(onSave);
   useEffect(() => {
     onSaveRef.current = onSave;
@@ -1233,22 +1509,6 @@ export function TemplateInspector({
       outcomes[index] = { ...current, ...patch };
       return { ...prev, outcomes };
     });
-  }
-
-  async function handleSave() {
-    if (saving) return;
-    setSaving(true);
-    try {
-      await onSave(draft);
-      toast.success(commitSuccessMessage);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Не удалось сохранить шаг";
-      console.error("[automation] save template failed", error);
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function addNotificationRule() {
@@ -1350,7 +1610,11 @@ export function TemplateInspector({
             Условия
           </TabsTrigger>
           <TabsTrigger value="outcomes" className="px-0">
-            {draft.kind === "autofill" ? "Переходы" : "Кнопки"}
+            {draft.kind === "autofill"
+              ? "Переходы"
+              : draft.kind === "actions"
+                ? "Действия"
+                : "Кнопки"}
           </TabsTrigger>
           <TabsTrigger value="more" className="px-0">
             Ещё
@@ -1428,7 +1692,8 @@ export function TemplateInspector({
                       if (
                         next === "decision" ||
                         next === "single" ||
-                        next === "autofill"
+                        next === "autofill" ||
+                        next === "actions"
                       ) {
                         patch({
                           kind: next,
@@ -1448,12 +1713,24 @@ export function TemplateInspector({
                         {KIND_LABELS.single}
                       </SelectItem>
                       <SelectItem value="autofill">
-                        Переход / автозаполнение
+                        {KIND_LABELS.autofill}
+                      </SelectItem>
+                      <SelectItem value="actions">
+                        {KIND_LABELS.actions}
                       </SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
               </div>
+              {draft.kind === "actions" ? (
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Задание не создаётся — сразу выполняются действия на записи.
+                </p>
+              ) : draft.kind === "autofill" ? (
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Задание не создаётся — выбирается ветка перехода по условиям.
+                </p>
+              ) : null}
 
               <Field title="Момент запуска">
                 <Select
@@ -1595,6 +1872,69 @@ export function TemplateInspector({
                 stages={options}
                 onChange={(outcomes) => patch({ outcomes })}
               />
+            ) : draft.kind === "actions" ? (
+              (() => {
+                const outcome = draft.outcomes[0];
+                const outcomeIndex = 0;
+                if (!outcome) {
+                  return (
+                    <InspectorEmpty>
+                      Нет действий — смените тип шага и вернитесь
+                    </InspectorEmpty>
+                  );
+                }
+                const actionsWithoutStage = withoutOutcomeStageAction(
+                  outcome.actions,
+                  triggerFieldId,
+                );
+                const stageOptionId =
+                  getOutcomeStageOptionId(outcome.actions, triggerFieldId) ??
+                  "";
+                return (
+                  <div className="flex flex-col gap-3.5">
+                    <OutcomeStageSelect
+                      compact
+                      value={stageOptionId}
+                      stages={options}
+                      triggerFieldId={triggerFieldId}
+                      onChange={(nextStageId) =>
+                        patchOutcome(outcomeIndex, {
+                          actions: withOutcomeStageAction(
+                            actionsWithoutStage,
+                            triggerFieldId,
+                            nextStageId,
+                          ),
+                        })
+                      }
+                    />
+                    <InspectorSection title="Действия">
+                      <OutcomeActionsPanel
+                        outcome={outcome}
+                        actions={actionsWithoutStage}
+                        entity={entity}
+                        entities={entities}
+                        triggerFieldId={triggerFieldId}
+                        stageOptionId={stageOptionId}
+                        hasRecordsTab={hasRecordsTab}
+                        askFieldsDraft={askFieldsDraftOutcomeIds.has(
+                          outcome.id,
+                        )}
+                        onAskFieldsDraftChange={(open) =>
+                          setAskFieldsDraftOutcomeIds((prev) => {
+                            const next = new Set(prev);
+                            if (open) next.add(outcome.id);
+                            else next.delete(outcome.id);
+                            return next;
+                          })
+                        }
+                        onPatchOutcome={(next) =>
+                          patchOutcome(outcomeIndex, next)
+                        }
+                      />
+                    </InspectorSection>
+                  </div>
+                );
+              })()
             ) : (
               <InspectorSection
                 title="Кнопки результата"
@@ -1628,17 +1968,14 @@ export function TemplateInspector({
                     </div>
 
                     {selectedOutcome && selectedOutcomeIndex >= 0 ? (
-                      <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/10 p-3">
+                      <div className="flex flex-col gap-3 border-t border-border/50">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-medium text-muted-foreground">
-                            Настройки кнопки
-                          </p>
                           {draft.outcomes.length > 1 ? (
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="h-7 text-destructive"
+                              className="h-7 shrink-0 text-destructive"
                               onClick={() => {
                                 const next = draft.outcomes.filter(
                                   (item) => item.id !== selectedOutcome.id,
@@ -1668,62 +2005,31 @@ export function TemplateInspector({
                           }
                         />
 
-                        <OutcomeAskFieldsEditor
-                          fields={entity.fields}
-                          entities={entities}
-                          value={selectedOutcome.fieldAccess}
-                          hasRecordsTab={hasRecordsTab}
-                          onChange={(fieldAccess) =>
-                            patchOutcome(selectedOutcomeIndex, {
-                              fieldAccess,
-                            })
-                          }
-                        />
-
-                        <OutcomeAutofillEditor
-                          actions={selectedActionsWithoutStage}
-                          fieldAccess={selectedOutcome.fieldAccess}
-                          sourceEntity={entity}
-                          entities={entities}
-                          hasRecordsTab={hasRecordsTab}
-                          excludeFieldIds={
-                            triggerFieldId ? [triggerFieldId] : undefined
-                          }
-                          hint="Значения подставятся сами; «комм.» — ещё и в «Записи»"
-                          onChange={(actions) =>
-                            patchOutcome(selectedOutcomeIndex, {
-                              actions: withOutcomeStageAction(
-                                actions,
-                                triggerFieldId,
-                                selectedStageId,
-                              ),
-                            })
-                          }
-                          onFieldAccessChange={(fieldAccess) =>
-                            patchOutcome(selectedOutcomeIndex, {
-                              fieldAccess,
-                            })
-                          }
-                        />
-
-                        <Field title="Другие действия">
-                          <ActionPipelineEditor
+                        {selectedOutcome && selectedOutcomeIndex >= 0 ? (
+                          <OutcomeActionsPanel
+                            outcome={selectedOutcome}
                             actions={selectedActionsWithoutStage}
+                            entity={entity}
                             entities={entities}
-                            sourceEntity={entity}
-                            omitKinds={["setField"]}
-                            addKind="createRecord"
-                            onChange={(actions) =>
-                              patchOutcome(selectedOutcomeIndex, {
-                                actions: withOutcomeStageAction(
-                                  actions,
-                                  triggerFieldId,
-                                  selectedStageId,
-                                ),
+                            triggerFieldId={triggerFieldId}
+                            stageOptionId={selectedStageId}
+                            hasRecordsTab={hasRecordsTab}
+                            askFieldsDraft={askFieldsDraftOutcomeIds.has(
+                              selectedOutcome.id,
+                            )}
+                            onAskFieldsDraftChange={(open) =>
+                              setAskFieldsDraftOutcomeIds((prev) => {
+                                const next = new Set(prev);
+                                if (open) next.add(selectedOutcome.id);
+                                else next.delete(selectedOutcome.id);
+                                return next;
                               })
                             }
+                            onPatchOutcome={(next) =>
+                              patchOutcome(selectedOutcomeIndex, next)
+                            }
                           />
-                        </Field>
+                        ) : null}
                       </div>
                     ) : null}
                   </>
@@ -1810,17 +2116,6 @@ export function TemplateInspector({
           </TabsContent>
         </div>
       </Tabs>
-
-      <div className="relative z-10 shrink-0 border-t border-border bg-background pt-3">
-        <Button
-          type="button"
-          className="w-full"
-          disabled={saving}
-          onClick={() => void handleSave()}
-        >
-          {saving ? "Сохранение…" : commitLabel}
-        </Button>
-      </div>
     </div>
   );
 }

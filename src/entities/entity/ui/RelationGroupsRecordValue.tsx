@@ -1,4 +1,12 @@
+import { useState } from "react";
 import { cn } from "@/shared/lib/cn";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
 import {
   getRelationGroupsDisplayTree,
   type EntityValueContext,
@@ -15,60 +23,34 @@ function NodeExtras({ extras }: { extras: string }) {
   );
 }
 
-function LeafChip({ node }: { node: RelationGroupsDisplayNode }) {
-  return (
-    <span
-      className="inline-flex max-w-full min-w-0 items-baseline gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1"
-      title={node.extras ? `${node.title} · ${node.extras}` : node.title}
-    >
-      <span className="min-w-0 truncate text-xs font-medium text-foreground">
-        {node.title}
-      </span>
-      <NodeExtras extras={node.extras} />
-    </span>
-  );
-}
-
-function NestedList({
+function DetailBranch({
   nodes,
+  depth = 0,
 }: {
   nodes: readonly RelationGroupsDisplayNode[];
+  depth?: number;
 }) {
-  if (nodes.length === 0) return null;
-  const layout = nodes[0]?.layout ?? "column";
-
-  if (layout === "row") {
+  if (nodes.length === 0) {
     return (
-      <div className="flex flex-wrap gap-1.5">
-        {nodes.map((node) =>
-          node.children.length === 0 ? (
-            <LeafChip key={node.id} node={node} />
-          ) : (
-            <div
-              key={node.id}
-              className="flex min-w-0 max-w-full flex-col gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5"
-            >
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate text-xs font-medium">
-                  {node.title}
-                </span>
-                <NodeExtras extras={node.extras} />
-              </div>
-              <NestedList nodes={node.children} />
-            </div>
-          ),
-        )}
-      </div>
+      <p className="text-sm text-muted-foreground">Нет вложенных записей</p>
     );
   }
 
   return (
-    <ul className="flex flex-col gap-1.5 border-l border-border/70 pl-2.5">
+    <ul
+      className={cn(
+        "flex flex-col gap-1",
+        depth > 0 && "mt-1 border-l border-border/70 pl-2.5",
+      )}
+    >
       {nodes.map((node) => (
         <li key={node.id} className="min-w-0">
-          <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
             <span
-              className="truncate text-xs font-medium text-foreground"
+              className={cn(
+                "min-w-0 truncate text-sm text-foreground",
+                depth === 0 ? "font-medium" : "font-normal",
+              )}
               title={node.title}
             >
               {node.title}
@@ -76,9 +58,7 @@ function NestedList({
             <NodeExtras extras={node.extras} />
           </div>
           {node.children.length > 0 ? (
-            <div className="mt-1.5">
-              <NestedList nodes={node.children} />
-            </div>
+            <DetailBranch nodes={node.children} depth={depth + 1} />
           ) : null}
         </li>
       ))}
@@ -86,28 +66,7 @@ function NestedList({
   );
 }
 
-function RootGroup({ node }: { node: RelationGroupsDisplayNode }) {
-  return (
-    <div className="min-w-0">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span
-          className="truncate text-sm font-semibold tracking-tight text-foreground"
-          title={node.title}
-        >
-          {node.title}
-        </span>
-        <NodeExtras extras={node.extras} />
-      </div>
-      {node.children.length > 0 ? (
-        <div className="mt-1.5">
-          <NestedList nodes={node.children} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** Read-only structured display for a relationGroups field. */
+/** Read-only: chips in a row; click opens what belongs to that group. */
 export function RelationGroupsRecordValue({
   ctx,
   record,
@@ -120,11 +79,15 @@ export function RelationGroupsRecordValue({
   field: EntityField;
   className?: string;
 }) {
+  const [openId, setOpenId] = useState<string | null>(null);
   const tree = getRelationGroupsDisplayTree(
     ctx,
     field,
     record.values[field.id] ?? "",
   );
+  const openNode = openId
+    ? (tree.find((node) => node.id === openId) ?? null)
+    : null;
 
   if (tree.length === 0) {
     return (
@@ -134,19 +97,50 @@ export function RelationGroupsRecordValue({
     );
   }
 
-  const rootLayout = tree[0]?.layout ?? "column";
-
   return (
-    <div
-      className={cn(
-        "min-w-0",
-        rootLayout === "row" ? "flex flex-wrap gap-3" : "flex flex-col gap-2.5",
-        className,
-      )}
-    >
-      {tree.map((node) => (
-        <RootGroup key={node.id} node={node} />
-      ))}
-    </div>
+    <>
+      <div
+        className={cn("flex min-w-0 flex-wrap items-center gap-1", className)}
+      >
+        {tree.map((node) => (
+          <button
+            key={node.id}
+            type="button"
+            className="inline-flex h-5 max-w-full shrink-0 items-center rounded-md bg-primary/10 px-1.5 text-xs font-medium leading-none text-primary transition-colors hover:bg-primary/15"
+            title={node.extras ? `${node.title} · ${node.extras}` : node.title}
+            onClick={() => setOpenId(node.id)}
+          >
+            <span className="truncate">{node.title}</span>
+          </button>
+        ))}
+      </div>
+
+      <Dialog
+        open={openNode != null}
+        onOpenChange={(open) => {
+          if (!open) setOpenId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" forceOverlay>
+          {openNode ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{openNode.title}</DialogTitle>
+                <DialogDescription>
+                  {openNode.extras
+                    ? openNode.extras
+                    : openNode.children.length > 0
+                      ? "Что входит в эту группу"
+                      : "Нет вложенных записей"}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 max-h-[min(60vh,24rem)] overflow-y-auto">
+                <DetailBranch nodes={openNode.children} />
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

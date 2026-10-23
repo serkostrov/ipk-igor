@@ -7,6 +7,7 @@ import {
 import { ConditionGroupBuilder } from "@/features/manage-automations/ui/ConditionGroupBuilder";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
 import {
+  NOTIFICATION_TRIGGER_KIND_GROUPS,
   NOTIFICATION_TRIGGER_KIND_LABELS,
   describeNotificationTrigger,
   renderNotificationTemplate,
@@ -22,6 +23,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectOptionGroups,
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
@@ -150,11 +152,11 @@ export function NotificationRuleEditor({
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {TRIGGER_KINDS.map((kind) => (
-              <SelectItem key={kind} value={kind}>
-                {NOTIFICATION_TRIGGER_KIND_LABELS[kind]}
-              </SelectItem>
-            ))}
+            <SelectOptionGroups
+              groups={NOTIFICATION_TRIGGER_KIND_GROUPS}
+              available={TRIGGER_KINDS}
+              getLabel={(kind) => NOTIFICATION_TRIGGER_KIND_LABELS[kind]}
+            />
           </SelectContent>
         </Select>
         <p className="text-[11px] text-muted-foreground">

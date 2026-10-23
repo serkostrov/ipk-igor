@@ -279,7 +279,7 @@ function OverflowChipRow({
   const hiddenLabel = hidden.map((option) => option.name).join(", ");
 
   return (
-    <>
+    <span className={cn("relative flex min-w-0 flex-1", className)}>
       <span
         ref={measureRef}
         aria-hidden
@@ -303,10 +303,7 @@ function OverflowChipRow({
 
       <span
         ref={containerRef}
-        className={cn(
-          "flex w-0 min-w-0 flex-1 items-center gap-1 overflow-hidden",
-          className,
-        )}
+        className="flex w-0 min-w-0 flex-1 items-center gap-1 overflow-hidden"
       >
         {visible.map((option) => (
           <ListChip
@@ -325,7 +322,7 @@ function OverflowChipRow({
           />
         ) : null}
       </span>
-    </>
+    </span>
   );
 }
 

@@ -126,6 +126,15 @@ type EntityFieldsEditorProps = {
   /** Controlled active tab (visit history / URL). */
   activeTabId?: string | null;
   onActiveTabIdChange?: (tabId: string) => void;
+  /** Hide the local «Все поля» button (opened from the entity header). */
+  hideFieldsOverviewButton?: boolean;
+  /** Hide the whole «Поля:» toolbar (title + overview + add). */
+  hideFieldsToolbar?: boolean;
+  /** Controlled «Все поля» dialog. */
+  fieldsOverviewOpen?: boolean;
+  onFieldsOverviewOpenChange?: (open: boolean) => void;
+  /** Increment to open the create-field dialog from the parent header. */
+  createFieldRequestId?: number;
 };
 
 type DialogState =
@@ -667,7 +676,7 @@ const GRID_GAP = 12;
 const ROW_STEP = BASE_CARD_HEIGHT + GRID_GAP;
 
 const fieldsGridClassName =
-  "grid list-none grid-cols-4 gap-3 p-3 [grid-auto-flow:dense]";
+  "grid min-w-0 list-none grid-cols-2 gap-3 p-3 [grid-auto-flow:dense] sm:grid-cols-4";
 const fieldsGridStyle = {
   gridAutoRows: BASE_CARD_HEIGHT,
 } as const;
@@ -3124,6 +3133,11 @@ export function EntityFieldsEditor({
   readOnly: readOnlyProp = false,
   activeTabId: controlledActiveTabId = null,
   onActiveTabIdChange,
+  hideFieldsOverviewButton = false,
+  hideFieldsToolbar = false,
+  fieldsOverviewOpen: controlledFieldsOverviewOpen,
+  onFieldsOverviewOpenChange,
+  createFieldRequestId = 0,
 }: EntityFieldsEditorProps) {
   const readOnly = readOnlyProp;
   const [prevReadOnly, setPrevReadOnly] = useState(readOnly);
@@ -3211,7 +3225,25 @@ export function EntityFieldsEditor({
   const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
   const [pendingDeleteField, setPendingDeleteField] =
     useState<EntityField | null>(null);
-  const [fieldsOverviewOpen, setFieldsOverviewOpen] = useState(false);
+  const [uncontrolledFieldsOverviewOpen, setUncontrolledFieldsOverviewOpen] =
+    useState(false);
+  const fieldsOverviewOpen =
+    controlledFieldsOverviewOpen ?? uncontrolledFieldsOverviewOpen;
+  function setFieldsOverviewOpen(open: boolean) {
+    onFieldsOverviewOpenChange?.(open);
+    if (controlledFieldsOverviewOpen === undefined) {
+      setUncontrolledFieldsOverviewOpen(open);
+    }
+  }
+  const showFieldsOverviewButton = !hideFieldsOverviewButton;
+  const showFieldsToolbar = !hideFieldsToolbar || nested;
+  const prevCreateFieldRequestId = useRef(createFieldRequestId);
+  useEffect(() => {
+    if (createFieldRequestId === prevCreateFieldRequestId.current) return;
+    prevCreateFieldRequestId.current = createFieldRequestId;
+    if (createFieldRequestId <= 0 || readOnly) return;
+    queueMicrotask(() => setDialog({ mode: "create" }));
+  }, [createFieldRequestId, readOnly]);
   const [listSettingsFieldId, setListSettingsFieldId] = useState<string | null>(
     null,
   );
@@ -4074,25 +4106,29 @@ export function EntityFieldsEditor({
 
     return (
       <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="text-md font-medium">Поля:</h4>
-          <div className="flex min-w-0 shrink-0 items-center gap-2">
-            <EntityFieldsOverviewButton
-              onClick={() => setFieldsOverviewOpen(true)}
-            />
-            <EditAppear show={!readOnly} className="inline-flex">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setDialog({ mode: "create" })}
-              >
-                <Plus />
-                Добавить поле
-              </Button>
-            </EditAppear>
+        {showFieldsToolbar ? (
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-md font-medium">Поля:</h4>
+            <div className="flex min-w-0 shrink-0 items-center gap-2">
+              {showFieldsOverviewButton ? (
+                <EntityFieldsOverviewButton
+                  onClick={() => setFieldsOverviewOpen(true)}
+                />
+              ) : null}
+              <EditAppear show={!readOnly} className="inline-flex">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDialog({ mode: "create" })}
+                >
+                  <Plus />
+                  Добавить
+                </Button>
+              </EditAppear>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {orderedFields.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border/70 px-4 py-10 text-center">
@@ -4188,36 +4224,40 @@ export function EntityFieldsEditor({
   }
 
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <h4 className="text-md font-medium">
-          {nested ? "Поля связанной сущности:" : "Поля:"}
-        </h4>
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
-          {nested ? (
-            <span
-              className="inline-flex h-8 max-w-[14rem] items-center truncate px-1.5 text-xs font-medium text-muted-foreground"
-              title={entity.name.trim() || "Без названия"}
-            >
-              {entity.name.trim() || "Без названия"}
-            </span>
-          ) : null}
-          <EntityFieldsOverviewButton
-            onClick={() => setFieldsOverviewOpen(true)}
-          />
-          <EditAppear show={!readOnly} className="inline-flex">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setDialog({ mode: "create" })}
-            >
-              <Plus />
-              Добавить поле
-            </Button>
-          </EditAppear>
+    <section className="flex min-w-0 flex-col gap-4">
+      {showFieldsToolbar ? (
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-md font-medium">
+            {nested ? "Поля связанной сущности:" : "Поля:"}
+          </h4>
+          <div className="flex min-w-0 shrink-0 items-center gap-2">
+            {nested ? (
+              <span
+                className="inline-flex h-8 max-w-[14rem] items-center truncate px-1.5 text-xs font-medium text-muted-foreground"
+                title={entity.name.trim() || "Без названия"}
+              >
+                {entity.name.trim() || "Без названия"}
+              </span>
+            ) : null}
+            {showFieldsOverviewButton ? (
+              <EntityFieldsOverviewButton
+                onClick={() => setFieldsOverviewOpen(true)}
+              />
+            ) : null}
+            <EditAppear show={!readOnly} className="inline-flex">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setDialog({ mode: "create" })}
+              >
+                <Plus />
+                Добавить
+              </Button>
+            </EditAppear>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <EntityFieldsOverviewDialog
         open={fieldsOverviewOpen}
@@ -4237,9 +4277,9 @@ export function EntityFieldsEditor({
           onValueChange={(next) => {
             setActiveTabId(next);
           }}
-          className="gap-4"
+          className="min-w-0 gap-4"
         >
-          <div className="flex flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
             {nameField ? (
               nested ? (
                 <NameFieldBanner
@@ -4253,9 +4293,9 @@ export function EntityFieldsEditor({
                 />
               ) : (
                 <div
-                  className="grid items-stretch gap-2"
+                  className="grid min-w-0 items-stretch gap-2"
                   style={{
-                    gridTemplateColumns: `minmax(0, 1fr) ${HEADER_FIELD_SLOT_WIDTH}`,
+                    gridTemplateColumns: `minmax(0, 1fr) minmax(0, ${HEADER_FIELD_SLOT_WIDTH})`,
                   }}
                 >
                   <NameFieldBanner
@@ -4357,7 +4397,7 @@ export function EntityFieldsEditor({
                 <div
                   data-groups-grid="primary"
                   className={cn(
-                    "grid grid-cols-2 items-stretch gap-x-5 gap-y-5",
+                    "grid min-w-0 grid-cols-1 items-stretch gap-x-5 gap-y-5 sm:grid-cols-2",
                     primaryFields.length === 0 &&
                       primaryAreaGroups.length === 0 &&
                       draggingGroupName &&
@@ -4876,7 +4916,7 @@ export function EntityFieldsEditor({
 
                 <div
                   data-groups-grid="tab"
-                  className="grid grid-cols-2 items-stretch gap-x-5 gap-y-5"
+                  className="grid min-w-0 grid-cols-1 items-stretch gap-x-5 gap-y-5 sm:grid-cols-2"
                 >
                   <AnimatePresence initial={false}>
                     {(() => {
@@ -5121,7 +5161,9 @@ export function EntityFieldsEditor({
         }}
         onSubmit={(data) => {
           if (tabDialog.mode === "edit") {
-            updateEntityTab(entity.id, tabDialog.tab.id, { name: data.name });
+            updateEntityTab(entity.id, tabDialog.tab.id, {
+              name: data.name,
+            });
             return;
           }
           if (

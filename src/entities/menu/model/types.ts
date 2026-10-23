@@ -96,6 +96,11 @@ export type MenuItem = {
   id: string;
   label: string;
   icon: MenuIconName;
+  /**
+   * Nested entries — the item acts as a navigable folder (entity-as-group).
+   * Omitted when empty.
+   */
+  entries?: MenuEntry[];
 };
 
 export type MenuGroup = {
@@ -121,10 +126,25 @@ export type MenuConfig = {
   entries: MenuEntry[];
 };
 
-/** Location of any menu entry: root list or inside a group. */
+/**
+ * Location of any menu entry: root list or inside a container.
+ * `parentGroupId` is the parent container id — a group or an item with nested
+ * entries (entity-as-folder).
+ */
 export type MenuEntryLocation =
   | { parentGroupId: null; index: number }
   | { parentGroupId: string; index: number };
+
+/** Child list of a group or of an item that nests entries. */
+export function getMenuEntryChildren(entry: MenuEntry): MenuEntry[] {
+  if (entry.type === "group") return entry.entries;
+  return entry.entries ?? [];
+}
+
+/** True when the entry can hold nested entries (group or item folder). */
+export function isMenuContainer(entry: MenuEntry): boolean {
+  return entry.type === "group" || (entry.entries?.length ?? 0) > 0;
+}
 
 /**
  * Location of a menu item (legacy shape kept for call sites).
@@ -184,6 +204,7 @@ function collectEntityLinkedIds(entries: MenuEntry[], ids: string[]) {
   for (const entry of entries) {
     if (entry.type === "item") {
       if (isEntityLinkedMenuItem(entry.id)) ids.push(entry.id);
+      if (entry.entries?.length) collectEntityLinkedIds(entry.entries, ids);
       continue;
     }
     collectEntityLinkedIds(entry.entries, ids);
@@ -197,10 +218,26 @@ export function getEntityLinkedMenuItemIds(config: MenuConfig): string[] {
   return ids;
 }
 
+function withFilteredItemEntries(
+  entry: MenuItemEntry,
+  children: MenuEntry[],
+): MenuItemEntry {
+  if (children.length === 0) {
+    if (!entry.entries?.length) return entry;
+    return {
+      type: "item",
+      id: entry.id,
+      label: entry.label,
+      icon: entry.icon,
+    };
+  }
+  return entry.entries === children ? entry : { ...entry, entries: children };
+}
+
 /**
  * Menu for the sidebar: drop hidden items and groups that become empty.
  * Used to keep internal (service) entities in the stored menu for grouping
- * without showing them in navigation.
+ * without showing them in navigation — their nested entries are promoted.
  */
 export function filterVisibleMenuEntries(
   entries: MenuEntry[],
@@ -209,8 +246,14 @@ export function filterVisibleMenuEntries(
   const result: MenuEntry[] = [];
   for (const entry of entries) {
     if (entry.type === "item") {
-      if (isHiddenItem(entry.id)) continue;
-      result.push(entry);
+      const children = entry.entries?.length
+        ? filterVisibleMenuEntries(entry.entries, isHiddenItem)
+        : [];
+      if (isHiddenItem(entry.id)) {
+        result.push(...children);
+        continue;
+      }
+      result.push(withFilteredItemEntries(entry, children));
       continue;
     }
     if (entry.internal) continue;
@@ -225,10 +268,15 @@ export function filterVisibleMenuEntries(
 
 /**
  * Entity picker tree mirroring menu order (DFS).
- * Root entity items = project scope; nested under a group = belong to that group.
+ * Root entity items = project scope; nested under a group or entity = belong
+ * to that container.
  */
 export type MenuEntityTreeNode =
-  | { type: "entity"; entityId: string }
+  | {
+      type: "entity";
+      entityId: string;
+      children: MenuEntityTreeNode[];
+    }
   | {
       type: "group";
       id: string;
@@ -239,14 +287,24 @@ export type MenuEntityTreeNode =
 
 /**
  * Build an entity picker tree from the menu in sidebar order.
- * Non-entity items are skipped; empty groups are omitted.
+ * Non-entity items are skipped (their nested entities are promoted); empty
+ * groups are omitted.
  */
 export function getMenuEntityTree(entries: MenuEntry[]): MenuEntityTreeNode[] {
   const nodes: MenuEntityTreeNode[] = [];
   for (const entry of entries) {
     if (entry.type === "item") {
+      const nested = entry.entries?.length
+        ? getMenuEntityTree(entry.entries)
+        : [];
       if (isEntityLinkedMenuItem(entry.id)) {
-        nodes.push({ type: "entity", entityId: entry.id });
+        nodes.push({
+          type: "entity",
+          entityId: entry.id,
+          children: nested,
+        });
+      } else {
+        nodes.push(...nested);
       }
       continue;
     }
@@ -285,68 +343,100 @@ export function isProtectedMenuItem(id: string) {
   return isSystemMenuItem(id) || isEntityLinkedMenuItem(id);
 }
 
-/** Walk all groups depth-first (root and nested). */
+/** Walk all groups depth-first (root and nested, including under item folders). */
 export function walkMenuGroups(
   entries: MenuEntry[],
   visit: (group: MenuGroupEntry, parentGroupId: string | null) => void,
   parentGroupId: string | null = null,
 ) {
   for (const entry of entries) {
-    if (entry.type !== "group") continue;
-    visit(entry, parentGroupId);
-    walkMenuGroups(entry.entries, visit, entry.id);
+    if (entry.type === "group") {
+      visit(entry, parentGroupId);
+      walkMenuGroups(entry.entries, visit, entry.id);
+      continue;
+    }
+    if (entry.entries?.length) {
+      walkMenuGroups(entry.entries, visit, entry.id);
+    }
   }
 }
 
-/** True if `candidateId` is `groupId` or nested inside it. */
-export function isMenuGroupDescendant(
+/** True if `candidateId` is `ancestorId` or nested inside its subtree. */
+export function isMenuEntryDescendant(
   entries: MenuEntry[],
-  groupId: string,
+  ancestorId: string,
   candidateId: string,
 ): boolean {
-  if (groupId === candidateId) return true;
+  if (ancestorId === candidateId) return true;
   for (const entry of entries) {
-    if (entry.type !== "group") continue;
-    if (entry.id === groupId) {
-      return containsMenuGroup(entry.entries, candidateId);
+    if (entry.id === ancestorId) {
+      return containsMenuEntry(getMenuEntryChildren(entry), candidateId);
     }
-    if (isMenuGroupDescendant(entry.entries, groupId, candidateId)) {
+    const children = getMenuEntryChildren(entry);
+    if (
+      children.length > 0 &&
+      isMenuEntryDescendant(children, ancestorId, candidateId)
+    ) {
       return true;
     }
   }
   return false;
 }
 
-function containsMenuGroup(entries: MenuEntry[], groupId: string): boolean {
+/** @deprecated Prefer `isMenuEntryDescendant` (also covers item folders). */
+export function isMenuGroupDescendant(
+  entries: MenuEntry[],
+  groupId: string,
+  candidateId: string,
+): boolean {
+  return isMenuEntryDescendant(entries, groupId, candidateId);
+}
+
+function containsMenuEntry(entries: MenuEntry[], entryId: string): boolean {
   for (const entry of entries) {
-    if (entry.type !== "group") continue;
-    if (entry.id === groupId) return true;
-    if (containsMenuGroup(entry.entries, groupId)) return true;
+    if (entry.id === entryId) return true;
+    if (containsMenuEntry(getMenuEntryChildren(entry), entryId)) return true;
   }
   return false;
 }
 
-/** Collect leaf menu items under a group tree (for collapsed sidebar). */
-export function flattenMenuGroupItems(group: MenuGroupEntry): MenuItem[] {
+/** Collect descendant menu items under a subtree (for collapsed sidebar). */
+export function flattenMenuSubtreeItems(entries: MenuEntry[]): MenuItem[] {
   const items: MenuItem[] = [];
-  for (const entry of group.entries) {
+  for (const entry of entries) {
     if (entry.type === "item") {
       items.push({ id: entry.id, label: entry.label, icon: entry.icon });
+      if (entry.entries?.length) {
+        items.push(...flattenMenuSubtreeItems(entry.entries));
+      }
       continue;
     }
-    items.push(...flattenMenuGroupItems(entry));
+    items.push(...flattenMenuSubtreeItems(entry.entries));
   }
   return items;
 }
 
-/** Flatten a menu tree to leaf items (DFS), keeping item entries as-is. */
+/** Collect leaf menu items under a group tree (for collapsed sidebar). */
+export function flattenMenuGroupItems(group: MenuGroupEntry): MenuItem[] {
+  return flattenMenuSubtreeItems(group.entries);
+}
+
+/** Flatten a menu tree to items (DFS); nested item folders are expanded. */
 export function flattenMenuEntriesToItems(
   entries: MenuEntry[],
 ): MenuItemEntry[] {
   const items: MenuItemEntry[] = [];
   for (const entry of entries) {
     if (entry.type === "item") {
-      items.push(entry);
+      items.push({
+        type: "item",
+        id: entry.id,
+        label: entry.label,
+        icon: entry.icon,
+      });
+      if (entry.entries?.length) {
+        items.push(...flattenMenuEntriesToItems(entry.entries));
+      }
       continue;
     }
     items.push(...flattenMenuEntriesToItems(entry.entries));
@@ -354,10 +444,75 @@ export function flattenMenuEntriesToItems(
   return items;
 }
 
-export function groupHasProtectedItems(group: MenuGroupEntry): boolean {
-  for (const entry of group.entries) {
-    if (entry.type === "item" && isProtectedMenuItem(entry.id)) return true;
-    if (entry.type === "group" && groupHasProtectedItems(entry)) return true;
+export function menuEntriesHaveProtectedItems(entries: MenuEntry[]): boolean {
+  for (const entry of entries) {
+    if (entry.type === "item") {
+      if (isProtectedMenuItem(entry.id)) return true;
+      if (
+        entry.entries?.length &&
+        menuEntriesHaveProtectedItems(entry.entries)
+      ) {
+        return true;
+      }
+      continue;
+    }
+    if (menuEntriesHaveProtectedItems(entry.entries)) return true;
   }
   return false;
+}
+
+export function groupHasProtectedItems(group: MenuGroupEntry): boolean {
+  return menuEntriesHaveProtectedItems(group.entries);
+}
+
+/** True if the item folder has nested protected entries (cannot delete). */
+export function itemHasProtectedChildren(item: MenuItemEntry): boolean {
+  return Boolean(
+    item.entries?.length && menuEntriesHaveProtectedItems(item.entries),
+  );
+}
+
+/** Parent picker options: groups and items (entity-as-folder targets). */
+export type MenuParentOption = {
+  id: string;
+  label: string;
+  kind: "group" | "item";
+  depth: number;
+};
+
+/**
+ * Flat list of containers suitable as a parent for a menu entry.
+ * Pass `excludeSubtreeOf` when editing an item so it cannot nest under itself.
+ */
+export function getMenuParentOptions(
+  entries: MenuEntry[],
+  excludeSubtreeOf: string | null = null,
+): MenuParentOption[] {
+  const options: MenuParentOption[] = [];
+
+  function walk(list: MenuEntry[], depth: number) {
+    for (const entry of list) {
+      if (excludeSubtreeOf != null && entry.id === excludeSubtreeOf) continue;
+      if (entry.type === "group") {
+        options.push({
+          id: entry.id,
+          label: entry.title.trim() || "Без названия",
+          kind: "group",
+          depth,
+        });
+        walk(entry.entries, depth + 1);
+        continue;
+      }
+      options.push({
+        id: entry.id,
+        label: entry.label.trim() || "Без названия",
+        kind: "item",
+        depth,
+      });
+      if (entry.entries?.length) walk(entry.entries, depth + 1);
+    }
+  }
+
+  walk(entries, 0);
+  return options;
 }

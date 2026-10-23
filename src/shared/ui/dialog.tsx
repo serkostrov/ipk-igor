@@ -108,7 +108,9 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex w-full min-w-0 flex-col-reverse flex-wrap gap-2 sm:flex-row sm:justify-end",
+        "flex w-full min-w-0 flex-col-reverse flex-wrap gap-2 sm:flex-row sm:items-center sm:justify-end",
+        // Cancel (first) → left; primary actions stay grouped on the right.
+        "sm:[&>:first-child:not(:only-child)]:mr-auto",
         className,
       )}
       {...props}

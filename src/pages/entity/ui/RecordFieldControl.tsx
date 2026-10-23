@@ -399,10 +399,7 @@ export function RecordFieldControl({
       return (
         <div className="flex min-w-0 flex-col gap-2">
           {labelNode}
-          <div
-            id={id}
-            className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-sm"
-          >
+          <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-sm">
             <TemplateRichText
               value={entityTemplate}
               fields={entity.fields}
@@ -418,6 +415,16 @@ export function RecordFieldControl({
               </p>
             )}
           </div>
+          <Input
+            id={id}
+            value={value}
+            placeholder="Дополнить название…"
+            aria-label={`${label}: дополнение к шаблону`}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Можно дописать текст к названию по шаблону
+          </p>
         </div>
       );
     }

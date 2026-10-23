@@ -1,5 +1,12 @@
-import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { ChartGantt, Columns3, Settings, Table2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  ChartGantt,
+  ChevronDown,
+  ChevronUp,
+  Columns3,
+  Settings,
+  Table2,
+} from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import {
@@ -24,10 +31,12 @@ import {
   ROLE_EMPLOYEE_ID,
   useCanEntity,
   useCanInviteUsers,
+  useCanSettingsTab,
 } from "@/entities/access";
 import { isSupabaseConfigured } from "@/shared/api/supabase";
 import {
   entityListLocation,
+  settingsLocation,
   useAppLocation,
   useAppLocationState,
   useAppNavigate,
@@ -35,16 +44,14 @@ import {
 import { EntityTimelineSettingsDialog } from "@/features/manage-entities";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { EntityRecordPage } from "./EntityRecordPage";
-import {
-  EntityKanbanView,
-  KanbanFieldSettingsButton,
-} from "./EntityKanbanView";
-import {
-  AddRecordButton,
-  EntityTableView,
-  TableSettingsButton,
-} from "./EntityTableView";
+import { EntityKanbanView } from "./EntityKanbanView";
+import { AddRecordButton, EntityTableView } from "./EntityTableView";
 import { EntityBoardView } from "./EntityBoardView";
+import {
+  entityBoardChromeCollapsedKey,
+  entityHasBoardChrome,
+  parseBoardChromeCollapsed,
+} from "./entity-board-chrome";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { EntityTimelineView, TimelineScaleTabs } from "./EntityTimelineView";
 import { HiddenRecordsBar } from "./HiddenRecordsBar";
@@ -133,6 +140,7 @@ export function EntityPage({
   const canReadEntity = useCanEntity(entityId, "read");
   const canCreateEntity = useCanEntity(entityId, "create");
   const canInvite = useCanInviteUsers();
+  const canOpenEntitySettings = useCanSettingsTab("entities");
   const locationView =
     location.type === "entity" && location.entityId === entityId
       ? location.view
@@ -148,6 +156,11 @@ export function EntityPage({
     `entity-timeline-scale:${entityId}`,
     parseTimelineScale,
     "week" satisfies TimelineScale,
+  );
+  const [boardChromeCollapsed, setBoardChromeCollapsed] = useLocalStorageState(
+    entityBoardChromeCollapsedKey(entityId),
+    parseBoardChromeCollapsed,
+    false,
   );
 
   const editRecordId = locationState?.editRecordId ?? null;
@@ -296,15 +309,62 @@ export function EntityPage({
       }}
     />
   ) : null;
+  const entitySettingsAction = canOpenEntitySettings ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      className="shrink-0"
+      aria-label="Настройки сущности"
+      title="Настройки сущности"
+      onClick={() =>
+        go(
+          settingsLocation({
+            tab: "entities",
+            entityId: currentEntity.id,
+          }),
+        )
+      }
+    >
+      <Settings className="size-4" />
+    </Button>
+  ) : null;
+  const headerActions =
+    entitySettingsAction || addAction ? (
+      <div className="flex items-center gap-2">
+        {entitySettingsAction}
+        {addAction}
+      </div>
+    ) : null;
   const hiddenRecordsAction =
     scope.hiddenCount > 0 ? <HiddenRecordsBar scope={scope} /> : undefined;
   const timelineScaleAction =
     activeView === "timeline" ? (
       <TimelineScaleTabs value={timelineScale} onChange={setTimelineScale} />
     ) : null;
+  const showBoardChromeToggle =
+    activeView === "table" && entityHasBoardChrome(currentEntity);
+  const boardChromeAction = showBoardChromeToggle ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="text-muted-foreground"
+      aria-expanded={!boardChromeCollapsed}
+      onClick={() => setBoardChromeCollapsed(!boardChromeCollapsed)}
+    >
+      {boardChromeCollapsed ? (
+        <ChevronDown data-icon="inline-start" aria-hidden />
+      ) : (
+        <ChevronUp data-icon="inline-start" aria-hidden />
+      )}
+      {boardChromeCollapsed ? "Развернуть" : "Свернуть"}
+    </Button>
+  ) : null;
   const descriptionActions =
-    timelineScaleAction || hiddenRecordsAction ? (
+    boardChromeAction || timelineScaleAction || hiddenRecordsAction ? (
       <div className="flex items-center gap-2">
+        {boardChromeAction}
         {hiddenRecordsAction}
         {timelineScaleAction}
       </div>
@@ -329,7 +389,11 @@ export function EntityPage({
             : undefined,
       };
       return hasEntityPageLayout(currentEntity) ? (
-        <EntityBoardView {...tableProps} />
+        <EntityBoardView
+          {...tableProps}
+          chromeCollapsed={boardChromeCollapsed}
+          onChromeCollapsedChange={setBoardChromeCollapsed}
+        />
       ) : (
         <EntityTableView {...tableProps} />
       );
@@ -356,20 +420,6 @@ export function EntityPage({
     );
   }
 
-  const timelineSettingsButton = (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-      aria-label="Настройки графика"
-      title="Настройки графика"
-      onClick={() => setTimelineSettingsOpen(true)}
-    >
-      <Settings className="size-3.5" />
-    </Button>
-  );
-
   const content =
     browseViews.length > 1 ? (
       <Tabs
@@ -385,46 +435,23 @@ export function EntityPage({
           title={title}
           description={currentEntity.description || undefined}
           titleExtra={
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <TabsList
-                variant="line"
-                className="h-auto gap-3 bg-transparent p-0"
-              >
-                {browseViews.map((view) => {
-                  const Icon = viewIcons[view];
-                  return (
-                    <Fragment key={view}>
-                      <TabsTrigger
-                        value={view}
-                        className="h-auto gap-1 rounded-none px-0 py-0.5 text-xs font-normal text-muted-foreground shadow-none data-active:bg-transparent data-active:text-foreground data-active:shadow-none"
-                      >
-                        <Icon className="size-3 opacity-70" aria-hidden />
-                        {getViewLabel(view)}
-                      </TabsTrigger>
-                      {view === "table" && activeView === "table" ? (
-                        <TableSettingsButton
-                          entity={currentEntity}
-                          className="-ml-1.5"
-                        />
-                      ) : null}
-                      {view === "kanban" && activeView === "kanban" ? (
-                        <KanbanFieldSettingsButton
-                          entity={currentEntity}
-                          className="-ml-1.5"
-                        />
-                      ) : null}
-                      {view === "timeline" && activeView === "timeline" ? (
-                        <span className="-ml-1.5 inline-flex">
-                          {timelineSettingsButton}
-                        </span>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </TabsList>
-            </div>
+            <TabsList className="!h-8 gap-0.5 p-0.5">
+              {browseViews.map((view) => {
+                const Icon = viewIcons[view];
+                return (
+                  <TabsTrigger
+                    key={view}
+                    value={view}
+                    className="h-full flex-none gap-1 px-2.5 text-xs font-medium"
+                  >
+                    <Icon className="size-3 opacity-70" aria-hidden />
+                    {getViewLabel(view)}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
           }
-          actions={addAction}
+          actions={headerActions}
           descriptionActions={descriptionActions}
         />
 
@@ -443,16 +470,7 @@ export function EntityPage({
         <PageHeader
           title={title}
           description={currentEntity.description || undefined}
-          titleExtra={
-            activeView === "table" ? (
-              <TableSettingsButton entity={currentEntity} />
-            ) : activeView === "kanban" ? (
-              <KanbanFieldSettingsButton entity={currentEntity} />
-            ) : activeView === "timeline" ? (
-              timelineSettingsButton
-            ) : undefined
-          }
-          actions={addAction}
+          actions={headerActions}
           descriptionActions={descriptionActions}
         />
         <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">

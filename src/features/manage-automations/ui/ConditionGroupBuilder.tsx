@@ -6,10 +6,12 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectOptionGroups,
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
 import {
+  AUTOMATION_CONDITION_OPERATOR_GROUPS,
   AUTOMATION_CONDITION_OPERATOR_LABELS,
   AUTOMATION_CONDITION_OPERATORS,
   createAutomationConditionId,
@@ -683,11 +685,13 @@ function RuleRow({
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {operators.map((operator) => (
-              <SelectItem key={operator} value={operator}>
-                {AUTOMATION_CONDITION_OPERATOR_LABELS[operator]}
-              </SelectItem>
-            ))}
+            <SelectOptionGroups
+              groups={AUTOMATION_CONDITION_OPERATOR_GROUPS}
+              available={operators}
+              getLabel={(operator) =>
+                AUTOMATION_CONDITION_OPERATOR_LABELS[operator]
+              }
+            />
           </SelectContent>
         </Select>
         <Button

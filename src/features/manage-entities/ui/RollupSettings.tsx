@@ -1,5 +1,6 @@
 import {
   ConditionBuilder,
+  ENTITY_ROLLUP_AGGREGATION_GROUPS,
   ENTITY_ROLLUP_AGGREGATIONS,
   getEntityFieldDisplayName,
   getEntityFieldValueKind,
@@ -13,6 +14,7 @@ import {
   SettingLabel,
   SettingSelect,
   type SettingOption,
+  type SettingOptionGroup,
 } from "@/shared/ui/setting-controls";
 
 const SOURCE_SEPARATOR = "|";
@@ -33,6 +35,15 @@ const AGGREGATION_OPTIONS: SettingOption[] = ENTITY_ROLLUP_AGGREGATIONS.map(
     label: AGGREGATION_LABELS[aggregation],
   }),
 );
+
+const AGGREGATION_OPTION_GROUPS: SettingOptionGroup[] =
+  ENTITY_ROLLUP_AGGREGATION_GROUPS.map((group) => ({
+    label: group.label,
+    options: group.items.map((aggregation) => ({
+      value: aggregation,
+      label: AGGREGATION_LABELS[aggregation],
+    })),
+  }));
 
 function isAggregation(value: string | null): value is EntityRollupAggregation {
   return ENTITY_ROLLUP_AGGREGATIONS.includes(value as EntityRollupAggregation);
@@ -128,6 +139,7 @@ export function RollupCalculationSettings({
         title="Расчёт"
         value={value.aggregation}
         options={AGGREGATION_OPTIONS}
+        optionGroups={AGGREGATION_OPTION_GROUPS}
         onChange={(next) => {
           if (!isAggregation(next)) return;
           const nextOptions = source

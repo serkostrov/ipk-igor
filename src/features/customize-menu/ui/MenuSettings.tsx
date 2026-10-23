@@ -28,11 +28,12 @@ import {
 import {
   groupHasProtectedItems,
   isEntityLinkedMenuItem,
-  isMenuGroupDescendant,
+  isMenuEntryDescendant,
   isProtectedMenuItem,
   isSystemMenuItem,
+  itemHasProtectedChildren,
   addMenuGroup,
-  getMenuGroups,
+  getMenuParentOptions,
   getMenuIcon,
   moveMenuEntry,
   removeMenuGroup,
@@ -47,6 +48,7 @@ import {
   type MenuGroupEntry,
   type MenuIconName,
   type MenuItem,
+  type MenuItemEntry,
 } from "@/entities/menu";
 
 function MenuIcon({
@@ -402,9 +404,9 @@ type MenuSettingsContext = {
   allowDrag: () => boolean;
   prepareDrag: (event: { target: EventTarget | null }) => void;
   clearDrag: (event?: DragEvent) => void;
-  setDragging: (id: string, entryType: "group" | "item") => void;
+  setDragging: (id: string) => void;
   setDropHint: (hint: DropHint | null) => void;
-  canNestInto: (targetGroupId: string) => boolean;
+  canNestInto: (targetContainerId: string) => boolean;
   onEditItem: (groupId: string | null, item: MenuItem) => void;
   onEditGroup: (group: MenuGroup) => void;
 };
@@ -500,7 +502,7 @@ function ItemRow({
   siblingHint,
   ctx,
 }: {
-  entry: MenuItem & { type: "item" };
+  entry: MenuItemEntry;
   parentGroupId: string | null;
   index: number;
   nested: boolean;
@@ -510,55 +512,63 @@ function ItemRow({
   siblingHint: Extract<DropHint, { type: "sibling" }> | null;
   ctx: MenuSettingsContext;
 }) {
+  const { stemClassName, contentPadClassName } = useContext(TreeStemContext);
   const isProtected = isProtectedMenuItem(entry.id);
   const isSystem = isSystemMenuItem(entry.id);
   const isInternal = ctx.isInternalItem(entry.id);
+  const childEntries = entry.entries ?? [];
+  const intoActive =
+    ctx.dropHint?.type === "into" && ctx.dropHint.groupId === entry.id;
+  const canNest = ctx.canNestInto(entry.id);
+  const canRemove = !isProtected && !itemHasProtectedChildren(entry);
 
-  const dragProps = {
-    draggable: true as const,
-    onMouseDown: ctx.prepareDrag,
-    onDragStart: (event: DragEvent) => {
-      if (!ctx.allowDrag()) {
-        event.preventDefault();
-        return;
-      }
-      const payload: EntryDragPayload = {
-        kind: "entry",
-        id: entry.id,
-        entryType: "item",
-        parentGroupId,
-        index,
-      };
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData(ENTRY_MIME, JSON.stringify(payload));
-      event.stopPropagation();
-      lockDragSelection();
-      ctx.setDragging(entry.id, "item");
-    },
-    onDragEnd: ctx.clearDrag,
-    onDragOver: (event: DragEvent<HTMLElement>) => {
-      if (!hasEntryMime(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.dataTransfer.dropEffect = "move";
+  function onHeaderDragOver(event: DragEvent<HTMLElement>) {
+    if (!hasEntryMime(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    const edge = getDropEdge(event);
+    if (edge === "before") {
       ctx.setDropHint({
         type: "sibling",
         parentGroupId,
         entryId: entry.id,
-        edge: getDropEdge(event),
+        edge: "before",
       });
-    },
-    onDrop: (event: DragEvent<HTMLElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const edge = getDropEdge(event);
+      return;
+    }
+    if (canNest) {
+      ctx.setDropHint({ type: "into", groupId: entry.id });
+      return;
+    }
+    ctx.setDropHint({
+      type: "sibling",
+      parentGroupId,
+      entryId: entry.id,
+      edge: "after",
+    });
+  }
+
+  function onHeaderDrop(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const edge = getDropEdge(event);
+    if (edge === "before") {
+      applyDrop(event, { parentGroupId, index });
+      ctx.clearDrag();
+      return;
+    }
+    if (canNest) {
       applyDrop(event, {
-        parentGroupId,
-        index: edge === "after" ? index + 1 : index,
+        parentGroupId: entry.id,
+        index: childEntries.length,
       });
       ctx.clearDrag();
-    },
-  };
+      return;
+    }
+    applyDrop(event, { parentGroupId, index: index + 1 });
+    ctx.clearDrag();
+  }
 
   const handle = (
     <DragHandle
@@ -577,13 +587,24 @@ function ItemRow({
       {isInternal ? <InternalMenuBadge /> : null}
       {isSystem ? <SystemMenuBadge /> : null}
       <RowActions>
-        {isProtected ? null : (
+        {canRemove ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
             aria-label="Удалить"
             onClick={() => removeMenuItem(entry.id)}
+          >
+            <Trash2 />
+          </Button>
+        ) : isProtected ? null : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Удалить"
+            disabled
+            title="Нельзя удалить: внутри есть защищённые пункты"
           >
             <Trash2 />
           </Button>
@@ -601,41 +622,160 @@ function ItemRow({
     </>
   );
 
+  const header = (
+    <div
+      className="relative flex min-h-10 w-full items-center"
+      onDragOver={onHeaderDragOver}
+      onDrop={onHeaderDrop}
+    >
+      {siblingHint && siblingHint.edge === "before" ? (
+        <DropIndicator edge="before" inset={nested} />
+      ) : null}
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-1 py-0.5",
+          nested ? "" : "px-1",
+        )}
+      >
+        {handle}
+        <MenuRowContent active={isDragging} label={entry.label} icon={icon} />
+      </div>
+      {actions}
+    </div>
+  );
+
+  const showFolder = childEntries.length > 0 || intoActive;
+  const children = showFolder ? (
+    <TreeRail active={intoActive} nestedParent={nested}>
+      <EntryList
+        parentGroupId={entry.id}
+        entries={childEntries}
+        nested
+        ctx={ctx}
+      />
+      {childEntries.length === 0 ? (
+        <TreeRow
+          isLast
+          onDragOver={(event) => {
+            if (!hasEntryMime(event) || !canNest) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.dataTransfer.dropEffect = "move";
+            ctx.setDropHint({ type: "into", groupId: entry.id });
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!canNest) {
+              ctx.clearDrag();
+              return;
+            }
+            applyDrop(event, { parentGroupId: entry.id, index: 0 });
+            ctx.clearDrag();
+          }}
+        >
+          <PhantomItem active={intoActive} />
+        </TreeRow>
+      ) : null}
+    </TreeRail>
+  ) : null;
+
+  const afterStrip = (
+    <div className="relative h-0">
+      <div
+        className="absolute inset-x-0 -top-1.5 z-10 h-3"
+        onDragOver={(event) => {
+          if (!hasEntryMime(event)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "move";
+          ctx.setDropHint({
+            type: "sibling",
+            parentGroupId,
+            entryId: entry.id,
+            edge: "after",
+          });
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          applyDrop(event, { parentGroupId, index: index + 1 });
+          ctx.clearDrag();
+        }}
+      >
+        {siblingHint && siblingHint.edge === "after" ? (
+          <DropIndicator edge="before" inset={nested} />
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const dragStart = (event: DragEvent) => {
+    if (!ctx.allowDrag()) {
+      event.preventDefault();
+      return;
+    }
+    const payload: EntryDragPayload = {
+      kind: "entry",
+      id: entry.id,
+      entryType: "item",
+      parentGroupId,
+      index,
+    };
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(ENTRY_MIME, JSON.stringify(payload));
+    event.stopPropagation();
+    lockDragSelection();
+    ctx.setDragging(entry.id);
+  };
+
   if (nested) {
     return (
-      <TreeRow
-        {...dragProps}
-        layoutId={`menu-item-${entry.id}`}
-        isFirst={isFirst}
-        isLast={isLast}
-        className={cn(isDragging && "opacity-40")}
-        indicator={
-          siblingHint ? <DropIndicator edge={siblingHint.edge} inset /> : null
-        }
-        actions={actions}
+      <li
+        className={cn("relative overflow-visible", isDragging && "opacity-40")}
+        draggable
+        onMouseDown={ctx.prepareDrag}
+        onDragStart={dragStart}
+        onDragEnd={ctx.clearDrag}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-1">
-          {handle}
-          <MenuRowContent active={isDragging} label={entry.label} icon={icon} />
-        </div>
-      </TreeRow>
+        <TreeBranchGuides
+          isFirst={isFirst}
+          isLast={isLast}
+          className={stemClassName}
+          armClassName="w-2"
+          elbowTopPx={20}
+        />
+        <motion.div
+          layout="position"
+          layoutId={`menu-item-${entry.id}`}
+          transition={menuLayoutTransition}
+          className="relative"
+        >
+          <div className={contentPadClassName}>{header}</div>
+          <div className={contentPadClassName}>{children}</div>
+          {afterStrip}
+        </motion.div>
+      </li>
     );
   }
 
   return (
-    <li className={cn("relative", isDragging && "opacity-40")} {...dragProps}>
+    <li
+      className={cn("relative overflow-visible", isDragging && "opacity-40")}
+      draggable
+      onMouseDown={ctx.prepareDrag}
+      onDragStart={dragStart}
+      onDragEnd={ctx.clearDrag}
+    >
       <motion.div
         layout="position"
         layoutId={`menu-item-${entry.id}`}
         transition={menuLayoutTransition}
-        className="relative flex min-h-10 w-full items-center"
+        className="relative"
       >
-        {siblingHint ? <DropIndicator edge={siblingHint.edge} /> : null}
-        <div className="flex min-w-0 flex-1 items-center gap-1 px-1 py-0.5">
-          {handle}
-          <MenuRowContent active={isDragging} label={entry.label} icon={icon} />
-        </div>
-        {actions}
+        {header}
+        {children}
+        {afterStrip}
       </motion.div>
     </li>
   );
@@ -852,7 +992,7 @@ function GroupBlock({
     event.dataTransfer.setData(ENTRY_MIME, JSON.stringify(payload));
     event.stopPropagation();
     lockDragSelection();
-    ctx.setDragging(entry.id, "group");
+    ctx.setDragging(entry.id);
   };
 
   if (nested) {
@@ -912,18 +1052,22 @@ export function MenuSettings() {
   const status = useMenuStatus();
   const entityStatus = useEntityStatus();
   const { entities } = useEntityConfig();
-  const groups = getMenuGroups(config);
   const [itemDialog, setItemDialog] = useState<ItemDialogState>({
     mode: "closed",
   });
   const [groupDialog, setGroupDialog] = useState<GroupDialogState>({
     mode: "closed",
   });
+  const itemParents = useMemo(
+    () =>
+      getMenuParentOptions(
+        config.entries,
+        itemDialog.mode === "edit" ? itemDialog.item.id : null,
+      ),
+    [config.entries, itemDialog],
+  );
   const [showInternal, setShowInternal] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [draggingType, setDraggingType] = useState<"group" | "item" | null>(
-    null,
-  );
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const [handleEpoch, setHandleEpoch] = useState(0);
   const allowDragRef = useRef(false);
@@ -953,7 +1097,6 @@ export function MenuSettings() {
   function clearDrag(event?: DragEvent) {
     allowDragRef.current = false;
     setDraggingId(null);
-    setDraggingType(null);
     setDropHint(null);
     setHandleEpoch((value) => value + 1);
     unlockDragSelection();
@@ -978,14 +1121,18 @@ export function MenuSettings() {
     allowDrag: () => allowDragRef.current,
     prepareDrag,
     clearDrag,
-    setDragging(id, entryType) {
+    setDragging(id) {
       setDraggingId(id);
-      setDraggingType(entryType);
     },
     setDropHint,
-    canNestInto(targetGroupId) {
-      if (!draggingId || draggingType !== "group") return true;
-      return !isMenuGroupDescendant(config.entries, draggingId, targetGroupId);
+    canNestInto(targetContainerId) {
+      if (!draggingId) return true;
+      if (draggingId === targetContainerId) return false;
+      return !isMenuEntryDescendant(
+        config.entries,
+        draggingId,
+        targetContainerId,
+      );
     },
     onEditItem(groupId, item) {
       setItemDialog({ mode: "edit", groupId, item });
@@ -1011,8 +1158,8 @@ export function MenuSettings() {
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h2 className="text-base font-medium">Навигационное меню</h2>
           <p className="text-muted-foreground text-sm">
-            Структура бокового меню: группы и пункты навигации. Группы можно
-            вкладывать друг в друга.
+            Структура бокового меню: группы и пункты. Перетащите пункт на другой
+            пункт или группу — он станет вложенным.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 pt-0.5">
@@ -1120,7 +1267,7 @@ export function MenuSettings() {
         onOpenChange={(open) => {
           if (!open) setItemDialog({ mode: "closed" });
         }}
-        groups={groups}
+        parents={itemParents}
         initialGroupId={itemDialog.mode === "edit" ? itemDialog.groupId : null}
         item={itemDialog.mode === "edit" ? itemDialog.item : undefined}
         onSubmit={(data) => {

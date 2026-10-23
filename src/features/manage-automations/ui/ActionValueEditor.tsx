@@ -1,13 +1,18 @@
 import * as React from "react";
+import { ChevronRight } from "lucide-react";
 import {
+  AUTOMATION_PATH_RELATED_RECORD,
   AUTOMATION_VALUE_CURRENT_RECORD,
   AUTOMATION_VALUE_CURRENT_USER,
   AUTOMATION_VALUE_NOW,
   AUTOMATION_VALUE_TIME_NOW,
   AUTOMATION_VALUE_TODAY,
   AUTOMATION_VALUE_TOMORROW,
+  automationBridgeTargetEntityId,
+  automationLookupRelationGroupsField,
   isAutomationEntityPathRef,
   isAutomationFieldRef,
+  isAutomationPathRelatedRecord,
   parseAutomationEntityPathRef,
   toAutomationEntityPathRef,
   toAutomationFieldRef,
@@ -18,6 +23,7 @@ import {
   getEntityRelationTargetId,
   getRelationRecordOptions,
   isEntityComputedFieldType,
+  isEntityRelationLikeFieldType,
   ListSelect,
   normalizeEntityDecimalInput,
   RelationSelect,
@@ -35,7 +41,9 @@ import { Input } from "@/shared/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
@@ -60,22 +68,9 @@ type ActionValueEditorProps = {
   compact?: boolean;
 };
 
-function valueSourceLabels(
-  mapToOtherEntity: boolean | undefined,
-  compact?: boolean,
-) {
-  // When mapping onto another entity, entity names live in the parent header —
-  // keep mode labels short to avoid «Лиды» three times in one row.
-  const fromFieldLabel = mapToOtherEntity
-    ? compact
-      ? "Поле"
-      : "Из поля"
-    : "Из другого поля";
-  const fromEntityLabel = mapToOtherEntity
-    ? compact
-      ? "Связь"
-      : "Через связь"
-    : "Из другой сущности";
+function valueSourceLabels(compact?: boolean) {
+  const fromFieldLabel = compact ? "Поле" : "Из другого поля";
+  const fromEntityLabel = compact ? "Связь" : "Из другой сущности";
   return { fromFieldLabel, fromEntityLabel };
 }
 
@@ -116,17 +111,76 @@ function detectMode(value: string, field: EntityField | null): ValueMode {
   return "custom";
 }
 
+const VALUE_MODE_GROUPS_DEFAULT: Array<{ label: string; values: string[] }> = [
+  { label: "Сброс", values: ["empty"] },
+  {
+    label: "Готовые",
+    values: [
+      "today",
+      "tomorrow",
+      "now",
+      "true",
+      "false",
+      "currentUser",
+      "currentRecord",
+    ],
+  },
+  { label: "Вручную", values: ["custom"] },
+  { label: "Из записи", values: ["fromField", "fromEntity"] },
+];
+
+/** createRecord mappings: «Заполнить» with source field vs related entity. */
+const VALUE_MODE_GROUPS_MAPPING: Array<{ label: string; values: string[] }> = [
+  {
+    label: "Заполнить",
+    values: [
+      "custom",
+      "today",
+      "tomorrow",
+      "now",
+      "true",
+      "false",
+      "currentUser",
+      "currentRecord",
+      "fromField",
+      "fromEntity",
+    ],
+  },
+];
+
 function ModeSelect({
   value,
   options,
   onChange,
   className,
+  mapping,
 }: {
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (next: string) => void;
   className?: string;
+  /** createRecord field mappings — «Заполнить» / источник / связанная. */
+  mapping?: boolean;
 }) {
+  const byValue = new Map(options.map((item) => [item.value, item]));
+  const groupDefs = mapping
+    ? VALUE_MODE_GROUPS_MAPPING
+    : VALUE_MODE_GROUPS_DEFAULT;
+  const groups = groupDefs
+    .map((group) => ({
+      label: group.label,
+      items: group.values
+        .map((mode) => byValue.get(mode))
+        .filter((item): item is { value: string; label: string } =>
+          Boolean(item),
+        ),
+    }))
+    .filter((group) => group.items.length > 0);
+  const groupedValues = new Set(
+    groups.flatMap((group) => group.items.map((item) => item.value)),
+  );
+  const ungrouped = options.filter((item) => !groupedValues.has(item.value));
+
   return (
     <Select
       value={value}
@@ -136,7 +190,7 @@ function ModeSelect({
     >
       <SelectTrigger
         size="sm"
-        className={cn("h-8 w-full min-w-0 overflow-hidden", className)}
+        className={cn("h-8 min-w-0 overflow-hidden", className)}
       >
         <SelectValue className="min-w-0">
           {(selected) => {
@@ -148,10 +202,32 @@ function ModeSelect({
         </SelectValue>
       </SelectTrigger>
       <SelectContent searchable={false} align="start" className="min-w-[12rem]">
-        {options.map((item) => (
-          <SelectItem key={item.value} value={item.value} label={item.label}>
-            {item.label}
-          </SelectItem>
+        {ungrouped.length > 0 ? (
+          <SelectGroup>
+            {ungrouped.map((item) => (
+              <SelectItem
+                key={item.value}
+                value={item.value}
+                label={item.label}
+              >
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ) : null}
+        {groups.map((group) => (
+          <SelectGroup key={group.label}>
+            <SelectLabel>{group.label}</SelectLabel>
+            {group.items.map((item) => (
+              <SelectItem
+                key={item.value}
+                value={item.value}
+                label={item.label}
+              >
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         ))}
       </SelectContent>
     </Select>
@@ -165,6 +241,8 @@ function SourceFieldSelect({
   excludeFieldId,
   placeholder = "Выберите поле",
   entitySuffix,
+  /** Pick the related record id itself (for relation targets). */
+  relatedRecordOption,
   className,
 }: {
   fields: EntityField[];
@@ -172,59 +250,116 @@ function SourceFieldSelect({
   onChange: (fieldId: string) => void;
   excludeFieldId?: string;
   placeholder?: string;
-  /** Shown in the closed trigger as «Поле · Сущность». */
+  /** Entity this field is read from — shown as muted «из …». */
   entitySuffix?: string;
+  relatedRecordOption?: { value: string; label: string };
   className?: string;
 }) {
+  // Computed fields are valid sources (lookup / formula values).
   const options = fields.filter(
     (field) =>
       field.id !== excludeFieldId &&
-      !isEntityComputedFieldType(field.type) &&
-      field.type !== "file",
+      field.type !== "file" &&
+      field.type !== "relationGroups",
   );
-  const optionLabel = (field: EntityField) => {
+  const searchLabel = (field: EntityField) => {
     const name = getEntityFieldDisplayName(field);
-    if (entitySuffix) return `${name} · ${entitySuffix}`;
+    if (entitySuffix) return `${name} из ${entitySuffix}`;
     if (field.type === "relation") {
       const targetId = getEntityRelationTargetId(field);
-      if (targetId === SYSTEM_USERS_ENTITY_ID) return `${name} · пользователь`;
+      if (targetId === SYSTEM_USERS_ENTITY_ID) {
+        return `${name} · пользователь`;
+      }
     }
     return name;
   };
+  const renderFieldLabel = (field: EntityField) => {
+    const name = getEntityFieldDisplayName(field);
+    if (entitySuffix) {
+      return (
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate">{name}</span>
+          <span className="truncate text-muted-foreground">
+            из «{entitySuffix}»
+          </span>
+        </span>
+      );
+    }
+    if (field.type === "relation") {
+      const targetId = getEntityRelationTargetId(field);
+      if (targetId === SYSTEM_USERS_ENTITY_ID) {
+        return (
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="truncate">{name}</span>
+            <span className="truncate text-muted-foreground">пользователь</span>
+          </span>
+        );
+      }
+    }
+    return <span className="block truncate">{name}</span>;
+  };
+  const recordLabel = relatedRecordOption?.label ?? "";
+  const hasOptions = options.length > 0 || Boolean(relatedRecordOption);
   return (
-    <div className={cn("min-w-0", className)}>
+    <div className={cn("min-w-0 w-full", className)}>
       <Select
         value={value || undefined}
         onValueChange={(next) => {
           if (next != null) onChange(String(next));
         }}
       >
-        <SelectTrigger size="sm" className="h-8 w-full min-w-0 overflow-hidden">
+        <SelectTrigger
+          size="sm"
+          className="h-8 min-w-0 overflow-hidden !w-full"
+        >
           <SelectValue className="min-w-0">
             {(selected) => {
+              if (
+                relatedRecordOption &&
+                selected === relatedRecordOption.value
+              ) {
+                return <span className="block truncate">{recordLabel}</span>;
+              }
               const field = options.find((item) => item.id === selected);
-              return (
-                <span className="block truncate">
-                  {field ? optionLabel(field) : placeholder}
-                </span>
-              );
+              return field ? renderFieldLabel(field) : placeholder;
             }}
           </SelectValue>
         </SelectTrigger>
-        <SelectContent searchable={false} className="max-h-72">
-          {options.length === 0 ? (
+        <SelectContent className="max-h-72" searchPlaceholder="Поиск поля…">
+          {!hasOptions ? (
             <div className="px-2 py-3 text-center text-xs text-muted-foreground">
               Нет совместимых полей на исходной записи
             </div>
           ) : (
-            options.map((field) => {
-              const label = optionLabel(field);
-              return (
-                <SelectItem key={field.id} value={field.id} label={label}>
-                  {label}
-                </SelectItem>
-              );
-            })
+            <>
+              {relatedRecordOption ? (
+                <SelectGroup>
+                  <SelectLabel>Связанная запись</SelectLabel>
+                  <SelectItem
+                    value={relatedRecordOption.value}
+                    label={relatedRecordOption.label}
+                  >
+                    {relatedRecordOption.label}
+                  </SelectItem>
+                </SelectGroup>
+              ) : null}
+              {options.length > 0 ? (
+                <SelectGroup>
+                  {relatedRecordOption ? (
+                    <SelectLabel>Поле записи</SelectLabel>
+                  ) : null}
+                  {options.map((field) => (
+                    <SelectItem
+                      key={field.id}
+                      value={field.id}
+                      label={searchLabel(field)}
+                    >
+                      {renderFieldLabel(field)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ) : null}
+            </>
           )}
         </SelectContent>
       </Select>
@@ -232,57 +367,208 @@ function SourceFieldSelect({
   );
 }
 
+/** Skip non-copyable structured / binary fields. */
+function isMappableSourceField(field: EntityField, target?: EntityField) {
+  if (field.type === "file" || field.type === "dependencies") return false;
+  // relationGroups only as source when mapping onto another groups field.
+  if (field.type === "relationGroups") {
+    return target?.type === "relationGroups";
+  }
+  return true;
+}
+
+function isTypeCompatibleSource(
+  target: EntityField,
+  item: EntityField,
+): boolean {
+  if (target.type === "boolean") {
+    return item.type === "boolean" || item.type === "lookup";
+  }
+  if (target.type === "list") {
+    return (
+      item.type === "list" || item.type === "lookup" || item.type === "text"
+    );
+  }
+  if (target.type === "datetime") {
+    return (
+      item.type === "datetime" ||
+      item.type === "text" ||
+      item.type === "lookup" ||
+      item.type === "formula"
+    );
+  }
+  if (target.type === "period") {
+    return (
+      item.type === "period" || item.type === "text" || item.type === "lookup"
+    );
+  }
+  if (target.type === "time") {
+    return (
+      item.type === "time" || item.type === "text" || item.type === "lookup"
+    );
+  }
+  if (target.type === "relation" || target.type === "belonging") {
+    if (item.type === "lookup") return true;
+    if (item.type === "text" || item.type === "textarea") return true;
+    if (!isEntityRelationLikeFieldType(item.type)) return false;
+    const targetId = getEntityRelationTargetId(target);
+    const itemTarget = getEntityRelationTargetId(item);
+    return !targetId || !itemTarget || targetId === itemTarget;
+  }
+  if (target.type === "number") {
+    return (
+      item.type === "number" ||
+      item.type === "text" ||
+      item.type === "formula" ||
+      item.type === "rollup" ||
+      item.type === "numberSum" ||
+      item.type === "lookup"
+    );
+  }
+  if (target.type === "relationGroups") {
+    return item.type === "relationGroups" || item.type === "lookup";
+  }
+  // Text-like: runtime resolves relation ids to labels.
+  if (
+    target.type === "text" ||
+    target.type === "textarea" ||
+    target.type === "url" ||
+    target.type === "email" ||
+    target.type === "phone"
+  ) {
+    return (
+      item.type === "text" ||
+      item.type === "textarea" ||
+      item.type === "url" ||
+      item.type === "email" ||
+      item.type === "phone" ||
+      item.type === "number" ||
+      item.type === "datetime" ||
+      item.type === "time" ||
+      item.type === "list" ||
+      item.type === "relation" ||
+      item.type === "belonging" ||
+      item.type === "lookup" ||
+      item.type === "formula" ||
+      item.type === "rollup" ||
+      item.type === "numberSum"
+    );
+  }
+  return !isEntityComputedFieldType(item.type) || item.type === "lookup";
+}
+
+/**
+ * Fields that can supply a value for `target` in mappings / setField.
+ * Computed fields are allowed as sources (their resolved value is copied).
+ * `loose` — show every copyable field (compatible first); for «через связь».
+ */
 function compatibleNestedFields(
   target: EntityField,
   candidates: EntityField[],
+  options?: { loose?: boolean },
 ): EntityField[] {
-  return candidates.filter((item) => {
-    if (isEntityComputedFieldType(item.type) || item.type === "file") {
-      return false;
-    }
-    if (target.type === "boolean") return item.type === "boolean";
-    if (target.type === "list") return item.type === "list";
-    if (target.type === "datetime") {
-      return item.type === "datetime" || item.type === "text";
-    }
-    if (target.type === "period") {
-      return item.type === "period" || item.type === "text";
-    }
-    if (target.type === "time") {
-      return item.type === "time" || item.type === "text";
-    }
-    if (target.type === "relation") {
-      if (item.type === "text" || item.type === "dependencies") return true;
-      if (item.type !== "relation") return false;
-      const targetId = getEntityRelationTargetId(target);
-      const itemTarget = getEntityRelationTargetId(item);
-      return !targetId || !itemTarget || targetId === itemTarget;
-    }
-    if (target.type === "number") {
-      return item.type === "number" || item.type === "text";
-    }
-    // Text-like targets: never copy raw relation ids into a title/text field.
-    if (
-      target.type === "text" ||
-      target.type === "textarea" ||
-      target.type === "url" ||
-      target.type === "email" ||
-      target.type === "phone"
-    ) {
-      return (
-        item.type === "text" ||
-        item.type === "textarea" ||
-        item.type === "url" ||
-        item.type === "email" ||
-        item.type === "phone" ||
-        item.type === "number" ||
-        item.type === "datetime" ||
-        item.type === "time" ||
-        item.type === "list"
+  const usable = candidates.filter((item) =>
+    isMappableSourceField(item, target),
+  );
+  if (options?.loose) {
+    return [...usable].sort((a, b) => {
+      const aOk = isTypeCompatibleSource(target, a) ? 0 : 1;
+      const bOk = isTypeCompatibleSource(target, b) ? 0 : 1;
+      if (aOk !== bOk) return aOk - bOk;
+      return getEntityFieldDisplayName(a).localeCompare(
+        getEntityFieldDisplayName(b),
+        "ru",
       );
-    }
+    });
+  }
+  return usable.filter((item) => isTypeCompatibleSource(target, item));
+}
+
+function relationGroupsLevelLabel(index: number) {
+  return index === 0 ? "Строки" : "Вложенные";
+}
+
+function isBridgeSourceField(
+  field: EntityField,
+  entities: Entity[],
+  host?: Entity | null,
+) {
+  if (isEntityRelationLikeFieldType(field.type)) {
+    return Boolean(getEntityRelationTargetId(field));
+  }
+  if (field.type === "relationGroups") {
+    return Boolean(
+      automationBridgeTargetEntityId(field, entities) ||
+      (field.relationGroups?.levels.length ?? 0) > 0,
+    );
+  }
+  if (host && automationLookupRelationGroupsField(host, field, entities)) {
     return true;
-  });
+  }
+  return false;
+}
+
+/** Groups field behind a relationGroups bridge or a lookup of groups. */
+function bridgeGroupsField(
+  field: EntityField,
+  entities: Entity[],
+  host?: Entity | null,
+): EntityField | null {
+  if (field.type === "relationGroups") return field;
+  if (!host) return null;
+  return automationLookupRelationGroupsField(host, field, entities);
+}
+
+function bridgeFieldLabel(
+  field: EntityField,
+  entities: Entity[],
+  host?: Entity | null,
+) {
+  const name = getEntityFieldDisplayName(field);
+  if (field.type === "relationGroups") {
+    return `${name} · набор связей`;
+  }
+  if (host && automationLookupRelationGroupsField(host, field, entities)) {
+    return `${name} · набор из связи`;
+  }
+  if (field.type === "relation" || field.type === "belonging") {
+    const targetId = getEntityRelationTargetId(field);
+    if (targetId === SYSTEM_USERS_ENTITY_ID) {
+      return `${name} → пользователь`;
+    }
+    const target = targetId
+      ? entities.find((entity) => entity.id === targetId)
+      : null;
+    return target ? `${name} → ${getEntityDisplayName(target)}` : name;
+  }
+  return name;
+}
+
+/** Relation/dependencies target matches the entity at the hop — can copy the record id. */
+function canPickRelatedRecordAsValue(
+  targetField: EntityField,
+  relatedEntityId: string | null,
+) {
+  if (!relatedEntityId) return false;
+  if (targetField.type !== "relation" && targetField.type !== "dependencies") {
+    return false;
+  }
+  return getEntityRelationTargetId(targetField) === relatedEntityId;
+}
+
+function pickDefaultNestedFieldId(
+  targetField: EntityField,
+  relatedEntityId: string | null,
+  nestedFields: EntityField[],
+  preferId: string,
+) {
+  const canRecord = canPickRelatedRecordAsValue(targetField, relatedEntityId);
+  if (preferId) {
+    if (isAutomationPathRelatedRecord(preferId) && canRecord) return preferId;
+    if (nestedFields.some((field) => field.id === preferId)) return preferId;
+  }
+  if (canRecord) return AUTOMATION_PATH_RELATED_RECORD;
+  return nestedFields[0]?.id ?? "";
 }
 
 function FromEntitySelects({
@@ -292,6 +578,7 @@ function FromEntitySelects({
   value,
   onChange,
   mapToOtherEntity,
+  compact,
   className,
 }: {
   targetField: EntityField;
@@ -300,82 +587,267 @@ function FromEntitySelects({
   value: string;
   onChange: (next: string) => void;
   mapToOtherEntity?: boolean;
+  compact?: boolean;
   className?: string;
 }) {
   const path = parseAutomationEntityPathRef(value);
-  const relationFields = sourceFields.filter(
+  const hostEntity =
+    entities.find((entity) =>
+      sourceFields.every((field) =>
+        entity.fields.some((item) => item.id === field.id),
+      ),
+    ) ??
+    entities.find((entity) =>
+      sourceFields.some((field) =>
+        entity.fields.some((item) => item.id === field.id),
+      ),
+    ) ??
+    null;
+  const bridgeFields = sourceFields.filter(
     (field) =>
       (mapToOtherEntity || field.id !== targetField.id) &&
-      field.type === "relation" &&
-      Boolean(getEntityRelationTargetId(field)),
+      isBridgeSourceField(field, entities, hostEntity),
   );
   const relationFieldId = path?.relationFieldId ?? "";
   const nestedFieldId = path?.fieldId ?? "";
-  const relationField =
-    relationFields.find((field) => field.id === relationFieldId) ?? null;
-  const relatedEntityId = relationField
-    ? getEntityRelationTargetId(relationField)
+  const bridgeField =
+    bridgeFields.find((field) => field.id === relationFieldId) ?? null;
+  const groupsField = bridgeField
+    ? bridgeGroupsField(bridgeField, entities, hostEntity)
+    : null;
+  const isGroups = groupsField != null;
+  const groupsLevels = groupsField?.relationGroups?.levels ?? [];
+  const groupsDepth =
+    path?.relationGroupsDepth ??
+    (isGroups ? Math.max(0, groupsLevels.length - 1) : undefined);
+
+  const relatedEntityId = bridgeField
+    ? automationBridgeTargetEntityId(
+        bridgeField,
+        entities,
+        groupsDepth,
+        hostEntity,
+      )
     : null;
   const relatedEntity = relatedEntityId
     ? (entities.find((entity) => entity.id === relatedEntityId) ?? null)
     : null;
   const nestedFields = relatedEntity
-    ? compatibleNestedFields(targetField, relatedEntity.fields)
+    ? compatibleNestedFields(targetField, relatedEntity.fields, {
+        loose: true,
+      })
     : [];
   const relatedName = relatedEntity
     ? getEntityDisplayName(relatedEntity)
     : "связанной записи";
 
+  function emitPath(
+    nextBridgeId: string,
+    nextNestedId: string,
+    nextDepth?: number,
+  ) {
+    onChange(
+      toAutomationEntityPathRef(
+        nextBridgeId,
+        nextNestedId,
+        nextDepth != null ? nextDepth : undefined,
+      ),
+    );
+  }
+
+  function pickDefaultNested(
+    nextBridge: EntityField,
+    depth: number | undefined,
+    preferId: string,
+  ) {
+    const targetId = automationBridgeTargetEntityId(
+      nextBridge,
+      entities,
+      depth,
+      hostEntity,
+    );
+    const entity = targetId
+      ? (entities.find((item) => item.id === targetId) ?? null)
+      : null;
+    const options = entity
+      ? compatibleNestedFields(targetField, entity.fields, { loose: true })
+      : [];
+    return pickDefaultNestedFieldId(targetField, targetId, options, preferId);
+  }
+
+  const canPickRecord = canPickRelatedRecordAsValue(
+    targetField,
+    relatedEntityId,
+  );
+  const relatedRecordOption = canPickRecord
+    ? {
+        value: AUTOMATION_PATH_RELATED_RECORD,
+        label: `Запись «${relatedName}»`,
+      }
+    : undefined;
+
+  const bridgeSelect =
+    bridgeFields.length === 0 ? (
+      <p className="text-[11px] text-muted-foreground">
+        Нет связей и наборов, из которых можно взять значение.
+      </p>
+    ) : (
+      <div className="min-w-0">
+        <Select
+          value={relationFieldId || undefined}
+          onValueChange={(next) => {
+            if (next == null) return;
+            const nextId = String(next);
+            const nextBridge = bridgeFields.find(
+              (field) => field.id === nextId,
+            );
+            if (!nextBridge) return;
+            const nextGroups = bridgeGroupsField(
+              nextBridge,
+              entities,
+              hostEntity,
+            );
+            const nextDepth = nextGroups
+              ? Math.max(0, (nextGroups.relationGroups?.levels.length ?? 1) - 1)
+              : undefined;
+            const nextNested = pickDefaultNested(
+              nextBridge,
+              nextDepth,
+              nestedFieldId,
+            );
+            emitPath(nextId, nextNested, nextDepth);
+          }}
+        >
+          <SelectTrigger
+            size="sm"
+            className="h-8 w-full min-w-0 overflow-hidden"
+          >
+            <SelectValue className="min-w-0">
+              {(selected) => {
+                const field = bridgeFields.find((item) => item.id === selected);
+                return (
+                  <span className="block truncate">
+                    {field
+                      ? bridgeFieldLabel(field, entities, hostEntity)
+                      : "Поле связи"}
+                  </span>
+                );
+              }}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent className="max-h-72" searchPlaceholder="Поиск…">
+            {bridgeFields.map((field) => {
+              const label = bridgeFieldLabel(field, entities, hostEntity);
+              return (
+                <SelectItem key={field.id} value={field.id} label={label}>
+                  {label}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+
+  const levelSelect =
+    isGroups && groupsLevels.length > 0 ? (
+      <div className={cn("min-w-0", compact ? "w-auto shrink-0" : undefined)}>
+        <Select
+          value={String(groupsDepth ?? 0)}
+          onValueChange={(next) => {
+            if (next == null || !bridgeField) return;
+            const depth = Number.parseInt(String(next), 10);
+            if (!Number.isFinite(depth)) return;
+            const nextNested = pickDefaultNested(
+              bridgeField,
+              depth,
+              nestedFieldId,
+            );
+            emitPath(relationFieldId, nextNested, depth);
+          }}
+        >
+          <SelectTrigger
+            size="sm"
+            className="h-8 w-auto min-w-0 overflow-hidden"
+          >
+            <SelectValue>
+              {relationGroupsLevelLabel(groupsDepth ?? 0)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent searchable={false}>
+            {groupsLevels.map((_, index) => (
+              <SelectItem
+                key={index}
+                value={String(index)}
+                label={relationGroupsLevelLabel(index)}
+              >
+                {relationGroupsLevelLabel(index)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    ) : null;
+
+  const nestedSelect = !relationFieldId ? null : !canPickRecord &&
+    nestedFields.length === 0 ? (
+    <p className="text-[11px] text-muted-foreground">
+      У связанной сущности нет подходящих полей.
+    </p>
+  ) : (
+    <SourceFieldSelect
+      fields={nestedFields}
+      value={nestedFieldId}
+      placeholder={
+        canPickRecord
+          ? `Запись или поле «${relatedName}»`
+          : `Поле из «${relatedName}»`
+      }
+      entitySuffix={relatedName}
+      relatedRecordOption={relatedRecordOption}
+      className={compact ? "min-w-0 w-full" : undefined}
+      onChange={(nextFieldId) => {
+        emitPath(
+          relationFieldId,
+          nextFieldId,
+          isGroups ? (groupsDepth ?? 0) : undefined,
+        );
+      }}
+    />
+  );
+
+  if (compact) {
+    const nestingRow =
+      levelSelect || nestedSelect ? (
+        <div className="col-span-2 grid min-w-0 w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5">
+            {levelSelect}
+            {levelSelect && nestedSelect ? (
+              <ChevronRight
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+            ) : null}
+          </div>
+          {nestedSelect}
+        </div>
+      ) : null;
+
+    // `contents` so bridge + nesting participate in parent grid
+    // (mode | bridge / nesting full width).
+    return (
+      <div className={cn("contents", className)}>
+        {bridgeSelect}
+        {nestingRow}
+      </div>
+    );
+  }
+
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      {relationFields.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground">
-          Нет полей связи, из которых можно взять значение.
-        </p>
-      ) : (
-        <SourceFieldSelect
-          fields={relationFields}
-          value={relationFieldId}
-          placeholder="Поле связи"
-          onChange={(nextRelationId) => {
-            const nextRelation = relationFields.find(
-              (field) => field.id === nextRelationId,
-            );
-            const nextTargetId = nextRelation
-              ? getEntityRelationTargetId(nextRelation)
-              : null;
-            const nextEntity = nextTargetId
-              ? (entities.find((entity) => entity.id === nextTargetId) ?? null)
-              : null;
-            const nextNested = nextEntity
-              ? compatibleNestedFields(targetField, nextEntity.fields)
-              : [];
-            const keepNested =
-              nestedFieldId &&
-              nextNested.some((field) => field.id === nestedFieldId)
-                ? nestedFieldId
-                : (nextNested[0]?.id ?? "");
-            onChange(toAutomationEntityPathRef(nextRelationId, keepNested));
-          }}
-        />
-      )}
-      {relationFieldId ? (
-        nestedFields.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">
-            У связанной сущности нет подходящих полей.
-          </p>
-        ) : (
-          <SourceFieldSelect
-            fields={nestedFields}
-            value={nestedFieldId}
-            placeholder={`Поле · ${relatedName}`}
-            entitySuffix={relatedName}
-            onChange={(nextFieldId) => {
-              onChange(toAutomationEntityPathRef(relationFieldId, nextFieldId));
-            }}
-          />
-        )
-      ) : null}
+      {bridgeSelect}
+      {levelSelect}
+      {nestedSelect}
     </div>
   );
 }
@@ -492,26 +964,52 @@ function ActionValueEditorBody({
   compact: boolean;
 }) {
   const { mode, selectMode } = useEditorMode(value, field);
-  const { fromFieldLabel, fromEntityLabel } = valueSourceLabels(
-    mapToOtherEntity,
-    compact,
-  );
-  const excludeSourceFieldId = mapToOtherEntity ? undefined : field.id;
+  const mapping = Boolean(mapToOtherEntity);
+  const { fromFieldLabel, fromEntityLabel } = valueSourceLabels(compact);
+  const excludeSourceFieldId = mapping ? undefined : field.id;
   const shellClass = compact
     ? cn(
-        "flex min-w-0 items-center gap-1 overflow-hidden",
-        mode === "fromEntity" ? "flex-wrap" : "flex-nowrap",
+        mode === "fromEntity"
+          ? "grid min-w-0 w-full grid-cols-[auto_minmax(0,1fr)] gap-1.5"
+          : "flex min-w-0 w-full flex-nowrap items-center gap-1.5",
         className,
       )
     : cn("flex flex-col gap-1.5", className);
-  const modeClass = compact ? "h-8 w-[6.5rem] shrink-0" : undefined;
+  // Mode/type: content width; value pickers take the rest.
+  const modeClass = compact ? "h-8 w-auto max-w-[11rem] shrink-0" : undefined;
   const valueGrowClass = compact ? "min-w-0 flex-1 overflow-hidden" : undefined;
   const customModeLabel = (full: string, short: string) =>
-    compact ? short : full;
+    mapping ? "Вручную" : compact ? short : full;
+  const modeSelectValue = mode;
 
   const applyMode = (next: ValueMode, nextValue: string) => {
     onChange(selectMode(next, nextValue));
   };
+
+  const sourceModeOptions = mapping
+    ? [
+        { value: "fromField", label: "Из источника" },
+        { value: "fromEntity", label: "Из связанной сущности" },
+      ]
+    : [
+        { value: "fromField", label: fromFieldLabel },
+        { value: "fromEntity", label: fromEntityLabel },
+      ];
+
+  const handleSourceModePick = (next: string) => {
+    if (next === "fromField") applyFromFieldMode(value, applyMode);
+    else if (next === "fromEntity") applyFromEntityMode(value, applyMode);
+  };
+
+  const mappingSourceEntity = sourceEntityId
+    ? (entities.find((entity) => entity.id === sourceEntityId) ?? null)
+    : null;
+  const mappingDirectFields = mapping
+    ? compatibleNestedFields(field, sourceFields, { loose: true }).filter(
+        (sourceField) =>
+          !isBridgeSourceField(sourceField, entities, mappingSourceEntity),
+      )
+    : [];
 
   const fromEntityPicker =
     mode === "fromEntity" ? (
@@ -522,7 +1020,31 @@ function ActionValueEditorBody({
         value={value}
         onChange={onChange}
         mapToOtherEntity={mapToOtherEntity}
-        className={compact ? "w-full basis-full" : undefined}
+        compact={compact}
+        className={
+          compact && mode === "fromEntity"
+            ? undefined
+            : compact
+              ? "min-w-0 flex-1"
+              : undefined
+        }
+      />
+    ) : null;
+
+  const fromFieldPicker =
+    mode === "fromField" ? (
+      <SourceFieldSelect
+        className={valueGrowClass}
+        fields={
+          mapping
+            ? mappingDirectFields
+            : compatibleNestedFields(field, sourceFields, {
+                loose: false,
+              })
+        }
+        value={fieldRefId(value)}
+        excludeFieldId={excludeSourceFieldId}
+        onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
       />
     ) : null;
 
@@ -533,7 +1055,8 @@ function ActionValueEditorBody({
       <div className={shellClass}>
         <ModeSelect
           className={modeClass}
-          value={mode}
+          mapping={mapping}
+          value={modeSelectValue}
           options={[
             { value: "empty", label: "Очистить" },
             { value: "today", label: "Сегодня" },
@@ -543,8 +1066,7 @@ function ActionValueEditorBody({
               value: "custom",
               label: customModeLabel("Выбрать дату", "Дата"),
             },
-            { value: "fromField", label: fromFieldLabel },
-            { value: "fromEntity", label: fromEntityLabel },
+            ...sourceModeOptions,
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
@@ -556,10 +1078,8 @@ function ActionValueEditorBody({
               applyMode("now", AUTOMATION_VALUE_NOW);
             } else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
-            } else if (next === "fromField") {
-              applyFromFieldMode(value, applyMode);
-            } else if (next === "fromEntity") {
-              applyFromEntityMode(value, applyMode);
+            } else {
+              handleSourceModePick(next);
             }
           }}
         />
@@ -593,17 +1113,7 @@ function ActionValueEditorBody({
             />
           )
         ) : null}
-        {mode === "fromField" ? (
-          <SourceFieldSelect
-            className={valueGrowClass}
-            fields={sourceFields.filter(
-              (item) => item.type === "datetime" || item.type === "text",
-            )}
-            value={fieldRefId(value)}
-            excludeFieldId={excludeSourceFieldId}
-            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
-          />
-        ) : null}
+        {fromFieldPicker}
         {fromEntityPicker}
       </div>
     );
@@ -614,24 +1124,22 @@ function ActionValueEditorBody({
       <div className={shellClass}>
         <ModeSelect
           className={modeClass}
-          value={mode}
+          mapping={mapping}
+          value={modeSelectValue}
           options={[
             { value: "empty", label: "Очистить" },
             {
               value: "custom",
               label: customModeLabel("Выбрать период", "Период"),
             },
-            { value: "fromField", label: fromFieldLabel },
-            { value: "fromEntity", label: fromEntityLabel },
+            ...sourceModeOptions,
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
             else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
-            } else if (next === "fromField") {
-              applyFromFieldMode(value, applyMode);
-            } else if (next === "fromEntity") {
-              applyFromEntityMode(value, applyMode);
+            } else {
+              handleSourceModePick(next);
             }
           }}
         />
@@ -644,17 +1152,7 @@ function ActionValueEditorBody({
             onChange={(next) => onChange(serializeEntityPeriod(next))}
           />
         ) : null}
-        {mode === "fromField" ? (
-          <SourceFieldSelect
-            className={valueGrowClass}
-            fields={sourceFields.filter(
-              (item) => item.type === "period" || item.type === "text",
-            )}
-            value={fieldRefId(value)}
-            excludeFieldId={excludeSourceFieldId}
-            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
-          />
-        ) : null}
+        {fromFieldPicker}
         {fromEntityPicker}
       </div>
     );
@@ -665,7 +1163,8 @@ function ActionValueEditorBody({
       <div className={shellClass}>
         <ModeSelect
           className={modeClass}
-          value={mode}
+          mapping={mapping}
+          value={modeSelectValue}
           options={[
             { value: "empty", label: "Очистить" },
             { value: "now", label: "Сейчас" },
@@ -673,8 +1172,7 @@ function ActionValueEditorBody({
               value: "custom",
               label: customModeLabel("Выбрать время", "Время"),
             },
-            { value: "fromField", label: fromFieldLabel },
-            { value: "fromEntity", label: fromEntityLabel },
+            ...sourceModeOptions,
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
@@ -682,10 +1180,8 @@ function ActionValueEditorBody({
               applyMode("now", AUTOMATION_VALUE_TIME_NOW);
             } else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
-            } else if (next === "fromField") {
-              applyFromFieldMode(value, applyMode);
-            } else if (next === "fromEntity") {
-              applyFromEntityMode(value, applyMode);
+            } else {
+              handleSourceModePick(next);
             }
           }}
         />
@@ -697,17 +1193,7 @@ function ActionValueEditorBody({
             onChange={onChange}
           />
         ) : null}
-        {mode === "fromField" ? (
-          <SourceFieldSelect
-            className={valueGrowClass}
-            fields={sourceFields.filter(
-              (item) => item.type === "time" || item.type === "text",
-            )}
-            value={fieldRefId(value)}
-            excludeFieldId={excludeSourceFieldId}
-            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
-          />
-        ) : null}
+        {fromFieldPicker}
         {fromEntityPicker}
       </div>
     );
@@ -726,20 +1212,19 @@ function ActionValueEditorBody({
       <div className={shellClass}>
         <ModeSelect
           className={modeClass}
+          mapping={mapping}
           value={booleanMode}
           options={[
             { value: "empty", label: "Очистить" },
             { value: "true", label: "Да" },
             { value: "false", label: "Нет" },
-            { value: "fromField", label: fromFieldLabel },
-            { value: "fromEntity", label: fromEntityLabel },
+            ...sourceModeOptions,
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
             else if (next === "true") applyMode("true", "true");
             else if (next === "false") applyMode("false", "false");
-            else if (next === "fromField") applyFromFieldMode(value, applyMode);
-            else applyFromEntityMode(value, applyMode);
+            else handleSourceModePick(next);
           }}
         />
         {mode === "true" || mode === "false" ? (
@@ -753,15 +1238,7 @@ function ActionValueEditorBody({
             />
           </div>
         ) : null}
-        {mode === "fromField" ? (
-          <SourceFieldSelect
-            className={valueGrowClass}
-            fields={sourceFields.filter((item) => item.type === "boolean")}
-            value={fieldRefId(value)}
-            excludeFieldId={excludeSourceFieldId}
-            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
-          />
-        ) : null}
+        {fromFieldPicker}
         {fromEntityPicker}
       </div>
     );
@@ -778,6 +1255,7 @@ function ActionValueEditorBody({
       <div className={shellClass}>
         <ModeSelect
           className={modeClass}
+          mapping={mapping}
           value={listMode}
           options={[
             { value: "empty", label: "Очистить" },
@@ -785,17 +1263,14 @@ function ActionValueEditorBody({
               value: "custom",
               label: customModeLabel("Выбрать вариант", "Вариант"),
             },
-            { value: "fromField", label: fromFieldLabel },
-            { value: "fromEntity", label: fromEntityLabel },
+            ...sourceModeOptions,
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
             else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
-            } else if (next === "fromField") {
-              applyFromFieldMode(value, applyMode);
             } else {
-              applyFromEntityMode(value, applyMode);
+              handleSourceModePick(next);
             }
           }}
         />
@@ -816,15 +1291,7 @@ function ActionValueEditorBody({
             onChange={onChange}
           />
         ) : null}
-        {listMode === "fromField" ? (
-          <SourceFieldSelect
-            className={valueGrowClass}
-            fields={sourceFields.filter((item) => item.type === "list")}
-            value={fieldRefId(value)}
-            excludeFieldId={excludeSourceFieldId}
-            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
-          />
-        ) : null}
+        {fromFieldPicker}
         {fromEntityPicker}
       </div>
     );
@@ -852,38 +1319,31 @@ function ActionValueEditorBody({
       mode === "empty"
         ? mode
         : "custom";
+    const currentUserLabel = mapping
+      ? "Текущий пользователь"
+      : customModeLabel("Текущий пользователь", "Я");
+    const currentRecordLabel = mapping
+      ? `Текущая «${sourceEntityName}»`
+      : customModeLabel(`Текущая «${sourceEntityName}»`, "Текущая");
     return (
       <div className={shellClass}>
         <ModeSelect
           className={modeClass}
+          mapping={mapping}
           value={relationMode}
           options={[
             { value: "empty", label: "Очистить" },
             ...(isUsers
-              ? [
-                  {
-                    value: "currentUser",
-                    label: customModeLabel("Текущий пользователь", "Я"),
-                  },
-                ]
+              ? [{ value: "currentUser", label: currentUserLabel }]
               : []),
             ...(canLinkCurrentRecord
-              ? [
-                  {
-                    value: "currentRecord",
-                    label: customModeLabel(
-                      `Текущая «${sourceEntityName}»`,
-                      "Текущая",
-                    ),
-                  },
-                ]
+              ? [{ value: "currentRecord", label: currentRecordLabel }]
               : []),
             {
               value: "custom",
               label: customModeLabel("Выбрать запись", "Запись"),
             },
-            { value: "fromField", label: fromFieldLabel },
-            { value: "fromEntity", label: fromEntityLabel },
+            ...sourceModeOptions,
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
@@ -902,10 +1362,8 @@ function ActionValueEditorBody({
                   ? value
                   : "",
               );
-            } else if (next === "fromField") {
-              applyFromFieldMode(value, applyMode);
             } else {
-              applyFromEntityMode(value, applyMode);
+              handleSourceModePick(next);
             }
           }}
         />
@@ -927,10 +1385,14 @@ function ActionValueEditorBody({
             onChange={onChange}
           />
         ) : null}
-        {relationMode === "fromField" ? (
+        {mode === "fromField" ? (
           <SourceFieldSelect
             className={valueGrowClass}
-            fields={compatibleNestedFields(field, sourceFields)}
+            fields={
+              mapping
+                ? mappingDirectFields
+                : compatibleNestedFields(field, sourceFields)
+            }
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
             entitySuffix={
@@ -957,21 +1419,22 @@ function ActionValueEditorBody({
       <div className={shellClass}>
         <ModeSelect
           className={modeClass}
+          mapping={mapping}
           value={textMode}
           options={[
             { value: "empty", label: "Очистить" },
-            { value: "custom", label: "Текст" },
-            { value: "fromField", label: fromFieldLabel },
-            { value: "fromEntity", label: fromEntityLabel },
+            {
+              value: "custom",
+              label: mapping ? "Вручную" : "Текст",
+            },
+            ...sourceModeOptions,
           ]}
           onChange={(next) => {
             if (next === "empty") applyMode("empty", "");
             else if (next === "custom") {
               applyMode("custom", mode === "custom" ? value : "");
-            } else if (next === "fromField") {
-              applyFromFieldMode(value, applyMode);
             } else {
-              applyFromEntityMode(value, applyMode);
+              handleSourceModePick(next);
             }
           }}
         />
@@ -992,15 +1455,7 @@ function ActionValueEditorBody({
             />
           )
         ) : null}
-        {textMode === "fromField" ? (
-          <SourceFieldSelect
-            className={valueGrowClass}
-            fields={compatibleNestedFields(field, sourceFields)}
-            value={fieldRefId(value)}
-            excludeFieldId={excludeSourceFieldId}
-            onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
-          />
-        ) : null}
+        {fromFieldPicker}
         {fromEntityPicker}
       </div>
     );
@@ -1024,21 +1479,22 @@ function ActionValueEditorBody({
     <div className={shellClass}>
       <ModeSelect
         className={modeClass}
+        mapping={mapping}
         value={textMode}
         options={[
           { value: "empty", label: "Очистить" },
-          { value: "custom", label: "Значение" },
-          { value: "fromField", label: fromFieldLabel },
-          { value: "fromEntity", label: fromEntityLabel },
+          {
+            value: "custom",
+            label: mapping ? "Вручную" : "Значение",
+          },
+          ...sourceModeOptions,
         ]}
         onChange={(next) => {
           if (next === "empty") applyMode("empty", "");
           else if (next === "custom") {
             applyMode("custom", mode === "custom" ? value : "");
-          } else if (next === "fromField") {
-            applyFromFieldMode(value, applyMode);
           } else {
-            applyFromEntityMode(value, applyMode);
+            handleSourceModePick(next);
           }
         }}
       />
@@ -1058,15 +1514,7 @@ function ActionValueEditorBody({
           }
         />
       ) : null}
-      {textMode === "fromField" ? (
-        <SourceFieldSelect
-          className={valueGrowClass}
-          fields={compatibleNestedFields(field, sourceFields)}
-          value={fieldRefId(value)}
-          excludeFieldId={excludeSourceFieldId}
-          onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
-        />
-      ) : null}
+      {fromFieldPicker}
       {fromEntityPicker}
     </div>
   );

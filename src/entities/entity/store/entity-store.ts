@@ -35,6 +35,7 @@ import {
 import {
   applyEntityFieldDefaults,
   applyEntityFilesTabDefaults,
+  collectLookupSoftFillPatchesFromRelated,
 } from "../model/field-value";
 import {
   getEntityTimelineSetup,
@@ -770,6 +771,7 @@ export function addEntity(data: {
     kanbanCardFieldIds: null,
     tableMassSelection: false,
     tableParentFieldId: null,
+    tableNestedEntityId: null,
     tabs: [],
     fieldGroups: [],
     systemKey: null,
@@ -803,13 +805,27 @@ export function updateEntity(
       | "defaultView"
       | "recordColumns"
       | "recordsDisplay"
+      | "tableParentFieldId"
+      | "tableNestedEntityId"
     >
   >,
 ) {
-  mapEntity(id, (entity) => ({
-    ...entity,
-    ...patch,
-  }));
+  mapEntity(id, (entity) => {
+    const next = { ...entity, ...patch };
+    if (patch.tableParentFieldId !== undefined) {
+      next.tableParentFieldId = resolveTableParentFieldIdForStore(
+        entity,
+        patch.tableParentFieldId,
+      );
+      if (next.tableParentFieldId) next.tableNestedEntityId = null;
+    }
+    if (patch.tableNestedEntityId !== undefined) {
+      const nestedId = patch.tableNestedEntityId?.trim() || null;
+      next.tableNestedEntityId = nestedId;
+      if (nestedId) next.tableParentFieldId = null;
+    }
+    return next;
+  });
 }
 
 export function removeEntity(id: string) {
@@ -1430,6 +1446,7 @@ export function addEntityTabWithLinkedEntity(
     kanbanCardFieldIds: null,
     tableMassSelection: false,
     tableParentFieldId: null,
+    tableNestedEntityId: null,
     tabs: [],
     fieldGroups: [],
     systemKey: null,
@@ -2821,11 +2838,73 @@ async function saveRecord(
     ),
   }));
 
+  const sourceEntity = config.entities.find((item) => item.id === entityId);
+  const changedLookupSourceIds =
+    sourceEntity?.fields
+      .filter(
+        (field) => field.type === "relationGroups" || field.type === "relation",
+      )
+      .map((field) => field.id)
+      .filter(
+        (fieldId) =>
+          (mergedValues[fieldId] ?? "") !== (previousValues[fieldId] ?? ""),
+      ) ?? [];
+
+  // Related lookup fields (e.g. groups via «Значение из связи») soft-fill when
+  // the source is filled after dependents were already created.
+  const softFillPatches =
+    changedLookupSourceIds.length > 0
+      ? collectLookupSoftFillPatchesFromRelated(
+          config.entities,
+          entityId,
+          recordId,
+          changedLookupSourceIds,
+        )
+      : [];
+
+  const softFillDeltas: Array<{
+    entityId: string;
+    recordId: string;
+    delta: Record<string, string>;
+    rollback: Record<string, string>;
+  }> = [];
+
+  for (const patch of softFillPatches) {
+    const before =
+      config.entities
+        .find((item) => item.id === patch.entityId)
+        ?.records.find((record) => record.id === patch.recordId)?.values ?? {};
+    const delta: Record<string, string> = {};
+    for (const [key, value] of Object.entries(patch.values)) {
+      if ((before[key] ?? "") === (value ?? "")) continue;
+      delta[key] = value ?? "";
+    }
+    if (Object.keys(delta).length === 0) continue;
+    softFillDeltas.push({
+      entityId: patch.entityId,
+      recordId: patch.recordId,
+      delta,
+      rollback: before,
+    });
+    mapEntityLocal(patch.entityId, (entity) => ({
+      ...entity,
+      records: entity.records.map((record) =>
+        record.id === patch.recordId
+          ? normalizeEntityRecord({ ...record, values: patch.values })
+          : record,
+      ),
+    }));
+  }
+
   if (!isSupabaseConfigured) return;
 
   markLocalRecordWrite(recordId);
   try {
     await updateEntityRecordValues(recordId, values);
+    for (const patch of softFillDeltas) {
+      markLocalRecordWrite(patch.recordId);
+      await updateEntityRecordValues(patch.recordId, patch.delta);
+    }
   } catch (error: unknown) {
     mapEntityLocal(entityId, (entity) => ({
       ...entity,
@@ -2835,6 +2914,19 @@ async function saveRecord(
           : record,
       ),
     }));
+    for (const patch of softFillDeltas) {
+      mapEntityLocal(patch.entityId, (entity) => ({
+        ...entity,
+        records: entity.records.map((record) =>
+          record.id === patch.recordId
+            ? normalizeEntityRecord({
+                ...record,
+                values: patch.rollback,
+              })
+            : record,
+        ),
+      }));
+    }
     handlePersistError(error, "Не удалось обновить запись");
     throw error;
   }

@@ -44,7 +44,10 @@ import {
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
+  getOutcomeCreateAskSlots,
   resumePendingRecordListChange,
+  TaskCreateRecordAsk,
+  validateCreateAskRequired,
   type AutomationAskFields,
 } from "@/features/automation-tasks";
 import {
@@ -214,6 +217,9 @@ function TaskFillFieldsDialogBody({
   const ask: AutomationAskFields | null = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
+  const createAskSlots = selectedOutcome
+    ? getOutcomeCreateAskSlots(selectedOutcome, entities)
+    : [];
   const requiredIds = new Set(ask?.requiredFieldIds ?? []);
   const fields =
     !entity || !ask
@@ -284,12 +290,14 @@ function TaskFillFieldsDialogBody({
     uploadTarget,
   );
 
+  const hasCreateAsk = createAskSlots.length > 0;
   const hasOutcomeForm =
     ask != null &&
     (fields.length > 0 ||
       viewFields.length > 0 ||
       ask.viewTabIds.length > 0 ||
-      hasRelatedAsk);
+      hasRelatedAsk ||
+      hasCreateAsk);
 
   const autosave = useTaskFormAutosave({
     enabled: Boolean(task && entity && record),
@@ -349,6 +357,16 @@ function TaskFillFieldsDialogBody({
     setValues((current) => ({ ...current, [valueKey]: value }));
   }
 
+  function setCreateDraftValue(draftKey: string, value: string) {
+    autosave.markDirty();
+    setValues((current) => ({ ...current, [draftKey]: value }));
+  }
+
+  function replaceCreateDraftValues(next: Record<string, string>) {
+    autosave.markDirty();
+    setValues(next);
+  }
+
   /**
    * Persist form values that should land on the record before complete/return.
    * Includes «запись» and required fields so setField / spawn see them.
@@ -405,12 +423,25 @@ function TaskFillFieldsDialogBody({
       );
       return `Заполните обязательные поля: ${labels.join(", ")}`;
     }
-    return validateRelatedAskRequired({
+    const relatedError = validateRelatedAskRequired({
       triggerEntity: entity,
       entities,
       fieldAccess: outcome.fieldAccess,
       values: mergedValues,
       isFieldFilled: (field, value) => isTaskAskFieldFilled(field, value),
+    });
+    if (relatedError) return relatedError;
+    return validateCreateAskRequired({
+      outcome,
+      entities,
+      values,
+      isFieldFilled: (field, value, relationGroupsMode) =>
+        isTaskAskFieldFilled(field, value, {
+          relationGroupsMode:
+            relationGroupsMode === "items" || relationGroupsMode === "nested"
+              ? relationGroupsMode
+              : "full",
+        }),
     });
   }
 
@@ -557,7 +588,10 @@ function TaskFillFieldsDialogBody({
                 ) : null
               }
               fillSlot={
-                fields.length > 0 || viewFields.length > 0 || hasRelatedAsk ? (
+                fields.length > 0 ||
+                viewFields.length > 0 ||
+                hasRelatedAsk ||
+                hasCreateAsk ? (
                   <div className="flex flex-col gap-4">
                     {autosaveLabel || autosave.error ? (
                       <p
@@ -670,6 +704,18 @@ function TaskFillFieldsDialogBody({
                         ctx={previewContext}
                         disabled={busy}
                         onChange={setRelatedValue}
+                      />
+                    ) : null}
+
+                    {hasCreateAsk ? (
+                      <TaskCreateRecordAsk
+                        slots={createAskSlots}
+                        values={values}
+                        entities={entities}
+                        ctx={previewContext}
+                        disabled={busy}
+                        onChange={setCreateDraftValue}
+                        onValuesChange={replaceCreateDraftValues}
                       />
                     ) : null}
                   </div>

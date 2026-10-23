@@ -3,9 +3,13 @@ import { getEntityDeadlineState } from "../model/deadline";
 import {
   formatRecordFieldValue,
   getRecordFieldNumber,
+  resolveRecordFieldCells,
   type EntityValueContext,
 } from "../model/field-value";
-import { isEntityNumericFieldType } from "../model/field";
+import {
+  isEntityNumericFieldType,
+  parseEntityRelationGroups,
+} from "../model/field";
 import type {
   Entity,
   EntityField,
@@ -52,6 +56,27 @@ export function RecordValue({
         className={className}
       />
     );
+  }
+
+  // Lookup of a related relationGroups — live chips (updates when related fills).
+  if (field.type === "lookup") {
+    const groupsCell = resolveRecordFieldCells(ctx, entity, record, field).find(
+      (cell) =>
+        cell.field.type === "relationGroups" &&
+        parseEntityRelationGroups(cell.record.values[cell.field.id] ?? "")
+          .length > 0,
+    );
+    if (groupsCell) {
+      return (
+        <RelationGroupsRecordValue
+          ctx={ctx}
+          entity={groupsCell.entity}
+          record={groupsCell.record}
+          field={groupsCell.field}
+          className={className}
+        />
+      );
+    }
   }
 
   const text = formatRecordFieldValue(ctx, entity, record, field);

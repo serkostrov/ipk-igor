@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  Filter,
-  GitBranch,
-  Plus,
-  RotateCcw,
-  Save,
-  Trash2,
-  Undo2,
-} from "lucide-react";
+import { Filter, GitBranch, Plus, Save, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
@@ -64,6 +56,8 @@ import {
   resolveEntityListFieldOptions,
   useEntityConfig,
 } from "@/entities/entity";
+import { useMenuConfig } from "@/entities/menu";
+import { EntityMenuSelect } from "@/features/manage-entities";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { cn } from "@/shared/lib/cn";
 import { AutomationFlowCanvas } from "./AutomationFlowCanvas";
@@ -75,6 +69,7 @@ import {
 import { TemplateInspector } from "./TemplateInspector";
 
 const controlTriggerClass = "h-9 w-[11.5rem]";
+const entityPickerClass = "h-9 w-[11.5rem] min-w-0";
 const EMPTY_CANVAS_LAYOUT = emptyAutomationCanvasLayout();
 const UNDO_LIMIT = 40;
 const AUTOMATION_ENTITY_ID_KEY = "settings.automations.selectedEntityId";
@@ -146,6 +141,7 @@ function templatesChanged(
 
 export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   const { entities } = useEntityConfig();
+  const { entries: menuEntries } = useMenuConfig();
   const { processes, scenarios, templates, notificationRules } =
     useAutomationConfig();
   const status = useAutomationStatus();
@@ -157,6 +153,8 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       ),
     [entities],
   );
+  const entityPickerEntities =
+    entitiesWithList.length > 0 ? entitiesWithList : entities;
 
   const [storedEntityId, setStoredEntityId] = useLocalStorageState(
     AUTOMATION_ENTITY_ID_KEY,
@@ -367,13 +365,6 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       setEditorEpoch((epoch) => epoch + 1);
       return stack.slice(0, -1);
     });
-  }
-
-  function revertAll() {
-    if (!saved) return;
-    setDraft(cloneSnap(saved));
-    setUndoStack([]);
-    setEditorEpoch((epoch) => epoch + 1);
   }
 
   async function persistDraft() {
@@ -1230,43 +1221,20 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
           <Undo2 className="size-3.5" aria-hidden />
           Отменить
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 px-2.5 text-muted-foreground"
-          disabled={!dirty || persisting}
-          title="Откатить все несохранённые изменения"
-          onClick={revertAll}
-        >
-          <RotateCcw className="size-3.5" aria-hidden />
-          Откатить
-        </Button>
       </div>
     </div>
   ) : null;
 
   const toolbar = (
     <div className="flex shrink-0 items-center gap-2">
-      <Select
+      <EntityMenuSelect
+        entities={entityPickerEntities}
+        menuEntries={menuEntries}
         value={resolvedEntityId || undefined}
-        onValueChange={(next) => {
-          if (next != null) selectEntity(String(next));
-        }}
-      >
-        <SelectTrigger className={controlTriggerClass}>
-          <SelectValue>{entity?.name || "Сущность"}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {(entitiesWithList.length > 0 ? entitiesWithList : entities).map(
-            (item) => (
-              <SelectItem key={item.id} value={item.id}>
-                {item.name}
-              </SelectItem>
-            ),
-          )}
-        </SelectContent>
-      </Select>
+        onValueChange={selectEntity}
+        className={entityPickerClass}
+        aria-label="Сущность"
+      />
 
       <Select
         value={resolvedTriggerFieldId || undefined}
@@ -1648,9 +1616,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                     stages={stages}
                     entity={entity}
                     value={inspectTransition}
-                    onSave={async (transition) => {
-                      applyStageTransition(transition);
-                    }}
+                    onSave={applyStageTransition}
                     onClear={() => {
                       clearStageTransition(
                         inspectFromStage.id,
@@ -1713,8 +1679,6 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
                   notificationRules={notificationRules.filter(
                     (rule) => rule.templateId === selectedTemplate.id,
                   )}
-                  commitLabel="Применить"
-                  commitSuccessMessage="Изменения применены"
                   onSave={(next) => applyTemplate(next)}
                   onDelete={() => deleteTemplate(selectedTemplate.id)}
                 />

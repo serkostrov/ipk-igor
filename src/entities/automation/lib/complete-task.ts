@@ -459,6 +459,7 @@ export async function completeAutomationTask(
       previousValues,
       actorUserId: actorUserId ?? null,
       depth: 1,
+      formValues: formValues ?? {},
     });
     if (result.errors.length > 0) {
       throw new Error(result.errors.join("; "));

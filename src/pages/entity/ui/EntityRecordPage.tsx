@@ -57,6 +57,7 @@ import {
   isEntityMetricsFieldGroup,
   isEntityTabWithLinkedEntity,
   isRecordValueDecorated,
+  resolveEntityLookupTarget,
   ListSelect,
   ListValueDisplay,
   OverflowCommaLabels,
@@ -243,14 +244,18 @@ function RecordFieldGroup({
       ) : null}
       <div
         className={cn(
-          "grid min-h-0 w-full flex-1 content-start",
-          metrics ? "p-3" : "px-4 py-3",
+          // Content-sized grid (not flex-1/min-h-0): tall fields like
+          // relationGroups must grow rows instead of painting over neighbors.
+          "grid w-full content-start",
+          metrics ? "min-h-0 flex-1 p-3" : "px-4 py-3",
           (metrics || dense) && "[grid-auto-flow:dense]",
         )}
         style={{
           gap: metrics ? 8 : RECORD_FIELD_GAP,
           gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-          gridAutoRows: metrics ? "auto" : RECORD_FIELD_ROW_HEIGHT,
+          gridAutoRows: metrics
+            ? "auto"
+            : `minmax(${RECORD_FIELD_ROW_HEIGHT}px, auto)`,
         }}
       >
         {children}
@@ -759,8 +764,19 @@ function RecordFieldDisplay({
   const accessibleName = getEntityFieldDisplayName(field);
   const label = hideLabel ? undefined : accessibleName;
   if (isRecordValueDecorated(field)) {
+    const lookupTarget = resolveEntityLookupTarget(entity, field, entities);
+    const tall =
+      field.type === "relationGroups" ||
+      lookupTarget?.field.type === "relationGroups";
     return (
-      <div className="flex h-full min-h-0 w-full min-w-0 flex-col justify-center gap-1">
+      <div
+        className={cn(
+          "flex w-full min-w-0 flex-col gap-1",
+          tall
+            ? "min-h-0 justify-start py-0.5"
+            : "h-full min-h-0 justify-center",
+        )}
+      >
         {label ? (
           <p className="truncate text-[11px] font-medium text-muted-foreground">
             {label}
@@ -976,7 +992,10 @@ function EntityFieldGroupCard({
           key={field.id}
           data-col-span={fieldColSpanOf(field.colSpan)}
           style={fieldGridItemStyle(field.colSpan, field.rowSpan)}
-          className="min-h-0 min-w-0"
+          className={cn(
+            "min-w-0",
+            field.type === "relationGroups" ? "min-h-0 self-start" : "min-h-0",
+          )}
         >
           <RecordFieldDisplay
             ctx={ctx}
@@ -1238,18 +1257,20 @@ export function EntityRecordPage({
             className="gap-4"
           >
             {entityTabs.length > 0 ? (
-              <div className="h-9 w-full min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-lg bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <TabsList className="!h-full w-max min-w-max max-w-none flex-none items-stretch justify-start gap-0.5 bg-transparent p-0">
-                  {entityTabs.map((tab) => (
-                    <TabsTrigger
-                      key={tab.id}
-                      value={tab.id}
-                      className="!h-auto min-h-0 h-full flex-none shrink-0 grow-0 self-stretch rounded-md px-3 text-sm font-medium whitespace-nowrap data-active:shadow-sm"
-                    >
-                      {tab.name}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+              <div className="w-full min-w-0 rounded-lg bg-muted">
+                <div className="overflow-x-auto overscroll-x-contain p-[3px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsList className="!h-8 w-max min-w-max max-w-none justify-start gap-0.5 bg-transparent p-0">
+                    {entityTabs.map((tab) => (
+                      <TabsTrigger
+                        key={tab.id}
+                        value={tab.id}
+                        className="flex-none px-3"
+                      >
+                        {tab.name}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
               </div>
             ) : null}
 

@@ -176,7 +176,34 @@ function scrubAction(
       return action.fileFieldId === fieldId
         ? { id: action.id, kind: "noop" }
         : action;
-    case "createRecord":
+    case "createRecord": {
+      const askFieldIds = (action.askFieldIds ?? []).filter(
+        (id) => id !== fieldId,
+      );
+      const askRequiredFieldIds = (action.askRequiredFieldIds ?? []).filter(
+        (id) => id !== fieldId && askFieldIds.includes(id),
+      );
+      const fieldAskOptions = { ...(action.fieldAskOptions ?? {}) };
+      delete fieldAskOptions[fieldId];
+      const nestedCreates = (action.nestedCreates ?? []).map((nested) => {
+        const nestedAsk = nested.askFieldIds.filter((id) => id !== fieldId);
+        const nestedRequired = (nested.askRequiredFieldIds ?? []).filter(
+          (id) => id !== fieldId && nestedAsk.includes(id),
+        );
+        const nestedOpts = { ...(nested.fieldAskOptions ?? {}) };
+        delete nestedOpts[fieldId];
+        return {
+          ...nested,
+          askFieldIds: nestedAsk,
+          askRequiredFieldIds:
+            nestedRequired.length > 0 ? nestedRequired : undefined,
+          fieldAskOptions:
+            Object.keys(nestedOpts).length > 0 ? nestedOpts : undefined,
+          mappings: nested.mappings
+            ? scrubMappings(nested.mappings, fieldId)
+            : undefined,
+        };
+      });
       return {
         ...action,
         linkBackFieldId:
@@ -184,18 +211,14 @@ function scrubAction(
             ? undefined
             : action.linkBackFieldId,
         mappings: scrubMappings(action.mappings, fieldId),
+        askFieldIds: askFieldIds.length > 0 ? askFieldIds : undefined,
+        askRequiredFieldIds:
+          askRequiredFieldIds.length > 0 ? askRequiredFieldIds : undefined,
+        fieldAskOptions:
+          Object.keys(fieldAskOptions).length > 0 ? fieldAskOptions : undefined,
+        nestedCreates: nestedCreates.length > 0 ? nestedCreates : undefined,
       };
-    case "createRecordsFromMapping":
-      if (
-        action.fanOutFieldId === fieldId ||
-        action.fanOutTargetFieldId === fieldId
-      ) {
-        return { id: action.id, kind: "noop" };
-      }
-      return {
-        ...action,
-        mappings: scrubMappings(action.mappings, fieldId),
-      };
+    }
     case "updateRecords":
       if (action.linkFieldId === fieldId) {
         return { id: action.id, kind: "noop" };

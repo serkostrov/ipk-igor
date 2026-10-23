@@ -19,7 +19,7 @@ import {
  * - advance/stay/back    → setField / noop / setFieldPrevious
  * - launch_process       → startProcess
  * - side effects         → createRecord + copyFields + setRelation + startProcess
- * - create_linked_leads  → createRecordsFromMapping
+ * - create_linked_leads  → createRecord (per item) / updateRecords
  * - notifications        → NotificationRule / notify action
  * - SLA                  → Template.sla + worker
  */
@@ -46,7 +46,17 @@ export const AUTOMATION_TRIGGER_KIND_LABELS: Record<
   slaOverdue: "Просрочка SLA",
 };
 
-export type AutomationTaskKind = "decision" | "single" | "autofill";
+/**
+ * - decision / single — interactive tasks with buttons
+ * - autofill — silent «Переход»: route branches, no user task UI
+ * - actions — silent «Автозаполнение»: run actions only, no user task UI
+ */
+export type AutomationTaskKind = "decision" | "single" | "autofill" | "actions";
+
+/** No assignee dialog; host auto-completes the spawned row. */
+export function isAutomationSilentTaskKind(kind: AutomationTaskKind) {
+  return kind === "autofill" || kind === "actions";
+}
 
 export type AutomationTaskStatus =
   "pending" | "completed" | "cancelled" | "returned";
@@ -726,14 +736,28 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
 }
 
 /**
- * Silent branches: first matching `conditions` wins (empty = else).
- * Apply setField / stage moves without a user button.
+ * Silent route branches («Переход»): first matching `conditions` wins
+ * (empty = else). Apply setField / stage moves without a user button.
  */
 export function defaultAutofillOutcomes(): AutomationOutcome[] {
   return [
     {
       id: createAutomationOutcomeId(),
       label: "Иначе",
+      color: null,
+      actions: [],
+      fieldAccess: emptyAutomationOutcomeFieldAccess(),
+      conditions: emptyAutomationConditions(),
+    },
+  ];
+}
+
+/** Silent «Автозаполнение»: one auto outcome with actions only. */
+export function defaultActionsOutcomes(): AutomationOutcome[] {
+  return [
+    {
+      id: createAutomationOutcomeId(),
+      label: "Авто",
       color: null,
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
@@ -785,7 +809,9 @@ export function normalizeAutomationTaskTemplate(
       ? "single"
       : raw.kind === "autofill"
         ? "autofill"
-        : "decision";
+        : raw.kind === "actions"
+          ? "actions"
+          : "decision";
   const launchPhaseRaw = raw.launchPhase ?? raw.launch_phase;
   const launchPhase: AutomationLaunchPhase =
     launchPhaseRaw === "beforeEnter" ? "beforeEnter" : "onEnter";
@@ -820,18 +846,20 @@ export function normalizeAutomationTaskTemplate(
         ? outcomes
         : kind === "autofill"
           ? defaultAutofillOutcomes()
-          : kind === "single"
-            ? [
-                {
-                  id: createAutomationOutcomeId(),
-                  label: "Готово",
-                  color: null,
-                  actions: [],
-                  fieldAccess: emptyAutomationOutcomeFieldAccess(),
-                  conditions: emptyAutomationConditions(),
-                },
-              ]
-            : defaultDecisionOutcomes(),
+          : kind === "actions"
+            ? defaultActionsOutcomes()
+            : kind === "single"
+              ? [
+                  {
+                    id: createAutomationOutcomeId(),
+                    label: "Готово",
+                    color: null,
+                    actions: [],
+                    fieldAccess: emptyAutomationOutcomeFieldAccess(),
+                    conditions: emptyAutomationConditions(),
+                  },
+                ]
+              : defaultDecisionOutcomes(),
     sla:
       slaRaw && typeof slaRaw.hours === "number" && slaRaw.hours > 0
         ? {

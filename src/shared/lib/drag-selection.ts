@@ -30,3 +30,16 @@ export function unlockDragSelection() {
   delete document.body.dataset.dragging;
   window.getSelection()?.removeAllRanges();
 }
+
+/** Sets `document.body` cursor for the duration of a drag; returns previous value. */
+export function setBodyCursor(cursor: string): string {
+  if (typeof document === "undefined") return "";
+  const previous = document.body.style.cursor;
+  document.body.style.cursor = cursor;
+  return previous;
+}
+
+export function restoreBodyCursor(previous: string) {
+  if (typeof document === "undefined") return;
+  document.body.style.cursor = previous;
+}

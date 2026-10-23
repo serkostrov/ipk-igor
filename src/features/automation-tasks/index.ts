@@ -8,8 +8,13 @@ export {
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
+  getOutcomeCreateAskSlots,
+  outcomeHasCreateAsk,
+  validateCreateAskRequired,
   type AutomationAskFields,
+  type AutomationCreateAskSlot,
 } from "./lib/task-ask-fields";
+export { TaskCreateRecordAsk } from "./ui/TaskCreateRecordAsk";
 export {
   clearAutomationTaskFillDialogDismissed,
   closeAutomationTaskFillDialog,

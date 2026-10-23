@@ -2,9 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
   Check,
   EyeOff,
-  Pencil,
+  ListTree,
   Plus,
-  Settings2,
+  Settings,
   Shield,
   Table2,
   Trash2,
@@ -13,6 +13,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
+import { cn } from "@/shared/lib/cn";
 import {
   addEntity,
   beginEntitySchemaEdit,
@@ -32,7 +33,6 @@ import {
   type Entity,
 } from "@/entities/entity";
 import { getEntityLinkedMenuItemIds, useMenuConfig } from "@/entities/menu";
-import { EntityBehaviorMenu } from "./EntityBehaviorMenu";
 import { EntityDialog } from "./EntityDialog";
 import { EntityFieldsEditor } from "./EntityFieldsEditor";
 import { EntityMenuSelect } from "./EntityMenuSelect";
@@ -125,7 +125,6 @@ function EntityPage({
   editing,
   onEdit,
   onDelete,
-  onOpenRecords,
   activeTabId,
   onActiveTabIdChange,
 }: {
@@ -133,19 +132,20 @@ function EntityPage({
   editing: boolean;
   onEdit: () => void;
   onDelete?: () => void;
-  onOpenRecords?: () => void;
   activeTabId?: string | null;
   onActiveTabIdChange?: (tabId: string) => void;
 }) {
   const system = isSystemEntity(entity);
   const internal = isEntityInternal(entity);
+  const [fieldsOverviewOpen, setFieldsOverviewOpen] = useState(false);
+  const [createFieldRequestId, setCreateFieldRequestId] = useState(0);
 
   return (
-    <div className="rounded-xl border border-border bg-card">
+    <div className="min-w-0 rounded-xl border border-border bg-card">
       <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h3 className="truncate text-lg font-semibold tracking-tight">
+          <div className="flex h-7 min-w-0 flex-nowrap items-center gap-2">
+            <h3 className="min-w-0 truncate text-lg leading-7 font-semibold tracking-tight">
               {entity.name || "Без названия"}
               {entity.namePlural ? (
                 <span className="font-normal text-muted-foreground">
@@ -156,87 +156,97 @@ function EntityPage({
             </h3>
             {system ? <SystemEntityBadge /> : null}
             {internal ? <InternalEntityBadge /> : null}
-            <AnimatePresence initial={false}>
-              {editing ? (
-                <motion.span
-                  key="editing-badge"
-                  initial={{ opacity: 0, scale: 0.86, y: -4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: -3 }}
-                  transition={toolbarIconTransition}
-                  className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/8 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-primary"
+            <div
+              className={cn(
+                "flex h-7 shrink-0 items-center gap-0.5 overflow-hidden transition-[opacity,width] duration-200",
+                editing ? "opacity-100" : "pointer-events-none w-0 opacity-0",
+              )}
+              aria-hidden={!editing}
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-7 text-muted-foreground hover:text-foreground"
+                aria-label="Параметры сущности"
+                title="Параметры"
+                tabIndex={editing ? undefined : -1}
+                onClick={onEdit}
+              >
+                <Settings className="size-3.5" />
+              </Button>
+              {onDelete && !system ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-7 text-muted-foreground hover:text-destructive"
+                  aria-label="Удалить сущность"
+                  title="Удалить"
+                  tabIndex={editing ? undefined : -1}
+                  onClick={onDelete}
                 >
-                  Редактирование
-                </motion.span>
+                  <Trash2 className="size-3.5" />
+                </Button>
               ) : null}
-            </AnimatePresence>
+            </div>
           </div>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
             {entity.description || "Без описания"}
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
-          {internal ? null : (
-            <EntityBehaviorMenu entity={entity} disabled={!editing} />
-          )}
-          {onOpenRecords ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              aria-label="Открыть записи"
-              title="Открыть записи"
-              onClick={onOpenRecords}
-            >
-              <Table2 className="size-3.5" aria-hidden />
-              Записи
-            </Button>
-          ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            aria-label="Все поля сущности"
+            title="Все поля"
+            onClick={() => setFieldsOverviewOpen(true)}
+          >
+            <ListTree className="size-3.5" aria-hidden />
+            Все поля
+          </Button>
           <AnimatePresence initial={false}>
             {editing ? (
               <motion.div
-                key="entity-edit-actions"
-                className="flex items-center gap-1.5"
-                initial={{ opacity: 0, scale: 0.86, x: 6 }}
+                key="entity-add-field"
+                className="inline-flex"
+                initial={{ opacity: 0, scale: 0.88, x: -8 }}
                 animate={{ opacity: 1, scale: 1, x: 0 }}
-                exit={{ opacity: 0, scale: 0.86, x: 6 }}
+                exit={{ opacity: 0, scale: 0.92, x: -6 }}
                 transition={toolbarIconTransition}
               >
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Редактировать сущность"
-                  onClick={onEdit}
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={() => setCreateFieldRequestId((value) => value + 1)}
                 >
-                  <Pencil />
+                  <Plus className="size-3.5" />
+                  Добавить
                 </Button>
-                {onDelete && !system ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Удалить сущность"
-                    onClick={onDelete}
-                  >
-                    <Trash2 />
-                  </Button>
-                ) : null}
               </motion.div>
             ) : null}
           </AnimatePresence>
         </div>
       </div>
 
-      <div className="px-5 py-5">
+      <div className="min-w-0 px-5 py-5">
         <EntityFieldsEditor
           key={entity.id}
           entity={entity}
           readOnly={!editing}
           activeTabId={activeTabId}
           onActiveTabIdChange={onActiveTabIdChange}
+          hideFieldsOverviewButton
+          hideFieldsToolbar
+          fieldsOverviewOpen={fieldsOverviewOpen}
+          onFieldsOverviewOpenChange={setFieldsOverviewOpen}
+          createFieldRequestId={createFieldRequestId}
         />
       </div>
     </div>
@@ -348,6 +358,19 @@ export function EntitySettings({
         onValueChange={selectEntity}
       />
 
+      {onOpenEntity && selected ? (
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          aria-label="Открыть записи"
+          title="Записи"
+          onClick={() => onOpenEntity(selected.id)}
+        >
+          <Table2 className="size-4" aria-hidden />
+        </Button>
+      ) : null}
+
       <Button
         type="button"
         size="icon"
@@ -363,7 +386,7 @@ export function EntitySettings({
       >
         <ToolbarIconSwap
           swapKey={editing ? "cancel" : "edit"}
-          icon={editing ? <X /> : <Settings2 />}
+          icon={editing ? <X /> : <Settings />}
         />
       </Button>
 
@@ -387,8 +410,8 @@ export function EntitySettings({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-5">
-      <div className="sticky top-0 z-20 -mx-1 flex min-h-9 min-w-0 items-center bg-background px-1 pb-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5">
+      <div className="sticky top-0 z-40 -mx-1 flex min-h-9 min-w-0 items-center bg-background px-1 pb-3">
         <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {leading}
         </div>
@@ -399,13 +422,11 @@ export function EntitySettings({
 
       {selected ? (
         <EntityPage
+          key={selected.id}
           entity={selected}
           editing={editing}
           onEdit={() => setDialog({ mode: "edit", entity: selected })}
           onDelete={() => setPendingDelete(selected)}
-          onOpenRecords={
-            onOpenEntity ? () => onOpenEntity(selected.id) : undefined
-          }
           activeTabId={selectedEntityTabId}
           onActiveTabIdChange={(tabId) => {
             onSelectedEntityTabIdChange?.(selected.id, tabId);

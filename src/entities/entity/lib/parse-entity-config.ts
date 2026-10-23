@@ -186,7 +186,16 @@ function normalizeLookupConfig(value: unknown): EntityLookupConfig | undefined {
   const relationFieldId = normalizeId(value.relationFieldId);
   const targetFieldId = normalizeId(value.targetFieldId);
   if (!relationFieldId || !targetFieldId) return undefined;
-  return { relationFieldId, targetFieldId };
+  const depthRaw = value.relationGroupsDepth;
+  const relationGroupsDepth =
+    typeof depthRaw === "number" && Number.isFinite(depthRaw) && depthRaw >= 0
+      ? Math.floor(depthRaw)
+      : undefined;
+  return {
+    relationFieldId,
+    targetFieldId,
+    ...(relationGroupsDepth != null ? { relationGroupsDepth } : {}),
+  };
 }
 
 function normalizeDependenciesConfig(value: unknown): EntityDependenciesConfig {
@@ -841,6 +850,13 @@ export function normalizeEntity(
       entity.id,
       (entity as { tableParentFieldId?: unknown }).tableParentFieldId,
     ),
+    tableNestedEntityId:
+      typeof (entity as { tableNestedEntityId?: unknown })
+        .tableNestedEntityId === "string"
+        ? (
+            entity as { tableNestedEntityId?: string }
+          ).tableNestedEntityId!.trim() || null
+        : null,
     tabs,
     fieldGroups: ensureEntityFieldGroups(entity.fieldGroups, resolvedFields),
     systemKey: normalizeSystemKey(entity.systemKey),
@@ -891,6 +907,7 @@ export function toEntityStructure(entity: Entity) {
       entity.id,
       entity.tableParentFieldId,
     ),
+    tableNestedEntityId: entity.tableNestedEntityId?.trim() || null,
     tabs: ensureEntityTabs(entity.tabs.map((tab) => normalizeEntityTab(tab))),
     fieldGroups: ensureEntityFieldGroups(entity.fieldGroups, entity.fields),
     systemKey: normalizeSystemKey(entity.systemKey),
@@ -977,6 +994,10 @@ export function parseEntityConfig(value: unknown): EntityConfig {
         tableParentFieldId:
           typeof item.tableParentFieldId === "string"
             ? item.tableParentFieldId
+            : null,
+        tableNestedEntityId:
+          typeof item.tableNestedEntityId === "string"
+            ? item.tableNestedEntityId.trim() || null
             : null,
         tabs,
         fieldGroups,

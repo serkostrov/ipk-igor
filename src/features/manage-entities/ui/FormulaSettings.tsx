@@ -13,6 +13,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import {
   compileFormulaText,
   formatEntityFormulaPreview,
+  FORMULA_FUNCTION_GROUPS,
   FORMULA_FUNCTIONS,
   getEntityFormulaOperands,
   getEntityPreviewValueContext,
@@ -21,6 +22,7 @@ import {
   type EntityNumberDecimals,
 } from "@/entities/entity";
 import { SettingLabel } from "@/shared/ui/setting-controls";
+import { cn } from "@/shared/lib/cn";
 
 type FormulaSettingsProps = {
   /** Entity of the field (operands and preview record). */
@@ -59,24 +61,46 @@ function FormulaFunctionsMenu({
         className="w-72 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-1"
       >
         <div className="max-h-64 overflow-y-auto">
-          {FORMULA_FUNCTIONS.map((item) => (
-            <button
-              key={item.name}
-              type="button"
-              className="flex w-full flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-muted/60"
-              onClick={() => {
-                onInsert(`${item.alias}(`);
-                setOpen(false);
-              }}
-            >
-              <span className="font-mono text-xs font-medium text-foreground">
-                {item.signature.replace(item.name, item.alias)}
-              </span>
-              <span className="text-[11px] leading-snug text-muted-foreground">
-                {item.description}
-              </span>
-            </button>
-          ))}
+          {FORMULA_FUNCTION_GROUPS.map((group, groupIndex) => {
+            const items = group.names
+              .map((name) =>
+                FORMULA_FUNCTIONS.find((item) => item.name === name),
+              )
+              .filter((item): item is (typeof FORMULA_FUNCTIONS)[number] =>
+                Boolean(item),
+              );
+            if (items.length === 0) return null;
+            return (
+              <div
+                key={group.label}
+                className={cn(
+                  groupIndex > 0 && "mt-1 border-t border-border/60 pt-1",
+                )}
+              >
+                <p className="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                  {group.label}
+                </p>
+                {items.map((item) => (
+                  <button
+                    key={item.name}
+                    type="button"
+                    className="flex w-full flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-muted/60"
+                    onClick={() => {
+                      onInsert(`${item.alias}(`);
+                      setOpen(false);
+                    }}
+                  >
+                    <span className="font-mono text-xs font-medium text-foreground">
+                      {item.signature.replace(item.name, item.alias)}
+                    </span>
+                    <span className="text-[11px] leading-snug text-muted-foreground">
+                      {item.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </div>
         <p className="border-t border-border/70 px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground">
           Операторы: + − * / ( ), сравнения, И, ИЛИ, НЕ.

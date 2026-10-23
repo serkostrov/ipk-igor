@@ -21,8 +21,11 @@ import {
   normalizeEntitySumFieldIds,
   parseEntityDecimal,
   parseEntityDependencies,
+  collectRelationGroupsIdsAtDepth,
   collectRelationGroupsLeafIds,
   getRelationGroupsLeafEntityId,
+  getRelationGroupsLevelEntityId,
+  isEntityRelationGroupsConfigReady,
   parseEntityRelationGroups,
   parseEntityPeriod,
   formatEntityPeriodDisplay,
@@ -174,24 +177,61 @@ export function getEntityLinkedRecords(
  * Entity reached by a relation, relationGroups (nested side), or by a lookup
  * whose value is itself a relation (e.g. «Отдел» via «Руководитель»).
  */
+function resolveRelationGroupsFieldTarget<
+  T extends Pick<Entity, "id" | "fields">,
+>(entities: readonly T[], entityId: string, fieldId: string): string | null {
+  const host = entities.find((item) => item.id === entityId);
+  const source = host?.fields.find((item) => item.id === fieldId);
+  return source ? getEntityRelationTargetId(source) : null;
+}
+
+/** Entity id at a relationGroups level (0 = rows, 1 = nested). */
+export function resolveRelationGroupsBridgeEntityId<
+  T extends Pick<Entity, "id" | "fields">,
+>(
+  bridge: Pick<EntityField, "type" | "relationGroups">,
+  entities: readonly T[],
+  depth?: number,
+): string | null {
+  if (bridge.type !== "relationGroups" || !bridge.relationGroups) return null;
+  const resolve = (entityId: string, fieldId: string) =>
+    resolveRelationGroupsFieldTarget(entities, entityId, fieldId);
+  if (depth == null || !Number.isFinite(depth)) {
+    return getRelationGroupsLeafEntityId(bridge.relationGroups, resolve);
+  }
+  const targetDepth = Math.max(0, Math.floor(depth));
+  let previous: string | null = null;
+  for (let i = 0; i <= targetDepth; i += 1) {
+    const level = bridge.relationGroups.levels[i];
+    if (!level) return null;
+    const entityId = getRelationGroupsLevelEntityId(level, previous, resolve);
+    if (!entityId) return null;
+    if (i === targetDepth) return entityId;
+    previous = entityId;
+  }
+  return null;
+}
+
 export function resolveEntityRelationBridgeTarget<
   T extends Pick<Entity, "id" | "fields">,
->(entity: T, bridge: EntityField, entities: readonly T[]): T | null {
+>(
+  entity: T,
+  bridge: EntityField,
+  entities: readonly T[],
+  relationGroupsDepth?: number,
+): T | null {
   if (bridge.type === "relation") {
     const targetId = getEntityRelationTargetId(bridge);
     return entities.find((item) => item.id === targetId) ?? null;
   }
   if (bridge.type === "relationGroups") {
-    const leafId = getRelationGroupsLeafEntityId(
-      bridge.relationGroups,
-      (entityId, fieldId) => {
-        const host = entities.find((item) => item.id === entityId);
-        const source = host?.fields.find((item) => item.id === fieldId);
-        return source ? getEntityRelationTargetId(source) : null;
-      },
+    const targetId = resolveRelationGroupsBridgeEntityId(
+      bridge,
+      entities,
+      relationGroupsDepth,
     );
-    return leafId
-      ? (entities.find((item) => item.id === leafId) ?? null)
+    return targetId
+      ? (entities.find((item) => item.id === targetId) ?? null)
       : null;
   }
   if (bridge.type !== "lookup") return null;
@@ -202,7 +242,7 @@ export function resolveEntityRelationBridgeTarget<
 }
 
 /**
- * Valid lookup bridge: relation, configured relationGroups (nested side),
+ * Valid lookup bridge: relation, configured relationGroups,
  * or a lookup that itself resolves to relation ids.
  */
 export function isEntityLookupBridgeField<
@@ -210,16 +250,8 @@ export function isEntityLookupBridgeField<
 >(entity: T, field: EntityField, entities: readonly T[]): boolean {
   if (field.type === "relation") return true;
   if (field.type === "relationGroups") {
-    return Boolean(
-      getRelationGroupsLeafEntityId(
-        field.relationGroups,
-        (entityId, fieldId) => {
-          const host = entities.find((item) => item.id === entityId);
-          const source = host?.fields.find((item) => item.id === fieldId);
-          return source ? getEntityRelationTargetId(source) : null;
-        },
-      ),
-    );
+    if (isEntityRelationGroupsConfigReady(field.relationGroups)) return true;
+    return Boolean(resolveRelationGroupsBridgeEntityId(field, entities));
   }
   if (field.type !== "lookup") return false;
   const source = resolveEntityFieldSource(entity, field, entities);
@@ -298,18 +330,15 @@ export function resolveEntityLookupTarget<
     return { relationField: bridge, entity: target, field: targetField };
   }
 
-  // Leaf records from a relationGroups field.
+  // Records from a relationGroups field (chosen level or deepest).
   if (bridge.type === "relationGroups") {
-    const leafId = getRelationGroupsLeafEntityId(
-      bridge.relationGroups,
-      (entityId, fieldId) => {
-        const host = entities.find((item) => item.id === entityId);
-        const source = host?.fields.find((item) => item.id === fieldId);
-        return source ? getEntityRelationTargetId(source) : null;
-      },
+    const targetId = resolveRelationGroupsBridgeEntityId(
+      bridge,
+      entities,
+      field.lookup.relationGroupsDepth,
     );
-    const target = leafId
-      ? entities.find((item) => item.id === leafId)
+    const target = targetId
+      ? entities.find((item) => item.id === targetId)
       : undefined;
     if (!target) return null;
     const targetField = findField(target, field.lookup.targetFieldId);
@@ -408,14 +437,20 @@ function getLookupBridgeRelationIds(
   record: EntityRecord,
   bridge: EntityField,
   depth: number,
+  relationGroupsDepth?: number,
 ): string[] {
   if (bridge.type === "relation") {
     return parseEntityRelationIds(record.values[bridge.id]);
   }
   if (bridge.type === "relationGroups") {
-    return collectRelationGroupsLeafIds(
-      parseEntityRelationGroups(record.values[bridge.id]),
-    );
+    const nodes = parseEntityRelationGroups(record.values[bridge.id]);
+    if (relationGroupsDepth != null && Number.isFinite(relationGroupsDepth)) {
+      return collectRelationGroupsIdsAtDepth(
+        nodes,
+        Math.max(0, Math.floor(relationGroupsDepth)),
+      );
+    }
+    return collectRelationGroupsLeafIds(nodes);
   }
   if (bridge.type !== "lookup") return [];
   return [
@@ -448,6 +483,7 @@ export function resolveRecordFieldCells(
     record,
     target.relationField,
     depth,
+    field.lookup?.relationGroupsDepth,
   ).flatMap((recordId) => {
     const ref = ctx.recordById.get(recordId);
     if (!ref || ref.entity.id !== target.entity.id) return [];
@@ -994,21 +1030,31 @@ export function formatRecordFieldValue(
         const entityTemplate = entity.nameTemplate.trim();
         const raw = entityTemplate || (record.values[field.id] ?? "").trim();
         if (!raw) return "—";
-        if (!/\{\{[^}]+\}\}/.test(raw)) return raw;
-        const text = raw
-          .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
-            const ref = entity.fields.find((item) => item.id === rawId.trim());
-            if (!ref || isEntityNameField(ref)) return "";
-            const part = formatRecordFieldValue(
-              ctx,
-              entity,
-              record,
-              ref,
-            ).trim();
-            return !part || part === "—" ? "" : part;
-          })
-          .replace(/\s+/g, " ")
-          .trim();
+        let text = raw;
+        if (/\{\{[^}]+\}\}/.test(raw)) {
+          text = raw
+            .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
+              const ref = entity.fields.find(
+                (item) => item.id === rawId.trim(),
+              );
+              if (!ref || isEntityNameField(ref)) return "";
+              const part = formatRecordFieldValue(
+                ctx,
+                entity,
+                record,
+                ref,
+              ).trim();
+              return !part || part === "—" ? "" : part;
+            })
+            .replace(/\s+/g, " ")
+            .trim();
+        }
+        if (entityTemplate) {
+          const suffix = (record.values[field.id] ?? "").trim();
+          if (suffix && !/\{\{[^}]+\}\}/.test(suffix)) {
+            text = `${text} ${suffix}`.replace(/\s+/g, " ").trim();
+          }
+        }
         return text || "—";
       }
       return formatEntityFieldScalarValue(field, record.values[field.id]);
@@ -1478,12 +1524,56 @@ function softFillRelationFromIds(
 }
 
 /**
+ * Soft-fill an empty sibling `relationGroups` with the looked-up groups value
+ * (same leaf entity). Never overwrites a non-empty local value.
+ */
+function softFillRelationGroupsFromRaw(
+  entity: Entity,
+  values: Record<string, string>,
+  next: Record<string, string>,
+  bridgeId: string | null,
+  sourceGroupsField: EntityField,
+  rawValue: string,
+  entities: readonly Entity[],
+): Record<string, string> {
+  const nodes = parseEntityRelationGroups(rawValue);
+  if (nodes.length === 0) return next;
+
+  const sourceLeaf = resolveRelationGroupsBridgeEntityId(
+    sourceGroupsField,
+    entities,
+  );
+  if (!sourceLeaf) return next;
+
+  const candidates = entity.fields.filter((field) => {
+    if (field.type !== "relationGroups") return false;
+    if (bridgeId && field.id === bridgeId) return false;
+    return resolveRelationGroupsBridgeEntityId(field, entities) === sourceLeaf;
+  });
+  const onForm = candidates.filter((field) =>
+    Object.prototype.hasOwnProperty.call(values, field.id),
+  );
+  const pool =
+    onForm.length === 1 ? onForm : candidates.length === 1 ? candidates : [];
+  if (pool.length !== 1) return next;
+  const dest = pool[0]!;
+
+  if (parseEntityRelationGroups(next[dest.id] ?? "").length > 0) return next;
+  if ((next[dest.id] ?? "") === rawValue) return next;
+  if (next === values) next = { ...values };
+  next[dest.id] = rawValue;
+  return next;
+}
+
+/**
  * Soft-fill a sibling relation from a lookup (e.g. «Отдел» → Users.Руководитель
  * → «Руководители»). Prefills / adds ids from the lookup; never wipes values the
  * user already chose — they can keep editing and add more.
  *
  * Also: lookup via `relationGroups` soft-fills a relation to the nested entity
  * with the nested ids selected in the groups.
+ * Lookup of a related `relationGroups` copies that whole value into an empty
+ * local groups field (and soft-fills leaf relations).
  */
 function syncRelationsFromLookups(
   entity: Entity,
@@ -1511,30 +1601,82 @@ function syncRelationsFromLookups(
     const bridgeId = lookup.lookup?.relationFieldId ?? null;
     const bridge = bridgeId ? findField(entity, bridgeId) : null;
 
-    // relationGroups → leaf records of the deepest level.
+    // relationGroups → records of the chosen level (default: deepest).
     if (bridge?.type === "relationGroups" && bridge.relationGroups) {
-      const leafTargetId = getRelationGroupsLeafEntityId(
-        bridge.relationGroups,
-        (entityId, fieldId) => {
-          const host = entities.find((item) => item.id === entityId);
-          const source = host?.fields.find((item) => item.id === fieldId);
-          return source ? getEntityRelationTargetId(source) : null;
-        },
+      const groupsDepth = lookup.lookup?.relationGroupsDepth;
+      const groupsTargetId = resolveRelationGroupsBridgeEntityId(
+        bridge,
+        entities,
+        groupsDepth,
       );
-      if (leafTargetId && target.entity.id === leafTargetId) {
-        const leafIds = collectRelationGroupsLeafIds(
-          parseEntityRelationGroups(next[bridge.id] ?? values[bridge.id]),
+      if (groupsTargetId && target.entity.id === groupsTargetId) {
+        const nodes = parseEntityRelationGroups(
+          next[bridge.id] ?? values[bridge.id],
         );
+        const groupIds =
+          groupsDepth != null && Number.isFinite(groupsDepth)
+            ? collectRelationGroupsIdsAtDepth(
+                nodes,
+                Math.max(0, Math.floor(groupsDepth)),
+              )
+            : collectRelationGroupsLeafIds(nodes);
         next = softFillRelationFromIds(
           entity,
           values,
           next,
           bridgeId,
-          leafTargetId,
+          groupsTargetId,
+          groupIds,
+          changedFieldId,
+        );
+      }
+    }
+
+    // Related record’s relationGroups → copy whole value + soft-fill leaf ids.
+    if (target.field.type === "relationGroups") {
+      const cells = resolveRecordFieldCells(ctx, entity, record, lookup);
+      const raw =
+        cells
+          .map((cell) => cell.record.values[cell.field.id] ?? "")
+          .find((value) => parseEntityRelationGroups(value).length > 0) ??
+        cells[0]?.record.values[cells[0].field.id] ??
+        "";
+      next = softFillRelationGroupsFromRaw(
+        entity,
+        values,
+        next,
+        bridgeId,
+        target.field,
+        raw,
+        entities,
+      );
+      const leafId = resolveRelationGroupsBridgeEntityId(
+        target.field,
+        entities,
+      );
+      if (leafId) {
+        const leafIds = [
+          ...new Set(
+            cells.flatMap((cell) =>
+              collectRelationGroupsLeafIds(
+                parseEntityRelationGroups(
+                  cell.record.values[cell.field.id] ?? "",
+                ),
+              ),
+            ),
+          ),
+        ];
+        next = softFillRelationFromIds(
+          entity,
+          values,
+          next,
+          bridgeId,
+          leafId,
           leafIds,
           changedFieldId,
         );
       }
+      continue;
     }
 
     if (target.field.type !== "relation") continue;
@@ -1554,6 +1696,75 @@ function syncRelationsFromLookups(
   }
 
   return next;
+}
+
+/**
+ * When a related record’s field is filled later, soft-fill dependents that
+ * look it up (empty local relationGroups / relations). Returns patches to apply.
+ */
+export function collectLookupSoftFillPatchesFromRelated(
+  entities: readonly Entity[],
+  sourceEntityId: string,
+  sourceRecordId: string,
+  changedFieldIds: readonly string[],
+): Array<{
+  entityId: string;
+  recordId: string;
+  values: Record<string, string>;
+}> {
+  if (changedFieldIds.length === 0) return [];
+  const changed = new Set(changedFieldIds);
+  const patches: Array<{
+    entityId: string;
+    recordId: string;
+    values: Record<string, string>;
+  }> = [];
+
+  for (const entity of entities) {
+    for (const lookup of entity.fields) {
+      if (lookup.type !== "lookup" || !lookup.lookup) continue;
+      if (!changed.has(lookup.lookup.targetFieldId)) continue;
+      const target = resolveEntityLookupTarget(entity, lookup, entities);
+      if (!target || target.entity.id !== sourceEntityId) continue;
+      if (
+        target.field.type !== "relationGroups" &&
+        target.field.type !== "relation"
+      ) {
+        continue;
+      }
+      const bridgeId = lookup.lookup.relationFieldId;
+      const bridge = findField(entity, bridgeId);
+      if (!bridge || bridge.type !== "relation") continue;
+      if (getEntityRelationTargetId(bridge) !== sourceEntityId) continue;
+
+      for (const record of entity.records) {
+        if (
+          !parseEntityRelationIds(record.values[bridge.id]).includes(
+            sourceRecordId,
+          )
+        ) {
+          continue;
+        }
+        const next = syncRelationsFromLookups(
+          entity,
+          record.values,
+          entities,
+          bridge.id,
+        );
+        if (next === record.values) continue;
+        const dirty = Object.keys(next).some(
+          (key) => (next[key] ?? "") !== (record.values[key] ?? ""),
+        );
+        if (!dirty) continue;
+        patches.push({
+          entityId: entity.id,
+          recordId: record.id,
+          values: next,
+        });
+      }
+    }
+  }
+  return patches;
 }
 
 /**
@@ -1757,20 +1968,29 @@ export function applyEntityFilesTabDefaults(
 
 /** Values for «Дублировать»: fields only (no files), name marked as a copy. */
 export function getEntityRecordCopyValues(
-  entity: Pick<Entity, "fields">,
+  entity: Pick<Entity, "fields" | "nameTemplate">,
   record: EntityRecord,
 ): Record<string, string> {
   const values: Record<string, string> = {};
+  const hasEntityNameTemplate = Boolean(entity.nameTemplate?.trim());
   for (const field of entity.fields) {
     if (field.type === "file" || isEntityComputedFieldType(field.type)) {
       continue;
     }
     const value = record.values[field.id];
+    if (isEntityNameField(field)) {
+      if (hasEntityNameTemplate) {
+        // Suffix lives in the name field when the entity uses a title template.
+        const suffix = (value ?? "").trim();
+        values[field.id] = suffix ? `${suffix} (копия)` : "(копия)";
+        continue;
+      }
+      if (value === undefined) continue;
+      values[field.id] = value.trim() ? `${value.trim()} (копия)` : value;
+      continue;
+    }
     if (value === undefined) continue;
-    values[field.id] =
-      isEntityNameField(field) && value.trim()
-        ? `${value.trim()} (копия)`
-        : value;
+    values[field.id] = value;
   }
   return values;
 }

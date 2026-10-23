@@ -33,11 +33,9 @@ type StageTransitionInspectorProps = {
   stages: StageOption[];
   entity: Entity;
   value: AutomationStageTransition | null;
-  onSave: (transition: AutomationStageTransition) => void | Promise<void>;
-  onClear: () => void | Promise<void>;
+  onSave: (transition: AutomationStageTransition) => void;
+  onClear: () => void;
   onClose: () => void;
-  /** Label for applying changes to the parent draft. */
-  commitLabel?: string;
 };
 
 /** Vertical stem + split into two branches (тогда / иначе). */
@@ -82,6 +80,26 @@ function StageSelectValue({
       <span className="truncate">{stage.name}</span>
     </span>
   );
+}
+
+function normalizeTransition(
+  draft: AutomationStageTransition,
+  fromOptionId: string,
+): AutomationStageTransition | null {
+  if (!draft.toOptionId || draft.toOptionId === fromOptionId) return null;
+  const hasConditions = draft.conditions.rules.length > 0;
+  return {
+    ...draft,
+    fromOptionId,
+    toOptionId: draft.toOptionId,
+    conditions: hasConditions
+      ? draft.conditions
+      : emptyAutomationConditions(draft.conditions.match),
+    elseOptionId:
+      !hasConditions || draft.elseOptionId === draft.toOptionId
+        ? ""
+        : draft.elseOptionId,
+  };
 }
 
 /** Terminal list option — no further stage-map (BPMN end). */
@@ -197,7 +215,6 @@ export function StageTransitionInspector({
   onSave,
   onClear,
   onClose,
-  commitLabel = "Применить",
 }: StageTransitionInspectorProps) {
   const [draft, setDraft] = useState<AutomationStageTransition>(
     () =>
@@ -209,7 +226,6 @@ export function StageTransitionInspector({
         elseOptionId: "",
       },
   );
-  const [saving, setSaving] = useState(false);
 
   const thenStages = stages.filter((stage) => stage.id !== fromStage.id);
   const thenStage =
@@ -220,37 +236,17 @@ export function StageTransitionInspector({
   const elseStage = stages.find((stage) => stage.id === draft.elseOptionId);
   const hasRules = draft.conditions.rules.length > 0;
 
-  async function handleSave() {
-    if (saving) return;
-    if (!draft.toOptionId || draft.toOptionId === fromStage.id) return;
-    setSaving(true);
-    try {
-      const hasConditions = draft.conditions.rules.length > 0;
-      await onSave({
-        ...draft,
-        fromOptionId: fromStage.id,
-        toOptionId: draft.toOptionId,
-        conditions: hasConditions
-          ? draft.conditions
-          : emptyAutomationConditions(draft.conditions.match),
-        elseOptionId:
-          !hasConditions || draft.elseOptionId === draft.toOptionId
-            ? ""
-            : draft.elseOptionId,
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleClear() {
-    if (saving) return;
-    setSaving(true);
-    try {
-      await onClear();
-    } finally {
-      setSaving(false);
-    }
+  function commitDraft(
+    updater: (prev: AutomationStageTransition) => AutomationStageTransition,
+  ) {
+    setDraft((prev) => {
+      const next = updater(prev);
+      const normalized = normalizeTransition(next, fromStage.id);
+      if (normalized) {
+        queueMicrotask(() => onSave(normalized));
+      }
+      return next;
+    });
   }
 
   return (
@@ -302,7 +298,7 @@ export function StageTransitionInspector({
             allowNone
             value={draft.conditions}
             onChange={(conditions) =>
-              setDraft((prev) => ({
+              commitDraft((prev) => ({
                 ...prev,
                 conditions,
                 elseOptionId:
@@ -335,7 +331,7 @@ export function StageTransitionInspector({
               onValueChange={(next) => {
                 if (next == null) return;
                 const value = String(next);
-                setDraft((prev) => ({
+                commitDraft((prev) => ({
                   ...prev,
                   toOptionId: value,
                   elseOptionId:
@@ -382,7 +378,7 @@ export function StageTransitionInspector({
                 onValueChange={(next) => {
                   if (next == null) return;
                   const value = String(next);
-                  setDraft((prev) => ({
+                  commitDraft((prev) => ({
                     ...prev,
                     elseOptionId: value === "__block__" ? "" : value,
                   }));
@@ -419,29 +415,20 @@ export function StageTransitionInspector({
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border pt-3">
-        <Button
-          type="button"
-          size="sm"
-          disabled={saving || !draft.toOptionId}
-          onClick={() => void handleSave()}
-        >
-          {commitLabel}
-        </Button>
-        {value ? (
+      {value ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border pt-3">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             className="text-destructive"
-            disabled={saving}
-            onClick={() => void handleClear()}
+            onClick={onClear}
           >
             <Trash2 className="size-3.5" />
             Убрать правило
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

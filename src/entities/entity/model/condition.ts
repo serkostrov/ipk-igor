@@ -70,6 +70,33 @@ export const ENTITY_CONDITION_OPERATOR_LABELS: Record<
   contains: "содержит",
 };
 
+/** Operator picker sections; filtered per value kind at render time. */
+export const ENTITY_CONDITION_OPERATOR_GROUPS: Array<{
+  label: string;
+  items: EntityConditionOperator[];
+}> = [
+  { label: "Наличие", items: ["empty", "notEmpty"] },
+  { label: "Значение", items: ["true", "false", "eq", "contains"] },
+  {
+    label: "Списки и связи",
+    items: [
+      "in",
+      "notIn",
+      "final",
+      "notFinal",
+      "problem",
+      "isCurrentUser",
+      "equalsCurrentUserField",
+      "equalsRecordField",
+    ],
+  },
+  { label: "Сравнение", items: ["gt", "lt"] },
+  {
+    label: "Даты",
+    items: ["on", "before", "after", "overdue", "today", "withinDays"],
+  },
+];
+
 export const ENTITY_VALUE_KIND_LABELS: Record<EntityValueKind, string> = {
   list: "Список",
   relation: "Связь",
