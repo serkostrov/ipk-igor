@@ -44,6 +44,7 @@ import {
 import {
   deleteAutomationTask,
   fetchAutomationTasks,
+  isAutomationSilentTaskKind,
   registerOverdueAutomationTasksRpc,
   subscribeAutomationTasks,
   type AutomationTask,
@@ -399,7 +400,7 @@ export function TaskTableView({
         userRecordId: getCurrentUserRecordId(),
         entities,
         valueContext,
-      }),
+      }).filter((task) => !isAutomationSilentTaskKind(task.config.kind)),
     [role, tasks, sessionUser?.id, entities, valueContext],
   );
 

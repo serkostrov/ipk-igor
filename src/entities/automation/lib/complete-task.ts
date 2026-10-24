@@ -515,6 +515,10 @@ export async function completePendingSilentAutomationTasks(
   const silent = tasks
     .filter((task) => isAutomationSilentTaskKind(task.config.kind))
     .sort((left, right) => {
+      const phaseRank = (task: AutomationTask) =>
+        (task.config.launchPhase ?? "onEnter") === "beforeEnter" ? 0 : 1;
+      const phaseDelta = phaseRank(left) - phaseRank(right);
+      if (phaseDelta !== 0) return phaseDelta;
       if (left.stepOrder !== right.stepOrder) {
         return left.stepOrder - right.stepOrder;
       }

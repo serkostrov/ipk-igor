@@ -8,6 +8,7 @@ import {
 import {
   completeAutomationTask,
   fetchAutomationTasks,
+  isAutomationSilentTaskKind,
   registerOverdueAutomationTasksRpc,
   subscribeAutomationTasks,
   type AutomationTask,
@@ -44,7 +45,7 @@ export function TaskInbox({
         userRecordId: getCurrentUserRecordId(),
         entities,
         valueContext,
-      }),
+      }).filter((task) => !isAutomationSilentTaskKind(task.config.kind)),
     [role, tasks, sessionUser?.id, entities, valueContext],
   );
 

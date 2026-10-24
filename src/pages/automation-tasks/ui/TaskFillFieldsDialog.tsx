@@ -11,8 +11,10 @@ import {
 import {
   automationOutcomeButtonStyle,
   completeAutomationTask,
+  completePendingSilentAutomationTasks,
   fetchAutomationTask,
   getAutomationUploadTarget,
+  isAutomationSilentTaskKind,
   resolveAutomationGateError,
   type AutomationOutcome,
   type AutomationTask,
@@ -124,12 +126,23 @@ function TaskFillFieldsDialogBody({
       try {
         const next = await fetchAutomationTask(taskId);
         if (cancelled) return;
-        setTask(next);
         if (!next) {
+          setTask(null);
           setSelectedOutcomeId(null);
           setError("Задача не найдена");
           return;
         }
+        if (isAutomationSilentTaskKind(next.config.kind)) {
+          await completePendingSilentAutomationTasks(
+            [next],
+            sessionUser?.id ?? null,
+          );
+          if (cancelled) return;
+          onOpenChange(false);
+          onCompleted?.(next);
+          return;
+        }
+        setTask(next);
         const defaultOutcomeId = getDefaultSelectedOutcomeId(next);
         setSelectedOutcomeId(defaultOutcomeId);
         const entitiesNow = getEntityConfig().entities;
@@ -197,6 +210,8 @@ function TaskFillFieldsDialogBody({
     return () => {
       cancelled = true;
     };
+    // Init once per task open — not when session/callbacks identity churns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taskId only
   }, [taskId]);
 
   const entity = entities.find((item) => item.id === task?.entityId) ?? null;

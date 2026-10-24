@@ -10,8 +10,10 @@ import {
 } from "@/entities/access";
 import {
   completeAutomationTask,
+  completePendingSilentAutomationTasks,
   deleteAutomationTask,
   fetchAutomationTask,
+  isAutomationSilentTaskKind,
   type AutomationTask,
 } from "@/entities/automation";
 import {
@@ -68,6 +70,16 @@ export function AutomationTaskPage({
           ) {
             setTask(null);
             setError("Нет доступа к этому заданию");
+            return;
+          }
+          // Silent autofill / actions — never show a form; complete and leave.
+          if (isAutomationSilentTaskKind(next.config.kind)) {
+            await completePendingSilentAutomationTasks(
+              [next],
+              sessionUser?.id ?? null,
+            );
+            if (cancelled) return;
+            onBack();
             return;
           }
         }

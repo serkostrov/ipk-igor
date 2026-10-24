@@ -4,6 +4,7 @@ import {
   ensureAutomationBeforeEnterPrep,
   fetchAutomationTasks,
   getAutomationConfig,
+  isAutomationSilentTaskKind,
   matchAutomationConditions,
   resolveStageTransition,
   type AutomationScenario,
@@ -225,7 +226,9 @@ async function openBlockingTaskOrNotify(tasks: AutomationTask[]) {
     ? await fetchPendingTasksForRecord(recordId).catch(() => tasks)
     : tasks;
   const interactive = pending.filter(
-    (task) => task.status === "pending" || task.status === "returned",
+    (task) =>
+      (task.status === "pending" || task.status === "returned") &&
+      !isAutomationSilentTaskKind(task.config.kind),
   );
   const mine =
     pickTaskToOpen(interactive, { allowDismissed: true, onlyMine: true }) ??
@@ -253,6 +256,8 @@ function openTaskDialog(
     blockingTasks?: AutomationTask[];
   },
 ) {
+  // Autofill / actions never open as a form — host completes them silently.
+  if (isAutomationSilentTaskKind(task.config.kind)) return;
   const toastKind = options?.toast ?? "spawn";
   clearAutomationTaskFillDialogDismissed(task.id);
   window.setTimeout(() => {
