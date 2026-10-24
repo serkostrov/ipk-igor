@@ -13,6 +13,7 @@ import {
   closeAutomationTaskFillDialog,
   getActiveAutomationTaskDialogId,
   isAutomationTaskFillDialogDismissed,
+  openAutomationTaskFillDialog,
   subscribeAutomationTaskDialog,
 } from "@/features/automation-tasks";
 import { pickEarliestAutomationTask } from "@/features/automation-tasks/lib/task-open-order";
@@ -65,6 +66,11 @@ export function AutomationTasksHost() {
         });
         if (cancelled) return;
 
+        const hadSilent = tasks.some((task) =>
+          isAutomationSilentTaskKind(task.config.kind),
+        );
+        const idsBeforeSilent = new Set(tasks.map((task) => task.id));
+
         await completePendingSilentAutomationTasks(
           tasks,
           sessionUser?.id ?? null,
@@ -86,24 +92,33 @@ export function AutomationTasksHost() {
         );
         const known = knownTaskIdsRef.current;
         const nextKnown = new Set(mine.map((task) => task.id));
+        const fresh =
+          known == null ? [] : mine.filter((task) => !known.has(task.id));
+        const spawnedAfterSilent = mine.filter(
+          (task) => !idsBeforeSilent.has(task.id),
+        );
 
-        if (known == null) {
-          knownTaskIdsRef.current = nextKnown;
-          return;
-        }
-
-        const fresh = mine.filter((task) => !known.has(task.id));
         knownTaskIdsRef.current = nextKnown;
 
-        if (!options?.announceNew || fresh.length === 0) return;
+        // Offer interactive when: silent prep just ran, or a new task arrived.
+        const candidates = hadSilent
+          ? spawnedAfterSilent.length > 0
+            ? spawnedAfterSilent
+            : mine
+          : options?.announceNew
+            ? fresh
+            : [];
 
         const actionable = pickEarliestAutomationTask(
-          fresh.filter((task) => !isAutomationTaskFillDialogDismissed(task.id)),
+          candidates.filter(
+            (task) => !isAutomationTaskFillDialogDismissed(task.id),
+          ),
         );
         if (!actionable) return;
+        if (getActiveAutomationTaskDialogId() === actionable.id) return;
 
-        // Defer so list/kanban pickers can finish closing before navigation.
         window.setTimeout(() => {
+          openAutomationTaskFillDialog(actionable.id);
           toast(actionable.name || "Новая задача", {
             description: "Выполните задание по порядку процесса",
             duration: 8_000,
@@ -115,6 +130,14 @@ export function AutomationTasksHost() {
         }, 80);
       } catch (error: unknown) {
         console.error("[automation] task host sync failed", error);
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Не удалось выполнить автозаполнение";
+        toast.error("Автозаполнение не выполнено", {
+          description: message,
+          duration: 10_000,
+        });
       }
     }
 

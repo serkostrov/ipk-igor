@@ -219,6 +219,7 @@ export { executeAutomationActions } from "./lib/execute-actions";
 export {
   completeAutomationTask,
   completePendingSilentAutomationTasks,
+  completePendingSilentAutomationTasksForRecord,
   returnAutomationTaskForRevision,
 } from "./lib/complete-task";
 export {

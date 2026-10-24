@@ -359,13 +359,19 @@ export async function executeAutomationActions(
               );
             }
             const multiIds: string[] = [];
+            const relatedMappings =
+              action.useEntityCreateForm === true ? [] : action.mappings;
             for (const parentRecordId of relatedParents.parentRecordIds) {
               const nestedId = createRecordUnderRelatedNestedId(parentRecordId);
-              const count = readNestedDraftCount(
+              let count = readNestedDraftCount(
                 ctx.formValues,
                 action.id,
                 nestedId,
               );
+              // Mapped autofill under related parents: no drafts → one row each.
+              if (count === 0 && action.useEntityCreateForm !== true) {
+                count = 1;
+              }
               for (let index = 0; index < count; index++) {
                 const multiAsk = readAskDraftValues(
                   ctx.formValues,
@@ -380,7 +386,7 @@ export async function executeAutomationActions(
                 );
                 const child = await createMappedRecord(
                   action.entityId,
-                  action.useEntityCreateForm ? [] : action.mappings,
+                  relatedMappings,
                   ctx,
                   createdRecordIds,
                   {
@@ -410,15 +416,24 @@ export async function executeAutomationActions(
               action.id,
               CREATE_RECORD_MULTI_NESTED_ID,
             );
-            // Silent / mapped create with «multiple» but no form drafts used
-            // to create zero rows — fall back to one mapped record.
-            const askDriven =
-              action.useEntityCreateForm === true ||
-              (action.askFieldIds?.length ?? 0) > 0;
-            if (count === 0 && !askDriven) {
+            // Autofill / mapped create with «multiple» but no drafts → one row.
+            // (askFieldIds often linger from the builder without a real ask form.)
+            if (count === 0 && action.useEntityCreateForm !== true) {
               count = 1;
             }
+            if (count === 0) {
+              logs.push({
+                kind: "createRecord",
+                entityId: action.entityId,
+                multiple: true,
+                recordIds: [],
+              });
+              break;
+            }
             const multiIds: string[] = [];
+            const multiMappings =
+              action.useEntityCreateForm === true ? [] : action.mappings;
+            const multiParentId = createParentHost?.id ?? ctx.triggerEntityId;
             for (let index = 0; index < count; index++) {
               const multiAsk = readAskDraftValues(
                 ctx.formValues,
@@ -433,13 +448,13 @@ export async function executeAutomationActions(
               );
               const child = await createMappedRecord(
                 action.entityId,
-                action.useEntityCreateForm ? [] : action.mappings,
+                multiMappings,
                 ctx,
                 createdRecordIds,
                 {
                   askOverrides: multiAsk,
                   parentLink: {
-                    parentEntityId: ctx.triggerEntityId,
+                    parentEntityId: multiParentId,
                     parentRecordId: ctx.triggerRecordId,
                   },
                 },
@@ -469,24 +484,24 @@ export async function executeAutomationActions(
             createAskFieldIds,
             (fieldId) => createRecordAskDraftKey(action.id, fieldId),
           );
+          // Keep mappings for silent autofill even when askFieldIds are set
+          // from builder defaults (empty form drafts).
+          const singleMappings =
+            action.useEntityCreateForm === true &&
+            Object.keys(parentAsk).length > 0
+              ? []
+              : action.mappings;
           const record = await createMappedRecord(
             action.entityId,
-            action.useEntityCreateForm ? [] : action.mappings,
+            singleMappings,
             ctx,
             createdRecordIds,
             {
               askOverrides: parentAsk,
-              // Silent / mapped create must still attach to the current host
-              // (linked tab / belonging) — otherwise related-ask on the next
-              // interactive step sees an empty «Сначала выберите…».
-              ...(createParentHost
-                ? {
-                    parentLink: {
-                      parentEntityId: createParentHost.id,
-                      parentRecordId: ctx.triggerRecordId,
-                    },
-                  }
-                : {}),
+              parentLink: {
+                parentEntityId: createParentHost?.id ?? ctx.triggerEntityId,
+                parentRecordId: ctx.triggerRecordId,
+              },
             },
           );
           createdRecordIds.push(record.id);

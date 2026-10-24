@@ -21,6 +21,7 @@ import {
 import {
   completeAutomationTaskRpc,
   fetchAutomationTask,
+  fetchAutomationTasks,
   notifyAutomationTasksChanged,
   returnAutomationTaskForRevisionRpc,
 } from "../api/automation-tasks-api";
@@ -380,6 +381,37 @@ export async function completeAutomationTask(
     );
   }
 
+  // Rich actions (createRecord, …) MUST run before RPC complete.
+  // Otherwise silent autofill is marked done, the next interactive task opens,
+  // and createRecord either races after related-ask resolves empty — or fails
+  // with the task already completed (no retry).
+  const richActions = outcome.actions.filter(
+    (action) =>
+      action.kind !== "setField" &&
+      action.kind !== "noop" &&
+      action.kind !== "requireFields" &&
+      action.kind !== "viewField" &&
+      action.kind !== "viewTabs" &&
+      action.kind !== "cancelTasks",
+  );
+
+  const valuesForRich: Record<string, string> = { ...valuesForForm };
+  if (richActions.length > 0) {
+    const result = await executeAutomationActions(richActions, {
+      entities,
+      triggerEntityId: task.entityId,
+      triggerRecordId: task.recordId,
+      values: valuesForRich,
+      previousValues,
+      actorUserId: actorUserId ?? null,
+      depth: 1,
+      formValues: formValues ?? {},
+    });
+    if (result.errors.length > 0) {
+      throw new Error(result.errors.join("; "));
+    }
+  }
+
   let rpcResult;
   try {
     rpcResult = await completeAutomationTaskRpc(
@@ -404,6 +436,7 @@ export async function completeAutomationTask(
   const patchedValues: Record<string, string> = {
     ...previousValues,
     ...valuesForForm,
+    ...valuesForRich,
   };
   if (rpcResult.fieldValues) {
     Object.assign(patchedValues, rpcResult.fieldValues);
@@ -461,35 +494,6 @@ export async function completeAutomationTask(
     setEntityRecordValuesLocal(entity.id, task.recordId, patchedValues);
   }
 
-  const { entities: nextEntities } = getEntityConfig();
-  const values: Record<string, string> = { ...patchedValues };
-
-  const richActions = outcome.actions.filter(
-    (action) =>
-      action.kind !== "setField" &&
-      action.kind !== "noop" &&
-      action.kind !== "requireFields" &&
-      action.kind !== "viewField" &&
-      action.kind !== "viewTabs" &&
-      action.kind !== "cancelTasks",
-  );
-
-  if (richActions.length > 0) {
-    const result = await executeAutomationActions(richActions, {
-      entities: nextEntities,
-      triggerEntityId: task.entityId,
-      triggerRecordId: task.recordId,
-      values,
-      previousValues,
-      actorUserId: actorUserId ?? null,
-      depth: 1,
-      formValues: formValues ?? {},
-    });
-    if (result.errors.length > 0) {
-      throw new Error(result.errors.join("; "));
-    }
-  }
-
   return rpcResult;
 }
 
@@ -525,6 +529,7 @@ export async function completePendingSilentAutomationTasks(
       return left.createdAt.localeCompare(right.createdAt);
     });
 
+  const failures: string[] = [];
   for (const task of silent) {
     const entity = entities.find((item) => item.id === task.entityId);
     const record = entity?.records.find((item) => item.id === task.recordId);
@@ -537,7 +542,31 @@ export async function completePendingSilentAutomationTasks(
     try {
       await completeAutomationTask(task.id, outcome.id, actorUserId ?? null);
     } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : String(error ?? "ошибка");
       console.error("[automation] silent step complete failed", error);
+      failures.push(`«${task.name || "Автозаполнение"}»: ${message}`);
     }
   }
+  if (failures.length > 0) {
+    throw new Error(`Автозаполнение не выполнено:\n${failures.join("\n")}`);
+  }
+}
+
+/**
+ * Finish pending silent steps for a record before opening an interactive task.
+ * Needed when the host race / inbox opens step N while autofill createRecord
+ * for step N−1 is still pending.
+ */
+export async function completePendingSilentAutomationTasksForRecord(
+  recordId: string,
+  actorUserId?: string | null,
+): Promise<void> {
+  const id = recordId.trim();
+  if (!id) return;
+  const pending = await fetchAutomationTasks({
+    recordId: id,
+    status: ["pending", "returned"],
+  });
+  await completePendingSilentAutomationTasks(pending, actorUserId ?? null);
 }

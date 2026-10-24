@@ -12,6 +12,7 @@ import {
   automationOutcomeButtonStyle,
   completeAutomationTask,
   completePendingSilentAutomationTasks,
+  completePendingSilentAutomationTasksForRecord,
   fetchAutomationTask,
   getAutomationUploadTarget,
   isAutomationSilentTaskKind,
@@ -142,6 +143,13 @@ function TaskFillFieldsDialogBody({
           onCompleted?.(next);
           return;
         }
+        // Autofill createRecord on earlier silent steps must finish first —
+        // otherwise related-ask resolves empty («Нет связанных записей»).
+        await completePendingSilentAutomationTasksForRecord(
+          next.recordId,
+          sessionUser?.id ?? null,
+        );
+        if (cancelled) return;
         setTask(next);
         const defaultOutcomeId = getDefaultSelectedOutcomeId(next);
         setSelectedOutcomeId(defaultOutcomeId);

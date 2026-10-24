@@ -11,6 +11,7 @@ import {
 import {
   completeAutomationTask,
   completePendingSilentAutomationTasks,
+  completePendingSilentAutomationTasksForRecord,
   deleteAutomationTask,
   fetchAutomationTask,
   isAutomationSilentTaskKind,
@@ -82,6 +83,12 @@ export function AutomationTaskPage({
             onBack();
             return;
           }
+          // Finish silent createRecord on this record before the form.
+          await completePendingSilentAutomationTasksForRecord(
+            next.recordId,
+            sessionUser?.id ?? null,
+          );
+          if (cancelled) return;
         }
         setTask(next);
         if (!next) setError("Задача не найдена");

@@ -7,6 +7,7 @@ import {
 } from "@/entities/access";
 import {
   completeAutomationTask,
+  completePendingSilentAutomationTasksForRecord,
   fetchAutomationTasks,
   isAutomationSilentTaskKind,
   registerOverdueAutomationTasksRpc,
@@ -35,6 +36,9 @@ export function TaskInbox({
   const [tasks, setTasks] = useState<AutomationTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [silentReadyRecordId, setSilentReadyRecordId] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -91,6 +95,37 @@ export function TaskInbox({
   }, []);
 
   const selected = visibleTasks.find((task) => task.id === selectedId) ?? null;
+  const selectedRecordId = selected?.recordId ?? null;
+  const selectedReady =
+    selected != null &&
+    selectedRecordId != null &&
+    silentReadyRecordId === selectedRecordId;
+
+  // Finish silent autofill for this record before the interactive form mounts.
+  useEffect(() => {
+    if (!selectedRecordId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await completePendingSilentAutomationTasksForRecord(
+          selectedRecordId,
+          sessionUser?.id ?? null,
+        );
+        if (!cancelled) setSilentReadyRecordId(selectedRecordId);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Не удалось выполнить автозаполнение",
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRecordId, sessionUser?.id]);
 
   return (
     <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
@@ -128,7 +163,11 @@ export function TaskInbox({
                         ? "border-primary bg-primary/5"
                         : "border-transparent hover:bg-muted/40",
                     )}
-                    onClick={() => setSelectedId(task.id)}
+                    onClick={() => {
+                      setSelectedId(task.id);
+                      setSilentReadyRecordId(null);
+                      setError(null);
+                    }}
                   >
                     <span className="truncate text-sm font-medium">
                       {task.name}
@@ -153,7 +192,7 @@ export function TaskInbox({
       </div>
 
       <div className="min-h-0 overflow-auto rounded-xl border border-border bg-card p-4">
-        {selected ? (
+        {selected && selectedReady ? (
           <TaskWorkspace
             task={selected}
             onOpenRecord={onOpenRecord}
@@ -170,6 +209,15 @@ export function TaskInbox({
               );
             }}
           />
+        ) : selected && error ? (
+          <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 px-4 text-center text-sm text-destructive">
+            {error}
+          </div>
+        ) : selected ? (
+          <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+            <RotateCcw className="size-5 animate-spin opacity-50" />
+            Выполняется автозаполнение…
+          </div>
         ) : (
           <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
             <RotateCcw className="size-5 opacity-50" />
