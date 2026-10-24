@@ -1,6 +1,7 @@
 export {
   askRelatedScopeKey,
   collectLinkedTabRecordIds,
+  collectRecordsLinkedToParent,
   getAskRelatedLinkedTabs,
   getCreateParentFromRelatedOptions,
   getCreateUnderExistingRelatedOptions,
@@ -217,6 +218,7 @@ export { renderAutomationNameTemplate } from "./lib/render-name-template";
 export { executeAutomationActions } from "./lib/execute-actions";
 export {
   completeAutomationTask,
+  completePendingSilentAutomationTasks,
   returnAutomationTaskForRevision,
 } from "./lib/complete-task";
 export {

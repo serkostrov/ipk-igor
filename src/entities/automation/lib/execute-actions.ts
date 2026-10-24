@@ -466,7 +466,20 @@ export async function executeAutomationActions(
             action.useEntityCreateForm ? [] : action.mappings,
             ctx,
             createdRecordIds,
-            { askOverrides: parentAsk },
+            {
+              askOverrides: parentAsk,
+              // Silent / mapped create must still attach to the current host
+              // (linked tab / belonging) — otherwise related-ask on the next
+              // interactive step sees an empty «Сначала выберите…».
+              ...(createParentHost
+                ? {
+                    parentLink: {
+                      parentEntityId: createParentHost.id,
+                      parentRecordId: ctx.triggerRecordId,
+                    },
+                  }
+                : {}),
+            },
           );
           createdRecordIds.push(record.id);
           if (action.linkBackFieldId) {

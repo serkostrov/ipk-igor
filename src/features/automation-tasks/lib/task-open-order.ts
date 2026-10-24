@@ -1,4 +1,7 @@
-import type { AutomationTask } from "@/entities/automation";
+import {
+  isAutomationSilentTaskKind,
+  type AutomationTask,
+} from "@/entities/automation";
 import { getEntityConfig, parseEntityListValueIds } from "@/entities/entity";
 
 function listOptionId(value: string) {
@@ -39,9 +42,13 @@ export function compareAutomationTasksForOpen(
   return left.createdAt.localeCompare(right.createdAt);
 }
 
+/** Interactive tasks only — silent autofill / actions never open as a form. */
 export function pickEarliestAutomationTask(
   tasks: readonly AutomationTask[],
 ): AutomationTask | null {
-  if (tasks.length === 0) return null;
-  return [...tasks].sort(compareAutomationTasksForOpen)[0] ?? null;
+  const interactive = tasks.filter(
+    (task) => !isAutomationSilentTaskKind(task.config.kind),
+  );
+  if (interactive.length === 0) return null;
+  return [...interactive].sort(compareAutomationTasksForOpen)[0] ?? null;
 }

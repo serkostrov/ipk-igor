@@ -42,7 +42,8 @@ export function TaskRelatedAskFields({
           key={item.relationFieldId}
           className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-3 py-2.5 text-xs text-muted-foreground"
         >
-          Сначала выберите «{item.relationLabel}»
+          Нет связанных записей «{item.relationLabel}». Сначала создайте их
+          (автозаполнение или предыдущий шаг).
         </p>
       ))}
       {groups.map((group) => {

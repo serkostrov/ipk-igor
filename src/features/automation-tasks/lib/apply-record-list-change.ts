@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import {
+  completePendingSilentAutomationTasks,
   ensureAutomationBeforeEnterPrep,
   fetchAutomationTasks,
   getAutomationConfig,
@@ -215,19 +216,32 @@ function describeBlockingTasksForToast(tasks: AutomationTask[]) {
     .join(", ");
 }
 
-function openBlockingTaskOrNotify(tasks: AutomationTask[]) {
+async function openBlockingTaskOrNotify(tasks: AutomationTask[]) {
+  const actorUserId = getSessionUser()?.id ?? null;
+  await completePendingSilentAutomationTasks(tasks, actorUserId);
+  // Silent steps may have spawned / unblocked the next interactive task.
+  const recordId = tasks[0]?.recordId;
+  const pending = recordId
+    ? await fetchPendingTasksForRecord(recordId).catch(() => tasks)
+    : tasks;
+  const interactive = pending.filter(
+    (task) => task.status === "pending" || task.status === "returned",
+  );
   const mine =
-    pickTaskToOpen(tasks, { allowDismissed: true, onlyMine: true }) ?? null;
+    pickTaskToOpen(interactive, { allowDismissed: true, onlyMine: true }) ??
+    null;
   if (mine) {
     openTaskDialog(mine, {
       toast: "blocked",
-      blockingTasks: tasks,
+      blockingTasks: interactive.filter(
+        (task) => task.isBlocking || task.id === mine.id,
+      ),
     });
     return;
   }
-  if (tasks.length === 0) return;
+  if (interactive.length === 0) return;
   toast.warning("Сначала выполните задачи", {
-    description: describeBlockingTasksForToast(tasks),
+    description: describeBlockingTasksForToast(interactive),
     duration: 8_000,
   });
 }
@@ -320,10 +334,15 @@ async function openDialogAfterStageChange(input: {
   knownTaskIds: Set<string>;
 }) {
   const { recordId, fieldId, toOptionId, knownTaskIds } = input;
+  const actorUserId = getSessionUser()?.id ?? null;
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
     if (attempt > 0) await sleep(80 + attempt * 90);
-    const tasks = await fetchPendingTasksForRecord(recordId);
+    let tasks = await fetchPendingTasksForRecord(recordId);
+    // Autofill createRecord must finish before the interactive form opens —
+    // otherwise related-ask shows empty «Нет связанных записей».
+    await completePendingSilentAutomationTasks(tasks, actorUserId);
+    tasks = await fetchPendingTasksForRecord(recordId);
     const task = pickTaskAfterStageChange({
       tasks,
       fieldId,
@@ -438,7 +457,7 @@ export async function applyRecordListChange(
           fieldId: field.id,
           value: resolvedValue,
         });
-        openBlockingTaskOrNotify(blocking);
+        await openBlockingTaskOrNotify(blocking);
         return false;
       }
     } catch (error: unknown) {
@@ -499,7 +518,7 @@ export async function applyRecordListChange(
                   fieldId: field.id,
                   value: resolvedValue,
                 });
-                openBlockingTaskOrNotify(openable);
+                await openBlockingTaskOrNotify(openable);
                 return false;
               }
               // Prep for this destination already done → allow the move even
@@ -588,7 +607,9 @@ export async function applyRecordListChange(
       try {
         const pending = await fetchPendingTasksForRecord(record.id);
         const blocking = findBlockingTasks(pending, field.id, fromOptionId);
-        openBlockingTaskOrNotify(blocking.length > 0 ? blocking : pending);
+        await openBlockingTaskOrNotify(
+          blocking.length > 0 ? blocking : pending,
+        );
       } catch (fetchError: unknown) {
         console.error("[automation] load blocking tasks failed", fetchError);
         toast.warning("Переход заблокирован", {

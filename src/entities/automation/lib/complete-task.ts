@@ -29,9 +29,12 @@ import { getAutomationConfig } from "../store/automation-store";
 import { resolveAskRelatedTarget } from "./ask-related";
 import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
+import { pickAutomationOutcome } from "./pick-outcome";
 import {
+  isAutomationSilentTaskKind,
   relatedAskValueKey,
   type AutomationOutcomeFieldAccess,
+  type AutomationTask,
 } from "../model/types";
 
 /** Append selected form-field values as notes on the first «Записи» tab. */
@@ -497,4 +500,40 @@ export async function returnAutomationTaskForRevision(
   const runId = await returnAutomationTaskForRevisionRpc(taskId, actorUserId);
   notifyAutomationTasksChanged();
   return runId;
+}
+
+/**
+ * Run pending silent autofill / actions tasks in step order.
+ * Call before opening an interactive task so createRecord and setField from
+ * earlier silent steps are already applied to the entity store.
+ */
+export async function completePendingSilentAutomationTasks(
+  tasks: readonly AutomationTask[],
+  actorUserId?: string | null,
+): Promise<void> {
+  const { entities } = getEntityConfig();
+  const silent = tasks
+    .filter((task) => isAutomationSilentTaskKind(task.config.kind))
+    .sort((left, right) => {
+      if (left.stepOrder !== right.stepOrder) {
+        return left.stepOrder - right.stepOrder;
+      }
+      return left.createdAt.localeCompare(right.createdAt);
+    });
+
+  for (const task of silent) {
+    const entity = entities.find((item) => item.id === task.entityId);
+    const record = entity?.records.find((item) => item.id === task.recordId);
+    const outcome = pickAutomationOutcome(
+      task.config.outcomes,
+      { values: record?.values ?? {} },
+      task.outcomeId,
+    );
+    if (!outcome) continue;
+    try {
+      await completeAutomationTask(task.id, outcome.id, actorUserId ?? null);
+    } catch (error: unknown) {
+      console.error("[automation] silent step complete failed", error);
+    }
+  }
 }

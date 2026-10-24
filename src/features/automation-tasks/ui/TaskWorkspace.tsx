@@ -293,11 +293,10 @@ function TaskWorkspaceBody({
   });
   const autosaveLabel = taskFormAutosaveLabel(autosave.status);
 
-  const relatedFieldsForForm =
-    ask?.relatedVisibleFields ??
-    (formUpfront ? taskAsk.relatedVisibleFields : []);
-  const relatedRequiredForForm =
-    ask?.relatedRequiredIds ?? (formUpfront ? taskAsk.relatedRequiredIds : []);
+  // Only the selected outcome — never the union of all outcomes (that leaked
+  // later-step related / create asks onto early sequential tasks).
+  const relatedFieldsForForm = ask?.relatedVisibleFields ?? [];
+  const relatedRequiredForForm = ask?.relatedRequiredIds ?? [];
 
   const relatedLayout =
     entity && relatedFieldsForForm.length > 0

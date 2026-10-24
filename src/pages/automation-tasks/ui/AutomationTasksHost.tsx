@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  completeAutomationTask,
+  completePendingSilentAutomationTasks,
   fetchAutomationTasks,
   isAutomationSilentTaskKind,
-  pickAutomationOutcome,
   subscribeAutomationTasks,
   type AutomationTask,
 } from "@/entities/automation";
@@ -59,39 +58,6 @@ export function AutomationTasksHost() {
 
     let cancelled = false;
 
-    async function completeSilentTasks(tasks: AutomationTask[]) {
-      const silent = tasks
-        .filter((task) => isAutomationSilentTaskKind(task.config.kind))
-        .sort((left, right) => {
-          if (left.stepOrder !== right.stepOrder) {
-            return left.stepOrder - right.stepOrder;
-          }
-          return left.createdAt.localeCompare(right.createdAt);
-        });
-      for (const task of silent) {
-        if (cancelled) return;
-        const entity = entities.find((item) => item.id === task.entityId);
-        const record = entity?.records.find(
-          (item) => item.id === task.recordId,
-        );
-        const outcome = pickAutomationOutcome(
-          task.config.outcomes,
-          { values: record?.values ?? {} },
-          task.outcomeId,
-        );
-        if (!outcome) continue;
-        try {
-          await completeAutomationTask(
-            task.id,
-            outcome.id,
-            sessionUser?.id ?? null,
-          );
-        } catch (error: unknown) {
-          console.error("[automation] silent step complete failed", error);
-        }
-      }
-    }
-
     async function syncTasks(options?: { announceNew?: boolean }) {
       try {
         let tasks = await fetchAutomationTasks({
@@ -99,7 +65,10 @@ export function AutomationTasksHost() {
         });
         if (cancelled) return;
 
-        await completeSilentTasks(tasks);
+        await completePendingSilentAutomationTasks(
+          tasks,
+          sessionUser?.id ?? null,
+        );
         if (cancelled) return;
 
         // Silent complete may spawn the next sequential interactive task
@@ -129,9 +98,7 @@ export function AutomationTasksHost() {
         if (!options?.announceNew || fresh.length === 0) return;
 
         const actionable = pickEarliestAutomationTask(
-          fresh.filter(
-            (task) => !isAutomationTaskFillDialogDismissed(task.id),
-          ),
+          fresh.filter((task) => !isAutomationTaskFillDialogDismissed(task.id)),
         );
         if (!actionable) return;
 

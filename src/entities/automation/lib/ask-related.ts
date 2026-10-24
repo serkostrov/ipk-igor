@@ -130,6 +130,59 @@ export function collectLinkedTabRecordIds(options: {
 }
 
 /**
+ * Child records linked to `parentRecordId` via belonging / relation on the
+ * child (createRecord sets this — the parent forward relation may stay empty).
+ */
+export function collectRecordsLinkedToParent(options: {
+  childEntity: Entity;
+  parentEntityId: string;
+  parentRecordId: string;
+  host?: Entity | null;
+}): string[] {
+  const { childEntity, parentEntityId, parentRecordId, host } = options;
+  if (!parentRecordId.trim()) return [];
+
+  if (host) {
+    for (const tab of host.tabs) {
+      if (
+        !isEntityTabWithLinkedEntity(tab) ||
+        tab.linkedEntityId !== childEntity.id
+      ) {
+        continue;
+      }
+      const fromTab = collectLinkedTabRecordIds({
+        tab,
+        linkedEntity: childEntity,
+        parentEntityId: host.id,
+        parentRecordId,
+      });
+      if (fromTab.length > 0) return fromTab;
+    }
+  }
+
+  const linkField =
+    (host ? resolveHostChildParentLinkField(host, childEntity)?.field : null) ??
+    (childEntity.parentEntityId?.trim() === parentEntityId
+      ? getEntityParentLinkField(childEntity)
+      : null) ??
+    childEntity.fields.find(
+      (field) =>
+        (field.type === "relation" || field.type === "belonging") &&
+        getEntityRelationTargetId(field) === parentEntityId,
+    ) ??
+    null;
+  if (!linkField) return [];
+
+  return childEntity.records
+    .filter(
+      (record) =>
+        record.id !== parentRecordId &&
+        entityRelationIncludesId(record.values[linkField.id], parentRecordId),
+    )
+    .map((record) => record.id);
+}
+
+/**
  * Resolve related entity + record ids for one ask row
  * (forward relation or linked-entity tab).
  */
@@ -152,17 +205,26 @@ export function resolveAskRelatedTarget(options: {
     }
     const relatedEntity = entityById.get(tab.linkedEntityId);
     if (!relatedEntity) return null;
+    let relatedRecordIds = collectLinkedTabRecordIds({
+      tab,
+      linkedEntity: relatedEntity,
+      parentEntityId: triggerEntity.id,
+      parentRecordId: triggerRecordId,
+    });
+    if (relatedRecordIds.length === 0) {
+      relatedRecordIds = collectRecordsLinkedToParent({
+        childEntity: relatedEntity,
+        parentEntityId: triggerEntity.id,
+        parentRecordId: triggerRecordId,
+        host: triggerEntity,
+      });
+    }
     return {
       scopeKey: askRelatedScopeKey(ask),
       label:
         tab.name.trim() || getEntityDisplayName(relatedEntity) || "Подсущность",
       relatedEntity,
-      relatedRecordIds: collectLinkedTabRecordIds({
-        tab,
-        linkedEntity: relatedEntity,
-        parentEntityId: triggerEntity.id,
-        parentRecordId: triggerRecordId,
-      }),
+      relatedRecordIds,
     };
   }
 
@@ -174,13 +236,22 @@ export function resolveAskRelatedTarget(options: {
   const relatedEntity = targetId ? entityById.get(targetId) : undefined;
   if (!relatedEntity) return null;
 
+  const forwardIds = parseEntityRelationIds(triggerValues[ask.relationFieldId]);
+  const relatedRecordIds =
+    forwardIds.length > 0
+      ? forwardIds
+      : collectRecordsLinkedToParent({
+          childEntity: relatedEntity,
+          parentEntityId: triggerEntity.id,
+          parentRecordId: triggerRecordId,
+          host: triggerEntity,
+        });
+
   return {
     scopeKey: askRelatedScopeKey(ask),
     label: getEntityFieldDisplayName(relationField),
     relatedEntity,
-    relatedRecordIds: parseEntityRelationIds(
-      triggerValues[ask.relationFieldId],
-    ),
+    relatedRecordIds,
   };
 }
 
@@ -387,16 +458,25 @@ export function resolveCreateParentFromRelated(options: {
       (item) => item.id === tab.linkedEntityId,
     );
     if (!parentEntity) return null;
+    let parentRecordIds = collectLinkedTabRecordIds({
+      tab,
+      linkedEntity: parentEntity,
+      parentEntityId: triggerEntity.id,
+      parentRecordId: triggerRecordId,
+    });
+    if (parentRecordIds.length === 0) {
+      parentRecordIds = collectRecordsLinkedToParent({
+        childEntity: parentEntity,
+        parentEntityId: triggerEntity.id,
+        parentRecordId: triggerRecordId,
+        host: triggerEntity,
+      });
+    }
     return {
       parentEntity,
       parentLabel:
         tab.name.trim() || getEntityDisplayName(parentEntity) || "Подсущность",
-      parentRecordIds: collectLinkedTabRecordIds({
-        tab,
-        linkedEntity: parentEntity,
-        parentEntityId: triggerEntity.id,
-        parentRecordId: triggerRecordId,
-      }),
+      parentRecordIds,
     };
   }
 
@@ -410,10 +490,20 @@ export function resolveCreateParentFromRelated(options: {
       ? entities.find((item) => item.id === targetId)
       : undefined;
     if (!parentEntity) return null;
+    const forwardIds = parseEntityRelationIds(triggerValues[relationFieldId]);
+    const parentRecordIds =
+      forwardIds.length > 0
+        ? forwardIds
+        : collectRecordsLinkedToParent({
+            childEntity: parentEntity,
+            parentEntityId: triggerEntity.id,
+            parentRecordId: triggerRecordId,
+            host: triggerEntity,
+          });
     return {
       parentEntity,
       parentLabel: getEntityFieldDisplayName(relationField),
-      parentRecordIds: parseEntityRelationIds(triggerValues[relationFieldId]),
+      parentRecordIds,
     };
   }
 
