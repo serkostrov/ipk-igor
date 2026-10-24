@@ -2056,10 +2056,10 @@ export function TemplateInspector({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="beforeEnter">
-                      До старта — до смены стадии
+                      До старта — перед заданиями на стадии
                     </SelectItem>
                     <SelectItem value="onEnter">
-                      После старта — на этой стадии
+                      После старта — задания на стадии
                     </SelectItem>
                   </SelectContent>
                 </Select>

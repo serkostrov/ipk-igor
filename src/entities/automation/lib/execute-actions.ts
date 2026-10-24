@@ -405,11 +405,19 @@ export async function executeAutomationActions(
             break;
           }
           if (action.multiple) {
-            const count = readNestedDraftCount(
+            let count = readNestedDraftCount(
               ctx.formValues,
               action.id,
               CREATE_RECORD_MULTI_NESTED_ID,
             );
+            // Silent / mapped create with «multiple» but no form drafts used
+            // to create zero rows — fall back to one mapped record.
+            const askDriven =
+              action.useEntityCreateForm === true ||
+              (action.askFieldIds?.length ?? 0) > 0;
+            if (count === 0 && !askDriven) {
+              count = 1;
+            }
             const multiIds: string[] = [];
             for (let index = 0; index < count; index++) {
               const multiAsk = readAskDraftValues(
