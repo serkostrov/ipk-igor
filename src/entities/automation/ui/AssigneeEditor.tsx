@@ -42,11 +42,15 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/lib/cn";
+import { getAskRelatedLinkedTabs } from "../lib/ask-related";
 import {
   bridgeRelationFields,
   bridgeRelationGroupsFields,
   pathFromAssigneeSelection,
+  pathImpliesMultiAssignee,
+  relationGroupsDrillOptions,
   relationTargetEntity,
+  userLookupPathOptions,
   userRelationFields,
   type UserFieldPath,
   type UserFieldPathEntity,
@@ -60,11 +64,32 @@ function firstUserRelationFieldId(fields: EntityField[]) {
 function firstRelatedDefault(
   fields: EntityField[],
   entities: Entity[],
+  rootEntity?: UserFieldPathEntity | null,
 ): Extract<AutomationAssigneeLeafResolver, { type: "relatedField" }> | null {
-  const bridges = [
-    ...bridgeRelationFields(fields),
-    ...bridgeRelationGroupsFields(fields),
-  ];
+  const host =
+    rootEntity ??
+    ({
+      id: "__assignee-root",
+      name: "Запись",
+      namePlural: "Записи",
+      fields,
+    } satisfies UserFieldPathEntity);
+  const lookup = userLookupPathOptions(host, entities)[0];
+  if (lookup) {
+    const [relationFieldId, ...via] = lookup.path.relationPath;
+    if (relationFieldId) {
+      return {
+        type: "relatedField",
+        relationFieldId,
+        ...(via.length > 0 ? { via } : {}),
+        ...(lookup.path.relationGroupsDepths
+          ? { relationGroupsDepths: lookup.path.relationGroupsDepths }
+          : {}),
+        fieldId: lookup.path.fieldId,
+      };
+    }
+  }
+  const bridges = bridgeRelationFields(fields);
   for (const bridge of bridges) {
     const target = relationTargetEntity(bridge, entities);
     const nested = firstUserRelationFieldId(target?.fields ?? []);
@@ -76,6 +101,19 @@ function firstRelatedDefault(
       };
     }
   }
+  for (const groups of bridgeRelationGroupsFields(fields)) {
+    for (const option of relationGroupsDrillOptions(groups, entities)) {
+      const nested = firstUserRelationFieldId(option.entity.fields);
+      if (nested) {
+        return {
+          type: "relatedField",
+          relationFieldId: groups.id,
+          relationGroupsDepths: [option.depth],
+          fieldId: nested,
+        };
+      }
+    }
+  }
   return null;
 }
 
@@ -83,6 +121,7 @@ function defaultFromFieldResolver(
   fields: EntityField[],
   entities: Entity[],
   preferFanOut = false,
+  rootEntity?: UserFieldPathEntity | null,
 ): AutomationAssigneeLeafResolver {
   const direct = firstUserRelationFieldId(fields);
   if (direct) {
@@ -90,7 +129,11 @@ function defaultFromFieldResolver(
       ? { type: "relationFieldFanOut", fieldId: direct }
       : { type: "field", fieldId: direct };
   }
-  return firstRelatedDefault(fields, entities) ?? { type: "currentUser" };
+  return (
+    firstRelatedDefault(fields, entities, rootEntity) ?? {
+      type: "currentUser",
+    }
+  );
 }
 
 function fanOutLabels() {
@@ -117,24 +160,30 @@ function pathToResolver(
       : { type: "field", fieldId: path.fieldId };
   }
   const [relationFieldId, ...via] = path.relationPath;
-  if (!relationFieldId) {
+  if (!relationFieldId && !path.linkedChild) {
     return preferFanOut
       ? { type: "relationFieldFanOut", fieldId: path.fieldId }
       : { type: "field", fieldId: path.fieldId };
   }
-  const base =
-    via.length > 0
-      ? {
-          type: "relatedField" as const,
-          relationFieldId,
-          via,
-          fieldId: path.fieldId,
-        }
-      : {
-          type: "relatedField" as const,
-          relationFieldId,
-          fieldId: path.fieldId,
-        };
+  const depths = path.relationGroupsDepths;
+  const hasDepth =
+    depths != null &&
+    depths.some((depth) => depth != null && Number.isFinite(depth));
+  const linkedChild = path.linkedChild
+    ? {
+        tabId: path.linkedChild.tabId,
+        entityId: path.linkedChild.entityId,
+        parentFieldId: path.linkedChild.parentFieldId,
+      }
+    : undefined;
+  const base = {
+    type: "relatedField" as const,
+    relationFieldId: relationFieldId ?? "",
+    fieldId: path.fieldId,
+    ...(via.length > 0 ? { via } : {}),
+    ...(linkedChild ? { linkedChild } : {}),
+    ...(hasDepth ? { relationGroupsDepths: depths } : {}),
+  };
   return preferFanOut ? { ...base, fanOut: true } : base;
 }
 
@@ -148,10 +197,21 @@ function findPathLeafField(
     return rootEntity.fields.find((field) => field.id === path.fieldId) ?? null;
   }
   let entity: UserFieldPathEntity | null = rootEntity;
-  for (const hopId of path.relationPath) {
+  if (path.linkedChild) {
+    entity =
+      entities.find((item) => item.id === path.linkedChild!.entityId) ?? null;
+    if (!entity) return null;
+  }
+  for (let index = 0; index < path.relationPath.length; index++) {
+    const hopId = path.relationPath[index]!;
     const hop = entity.fields.find((field) => field.id === hopId) ?? null;
     if (!hop) return null;
-    entity = relationTargetEntity(hop, entities);
+    const depth = path.relationGroupsDepths?.[index];
+    entity = relationTargetEntity(
+      hop,
+      entities,
+      depth != null && Number.isFinite(depth) ? depth : undefined,
+    );
     if (!entity) return null;
   }
   return entity.fields.find((field) => field.id === path.fieldId) ?? null;
@@ -163,16 +223,33 @@ function pathNeedsFanOutChoice(
   entities: Entity[],
 ): boolean {
   if (!path || !rootEntity) return false;
+  if (pathImpliesMultiAssignee(path)) return true;
   const leaf = findPathLeafField(path, rootEntity, entities);
   if (leaf?.relationMultiple) return true;
   if (path.kind === "direct") return false;
   let entity: UserFieldPathEntity | null = rootEntity;
-  for (const hopId of path.relationPath) {
+  if (path.linkedChild) {
+    entity =
+      entities.find((item) => item.id === path.linkedChild!.entityId) ?? null;
+    if (!entity) return false;
+  }
+  for (let index = 0; index < path.relationPath.length; index++) {
+    const hopId = path.relationPath[index]!;
     const hop = entity.fields.find((field) => field.id === hopId) ?? null;
     if (!hop) return false;
     if (hop.type === "relationGroups") return true;
-    if (hop.type === "relation" && hop.relationMultiple) return true;
-    entity = relationTargetEntity(hop, entities);
+    if (
+      (hop.type === "relation" || hop.type === "belonging") &&
+      hop.relationMultiple
+    ) {
+      return true;
+    }
+    const depth = path.relationGroupsDepths?.[index];
+    entity = relationTargetEntity(
+      hop,
+      entities,
+      depth != null && Number.isFinite(depth) ? depth : undefined,
+    );
     if (!entity) return false;
   }
   return false;
@@ -216,9 +293,6 @@ function LeafAssigneeEditor({
   const roles = useRoles();
   const usersEntity = getSystemUsersEntity(entities);
   const userOptions = getRelationRecordOptions(usersEntity);
-  const userFields = userRelationFields(fields);
-  const bridgeFields = bridgeRelationFields(fields);
-  const groupsFields = bridgeRelationGroupsFields(fields);
   const source = assigneeSourceKind(value);
   const sourceLabels = AUTOMATION_ASSIGNEE_SOURCE_LABELS[mode];
   const fanOut = fanOutLabels();
@@ -241,6 +315,12 @@ function LeafAssigneeEditor({
         }
       : null);
 
+  const pickFields = rootEntity?.fields ?? fields;
+  const userFields = userRelationFields(pickFields);
+  const bridgeFields = bridgeRelationFields(pickFields);
+  const groupsFields = bridgeRelationGroupsFields(pickFields);
+  const lookupOptions = userLookupPathOptions(rootEntity, entities);
+
   const pathValue =
     value.type === "field" || value.type === "relationFieldFanOut"
       ? pathFromAssigneeSelection({
@@ -252,12 +332,43 @@ function LeafAssigneeEditor({
             type: "relatedField",
             fieldId: value.fieldId,
             relationFieldId: value.relationFieldId,
-            via: relatedFieldRelationPath(value).slice(1),
+            via: relatedFieldRelationPath(value).slice(
+              value.relationFieldId ? 1 : 0,
+            ),
+            relationGroupsDepths: value.relationGroupsDepths,
+            linkedChild: value.linkedChild
+              ? {
+                  ...value.linkedChild,
+                  label:
+                    rootEntity && value.linkedChild.tabId
+                      ? (entities
+                          .find((item) => item.id === rootEntity.id)
+                          ?.tabs.find(
+                            (tab) => tab.id === value.linkedChild!.tabId,
+                          )
+                          ?.name.trim() ??
+                        entities.find(
+                          (item) => item.id === value.linkedChild!.entityId,
+                        )?.name ??
+                        "Подсущность")
+                      : "Подсущность",
+                }
+              : undefined,
           })
         : null;
 
+  const rootFull = rootEntity
+    ? (entities.find((item) => item.id === rootEntity.id) ?? null)
+    : null;
+  const linkedTabCount = rootFull
+    ? getAskRelatedLinkedTabs(rootFull, entities).length
+    : 0;
   const canPickFromField =
-    userFields.length > 0 || bridgeFields.length > 0 || groupsFields.length > 0;
+    userFields.length > 0 ||
+    bridgeFields.length > 0 ||
+    groupsFields.length > 0 ||
+    lookupOptions.length > 0 ||
+    linkedTabCount > 0;
   const showFanOut = pathNeedsFanOutChoice(pathValue, rootEntity, entities);
   const fanOutSelected = isFanOutSelected(value);
 
@@ -280,7 +391,9 @@ function LeafAssigneeEditor({
       ) {
         return;
       }
-      onChange(defaultFromFieldResolver(fields, entities));
+      onChange(
+        defaultFromFieldResolver(pickFields, entities, false, rootEntity),
+      );
       return;
     }
     if (kind === "fixedUsers") {
@@ -344,7 +457,7 @@ function LeafAssigneeEditor({
             </Label>
             {!canPickFromField ? (
               <p className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                Нет полей с пользователями или связей.
+                Нет полей с пользователями, связей или наборов.
               </p>
             ) : (
               <UserFieldPathPicker
@@ -352,9 +465,16 @@ function LeafAssigneeEditor({
                 entities={entities}
                 value={pathValue}
                 placeholder="Поле или связь → поле"
-                onChange={(next) =>
-                  onChange(pathToResolver(next, fanOutSelected))
-                }
+                onChange={(next) => {
+                  const preferFanOut = pathNeedsFanOutChoice(
+                    next,
+                    rootEntity,
+                    entities,
+                  )
+                    ? pathImpliesMultiAssignee(next) || fanOutSelected
+                    : fanOutSelected;
+                  onChange(pathToResolver(next, preferFanOut));
+                }}
               />
             )}
           </div>
@@ -709,7 +829,14 @@ export function AssigneeEditor({
         onChange(leaf);
         return;
       }
-      onChange(defaultFromFieldResolver(fields, entities));
+      onChange(
+        defaultFromFieldResolver(
+          rootEntity?.fields ?? fields,
+          entities,
+          false,
+          rootEntity,
+        ),
+      );
       return;
     }
     if (kind === "fixedUsers") {

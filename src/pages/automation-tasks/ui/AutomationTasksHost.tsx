@@ -11,12 +11,12 @@ import {
 import { findSystemUserByAuthId, useEntityConfig } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import {
-  automationTaskNeedsFillDialog,
   closeAutomationTaskFillDialog,
   getActiveAutomationTaskDialogId,
   isAutomationTaskFillDialogDismissed,
   subscribeAutomationTaskDialog,
 } from "@/features/automation-tasks";
+import { pickEarliestAutomationTask } from "@/features/automation-tasks/lib/task-open-order";
 import { useAppNavigate } from "@/shared/lib/navigation";
 import { TaskFillFieldsDialog } from "./TaskFillFieldsDialog";
 
@@ -60,9 +60,14 @@ export function AutomationTasksHost() {
     let cancelled = false;
 
     async function completeSilentTasks(tasks: AutomationTask[]) {
-      const silent = tasks.filter((task) =>
-        isAutomationSilentTaskKind(task.config.kind),
-      );
+      const silent = tasks
+        .filter((task) => isAutomationSilentTaskKind(task.config.kind))
+        .sort((left, right) => {
+          if (left.stepOrder !== right.stepOrder) {
+            return left.stepOrder - right.stepOrder;
+          }
+          return left.createdAt.localeCompare(right.createdAt);
+        });
       for (const task of silent) {
         if (cancelled) return;
         const entity = entities.find((item) => item.id === task.entityId);
@@ -89,12 +94,19 @@ export function AutomationTasksHost() {
 
     async function syncTasks(options?: { announceNew?: boolean }) {
       try {
-        const tasks = await fetchAutomationTasks({
+        let tasks = await fetchAutomationTasks({
           status: ["pending", "returned"],
         });
         if (cancelled) return;
 
         await completeSilentTasks(tasks);
+        if (cancelled) return;
+
+        // Silent complete may spawn the next sequential interactive task
+        // and/or move the stage — re-read before picking what to open.
+        tasks = await fetchAutomationTasks({
+          status: ["pending", "returned"],
+        });
         if (cancelled) return;
 
         const interactiveTasks = tasks.filter(
@@ -116,22 +128,17 @@ export function AutomationTasksHost() {
 
         if (!options?.announceNew || fresh.length === 0) return;
 
-        const actionable =
-          fresh.find(
-            (task) =>
-              automationTaskNeedsFillDialog(task) &&
-              !isAutomationTaskFillDialogDismissed(task.id),
-          ) ??
-          fresh.find((task) => !isAutomationTaskFillDialogDismissed(task.id)) ??
-          null;
+        const actionable = pickEarliestAutomationTask(
+          fresh.filter(
+            (task) => !isAutomationTaskFillDialogDismissed(task.id),
+          ),
+        );
         if (!actionable) return;
 
         // Defer so list/kanban pickers can finish closing before navigation.
         window.setTimeout(() => {
           toast(actionable.name || "Новая задача", {
-            description: automationTaskNeedsFillDialog(actionable)
-              ? "Заполните поля, чтобы продолжить процесс"
-              : "Выберите результат, чтобы продолжить процесс",
+            description: "Выполните задание по порядку процесса",
             duration: 8_000,
             action: {
               label: "Открыть",

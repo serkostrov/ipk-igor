@@ -3,14 +3,13 @@ import {
   getCurrentUserRecordId,
   getEntityConfig,
   getEntityFieldDisplayName,
-  getEntityRelationTargetId,
   resolveEntityFieldLabel,
   getEntityTabRecordsValueKey,
   getEntityValueContext,
   isEntityComputedFieldType,
   isEntityRecordsTab,
+  isEntityRelationGroupsFilled,
   notifyRecordMentions,
-  parseEntityRelationIds,
   parseEntityTabRecordEntries,
   serializeEntityTabRecordEntries,
   setEntityRecordValuesLocal,
@@ -27,6 +26,7 @@ import {
 } from "../api/automation-tasks-api";
 import { resolveAutomationActionValue } from "../model/action-values";
 import { getAutomationConfig } from "../store/automation-store";
+import { resolveAskRelatedTarget } from "./ask-related";
 import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
 import {
@@ -96,6 +96,7 @@ async function appendRelatedOutcomeFieldComments(
   entities: Entity[],
   fieldAccess: AutomationOutcomeFieldAccess,
   values: Record<string, string>,
+  triggerRecordId: string,
 ) {
   if (fieldAccess.relatedCommentIds.length === 0) return;
 
@@ -104,7 +105,6 @@ async function appendRelatedOutcomeFieldComments(
   );
   if (commentAsks.length === 0) return;
 
-  const entityById = new Map(entities.map((item) => [item.id, item]));
   const ctx = getEntityValueContext(
     getEntityConfig().entities,
     getCurrentUserRecordId(),
@@ -118,27 +118,27 @@ async function appendRelatedOutcomeFieldComments(
   const buckets = new Map<string, NoteBucket>();
 
   for (const ask of commentAsks) {
-    const relationField = triggerEntity.fields.find(
-      (field) => field.id === ask.relationFieldId,
+    const resolved = resolveAskRelatedTarget({
+      triggerEntity,
+      entities,
+      ask,
+      triggerRecordId,
+      triggerValues: values,
+    });
+    if (!resolved) continue;
+    if (!resolved.relatedEntity.tabs.some(isEntityRecordsTab)) continue;
+    const field = resolved.relatedEntity.fields.find(
+      (item) => item.id === ask.fieldId,
     );
-    const targetId = relationField
-      ? getEntityRelationTargetId(relationField)
-      : null;
-    const relatedEntity = targetId ? entityById.get(targetId) : undefined;
-    if (!relatedEntity) continue;
-    if (!relatedEntity.tabs.some(isEntityRecordsTab)) continue;
-    const field = relatedEntity.fields.find((item) => item.id === ask.fieldId);
     if (!field) continue;
 
-    for (const relatedRecordId of parseEntityRelationIds(
-      values[ask.relationFieldId],
-    )) {
-      const relatedRecord = relatedEntity.records.find(
+    for (const relatedRecordId of resolved.relatedRecordIds) {
+      const relatedRecord = resolved.relatedEntity.records.find(
         (item) => item.id === relatedRecordId,
       );
       if (!relatedRecord) continue;
       const key = relatedAskValueKey(
-        ask.relationFieldId,
+        resolved.scopeKey,
         relatedRecordId,
         ask.fieldId,
       );
@@ -150,14 +150,14 @@ async function appendRelatedOutcomeFieldComments(
       };
       const formatted = formatRecordFieldValue(
         ctx,
-        relatedEntity,
+        resolved.relatedEntity,
         { ...relatedRecord, values: draftValues },
         field,
       );
       if (!formatted || formatted === "—") continue;
-      const mapKey = `${relatedEntity.id}:${relatedRecordId}`;
+      const mapKey = `${resolved.relatedEntity.id}:${relatedRecordId}`;
       const bucket = buckets.get(mapKey) ?? {
-        entity: relatedEntity,
+        entity: resolved.relatedEntity,
         record: relatedRecord,
         lines: [],
       };
@@ -201,32 +201,38 @@ function validateRelatedRequiredFields(
   entities: Entity[],
   fieldAccess: AutomationOutcomeFieldAccess,
   values: Record<string, string>,
+  triggerRecordId: string,
 ): string[] {
   const missing: string[] = [];
   const requiredAsks = fieldAccess.relatedVisibleFields.filter((item) =>
     fieldAccess.relatedRequiredIds.includes(item.id),
   );
-  const entityById = new Map(entities.map((item) => [item.id, item]));
 
   for (const ask of requiredAsks) {
-    const relationField = triggerEntity.fields.find(
-      (field) => field.id === ask.relationFieldId,
+    const resolved = resolveAskRelatedTarget({
+      triggerEntity,
+      entities,
+      ask,
+      triggerRecordId,
+      triggerValues: values,
+    });
+    const relationLabel =
+      resolved?.label ??
+      (ask.linkedTabId
+        ? "Подсущность"
+        : resolveEntityFieldLabel(
+            triggerEntity.fields,
+            ask.relationFieldId,
+            "Связь",
+          ));
+    const field = resolved?.relatedEntity.fields.find(
+      (item) => item.id === ask.fieldId,
     );
-    const relationLabel = resolveEntityFieldLabel(
-      triggerEntity.fields,
-      ask.relationFieldId,
-      "Связь",
-    );
-    const targetId = relationField
-      ? getEntityRelationTargetId(relationField)
-      : null;
-    const relatedEntity = targetId ? entityById.get(targetId) : undefined;
-    const field = relatedEntity?.fields.find((item) => item.id === ask.fieldId);
-    const fieldLabel = relatedEntity
-      ? resolveEntityFieldLabel(relatedEntity.fields, ask.fieldId)
+    const fieldLabel = resolved
+      ? resolveEntityFieldLabel(resolved.relatedEntity.fields, ask.fieldId)
       : "поле";
     const label = `${relationLabel} · ${fieldLabel}`;
-    const relatedIds = parseEntityRelationIds(values[ask.relationFieldId]);
+    const relatedIds = resolved?.relatedRecordIds ?? [];
     if (relatedIds.length === 0) {
       missing.push(label);
       continue;
@@ -238,12 +244,25 @@ function validateRelatedRequiredFields(
     if (isEntityComputedFieldType(field.type)) continue;
     for (const relatedRecordId of relatedIds) {
       const key = relatedAskValueKey(
-        ask.relationFieldId,
+        resolved!.scopeKey,
         relatedRecordId,
         ask.fieldId,
       );
       const raw = values[key] ?? "";
       if (field.type === "boolean") continue;
+      if (field.type === "relationGroups") {
+        if (
+          !isEntityRelationGroupsFilled(
+            raw,
+            ask.relationGroupsMode ?? "full",
+            field.relationGroups?.levels.length ?? 2,
+          )
+        ) {
+          missing.push(label);
+          break;
+        }
+        continue;
+      }
       if (!raw.trim()) {
         missing.push(label);
         break;
@@ -309,6 +328,7 @@ export async function completeAutomationTask(
       entities,
       outcome.fieldAccess,
       valuesForForm,
+      task.recordId,
     );
     if (missingRelated.length > 0) {
       throw new Error(
@@ -353,6 +373,7 @@ export async function completeAutomationTask(
       entities,
       outcome.fieldAccess,
       valuesForComments,
+      task.recordId,
     );
   }
 

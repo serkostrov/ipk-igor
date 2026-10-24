@@ -25,6 +25,7 @@ import { getSessionUser } from "@/entities/session";
 import { isSupabaseConfigured } from "@/shared/api/supabase";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { automationTaskNeedsFillDialog } from "./task-ask-fields";
+import { pickEarliestAutomationTask } from "./task-open-order";
 import {
   clearAutomationTaskFillDialogDismissed,
   isAutomationTaskFillDialogDismissed,
@@ -181,13 +182,7 @@ function pickTaskToOpen(
   if (options?.onlyMine !== false) {
     eligible = eligible.filter(isTaskForCurrentUser);
   }
-  if (eligible.length === 0) return null;
-  return (
-    eligible.find((task) => automationTaskNeedsFillDialog(task)) ??
-    eligible.find((task) => (task.config.outcomes?.length ?? 0) > 0) ??
-    eligible[0] ??
-    null
-  );
+  return pickEarliestAutomationTask(eligible);
 }
 
 function assigneeLabel(task: AutomationTask) {

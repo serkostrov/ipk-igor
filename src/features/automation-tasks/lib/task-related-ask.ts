@@ -1,15 +1,14 @@
 import {
+  askRelatedScopeKey,
   relatedAskValueKey,
+  resolveAskRelatedTarget,
   type AutomationAskRelatedField,
   type AutomationOutcomeFieldAccess,
 } from "@/entities/automation";
 import {
-  getEntityFieldDisplayName,
   getEntityRecordTitle,
-  getEntityRelationTargetId,
-  resolveEntityFieldLabel,
   normalizeEntityFieldInputValue,
-  parseEntityRelationIds,
+  resolveEntityFieldLabel,
   updateEntityRecord,
   type Entity,
   type EntityField,
@@ -21,9 +20,11 @@ export type RelatedAskFieldRow = {
   field: EntityField;
   required: boolean;
   valueKey: string;
+  relationGroupsMode?: "full" | "items" | "nested";
 };
 
 export type RelatedAskGroup = {
+  /** Scope key (`relationFieldId` or `tab:…`) used in draft value keys. */
   relationFieldId: string;
   relationLabel: string;
   relatedEntity: Entity;
@@ -44,6 +45,7 @@ export function resolveRelatedAskLayout(options: {
   relatedRequiredIds: string[];
   /** Trigger form values (local fields), used to read relation ids. */
   triggerValues: Record<string, string>;
+  triggerRecordId: string;
   ctx: EntityValueContext;
 }): {
   groups: RelatedAskGroup[];
@@ -55,50 +57,57 @@ export function resolveRelatedAskLayout(options: {
     relatedFields,
     relatedRequiredIds,
     triggerValues,
+    triggerRecordId,
     ctx,
   } = options;
   if (relatedFields.length === 0) {
     return { groups: [], emptyRelations: [] };
   }
 
-  const entityById = new Map(entities.map((item) => [item.id, item]));
   const required = new Set(relatedRequiredIds);
-  const byRelation = new Map<string, AutomationAskRelatedField[]>();
+  const byScope = new Map<string, AutomationAskRelatedField[]>();
   for (const item of relatedFields) {
-    const list = byRelation.get(item.relationFieldId) ?? [];
+    const scopeKey = askRelatedScopeKey(item);
+    if (!scopeKey) continue;
+    const list = byScope.get(scopeKey) ?? [];
     list.push(item);
-    byRelation.set(item.relationFieldId, list);
+    byScope.set(scopeKey, list);
   }
 
   const groups: RelatedAskGroup[] = [];
   const emptyRelations: RelatedAskEmptyRelation[] = [];
+  const seenEmpty = new Set<string>();
 
-  for (const [relationFieldId, asks] of byRelation) {
-    const relationField = triggerEntity.fields.find(
-      (field) => field.id === relationFieldId,
-    );
-    const relationLabel = relationField
-      ? getEntityFieldDisplayName(relationField)
-      : relationFieldId;
-    const targetId = relationField
-      ? getEntityRelationTargetId(relationField)
-      : null;
-    const relatedEntity = targetId ? entityById.get(targetId) : undefined;
-    if (!relatedEntity) continue;
+  for (const [, asks] of byScope) {
+    const sample = asks[0];
+    if (!sample) continue;
+    const resolved = resolveAskRelatedTarget({
+      triggerEntity,
+      entities,
+      ask: sample,
+      triggerRecordId,
+      triggerValues,
+    });
+    if (!resolved) continue;
 
-    const relatedIds = parseEntityRelationIds(triggerValues[relationFieldId]);
-    if (relatedIds.length === 0) {
-      emptyRelations.push({ relationFieldId, relationLabel });
+    if (resolved.relatedRecordIds.length === 0) {
+      if (!seenEmpty.has(resolved.scopeKey)) {
+        seenEmpty.add(resolved.scopeKey);
+        emptyRelations.push({
+          relationFieldId: resolved.scopeKey,
+          relationLabel: resolved.label,
+        });
+      }
       continue;
     }
 
-    for (const relatedRecordId of relatedIds) {
-      const relatedRecord = relatedEntity.records.find(
+    for (const relatedRecordId of resolved.relatedRecordIds) {
+      const relatedRecord = resolved.relatedEntity.records.find(
         (item) => item.id === relatedRecordId,
       );
       const fields: RelatedAskFieldRow[] = [];
       for (const ask of asks) {
-        const field = relatedEntity.fields.find(
+        const field = resolved.relatedEntity.fields.find(
           (item) => item.id === ask.fieldId,
         );
         if (!field) continue;
@@ -107,20 +116,23 @@ export function resolveRelatedAskLayout(options: {
           field,
           required: required.has(ask.id),
           valueKey: relatedAskValueKey(
-            relationFieldId,
+            resolved.scopeKey,
             relatedRecordId,
             ask.fieldId,
           ),
+          ...(ask.relationGroupsMode && ask.relationGroupsMode !== "full"
+            ? { relationGroupsMode: ask.relationGroupsMode }
+            : {}),
         });
       }
       if (fields.length === 0) continue;
       groups.push({
-        relationFieldId,
-        relationLabel,
-        relatedEntity,
+        relationFieldId: resolved.scopeKey,
+        relationLabel: resolved.label,
+        relatedEntity: resolved.relatedEntity,
         relatedRecordId,
         relatedRecordTitle: relatedRecord
-          ? getEntityRecordTitle(ctx, relatedEntity, relatedRecord)
+          ? getEntityRecordTitle(ctx, resolved.relatedEntity, relatedRecord)
           : relatedRecordId,
         fields,
       });
@@ -136,6 +148,7 @@ export function seedRelatedAskValues(options: {
   entities: Entity[];
   relatedFields: AutomationAskRelatedField[];
   triggerValues: Record<string, string>;
+  triggerRecordId: string;
   /** Existing draft — keeps user edits for still-active keys. */
   currentValues?: Record<string, string>;
 }): Record<string, string> {
@@ -144,32 +157,31 @@ export function seedRelatedAskValues(options: {
     entities,
     relatedFields,
     triggerValues,
+    triggerRecordId,
     currentValues = {},
   } = options;
-  const entityById = new Map(entities.map((item) => [item.id, item]));
   const next: Record<string, string> = {};
   for (const [key, value] of Object.entries(currentValues)) {
     if (!key.startsWith("related:")) next[key] = value;
   }
 
   for (const ask of relatedFields) {
-    const relationField = triggerEntity.fields.find(
-      (field) => field.id === ask.relationFieldId,
+    const resolved = resolveAskRelatedTarget({
+      triggerEntity,
+      entities,
+      ask,
+      triggerRecordId,
+      triggerValues,
+    });
+    if (!resolved) continue;
+    const field = resolved.relatedEntity.fields.find(
+      (item) => item.id === ask.fieldId,
     );
-    const targetId = relationField
-      ? getEntityRelationTargetId(relationField)
-      : null;
-    const relatedEntity = targetId ? entityById.get(targetId) : undefined;
-    if (!relatedEntity) continue;
-    const field = relatedEntity.fields.find((item) => item.id === ask.fieldId);
     if (!field) continue;
 
-    const relatedIds = parseEntityRelationIds(
-      triggerValues[ask.relationFieldId],
-    );
-    for (const relatedRecordId of relatedIds) {
+    for (const relatedRecordId of resolved.relatedRecordIds) {
       const key = relatedAskValueKey(
-        ask.relationFieldId,
+        resolved.scopeKey,
         relatedRecordId,
         ask.fieldId,
       );
@@ -177,7 +189,7 @@ export function seedRelatedAskValues(options: {
         next[key] = currentValues[key]!;
         continue;
       }
-      const relatedRecord = relatedEntity.records.find(
+      const relatedRecord = resolved.relatedEntity.records.find(
         (item) => item.id === relatedRecordId,
       );
       const raw = relatedRecord?.values[ask.fieldId] ?? "";
@@ -198,9 +210,11 @@ export function syncRelatedAskValuesAfterLocalChange(options: {
   relatedFields: AutomationAskRelatedField[];
   changedFieldId: string;
   values: Record<string, string>;
+  triggerRecordId: string;
 }): Record<string, string> {
   const usesRelation = options.relatedFields.some(
-    (item) => item.relationFieldId === options.changedFieldId,
+    (item) =>
+      !item.linkedTabId && item.relationFieldId === options.changedFieldId,
   );
   if (!usesRelation) return options.values;
   return seedRelatedAskValues({
@@ -208,6 +222,7 @@ export function syncRelatedAskValuesAfterLocalChange(options: {
     entities: options.entities,
     relatedFields: options.relatedFields,
     triggerValues: options.values,
+    triggerRecordId: options.triggerRecordId,
     currentValues: options.values,
   });
 }
@@ -225,47 +240,48 @@ export function buildRelatedAskPersistUpdates(options: {
   fieldAccess: AutomationOutcomeFieldAccess | AutomationOutcomeFieldAccess[];
   /** Local + related namespaced form values. */
   values: Record<string, string>;
+  triggerRecordId: string;
   /** Skip writing when equal to live related record values. */
   skipUnchanged?: boolean;
 }): RelatedAskPersistUpdate[] {
   const accesses = Array.isArray(options.fieldAccess)
     ? options.fieldAccess
     : [options.fieldAccess];
-  const entityById = new Map(options.entities.map((item) => [item.id, item]));
   const byTarget = new Map<string, Record<string, string>>();
 
   for (const access of accesses) {
     const recordAskIds = new Set(access.relatedRecordIds);
     for (const ask of access.relatedVisibleFields) {
       if (!recordAskIds.has(ask.id)) continue;
-      const relationField = options.triggerEntity.fields.find(
-        (field) => field.id === ask.relationFieldId,
-      );
-      const targetId = relationField
-        ? getEntityRelationTargetId(relationField)
-        : null;
-      const relatedEntity = targetId ? entityById.get(targetId) : undefined;
-      if (!relatedEntity?.fields.some((field) => field.id === ask.fieldId)) {
+      const resolved = resolveAskRelatedTarget({
+        triggerEntity: options.triggerEntity,
+        entities: options.entities,
+        ask,
+        triggerRecordId: options.triggerRecordId,
+        triggerValues: options.values,
+      });
+      if (
+        !resolved?.relatedEntity.fields.some(
+          (field) => field.id === ask.fieldId,
+        )
+      ) {
         continue;
       }
-      const relatedIds = parseEntityRelationIds(
-        options.values[ask.relationFieldId],
-      );
-      for (const relatedRecordId of relatedIds) {
+      for (const relatedRecordId of resolved.relatedRecordIds) {
         const key = relatedAskValueKey(
-          ask.relationFieldId,
+          resolved.scopeKey,
           relatedRecordId,
           ask.fieldId,
         );
         if (options.values[key] === undefined) continue;
         const next = options.values[key]!;
         if (options.skipUnchanged) {
-          const relatedRecord = relatedEntity.records.find(
+          const relatedRecord = resolved.relatedEntity.records.find(
             (item) => item.id === relatedRecordId,
           );
           if ((relatedRecord?.values[ask.fieldId] ?? "") === next) continue;
         }
-        const mapKey = `${relatedEntity.id}:${relatedRecordId}`;
+        const mapKey = `${resolved.relatedEntity.id}:${relatedRecordId}`;
         const patch = byTarget.get(mapKey) ?? {};
         patch[ask.fieldId] = next;
         byTarget.set(mapKey, patch);
@@ -299,10 +315,21 @@ export function validateRelatedAskRequired(options: {
   entities: Entity[];
   fieldAccess: AutomationOutcomeFieldAccess;
   values: Record<string, string>;
-  isFieldFilled: (field: EntityField, value: string) => boolean;
+  triggerRecordId: string;
+  isFieldFilled: (
+    field: EntityField,
+    value: string,
+    relationGroupsMode?: "full" | "items" | "nested",
+  ) => boolean;
 }): string | null {
-  const { fieldAccess, values, triggerEntity, entities, isFieldFilled } =
-    options;
+  const {
+    fieldAccess,
+    values,
+    triggerEntity,
+    entities,
+    triggerRecordId,
+    isFieldFilled,
+  } = options;
   if (fieldAccess.relatedRequiredIds.length === 0) return null;
 
   const requiredAsks = fieldAccess.relatedVisibleFields.filter((item) =>
@@ -310,42 +337,48 @@ export function validateRelatedAskRequired(options: {
   );
   if (requiredAsks.length === 0) return null;
 
-  const entityById = new Map(entities.map((item) => [item.id, item]));
   const missingLabels: string[] = [];
 
   for (const ask of requiredAsks) {
-    const relationField = triggerEntity.fields.find(
-      (field) => field.id === ask.relationFieldId,
+    const resolved = resolveAskRelatedTarget({
+      triggerEntity,
+      entities,
+      ask,
+      triggerRecordId,
+      triggerValues: values,
+    });
+    const relationLabel =
+      resolved?.label ??
+      (ask.linkedTabId
+        ? "Подсущность"
+        : resolveEntityFieldLabel(
+            triggerEntity.fields,
+            ask.relationFieldId,
+            "Связь",
+          ));
+    const field = resolved?.relatedEntity.fields.find(
+      (item) => item.id === ask.fieldId,
     );
-    const relationLabel = resolveEntityFieldLabel(
-      triggerEntity.fields,
-      ask.relationFieldId,
-      "Связь",
-    );
-    const targetId = relationField
-      ? getEntityRelationTargetId(relationField)
-      : null;
-    const relatedEntity = targetId ? entityById.get(targetId) : undefined;
-    const field = relatedEntity?.fields.find((item) => item.id === ask.fieldId);
-    const fieldLabel = relatedEntity
-      ? resolveEntityFieldLabel(relatedEntity.fields, ask.fieldId)
+    const fieldLabel = resolved
+      ? resolveEntityFieldLabel(resolved.relatedEntity.fields, ask.fieldId)
       : "поле";
-    const relatedIds = parseEntityRelationIds(values[ask.relationFieldId]);
-    if (relatedIds.length === 0) {
+    if (!resolved || resolved.relatedRecordIds.length === 0 || !field) {
       missingLabels.push(`${relationLabel} · ${fieldLabel}`);
       continue;
     }
-    if (!field) {
-      missingLabels.push(`${relationLabel} · ${fieldLabel}`);
-      continue;
-    }
-    for (const relatedRecordId of relatedIds) {
+    for (const relatedRecordId of resolved.relatedRecordIds) {
       const key = relatedAskValueKey(
-        ask.relationFieldId,
+        resolved.scopeKey,
         relatedRecordId,
         ask.fieldId,
       );
-      if (!isFieldFilled(field, values[key] ?? "")) {
+      if (
+        !isFieldFilled(
+          field,
+          values[key] ?? "",
+          ask.relationGroupsMode ?? "full",
+        )
+      ) {
         missingLabels.push(`${relationLabel} · ${fieldLabel}`);
         break;
       }
@@ -362,7 +395,12 @@ export function countMissingRelatedRequired(options: {
   relatedFields: AutomationAskRelatedField[];
   relatedRequiredIds: string[];
   values: Record<string, string>;
-  isFieldFilled: (field: EntityField, value: string) => boolean;
+  triggerRecordId: string;
+  isFieldFilled: (
+    field: EntityField,
+    value: string,
+    relationGroupsMode?: "full" | "items" | "nested",
+  ) => boolean;
 }): number {
   if (options.relatedRequiredIds.length === 0) return 0;
   const message = validateRelatedAskRequired({
@@ -381,6 +419,7 @@ export function countMissingRelatedRequired(options: {
       fieldAskOptions: {},
     },
     values: options.values,
+    triggerRecordId: options.triggerRecordId,
     isFieldFilled: options.isFieldFilled,
   });
   if (!message) return 0;

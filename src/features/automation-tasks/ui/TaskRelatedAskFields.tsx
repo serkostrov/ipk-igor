@@ -132,6 +132,7 @@ export function TaskRelatedAskFields({
                     entities={entities}
                     recordId={group.relatedRecordId}
                     required={row.required}
+                    relationGroupsMode={row.relationGroupsMode ?? "full"}
                   />
                 </div>
               );

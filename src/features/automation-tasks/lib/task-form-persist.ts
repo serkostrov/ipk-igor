@@ -81,6 +81,7 @@ export function buildTaskRelatedPersistUpdates(options: {
   entities: Entity[];
   outcomes: AutomationOutcome[];
   values: Record<string, string>;
+  triggerRecordId: string;
   skipUnchanged?: boolean;
 }): RelatedAskPersistUpdate[] {
   return buildRelatedAskPersistUpdates({
@@ -88,6 +89,7 @@ export function buildTaskRelatedPersistUpdates(options: {
     entities: options.entities,
     fieldAccess: options.outcomes.map((item) => item.fieldAccess),
     values: options.values,
+    triggerRecordId: options.triggerRecordId,
     skipUnchanged: options.skipUnchanged,
   });
 }

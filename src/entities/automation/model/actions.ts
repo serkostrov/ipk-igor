@@ -46,6 +46,18 @@ export type AutomationCreateNestedSpec = {
   mappings?: AutomationFieldMapping[];
 };
 
+/**
+ * Create rows under existing related parents on the trigger record
+ * (linked-entity tab or forward relation) — not only right after creating
+ * the parent in the same action.
+ */
+export type AutomationCreateParentFromRelated = {
+  /** Linked-entity tab on the trigger (`kind: "entity"`). */
+  linkedTabId?: string;
+  /** Relation field on the trigger (forward link). Empty when tab is set. */
+  relationFieldId?: string;
+};
+
 export type AutomationAction =
   | { id: string; kind: "noop" }
   | { id: string; kind: "setField"; fieldId: string; value: string }
@@ -79,6 +91,22 @@ export type AutomationAction =
       mappings: AutomationFieldMapping[];
       /** Store created record id into trigger record field (relation). */
       linkBackFieldId?: string;
+      /**
+       * Create several records of `entityId` linked to the trigger
+       * (подсущность / child entity). Task form shows an «Добавить» list.
+       * Implied when `parentFromRelated` is set.
+       */
+      multiple?: boolean;
+      /**
+       * Link new rows to existing related parents on the trigger
+       * (e.g. «Подзадачи» → each «Расчёт отдела»), not to the trigger itself.
+       */
+      parentFromRelated?: AutomationCreateParentFromRelated;
+      /**
+       * Task form uses the entity «При создании» field set (not askFieldIds).
+       * «Запросить создание записи» — assignee creates rows; automation does not.
+       */
+      useEntityCreateForm?: boolean;
       /** Fields the assignee fills on the task form for this new record. */
       askFieldIds?: string[];
       askRequiredFieldIds?: string[];
@@ -399,6 +427,25 @@ export function createRecordNestedCountDraftKey(
   return `create:${actionId}:nested:${nestedId}:__count__`;
 }
 
+/** Nested-id used when `createRecord.multiple` drafts several trigger-linked rows. */
+export const CREATE_RECORD_MULTI_NESTED_ID = "__multi__";
+
+/** Nested-id prefix for drafts under an existing related parent record. */
+export const CREATE_RECORD_UNDER_RELATED_PREFIX = "under_";
+
+/** Draft nested-id for rows under a related parent (`under_{recordId}`). */
+export function createRecordUnderRelatedNestedId(parentRecordId: string) {
+  return `${CREATE_RECORD_UNDER_RELATED_PREFIX}${parentRecordId}`;
+}
+
+export function parseCreateRecordUnderRelatedNestedId(
+  nestedId: string,
+): string | null {
+  if (!nestedId.startsWith(CREATE_RECORD_UNDER_RELATED_PREFIX)) return null;
+  const id = nestedId.slice(CREATE_RECORD_UNDER_RELATED_PREFIX.length);
+  return id.trim() || null;
+}
+
 export function parseCreateRecordAskDraftKey(key: string): {
   actionId: string;
   fieldId: string;
@@ -424,6 +471,31 @@ export function parseCreateRecordNestedAskDraftKey(key: string): {
     index: Number(match[3]),
     fieldId: match[4]!,
   };
+}
+
+function normalizeParentFromRelated(
+  value: unknown,
+): AutomationCreateParentFromRelated | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  const linkedTabId =
+    typeof raw.linkedTabId === "string" && raw.linkedTabId.trim()
+      ? raw.linkedTabId.trim()
+      : typeof raw.linked_tab_id === "string" && raw.linked_tab_id.trim()
+        ? raw.linked_tab_id.trim()
+        : undefined;
+  const relationFieldId =
+    typeof raw.relationFieldId === "string" && raw.relationFieldId.trim()
+      ? raw.relationFieldId.trim()
+      : typeof raw.relation_field_id === "string" &&
+          raw.relation_field_id.trim()
+        ? raw.relation_field_id.trim()
+        : undefined;
+  if (linkedTabId) return { linkedTabId };
+  if (relationFieldId) return { relationFieldId };
+  return undefined;
 }
 
 export function normalizeAutomationAction(
@@ -463,18 +535,41 @@ export function normalizeAutomationAction(
         raw.fieldAskOptions,
         askFieldIds,
       );
-      const nestedCreates = normalizeNestedCreates(raw.nestedCreates);
+      const parentFromRelated = normalizeParentFromRelated(
+        raw.parentFromRelated ?? raw.parent_from_related,
+      );
+      const useEntityCreateForm =
+        raw.useEntityCreateForm === true || raw.use_entity_create_form === true;
+      const multiple =
+        raw.multiple === true ||
+        parentFromRelated != null ||
+        useEntityCreateForm;
+      const nestedCreates =
+        multiple || parentFromRelated || useEntityCreateForm
+          ? []
+          : normalizeNestedCreates(raw.nestedCreates);
       return {
         ...withId,
         entityId: typeof raw.entityId === "string" ? raw.entityId : "",
-        mappings: normalizeMappings(raw.mappings),
+        mappings: useEntityCreateForm ? [] : normalizeMappings(raw.mappings),
         linkBackFieldId:
           typeof raw.linkBackFieldId === "string" && raw.linkBackFieldId.trim()
             ? raw.linkBackFieldId.trim()
             : undefined,
-        ...(askFieldIds.length > 0 ? { askFieldIds } : {}),
-        ...(askRequiredFieldIds.length > 0 ? { askRequiredFieldIds } : {}),
-        ...(Object.keys(fieldAskOptions).length > 0 ? { fieldAskOptions } : {}),
+        ...(multiple ? { multiple: true } : {}),
+        ...(parentFromRelated ? { parentFromRelated } : {}),
+        ...(useEntityCreateForm ? { useEntityCreateForm: true } : {}),
+        ...(useEntityCreateForm
+          ? {}
+          : {
+              ...(askFieldIds.length > 0 ? { askFieldIds } : {}),
+              ...(askRequiredFieldIds.length > 0
+                ? { askRequiredFieldIds }
+                : {}),
+              ...(Object.keys(fieldAskOptions).length > 0
+                ? { fieldAskOptions }
+                : {}),
+            }),
         ...(nestedCreates.length > 0 ? { nestedCreates } : {}),
       };
     }
@@ -615,9 +710,18 @@ export function describeAutomationAction(
       return action.filesTabAllowMove ? `${base} · перемещение` : base;
     }
     case "createRecord": {
+      if (action.useEntityCreateForm) {
+        return `Запросить создание «${entity(action.entityId)}»`;
+      }
       const askCount = action.askFieldIds?.length ?? 0;
       const nestedCount = action.nestedCreates?.length ?? 0;
-      const bits = [`Создать запись в «${entity(action.entityId)}»`];
+      const bits = [
+        action.multiple || action.parentFromRelated
+          ? `Создать записи в «${entity(action.entityId)}»`
+          : `Создать запись в «${entity(action.entityId)}»`,
+      ];
+      if (action.parentFromRelated) bits.push("к связанным");
+      else if (action.multiple) bits.push("несколько");
       if (askCount > 0) bits.push(`запрос: ${askCount}`);
       if (nestedCount > 0) bits.push(`вложенные: ${nestedCount}`);
       return bits.join(" · ");

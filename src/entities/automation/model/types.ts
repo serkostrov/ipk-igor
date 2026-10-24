@@ -63,15 +63,26 @@ export type AutomationTaskStatus =
 
 /**
  * Ask the assignee to fill a field on a *related* record, reached through a
- * relation field of the trigger entity.
+ * relation field of the trigger entity — or through a linked-entity tab
+ * (подсущность) on the trigger entity.
  */
 export type AutomationAskRelatedField = {
   /** Stable row id (not an entity field id). */
   id: string;
-  /** Relation field on the trigger entity. */
+  /**
+   * Relation field on the trigger entity (forward link).
+   * Empty when `linkedTabId` is set.
+   */
   relationFieldId: string;
-  /** Field on the related entity. */
+  /**
+   * Linked-entity tab on the trigger (`kind: "entity"`).
+   * When set, related records are children linked via the tab’s parent field.
+   */
+  linkedTabId?: string;
+  /** Field on the related / linked entity. */
   fieldId: string;
+  /** Ask mode when `fieldId` is a `relationGroups` field. */
+  relationGroupsMode?: AutomationRelationGroupsAskMode;
 };
 
 /**
@@ -214,20 +225,39 @@ function normalizeAskRelatedFields(
         : typeof raw.relation_field_id === "string"
           ? raw.relation_field_id.trim()
           : "";
+    const linkedTabId =
+      typeof raw.linkedTabId === "string"
+        ? raw.linkedTabId.trim()
+        : typeof raw.linked_tab_id === "string"
+          ? raw.linked_tab_id.trim()
+          : "";
     const fieldId =
       typeof raw.fieldId === "string"
         ? raw.fieldId.trim()
         : typeof raw.field_id === "string"
           ? raw.field_id.trim()
           : "";
-    if (!relationFieldId || !fieldId) continue;
+    if (!fieldId || (!relationFieldId && !linkedTabId)) continue;
     const id =
       typeof raw.id === "string" && raw.id.trim()
         ? raw.id.trim()
-        : `related-${relationFieldId}-${fieldId}`;
+        : linkedTabId
+          ? `related-tab-${linkedTabId}-${fieldId}`
+          : `related-${relationFieldId}-${fieldId}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    result.push({ id, relationFieldId, fieldId });
+    const relationGroupsMode = normalizeRelationGroupsAskMode(
+      raw.relationGroupsMode ?? raw.relation_groups_mode,
+    );
+    result.push({
+      id,
+      relationFieldId: linkedTabId ? "" : relationFieldId,
+      fieldId,
+      ...(linkedTabId ? { linkedTabId } : {}),
+      ...(relationGroupsMode && relationGroupsMode !== "full"
+        ? { relationGroupsMode }
+        : {}),
+    });
   }
   return result;
 }

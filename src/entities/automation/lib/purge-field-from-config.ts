@@ -204,6 +204,10 @@ function scrubAction(
             : undefined,
         };
       });
+      const parentFromRelated =
+        action.parentFromRelated?.relationFieldId === fieldId
+          ? undefined
+          : action.parentFromRelated;
       return {
         ...action,
         linkBackFieldId:
@@ -217,6 +221,10 @@ function scrubAction(
         fieldAskOptions:
           Object.keys(fieldAskOptions).length > 0 ? fieldAskOptions : undefined,
         nestedCreates: nestedCreates.length > 0 ? nestedCreates : undefined,
+        parentFromRelated,
+        ...(parentFromRelated == null && action.parentFromRelated
+          ? { multiple: action.multiple === true ? true : undefined }
+          : {}),
       };
     }
     case "updateRecords":

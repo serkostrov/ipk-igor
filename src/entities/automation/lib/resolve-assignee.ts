@@ -9,10 +9,14 @@ import {
 } from "./evaluate-conditions";
 import {
   SYSTEM_USERS_FIELD_ROLE_ID,
+  collectRelationGroupsIdsAtDepth,
   collectRelationGroupsLeafIds,
+  entityRelationIncludesId,
   getEntityRelationTargetId,
   getRelationGroupsLeafEntityId,
+  getRelationGroupsLevelEntityId,
   getSystemUsersEntity,
+  isEntityRelationLikeFieldType,
   parseEntityRelationGroups,
   parseEntityRelationIds,
   type Entity,
@@ -23,6 +27,8 @@ export type ResolveAssigneeContext = AutomationConditionEvalContext & {
   actorUserId?: string | null;
   entities?: Entity[];
   triggerEntityId?: string;
+  /** Trigger record id — required to walk linked-entity tabs. */
+  triggerRecordId?: string | null;
 };
 
 function resolveFieldTarget(
@@ -35,14 +41,14 @@ function resolveFieldTarget(
   return source ? getEntityRelationTargetId(source) : null;
 }
 
-/** Relation or relationGroups hop used in assignee paths. */
+/** Relation, belonging or relationGroups hop used in assignee paths. */
 function findBridgeField(
   entity: Entity | null | undefined,
   fieldId: string,
 ): EntityField | null {
   const field = entity?.fields.find((item) => item.id === fieldId);
   if (!field) return null;
-  if (field.type === "relation") return field;
+  if (isEntityRelationLikeFieldType(field.type)) return field;
   if (
     field.type === "relationGroups" &&
     (field.relationGroups?.levels.length ?? 0) > 0
@@ -55,14 +61,17 @@ function findBridgeField(
 function bridgeRelatedRecordIds(
   values: Record<string, string | undefined>,
   field: EntityField,
+  relationGroupsDepth?: number,
 ): string[] {
-  if (field.type === "relation") {
+  if (isEntityRelationLikeFieldType(field.type)) {
     return parseEntityRelationIds(values[field.id]);
   }
   if (field.type === "relationGroups") {
-    return collectRelationGroupsLeafIds(
-      parseEntityRelationGroups(values[field.id]),
-    );
+    const nodes = parseEntityRelationGroups(values[field.id]);
+    if (relationGroupsDepth != null && Number.isFinite(relationGroupsDepth)) {
+      return collectRelationGroupsIdsAtDepth(nodes, relationGroupsDepth);
+    }
+    return collectRelationGroupsLeafIds(nodes);
   }
   return [];
 }
@@ -70,15 +79,53 @@ function bridgeRelatedRecordIds(
 function bridgeTargetEntityId(
   field: EntityField,
   entities: Entity[],
+  relationGroupsDepth?: number,
 ): string | null {
-  if (field.type === "relation") return getEntityRelationTargetId(field);
+  if (isEntityRelationLikeFieldType(field.type)) {
+    return getEntityRelationTargetId(field);
+  }
   if (field.type === "relationGroups") {
-    return getRelationGroupsLeafEntityId(
-      field.relationGroups,
-      (entityId, fieldId) => resolveFieldTarget(entities, entityId, fieldId),
-    );
+    const resolve = (entityId: string, fieldId: string) =>
+      resolveFieldTarget(entities, entityId, fieldId);
+    if (relationGroupsDepth != null && Number.isFinite(relationGroupsDepth)) {
+      let previous: string | null = null;
+      let atDepth: string | null = null;
+      for (let i = 0; i <= relationGroupsDepth; i++) {
+        const level = field.relationGroups?.levels[i];
+        if (!level) return null;
+        atDepth = getRelationGroupsLevelEntityId(level, previous, resolve);
+        if (!atDepth) return null;
+        previous = atDepth;
+      }
+      return atDepth;
+    }
+    return getRelationGroupsLeafEntityId(field.relationGroups, resolve);
   }
   return null;
+}
+
+function collectLinkedChildCursors(
+  linkedChild: {
+    entityId: string;
+    parentFieldId: string;
+  },
+  entities: Entity[],
+  triggerRecordId: string,
+  fanOut: boolean,
+): Array<{ entity: Entity; values: Record<string, string | undefined> }> {
+  const childEntity = entities.find((item) => item.id === linkedChild.entityId);
+  if (!childEntity) return [];
+  const children = childEntity.records.filter((record) =>
+    entityRelationIncludesId(
+      record.values[linkedChild.parentFieldId],
+      triggerRecordId,
+    ),
+  );
+  const pick = fanOut ? children : children.slice(0, 1);
+  return pick.map((record) => ({
+    entity: childEntity,
+    values: record.values,
+  }));
 }
 
 function resolveRelatedFieldUserIds(
@@ -89,14 +136,11 @@ function resolveRelatedFieldUserIds(
   const entities = ctx.entities;
   const triggerEntityId = ctx.triggerEntityId;
   const path = relatedFieldRelationPath(resolver);
-  if (path.length === 0) return [];
+  const linkedChild = resolver.linkedChild;
+
+  if (!linkedChild && path.length === 0) return [];
 
   if (!values || !entities || !triggerEntityId) {
-    // Without entity graph we cannot walk nested hops.
-    if (path.length === 1) {
-      const raw = values?.[path[0]!];
-      if (!raw) return [];
-    }
     return [];
   }
 
@@ -104,6 +148,7 @@ function resolveRelatedFieldUserIds(
   if (!rootEntity) return [];
 
   const fanOut = resolver.fanOut === true;
+  const depths = resolver.relationGroupsDepths ?? [];
   type Cursor = {
     entity: Entity;
     values: Record<string, string | undefined>;
@@ -111,17 +156,39 @@ function resolveRelatedFieldUserIds(
 
   let cursors: Cursor[] = [{ entity: rootEntity, values }];
 
-  for (const relationFieldId of path) {
+  if (linkedChild) {
+    const triggerRecordId = ctx.triggerRecordId?.trim() ?? "";
+    if (!triggerRecordId) return [];
+    cursors = collectLinkedChildCursors(
+      linkedChild,
+      entities,
+      triggerRecordId,
+      fanOut,
+    );
+    if (cursors.length === 0) return [];
+  }
+
+  for (let hopIndex = 0; hopIndex < path.length; hopIndex++) {
+    const relationFieldId = path[hopIndex]!;
+    const hopDepth = depths[hopIndex];
     const nextCursors: Cursor[] = [];
     for (const cursor of cursors) {
       const bridgeField = findBridgeField(cursor.entity, relationFieldId);
       if (!bridgeField) continue;
 
-      const relatedIds = bridgeRelatedRecordIds(cursor.values, bridgeField);
+      const relatedIds = bridgeRelatedRecordIds(
+        cursor.values,
+        bridgeField,
+        hopDepth != null && Number.isFinite(hopDepth) ? hopDepth : undefined,
+      );
       const hopIds = fanOut ? relatedIds : relatedIds.slice(0, 1);
       if (hopIds.length === 0) continue;
 
-      const targetId = bridgeTargetEntityId(bridgeField, entities);
+      const targetId = bridgeTargetEntityId(
+        bridgeField,
+        entities,
+        hopDepth != null && Number.isFinite(hopDepth) ? hopDepth : undefined,
+      );
       const relatedEntity =
         (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
         null;

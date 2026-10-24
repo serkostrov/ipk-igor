@@ -47,10 +47,15 @@ import {
   automationRelationGroupsAskModeLabel,
   automationRelationGroupsAskModes,
   emptyAutomationOutcomeFieldAccess,
+  getAskRelatedLinkedTabs,
+  getCreateUnderExistingRelatedOptions,
   getOutcomeStageOptionId,
+  isAutomationSilentTaskKind,
   normalizeAutomationOutcomeFieldAccess,
   removeNotificationRule,
+  resolveHostChildParentLinkField,
   saveNotificationRule,
+  type AutomationCreateParentFromRelated,
   automationRequiresTimeTracking,
   getAutomationUploadTarget,
   setAutomationRequireTimeTracking,
@@ -70,10 +75,13 @@ import {
 } from "@/entities/automation";
 import { AssigneeEditor } from "@/entities/automation/ui/AssigneeEditor";
 import {
+  getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   isEntityComputedFieldType,
   isEntityFilesTab,
+  isEntityNameField,
+  isEntityParentLinkField,
   isEntityRecordsTab,
   type Entity,
   type EntityField,
@@ -99,13 +107,12 @@ function createAskRelatedFieldId() {
   return `arel-${crypto.randomUUID()}`;
 }
 
-/** Writable fields for related-entity ask (no computed / structured JSON). */
+/** Writable fields for related-entity ask (no computed / file / period). */
 function isAskRelatedTargetField(field: EntityField) {
   return (
     !isEntityComputedFieldType(field.type) &&
     field.type !== "file" &&
     field.type !== "dependencies" &&
-    field.type !== "relationGroups" &&
     field.type !== "period"
   );
 }
@@ -580,14 +587,14 @@ function toggleIdList(ids: string[], fieldId: string, enabled: boolean) {
 
 /** Compact: only selected fields; add via select. Flags = checkboxes on the row. */
 function OutcomeAskFieldsEditor({
-  fields,
+  entity,
   entities,
   value,
   onChange,
   hasRecordsTab,
   onRemove,
 }: {
-  fields: EntityField[];
+  entity: Entity;
   entities: Entity[];
   value: AutomationOutcomeFieldAccess;
   onChange: (next: AutomationOutcomeFieldAccess) => void;
@@ -595,6 +602,7 @@ function OutcomeAskFieldsEditor({
   /** Remove the whole «Запрос полей» block. */
   onRemove?: () => void;
 }) {
+  const fields = entity.fields;
   const access = normalizeAutomationOutcomeFieldAccess(value);
   const entityById = new Map(entities.map((item) => [item.id, item]));
   const selected = access.visibleFieldIds
@@ -606,7 +614,11 @@ function OutcomeAskFieldsEditor({
   const relationFields = fields.filter((field) => field.type === "relation");
   const relatedSelected = access.relatedVisibleFields;
   const usedRelatedKeys = new Set(
-    relatedSelected.map((item) => `${item.relationFieldId}:${item.fieldId}`),
+    relatedSelected.map((item) =>
+      item.linkedTabId
+        ? `tab:${item.linkedTabId}:${item.fieldId}`
+        : `${item.relationFieldId}:${item.fieldId}`,
+    ),
   );
 
   const relatedPickers = relationFields
@@ -636,7 +648,31 @@ function OutcomeAskFieldsEditor({
       } => item != null,
     );
 
-  const canAddField = available.length > 0 || relatedPickers.length > 0;
+  const linkedTabPickers = getAskRelatedLinkedTabs(entity, entities)
+    .map(({ tab, target }) => {
+      const availableFields = target.fields.filter(
+        (field) =>
+          isAskRelatedTargetField(field) &&
+          !isEntityParentLinkField(field, tab.parentLinkFieldId) &&
+          !usedRelatedKeys.has(`tab:${tab.id}:${field.id}`),
+      );
+      if (availableFields.length === 0) return null;
+      return { tab, target, availableFields };
+    })
+    .filter(
+      (
+        item,
+      ): item is {
+        tab: (typeof entity.tabs)[number];
+        target: Entity;
+        availableFields: EntityField[];
+      } => item != null,
+    );
+
+  const canAddField =
+    available.length > 0 ||
+    relatedPickers.length > 0 ||
+    linkedTabPickers.length > 0;
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{
@@ -717,6 +753,20 @@ function OutcomeAskFieldsEditor({
     });
   }
 
+  function addLinkedTabField(linkedTabId: string, fieldId: string) {
+    const next: AutomationAskRelatedField = {
+      id: createAskRelatedFieldId(),
+      relationFieldId: "",
+      linkedTabId,
+      fieldId,
+    };
+    onChange({
+      ...access,
+      relatedVisibleFields: [...access.relatedVisibleFields, next],
+      relatedRecordIds: [...access.relatedRecordIds, next.id],
+    });
+  }
+
   function removeRelatedField(askId: string) {
     onChange({
       ...access,
@@ -756,7 +806,46 @@ function OutcomeAskFieldsEditor({
     });
   }
 
+  function setRelatedRelationGroupsMode(
+    askId: string,
+    mode: AutomationRelationGroupsAskMode,
+  ) {
+    onChange({
+      ...access,
+      relatedVisibleFields: access.relatedVisibleFields.map((item) => {
+        if (item.id !== askId) return item;
+        if (mode === "full") {
+          const { relationGroupsMode: _omit, ...rest } = item;
+          void _omit;
+          return rest;
+        }
+        return { ...item, relationGroupsMode: mode };
+      }),
+    });
+  }
+
   function resolveRelatedRow(item: AutomationAskRelatedField) {
+    if (item.linkedTabId) {
+      const tab = entity.tabs.find((entry) => entry.id === item.linkedTabId);
+      const target = tab?.linkedEntityId
+        ? entityById.get(tab.linkedEntityId)
+        : undefined;
+      const targetField = target?.fields.find(
+        (field) => field.id === item.fieldId,
+      );
+      return {
+        relation: null,
+        target,
+        targetField,
+        relationLabel:
+          tab?.name.trim() ||
+          (target ? getEntityDisplayName(target) : "Подсущность"),
+        fieldLabel: targetField
+          ? getEntityFieldDisplayName(targetField)
+          : item.fieldId,
+        hasRecordsTab: target?.tabs.some(isEntityRecordsTab) ?? false,
+      };
+    }
     const relation = fields.find((field) => field.id === item.relationFieldId);
     const targetId = relation ? getEntityRelationTargetId(relation) : null;
     const target = targetId ? entityById.get(targetId) : undefined;
@@ -872,7 +961,8 @@ function OutcomeAskFieldsEditor({
                     ))}
                   </DropdownMenuGroup>
                 ) : null}
-                {available.length > 0 && relatedPickers.length > 0 ? (
+                {available.length > 0 &&
+                (relatedPickers.length > 0 || linkedTabPickers.length > 0) ? (
                   <DropdownMenuSeparator />
                 ) : null}
                 {relatedPickers.length > 0 ? (
@@ -889,13 +979,49 @@ function OutcomeAskFieldsEditor({
                           <DropdownMenuSubContent className="max-h-64 min-w-44">
                             <DropdownMenuGroup>
                               <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
-                                {target.name}
+                                {getEntityDisplayName(target)}
                               </DropdownMenuLabel>
                               {availableFields.map((field) => (
                                 <DropdownMenuItem
                                   key={field.id}
                                   onClick={() =>
                                     addRelatedField(relation.id, field.id)
+                                  }
+                                >
+                                  {getEntityFieldDisplayName(field)}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuGroup>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      ),
+                    )}
+                  </DropdownMenuGroup>
+                ) : null}
+                {relatedPickers.length > 0 && linkedTabPickers.length > 0 ? (
+                  <DropdownMenuSeparator />
+                ) : null}
+                {linkedTabPickers.length > 0 ? (
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                      Подсущность
+                    </DropdownMenuLabel>
+                    {linkedTabPickers.map(
+                      ({ tab, target, availableFields }) => (
+                        <DropdownMenuSub key={tab.id}>
+                          <DropdownMenuSubTrigger>
+                            {tab.name.trim() || getEntityDisplayName(target)}
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="max-h-64 min-w-44">
+                            <DropdownMenuGroup>
+                              <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+                                {getEntityDisplayName(target)}
+                              </DropdownMenuLabel>
+                              {availableFields.map((field) => (
+                                <DropdownMenuItem
+                                  key={field.id}
+                                  onClick={() =>
+                                    addLinkedTabField(tab.id, field.id)
                                   }
                                 >
                                   {getEntityFieldDisplayName(field)}
@@ -925,11 +1051,11 @@ function OutcomeAskFieldsEditor({
           ) : null}
         </div>
       </div>
-      {selected.length === 0 ? (
+      {selected.length === 0 && relatedSelected.length === 0 ? (
         <p className="text-[11px] leading-snug text-muted-foreground">
           Добавьте поля, которые нужно заполнить при нажатии
         </p>
-      ) : (
+      ) : selected.length === 0 ? null : (
         <LayoutGroup id="outcome-ask-fields">
           <ul className="flex flex-col gap-1">
             {selected.map((field, index) => {
@@ -1138,7 +1264,7 @@ function OutcomeAskFieldsEditor({
       {relatedSelected.length > 0 ? (
         <div className="mt-3 border-t border-border/60 pt-2.5">
           <p className="text-xs font-medium text-muted-foreground">
-            Поля связанных записей
+            Поля связанных записей и подсущностей
           </p>
           <ul className="mt-2 flex flex-col gap-1">
             {relatedSelected.map((item) => {
@@ -1146,55 +1272,90 @@ function OutcomeAskFieldsEditor({
               const required = access.relatedRequiredIds.includes(item.id);
               const toComments = access.relatedCommentIds.includes(item.id);
               const toRecord = access.relatedRecordIds.includes(item.id);
+              const isRelationGroups =
+                row.targetField?.type === "relationGroups";
               return (
                 <li key={item.id} className="list-none">
-                  <div className="flex h-8 items-center gap-1.5 rounded-md bg-muted/30 px-2">
-                    <span className="min-w-0 flex-1 truncate text-xs">
-                      <span className="text-muted-foreground">
-                        {row.relationLabel}
+                  <div className="flex flex-col gap-1 rounded-md bg-muted/30 px-2 py-1.5">
+                    <div className="flex h-6 items-center gap-1.5">
+                      <span className="min-w-0 flex-1 truncate text-xs">
+                        <span className="text-muted-foreground">
+                          {row.relationLabel}
+                        </span>
+                        <span className="text-muted-foreground"> · </span>
+                        {row.fieldLabel}
                       </span>
-                      <span className="text-muted-foreground"> · </span>
-                      {row.fieldLabel}
-                    </span>
-                    <FieldFlagCheckbox
-                      checked={required}
-                      label="обяз."
-                      title="Обязательное поле связанной записи"
-                      onCheckedChange={(checked) =>
-                        setRelatedRequired(item.id, checked)
-                      }
-                    />
-                    <FieldFlagCheckbox
-                      checked={toComments}
-                      disabled={!row.hasRecordsTab}
-                      label="комм."
-                      title={
-                        row.hasRecordsTab
-                          ? "Добавить содержимое в комментарии связанной записи"
-                          : "Нет вкладки «Записи» у связанной сущности"
-                      }
-                      onCheckedChange={(checked) =>
-                        setRelatedComment(item.id, checked)
-                      }
-                    />
-                    <FieldFlagCheckbox
-                      checked={toRecord}
-                      label="запись"
-                      title="Записать значение в поле связанной записи"
-                      onCheckedChange={(checked) =>
-                        setRelatedRecord(item.id, checked)
-                      }
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-6 shrink-0"
-                      aria-label="Убрать поле"
-                      onClick={() => removeRelatedField(item.id)}
-                    >
-                      <Trash2 className="size-3" />
-                    </Button>
+                      <FieldFlagCheckbox
+                        checked={required}
+                        label="обяз."
+                        title="Обязательное поле связанной записи"
+                        onCheckedChange={(checked) =>
+                          setRelatedRequired(item.id, checked)
+                        }
+                      />
+                      <FieldFlagCheckbox
+                        checked={toComments}
+                        disabled={!row.hasRecordsTab}
+                        label="комм."
+                        title={
+                          row.hasRecordsTab
+                            ? "Добавить содержимое в комментарии связанной записи"
+                            : "Нет вкладки «Записи» у связанной сущности"
+                        }
+                        onCheckedChange={(checked) =>
+                          setRelatedComment(item.id, checked)
+                        }
+                      />
+                      <FieldFlagCheckbox
+                        checked={toRecord}
+                        label="запись"
+                        title="Записать значение в поле связанной записи"
+                        onCheckedChange={(checked) =>
+                          setRelatedRecord(item.id, checked)
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-6 shrink-0"
+                        aria-label="Убрать поле"
+                        onClick={() => removeRelatedField(item.id)}
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    </div>
+                    {isRelationGroups ? (
+                      <div className="flex flex-wrap items-center gap-1 border-t border-border/40 pt-1.5 pb-0.5">
+                        <span className="mr-0.5 text-[10px] text-muted-foreground">
+                          Спросить
+                        </span>
+                        {automationRelationGroupsAskModes(
+                          row.targetField?.relationGroups?.levels.length ?? 2,
+                        ).map((mode) => {
+                          const active =
+                            (item.relationGroupsMode ?? "full") === mode;
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              className={cn(
+                                "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                                active
+                                  ? "bg-primary/10 text-primary"
+                                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                              )}
+                              title={automationRelationGroupsAskModeLabel(mode)}
+                              onClick={() =>
+                                setRelatedRelationGroupsMode(item.id, mode)
+                              }
+                            >
+                              {automationRelationGroupsAskModeLabel(mode)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 </li>
               );
@@ -1239,6 +1400,7 @@ function clearOutcomeAskFields(
 /**
  * Shared «Действия» list: ask fields, autofill, and other pipeline actions.
  * Used for both outcome buttons and «actions»-kind templates.
+ * `interactive` — assignee sees a task form (decision/single); silent kinds do not.
  */
 function OutcomeActionsPanel({
   outcome,
@@ -1248,6 +1410,7 @@ function OutcomeActionsPanel({
   triggerFieldId,
   stageOptionId,
   hasRecordsTab,
+  interactive,
   askFieldsDraft,
   onAskFieldsDraftChange,
   onPatchOutcome,
@@ -1259,6 +1422,8 @@ function OutcomeActionsPanel({
   triggerFieldId: string;
   stageOptionId: string;
   hasRecordsTab: boolean;
+  /** Task form for the assignee (not silent autofill / transition). */
+  interactive: boolean;
   askFieldsDraft: boolean;
   onAskFieldsDraftChange: (open: boolean) => void;
   onPatchOutcome: (patch: Partial<AutomationOutcome>) => void;
@@ -1277,6 +1442,12 @@ function OutcomeActionsPanel({
       !isEntityComputedFieldType(field.type) &&
       field.type !== "file" &&
       field.id !== triggerFieldId,
+  );
+  const preferredCreateTarget =
+    getAskRelatedLinkedTabs(entity, entities)[0]?.target ?? null;
+  const createUnderExistingOptions = getCreateUnderExistingRelatedOptions(
+    entity,
+    entities,
   );
 
   function patchActions(nextActions: typeof actions) {
@@ -1302,8 +1473,76 @@ function OutcomeActionsPanel({
       ]);
       return;
     }
+    if (kind === "createRecord" && preferredCreateTarget) {
+      const parentLink = resolveHostChildParentLinkField(
+        entity,
+        preferredCreateTarget,
+      );
+      const parentLinkFieldId = parentLink?.field.id ?? null;
+      const nameField = preferredCreateTarget.fields.find(
+        (field) =>
+          isEntityNameField(field) &&
+          isAskRelatedTargetField(field) &&
+          !isEntityParentLinkField(field, parentLinkFieldId),
+      );
+      patchActions([
+        ...actions,
+        {
+          id: createAutomationActionId(),
+          kind: "createRecord",
+          entityId: preferredCreateTarget.id,
+          mappings: [],
+          ...(nameField ? { askFieldIds: [nameField.id] } : {}),
+        },
+      ]);
+      return;
+    }
     patchActions([...actions, defaultAutomationAction(kind)]);
   }
+
+  /** Ask assignee to create records (entity «При создании» form). */
+  function addAskCreateRecord(options: {
+    createEntityId: string;
+    parentFrom?: AutomationCreateParentFromRelated;
+  }) {
+    const createEntity = entities.find(
+      (item) => item.id === options.createEntityId,
+    );
+    if (!createEntity) return;
+    patchActions([
+      ...actions,
+      {
+        id: createAutomationActionId(),
+        kind: "createRecord",
+        entityId: options.createEntityId,
+        mappings: [],
+        multiple: true,
+        useEntityCreateForm: true,
+        ...(options.parentFrom
+          ? { parentFromRelated: options.parentFrom }
+          : {}),
+      },
+    ]);
+  }
+
+  const askCreateOptions: Array<{
+    key: string;
+    label: string;
+    createEntityId: string;
+    parentFrom?: AutomationCreateParentFromRelated;
+  }> = [
+    ...createUnderExistingOptions.map((option) => ({
+      key: `under:${option.createEntity.id}:${option.parentFrom.linkedTabId ?? option.parentFrom.relationFieldId}`,
+      label: `«${option.createLabel}» в «${option.parentLabel}»`,
+      createEntityId: option.createEntity.id,
+      parentFrom: option.parentFrom,
+    })),
+    ...getAskRelatedLinkedTabs(entity, entities).map(({ tab, target }) => ({
+      key: `trigger:${target.id}:${tab.id}`,
+      label: `«${tab.name.trim() || getEntityDisplayName(target)}»`,
+      createEntityId: target.id,
+    })),
+  ];
 
   function removeAskFields() {
     onAskFieldsDraftChange(false);
@@ -1357,20 +1596,56 @@ function OutcomeActionsPanel({
           >
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
-                Форма и поля
+                {interactive ? "Форма задания" : "Поля"}
               </DropdownMenuLabel>
-              <DropdownMenuItem
-                disabled={showAskFields}
-                onClick={() => onAskFieldsDraftChange(true)}
-              >
-                Запросить заполнение полей
-              </DropdownMenuItem>
+              {interactive ? (
+                <DropdownMenuItem
+                  disabled={showAskFields}
+                  onClick={() => onAskFieldsDraftChange(true)}
+                >
+                  Запросить заполнение полей
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem
                 disabled={showAutofill || writableForAutofill.length === 0}
                 onClick={() => addAction("setField")}
               >
                 Управление полями
               </DropdownMenuItem>
+              {interactive && askCreateOptions.length === 1 ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    const option = askCreateOptions[0]!;
+                    addAskCreateRecord({
+                      createEntityId: option.createEntityId,
+                      parentFrom: option.parentFrom,
+                    });
+                  }}
+                >
+                  Запросить создание записи
+                </DropdownMenuItem>
+              ) : interactive && askCreateOptions.length > 1 ? (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    Запросить создание записи
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="max-h-64 min-w-56">
+                    {askCreateOptions.map((option) => (
+                      <DropdownMenuItem
+                        key={option.key}
+                        onClick={() =>
+                          addAskCreateRecord({
+                            createEntityId: option.createEntityId,
+                            parentFrom: option.parentFrom,
+                          })
+                        }
+                      >
+                        {option.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ) : null}
             </DropdownMenuGroup>
             {AUTOMATION_ACTION_KIND_GROUPS.map((group) => {
               const items = group.items.filter((kind) => kind !== "setField");
@@ -1398,14 +1673,15 @@ function OutcomeActionsPanel({
 
       {!showAskFields && !showAutofill && !showOther ? (
         <p className="text-[11px] leading-snug text-muted-foreground">
-          Нет действий — добавьте запрос полей, управление полями или другое
-          действие
+          {interactive
+            ? "Нет действий — запросите поля или создание записей у исполнителя, либо добавьте другое действие"
+            : "Нет действий — автозаполнение выполняется без формы задания"}
         </p>
       ) : null}
 
-      {showAskFields ? (
+      {interactive && showAskFields ? (
         <OutcomeAskFieldsEditor
-          fields={entity.fields}
+          entity={entity}
           entities={entities}
           value={outcome.fieldAccess}
           hasRecordsTab={hasRecordsTab}
@@ -1916,6 +2192,7 @@ export function TemplateInspector({
                         triggerFieldId={triggerFieldId}
                         stageOptionId={stageOptionId}
                         hasRecordsTab={hasRecordsTab}
+                        interactive={false}
                         askFieldsDraft={askFieldsDraftOutcomeIds.has(
                           outcome.id,
                         )}
@@ -2014,6 +2291,9 @@ export function TemplateInspector({
                             triggerFieldId={triggerFieldId}
                             stageOptionId={selectedStageId}
                             hasRecordsTab={hasRecordsTab}
+                            interactive={
+                              !isAutomationSilentTaskKind(draft.kind)
+                            }
                             askFieldsDraft={askFieldsDraftOutcomeIds.has(
                               selectedOutcome.id,
                             )}

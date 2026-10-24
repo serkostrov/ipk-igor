@@ -12,13 +12,30 @@ export type AutomationAssigneeLeafResolver =
   | { type: "relationFieldFanOut"; fieldId: string }
   | {
       type: "relatedField";
-      /** First relation hop from the trigger record. */
+      /**
+       * First field hop after an optional linked-child hop.
+       * Empty when the user field sits directly on the linked child entity.
+       */
       relationFieldId: string;
+      /**
+       * Walk child records of a linked-entity tab on the trigger first
+       * (e.g. «Разбор ТКП» → «Расчёты отделов» → набор → руководитель).
+       */
+      linkedChild?: {
+        tabId: string;
+        entityId: string;
+        parentFieldId: string;
+      };
       /**
        * Extra relation hops after `relationFieldId` (deep nesting).
        * Empty / omitted = one hop: trigger → related → user field.
        */
       via?: string[];
+      /**
+       * Parallel to `[relationFieldId, ...via]`: depth when a hop is
+       * `relationGroups` (0 = «Строки», 1 = «Вложенные»). Omitted = leaf.
+       */
+      relationGroupsDepths?: Array<number | undefined>;
       /** User field on the entity reached by the relation path. */
       fieldId: string;
       /**
@@ -299,12 +316,69 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
             ? raw.field_id
             : ""
       ).trim();
-      if (!relationFieldId || !fieldId) return defaultAssigneeLeafResolver();
+      const linkedRaw =
+        raw.linkedChild && typeof raw.linkedChild === "object"
+          ? (raw.linkedChild as Record<string, unknown>)
+          : raw.linked_child && typeof raw.linked_child === "object"
+            ? (raw.linked_child as Record<string, unknown>)
+            : null;
+      const linkedChild = linkedRaw
+        ? (() => {
+            const tabId =
+              typeof linkedRaw.tabId === "string"
+                ? linkedRaw.tabId.trim()
+                : typeof linkedRaw.tab_id === "string"
+                  ? linkedRaw.tab_id.trim()
+                  : "";
+            const entityId =
+              typeof linkedRaw.entityId === "string"
+                ? linkedRaw.entityId.trim()
+                : typeof linkedRaw.entity_id === "string"
+                  ? linkedRaw.entity_id.trim()
+                  : "";
+            const parentFieldId =
+              typeof linkedRaw.parentFieldId === "string"
+                ? linkedRaw.parentFieldId.trim()
+                : typeof linkedRaw.parent_field_id === "string"
+                  ? linkedRaw.parent_field_id.trim()
+                  : "";
+            if (!tabId || !entityId || !parentFieldId) return undefined;
+            return { tabId, entityId, parentFieldId };
+          })()
+        : undefined;
+      if (!fieldId) return defaultAssigneeLeafResolver();
+      if (!relationFieldId && !linkedChild) {
+        return defaultAssigneeLeafResolver();
+      }
       const fanOut = raw.fanOut === true || raw.fan_out === true;
-      const base =
-        via.length > 0
-          ? { type: "relatedField" as const, relationFieldId, via, fieldId }
-          : { type: "relatedField" as const, relationFieldId, fieldId };
+      const depthsRaw = Array.isArray(raw.relationGroupsDepths)
+        ? raw.relationGroupsDepths
+        : Array.isArray(raw.relation_groups_depths)
+          ? raw.relation_groups_depths
+          : null;
+      const relationGroupsDepths = depthsRaw
+        ? depthsRaw.map((item) => {
+            if (
+              typeof item === "number" &&
+              Number.isFinite(item) &&
+              item >= 0
+            ) {
+              return Math.floor(item);
+            }
+            return undefined;
+          })
+        : undefined;
+      const hasDepth =
+        relationGroupsDepths != null &&
+        relationGroupsDepths.some((depth) => depth != null);
+      const base = {
+        type: "relatedField" as const,
+        relationFieldId,
+        fieldId,
+        ...(via.length > 0 ? { via } : {}),
+        ...(linkedChild ? { linkedChild } : {}),
+        ...(hasDepth ? { relationGroupsDepths } : {}),
+      };
       return fanOut ? { ...base, fanOut: true } : base;
     }
     case "role": {

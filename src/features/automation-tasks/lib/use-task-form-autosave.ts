@@ -103,6 +103,7 @@ export function useTaskFormAutosave({
       entities: args.entities,
       outcomes: args.outcomes,
       values: args.values,
+      triggerRecordId: args.recordId,
       skipUnchanged: true,
     });
 

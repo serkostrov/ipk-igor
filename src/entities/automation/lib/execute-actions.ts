@@ -9,21 +9,30 @@ import {
   updateEntityRecord,
   waitForEntityRecordInsert,
   type Entity,
-  type EntityField,
   type EntityFieldType,
 } from "@/entities/entity";
 import { createNotification } from "@/entities/notification/api/notifications-api";
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
 import { getErrorMessage } from "@/shared/lib/error-message";
 import {
+  CREATE_RECORD_MULTI_NESTED_ID,
   createRecordAskDraftKey,
   createRecordNestedAskDraftKey,
   createRecordNestedCountDraftKey,
+  createRecordUnderRelatedNestedId,
   type AutomationAction,
   type AutomationFieldMapping,
 } from "../model/actions";
 import { resolveAutomationActionValue } from "../model/action-values";
 import type { AutomationAssigneeResolver } from "../model/assignee";
+import {
+  resolveCreateParentFromRelated,
+  resolveHostChildParentLinkField,
+} from "./ask-related";
+import {
+  resolveCreateRecordAskFields,
+  resolveCreateRecordParentHost,
+} from "./create-ask-fields";
 import { resolveAssigneeUserIds } from "./resolve-assignee";
 import { renderAutomationNameTemplate } from "./render-name-template";
 
@@ -113,7 +122,7 @@ function applyMappings(
 
 /**
  * When creating a sub-entity row under the trigger record, link the parent
- * relation automatically unless the mapping already sets it.
+ * relation automatically (owned child or linked-entity tab).
  */
 function withParentLink(
   values: Record<string, string>,
@@ -121,13 +130,14 @@ function withParentLink(
   ctx: AutomationExecutionContext,
 ): Record<string, string> {
   if (!target) return values;
-  if (target.parentEntityId?.trim() !== ctx.triggerEntityId) return values;
-  const parentLink = getEntityParentLinkField(target);
-  if (!parentLink) return values;
-  if (values[parentLink.id]?.trim()) return values;
+  const host = ctx.entities.find((entity) => entity.id === ctx.triggerEntityId);
+  if (!host) return values;
+  const resolved = resolveHostChildParentLinkField(host, target);
+  if (!resolved) return values;
+  if (values[resolved.field.id]?.trim()) return values;
   return {
     ...values,
-    [parentLink.id]: serializeEntityRelationIds([ctx.triggerRecordId]),
+    [resolved.field.id]: serializeEntityRelationIds([ctx.triggerRecordId]),
   };
 }
 
@@ -137,33 +147,30 @@ function withExplicitParentLink(
   target: Entity | null | undefined,
   parentEntityId: string,
   parentRecordId: string,
+  entities: Entity[],
 ): Record<string, string> {
   if (!target || !parentEntityId.trim() || !parentRecordId.trim()) {
     return values;
   }
+  const host = entities.find((entity) => entity.id === parentEntityId) ?? null;
+  const resolved = host ? resolveHostChildParentLinkField(host, target) : null;
   const parentLink =
+    resolved?.field ??
     (target.parentEntityId?.trim() === parentEntityId
       ? getEntityParentLinkField(target)
-      : null) ?? resolveChildParentLinkField(target, parentEntityId);
+      : null) ??
+    target.fields.find(
+      (field) =>
+        (field.type === "relation" || field.type === "belonging") &&
+        getEntityRelationTargetId(field) === parentEntityId,
+    ) ??
+    null;
   if (!parentLink) return values;
   if (values[parentLink.id]?.trim()) return values;
   return {
     ...values,
     [parentLink.id]: serializeEntityRelationIds([parentRecordId]),
   };
-}
-
-function resolveChildParentLinkField(
-  child: Entity,
-  parentEntityId: string,
-): EntityField | null {
-  return (
-    child.fields.find(
-      (field) =>
-        (field.type === "relation" || field.type === "belonging") &&
-        getEntityRelationTargetId(field) === parentEntityId,
-    ) ?? null
-  );
 }
 
 function readAskDraftValues(
@@ -223,6 +230,7 @@ async function createMappedRecord(
       target,
       options.parentLink.parentEntityId,
       options.parentLink.parentRecordId,
+      ctx.entities,
     );
   } else {
     values = withParentLink(values, target, ctx);
@@ -245,6 +253,7 @@ function resolveUserIds(
     actorUserId: ctx.actorUserId,
     entities: ctx.entities,
     triggerEntityId: ctx.triggerEntityId,
+    triggerRecordId: ctx.triggerRecordId,
   });
 }
 
@@ -313,14 +322,148 @@ export async function executeAutomationActions(
           if (!action.entityId.trim()) {
             throw new Error("Не выбрана сущность для создания записи");
           }
+          const createTarget =
+            ctx.entities.find((entity) => entity.id === action.entityId) ??
+            null;
+          const triggerEntity =
+            ctx.entities.find((entity) => entity.id === ctx.triggerEntityId) ??
+            null;
+          const createParentHost = resolveCreateRecordParentHost(
+            action,
+            triggerEntity,
+            ctx.entities,
+          );
+          const createAskFieldIds = createTarget
+            ? resolveCreateRecordAskFields(
+                action,
+                createTarget,
+                createParentHost,
+              ).askFieldIds
+            : (action.askFieldIds ?? []);
+          if (action.parentFromRelated) {
+            if (!triggerEntity) {
+              throw new Error(
+                "Не найдена сущность задачи для создания записей",
+              );
+            }
+            const relatedParents = resolveCreateParentFromRelated({
+              triggerEntity,
+              entities: ctx.entities,
+              parentFrom: action.parentFromRelated,
+              triggerRecordId: ctx.triggerRecordId,
+              triggerValues: ctx.values,
+            });
+            if (!relatedParents) {
+              throw new Error(
+                "Не удалось определить связанные записи-родители для создания",
+              );
+            }
+            const multiIds: string[] = [];
+            for (const parentRecordId of relatedParents.parentRecordIds) {
+              const nestedId = createRecordUnderRelatedNestedId(parentRecordId);
+              const count = readNestedDraftCount(
+                ctx.formValues,
+                action.id,
+                nestedId,
+              );
+              for (let index = 0; index < count; index++) {
+                const multiAsk = readAskDraftValues(
+                  ctx.formValues,
+                  createAskFieldIds,
+                  (fieldId) =>
+                    createRecordNestedAskDraftKey(
+                      action.id,
+                      nestedId,
+                      index,
+                      fieldId,
+                    ),
+                );
+                const child = await createMappedRecord(
+                  action.entityId,
+                  action.useEntityCreateForm ? [] : action.mappings,
+                  ctx,
+                  createdRecordIds,
+                  {
+                    askOverrides: multiAsk,
+                    parentLink: {
+                      parentEntityId: relatedParents.parentEntity.id,
+                      parentRecordId,
+                    },
+                  },
+                );
+                createdRecordIds.push(child.id);
+                multiIds.push(child.id);
+              }
+            }
+            logs.push({
+              kind: "createRecord",
+              entityId: action.entityId,
+              multiple: true,
+              parentFromRelated: true,
+              recordIds: multiIds,
+            });
+            break;
+          }
+          if (action.multiple) {
+            const count = readNestedDraftCount(
+              ctx.formValues,
+              action.id,
+              CREATE_RECORD_MULTI_NESTED_ID,
+            );
+            const multiIds: string[] = [];
+            for (let index = 0; index < count; index++) {
+              const multiAsk = readAskDraftValues(
+                ctx.formValues,
+                createAskFieldIds,
+                (fieldId) =>
+                  createRecordNestedAskDraftKey(
+                    action.id,
+                    CREATE_RECORD_MULTI_NESTED_ID,
+                    index,
+                    fieldId,
+                  ),
+              );
+              const child = await createMappedRecord(
+                action.entityId,
+                action.useEntityCreateForm ? [] : action.mappings,
+                ctx,
+                createdRecordIds,
+                {
+                  askOverrides: multiAsk,
+                  parentLink: {
+                    parentEntityId: ctx.triggerEntityId,
+                    parentRecordId: ctx.triggerRecordId,
+                  },
+                },
+              );
+              createdRecordIds.push(child.id);
+              multiIds.push(child.id);
+            }
+            if (action.linkBackFieldId && multiIds.length > 0) {
+              const linked = serializeEntityRelationIds(multiIds);
+              await updateEntityRecord(
+                ctx.triggerEntityId,
+                ctx.triggerRecordId,
+                { [action.linkBackFieldId]: linked },
+              );
+              ctx.values[action.linkBackFieldId] = linked;
+            }
+            logs.push({
+              kind: "createRecord",
+              entityId: action.entityId,
+              multiple: true,
+              recordIds: multiIds,
+            });
+            break;
+          }
           const parentAsk = readAskDraftValues(
             ctx.formValues,
-            action.askFieldIds,
+            createAskFieldIds,
             (fieldId) => createRecordAskDraftKey(action.id, fieldId),
           );
           const record = await createMappedRecord(
             action.entityId,
-            action.mappings,
+            action.useEntityCreateForm ? [] : action.mappings,
             ctx,
             createdRecordIds,
             { askOverrides: parentAsk },

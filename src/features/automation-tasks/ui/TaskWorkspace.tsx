@@ -149,6 +149,7 @@ function buildTaskFormValues(
     entities,
     relatedFields,
     triggerValues: { ...record.values, ...base },
+    triggerRecordId: record.id,
     currentValues: base,
   });
 }
@@ -231,7 +232,22 @@ function TaskWorkspaceBody({
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
   const createAskSlots = selectedOutcome
-    ? getOutcomeCreateAskSlots(selectedOutcome, entities)
+    ? getOutcomeCreateAskSlots(selectedOutcome, entities, {
+        sourceEntity: entity,
+        triggerRecordId: record?.id ?? task.recordId,
+        triggerValues: record?.values ?? {},
+        getRecordTitle: (parentEntity, parentRecordId) => {
+          const parentRecord = parentEntity.records.find(
+            (item) => item.id === parentRecordId,
+          );
+          if (!parentRecord) return "Запись";
+          return getEntityRecordTitle(
+            previewContext,
+            parentEntity,
+            parentRecord,
+          );
+        },
+      })
     : [];
   const requiredIds = new Set(ask?.requiredFieldIds ?? []);
 
@@ -291,6 +307,7 @@ function TaskWorkspaceBody({
           relatedFields: relatedFieldsForForm,
           relatedRequiredIds: relatedRequiredForForm,
           triggerValues: { ...(record?.values ?? {}), ...values },
+          triggerRecordId: record?.id ?? task.recordId,
           ctx: previewContext,
         })
       : { groups: [], emptyRelations: [] };
@@ -332,6 +349,7 @@ function TaskWorkspaceBody({
         entities,
         relatedFields,
         triggerValues: { ...record.values, ...next },
+        triggerRecordId: record.id,
         currentValues: next,
       });
     });
@@ -391,7 +409,11 @@ function TaskWorkspaceBody({
           relatedFields: relatedFieldsForForm,
           relatedRequiredIds: relatedRequiredForForm,
           values: mergedValues,
-          isFieldFilled: (field, value) => isTaskAskFieldFilled(field, value),
+          triggerRecordId: record?.id ?? task.recordId,
+          isFieldFilled: (field, value, relationGroupsMode) =>
+            isTaskAskFieldFilled(field, value, {
+              relationGroupsMode: relationGroupsMode ?? "full",
+            }),
         })
       : 0;
   const missingRequiredCount =
@@ -433,6 +455,7 @@ function TaskWorkspaceBody({
         relatedFields: relatedFieldsForForm,
         changedFieldId: fieldId,
         values: base,
+        triggerRecordId: record?.id ?? task.recordId,
       });
     });
   }
@@ -474,6 +497,7 @@ function TaskWorkspaceBody({
       entities,
       outcomes,
       values,
+      triggerRecordId: record.id,
     });
     await persistRelatedAskUpdates(related);
   }
@@ -509,13 +533,27 @@ function TaskWorkspaceBody({
       entities,
       fieldAccess: outcome.fieldAccess,
       values: mergedValues,
-      isFieldFilled: (field, value) => isTaskAskFieldFilled(field, value),
+      triggerRecordId: record?.id ?? task.recordId,
+      isFieldFilled: (field, value, relationGroupsMode) =>
+        isTaskAskFieldFilled(field, value, {
+          relationGroupsMode: relationGroupsMode ?? "full",
+        }),
     });
     if (relatedError) return relatedError;
     return validateCreateAskRequired({
       outcome,
       entities,
       values,
+      sourceEntity: entity,
+      triggerRecordId: record?.id ?? task.recordId,
+      triggerValues: record?.values ?? values,
+      getRecordTitle: (parentEntity, parentRecordId) => {
+        const parentRecord = parentEntity.records.find(
+          (item) => item.id === parentRecordId,
+        );
+        if (!parentRecord) return "Запись";
+        return getEntityRecordTitle(previewContext, parentEntity, parentRecord);
+      },
       isFieldFilled: (field, value, relationGroupsMode) =>
         isTaskAskFieldFilled(field, value, {
           relationGroupsMode:

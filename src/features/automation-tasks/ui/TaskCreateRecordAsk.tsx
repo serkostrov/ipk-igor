@@ -18,10 +18,115 @@ import {
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 import {
   addNestedDraftRow,
+  createAskMultiNestedSlot,
   getNestedDraftCount,
   removeNestedDraftRow,
   type AutomationCreateAskSlot,
+  type AutomationCreateAskNestedSlot,
 } from "../lib/task-ask-fields";
+
+function CreateAskDraftList({
+  title,
+  nested,
+  entity,
+  actionId,
+  values,
+  entities,
+  ctx,
+  disabled,
+  onChange,
+  onValuesChange,
+}: {
+  title: string;
+  nested: AutomationCreateAskNestedSlot;
+  entity: Entity;
+  actionId: string;
+  values: Record<string, string>;
+  entities: Entity[];
+  ctx: EntityValueContext;
+  disabled?: boolean;
+  onChange: (draftKey: string, value: string) => void;
+  onValuesChange: (next: Record<string, string>) => void;
+}) {
+  const count = getNestedDraftCount(values, actionId, nested.nestedId);
+  const requiredIds = new Set(nested.askRequiredFieldIds);
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          {title}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 border-dashed px-2 text-xs"
+          disabled={disabled}
+          onClick={() =>
+            onValuesChange(addNestedDraftRow(values, actionId, nested))
+          }
+        >
+          <Plus className="size-3.5" />
+          Добавить
+        </Button>
+      </div>
+      {count === 0 ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Пока нет — нажмите «Добавить»
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {Array.from({ length: count }, (_, index) => (
+            <li
+              key={`${nested.nestedId}-${index}`}
+              className="flex flex-col gap-2.5 rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {nested.entityLabel} · {index + 1}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                  disabled={disabled}
+                  aria-label="Удалить"
+                  onClick={() =>
+                    onValuesChange(
+                      removeNestedDraftRow(values, actionId, nested, index),
+                    )
+                  }
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+              <CreateAskFieldList
+                entity={entity}
+                fieldIds={nested.askFieldIds}
+                requiredIds={requiredIds}
+                fieldAskOptions={nested.fieldAskOptions}
+                draftKeyFor={(fieldId) =>
+                  createRecordNestedAskDraftKey(
+                    actionId,
+                    nested.nestedId,
+                    index,
+                    fieldId,
+                  )
+                }
+                values={values}
+                entities={entities}
+                ctx={ctx}
+                disabled={disabled}
+                onChange={onChange}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
 
 function CreateAskFieldList({
   entity,
@@ -136,6 +241,67 @@ export function TaskCreateRecordAsk({
         const entity = entities.find((item) => item.id === slot.entityId);
         if (!entity) return null;
         const requiredIds = new Set(slot.askRequiredFieldIds);
+        if (slot.underRelatedParents) {
+          return (
+            <div key={slot.actionId} className="flex flex-col gap-4">
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                {slot.entityLabel}
+              </p>
+              {slot.underRelatedParents.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-3 py-2.5 text-xs text-muted-foreground">
+                  Сначала нужны записи «
+                  {slot.underRelatedEmptyLabel ?? "связанной подсущности"}»
+                </p>
+              ) : (
+                slot.underRelatedParents.map((parent) => (
+                  <div
+                    key={parent.parentRecordId}
+                    className="flex flex-col gap-2.5 rounded-xl border border-border/60 bg-muted/10 px-3 py-3"
+                  >
+                    <CreateAskDraftList
+                      title={`${slot.entityLabel} · ${parent.parentTitle}`}
+                      nested={{
+                        nestedId: parent.nestedId,
+                        entityId: slot.entityId,
+                        entityLabel: slot.entityLabel,
+                        askFieldIds: slot.askFieldIds,
+                        askRequiredFieldIds: slot.askRequiredFieldIds,
+                        fieldAskOptions: slot.fieldAskOptions,
+                      }}
+                      entity={entity}
+                      actionId={slot.actionId}
+                      values={values}
+                      entities={entities}
+                      ctx={ctx}
+                      disabled={disabled}
+                      onChange={onChange}
+                      onValuesChange={onValuesChange}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+          );
+        }
+        if (slot.multiple) {
+          const multi = createAskMultiNestedSlot(slot);
+          return (
+            <div key={slot.actionId} className="flex flex-col gap-3.5">
+              <CreateAskDraftList
+                title={slot.entityLabel}
+                nested={multi}
+                entity={entity}
+                actionId={slot.actionId}
+                values={values}
+                entities={entities}
+                ctx={ctx}
+                disabled={disabled}
+                onChange={onChange}
+                onValuesChange={onValuesChange}
+              />
+            </div>
+          );
+        }
         return (
           <div key={slot.actionId} className="flex flex-col gap-3.5">
             <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
@@ -160,96 +326,23 @@ export function TaskCreateRecordAsk({
                 (item) => item.id === nested.entityId,
               );
               if (!child) return null;
-              const count = getNestedDraftCount(
-                values,
-                slot.actionId,
-                nested.nestedId,
-              );
-              const nestedRequired = new Set(nested.askRequiredFieldIds);
               return (
                 <div
                   key={nested.nestedId}
                   className="flex flex-col gap-2.5 border-t border-border/50 pt-3"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                      {nested.entityLabel}
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 gap-1 border-dashed px-2 text-xs"
-                      disabled={disabled}
-                      onClick={() =>
-                        onValuesChange(
-                          addNestedDraftRow(values, slot.actionId, nested),
-                        )
-                      }
-                    >
-                      <Plus className="size-3.5" />
-                      Добавить
-                    </Button>
-                  </div>
-                  {count === 0 ? (
-                    <p className="text-[11px] leading-snug text-muted-foreground">
-                      Пока нет — нажмите «Добавить»
-                    </p>
-                  ) : (
-                    <ul className="flex flex-col gap-3">
-                      {Array.from({ length: count }, (_, index) => (
-                        <li
-                          key={`${nested.nestedId}-${index}`}
-                          className="flex flex-col gap-2.5 rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-medium text-muted-foreground">
-                              {nested.entityLabel} · {index + 1}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
-                              disabled={disabled}
-                              aria-label="Удалить"
-                              onClick={() =>
-                                onValuesChange(
-                                  removeNestedDraftRow(
-                                    values,
-                                    slot.actionId,
-                                    nested,
-                                    index,
-                                  ),
-                                )
-                              }
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          </div>
-                          <CreateAskFieldList
-                            entity={child}
-                            fieldIds={nested.askFieldIds}
-                            requiredIds={nestedRequired}
-                            fieldAskOptions={nested.fieldAskOptions}
-                            draftKeyFor={(fieldId) =>
-                              createRecordNestedAskDraftKey(
-                                slot.actionId,
-                                nested.nestedId,
-                                index,
-                                fieldId,
-                              )
-                            }
-                            values={values}
-                            entities={entities}
-                            ctx={ctx}
-                            disabled={disabled}
-                            onChange={onChange}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  <CreateAskDraftList
+                    title={nested.entityLabel}
+                    nested={nested}
+                    entity={child}
+                    actionId={slot.actionId}
+                    values={values}
+                    entities={entities}
+                    ctx={ctx}
+                    disabled={disabled}
+                    onChange={onChange}
+                    onValuesChange={onValuesChange}
+                  />
                 </div>
               );
             })}

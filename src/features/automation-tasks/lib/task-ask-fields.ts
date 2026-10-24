@@ -1,7 +1,13 @@
 import {
+  CREATE_RECORD_MULTI_NESTED_ID,
   createRecordAskDraftKey,
   createRecordNestedAskDraftKey,
   createRecordNestedCountDraftKey,
+  createRecordUnderRelatedNestedId,
+  resolveCreateParentFromRelated,
+  resolveCreateRecordAskFields,
+  resolveCreateRecordParentHost,
+  resolveHostChildParentLinkField,
   type AutomationAskRelatedField,
   type AutomationCreateNestedSpec,
   type AutomationFieldAskOptions,
@@ -11,9 +17,32 @@ import {
 import {
   getEntityDisplayName,
   getEntityFieldDisplayName,
+  isEntityNameField,
+  isEntityTabWithLinkedEntity,
   type Entity,
   type EntityField,
 } from "@/entities/entity";
+
+/** Prefer linked-tab title when naming a child under `parent`. */
+function childEntityLabel(parent: Entity | null, child: Entity): string {
+  if (parent) {
+    const tab = parent.tabs.find(
+      (item) =>
+        isEntityTabWithLinkedEntity(item) && item.linkedEntityId === child.id,
+    );
+    const tabName = tab?.name.trim();
+    if (tabName) return tabName;
+  }
+  return getEntityDisplayName(child);
+}
+
+function fallbackRelatedParentTitle(entity: Entity, recordId: string): string {
+  const record = entity.records.find((item) => item.id === recordId);
+  if (!record) return "Запись";
+  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  const raw = nameField ? (record.values[nameField.id] ?? "").trim() : "";
+  return raw || "Без названия";
+}
 
 export type AutomationAskFields = {
   requiredFieldIds: string[];
@@ -274,6 +303,13 @@ export type AutomationCreateAskNestedSlot = {
   fieldAskOptions: Record<string, AutomationFieldAskOptions>;
 };
 
+/** Existing related parent for createRecord.parentFromRelated drafts. */
+export type AutomationCreateAskUnderRelatedParent = {
+  parentRecordId: string;
+  parentTitle: string;
+  nestedId: string;
+};
+
 /** createRecord ask block rendered on the task form. */
 export type AutomationCreateAskSlot = {
   actionId: string;
@@ -282,20 +318,41 @@ export type AutomationCreateAskSlot = {
   askFieldIds: string[];
   askRequiredFieldIds: string[];
   fieldAskOptions: Record<string, AutomationFieldAskOptions>;
+  /**
+   * Several records linked to the trigger (подсущность).
+   * Draft keys use `CREATE_RECORD_MULTI_NESTED_ID`.
+   */
+  multiple?: boolean;
+  /**
+   * Create under existing related parents (e.g. подзадачи → расчёты отделов).
+   * When set, `multiple` list is per parent via `under_*` nested ids.
+   */
+  underRelatedParents?: AutomationCreateAskUnderRelatedParent[];
+  /** Empty-state label when no related parents exist yet. */
+  underRelatedEmptyLabel?: string;
   nested: AutomationCreateAskNestedSlot[];
+};
+
+export type GetOutcomeCreateAskSlotsOptions = {
+  sourceEntity?: Entity | null;
+  triggerRecordId?: string;
+  triggerValues?: Record<string, string>;
+  getRecordTitle?: (entity: Entity, recordId: string) => string;
 };
 
 function nestedSpecToSlot(
   nested: AutomationCreateNestedSpec,
   entities: Entity[],
+  parentEntity: Entity | null,
 ): AutomationCreateAskNestedSlot | null {
   const entity = entities.find((item) => item.id === nested.entityId);
   if (!entity) return null;
   const askFieldIds = uniquePreserveOrder(nested.askFieldIds);
+  const label = childEntityLabel(parentEntity, entity);
   return {
     nestedId: nested.id,
     entityId: nested.entityId,
-    entityLabel: getEntityDisplayName(entity),
+    entityLabel: parentEntity ? `${label} · к этой записи` : label,
     askFieldIds,
     askRequiredFieldIds: uniquePreserveOrder(
       (nested.askRequiredFieldIds ?? []).filter((id) =>
@@ -310,28 +367,115 @@ function nestedSpecToSlot(
 export function getOutcomeCreateAskSlots(
   outcome: AutomationOutcome,
   entities: Entity[],
+  options: GetOutcomeCreateAskSlotsOptions = {},
 ): AutomationCreateAskSlot[] {
+  const sourceEntity = options.sourceEntity ?? null;
   const slots: AutomationCreateAskSlot[] = [];
   for (const action of outcome.actions) {
     if (action.kind !== "createRecord") continue;
-    const askFieldIds = uniquePreserveOrder(action.askFieldIds ?? []);
-    const nested = (action.nestedCreates ?? [])
-      .map((item) => nestedSpecToSlot(item, entities))
-      .filter((item): item is AutomationCreateAskNestedSlot => item != null);
-    if (askFieldIds.length === 0 && nested.length === 0) continue;
+    const parentFromRelated = action.parentFromRelated ?? null;
+    const useEntityCreateForm = action.useEntityCreateForm === true;
+    const multiple =
+      action.multiple === true ||
+      parentFromRelated != null ||
+      useEntityCreateForm;
     const entity = entities.find((item) => item.id === action.entityId);
     if (!entity) continue;
+    const parentHost = resolveCreateRecordParentHost(
+      action,
+      sourceEntity,
+      entities,
+    );
+    const resolvedAsk = resolveCreateRecordAskFields(
+      action,
+      entity,
+      parentHost,
+    );
+    const askFieldIds = uniquePreserveOrder(resolvedAsk.askFieldIds);
+    const nested =
+      multiple || parentFromRelated || useEntityCreateForm
+        ? []
+        : (action.nestedCreates ?? [])
+            .map((item) => nestedSpecToSlot(item, entities, entity))
+            .filter(
+              (item): item is AutomationCreateAskNestedSlot => item != null,
+            );
+    if (
+      !multiple &&
+      !parentFromRelated &&
+      !useEntityCreateForm &&
+      askFieldIds.length === 0 &&
+      nested.length === 0
+    ) {
+      continue;
+    }
+
+    let underRelatedParents:
+      AutomationCreateAskUnderRelatedParent[] | undefined;
+    let underRelatedEmptyLabel: string | undefined;
+    let entityLabel = childEntityLabel(
+      sourceEntity &&
+        resolveHostChildParentLinkField(sourceEntity, entity) != null
+        ? sourceEntity
+        : null,
+      entity,
+    );
+
+    if (parentFromRelated) {
+      underRelatedParents = [];
+      underRelatedEmptyLabel = "связанной подсущности";
+      if (sourceEntity && options.triggerRecordId) {
+        const resolved = resolveCreateParentFromRelated({
+          triggerEntity: sourceEntity,
+          entities,
+          parentFrom: parentFromRelated,
+          triggerRecordId: options.triggerRecordId,
+          triggerValues: options.triggerValues ?? {},
+        });
+        if (resolved) {
+          underRelatedEmptyLabel = resolved.parentLabel;
+          const childLabel = childEntityLabel(resolved.parentEntity, entity);
+          entityLabel = useEntityCreateForm
+            ? `Новые «${childLabel}»`
+            : `${childLabel} · в «${resolved.parentLabel}»`;
+          underRelatedParents = resolved.parentRecordIds.map(
+            (parentRecordId) => ({
+              parentRecordId,
+              parentTitle:
+                options.getRecordTitle?.(
+                  resolved.parentEntity,
+                  parentRecordId,
+                ) ??
+                fallbackRelatedParentTitle(
+                  resolved.parentEntity,
+                  parentRecordId,
+                ),
+              nestedId: createRecordUnderRelatedNestedId(parentRecordId),
+            }),
+          );
+        }
+      }
+    } else if (useEntityCreateForm) {
+      entityLabel = `Новые «${entityLabel}»`;
+    }
+
     slots.push({
       actionId: action.id,
       entityId: action.entityId,
-      entityLabel: getEntityDisplayName(entity),
+      entityLabel,
       askFieldIds,
       askRequiredFieldIds: uniquePreserveOrder(
-        (action.askRequiredFieldIds ?? []).filter((id) =>
+        resolvedAsk.askRequiredFieldIds.filter((id) =>
           askFieldIds.includes(id),
         ),
       ),
-      fieldAskOptions: action.fieldAskOptions ?? {},
+      fieldAskOptions: useEntityCreateForm
+        ? {}
+        : (action.fieldAskOptions ?? {}),
+      ...(multiple && !parentFromRelated ? { multiple: true } : {}),
+      ...(underRelatedParents
+        ? { underRelatedParents, underRelatedEmptyLabel }
+        : {}),
       nested,
     });
   }
@@ -342,10 +486,27 @@ export function outcomeHasCreateAsk(outcome: AutomationOutcome) {
   return outcome.actions.some((action) => {
     if (action.kind !== "createRecord") return false;
     return (
+      action.multiple === true ||
+      action.parentFromRelated != null ||
+      action.useEntityCreateForm === true ||
       (action.askFieldIds?.length ?? 0) > 0 ||
       (action.nestedCreates?.length ?? 0) > 0
     );
   });
+}
+
+/** Pseudo-nested slot for `createRecord.multiple` draft rows. */
+export function createAskMultiNestedSlot(
+  slot: AutomationCreateAskSlot,
+): AutomationCreateAskNestedSlot {
+  return {
+    nestedId: CREATE_RECORD_MULTI_NESTED_ID,
+    entityId: slot.entityId,
+    entityLabel: slot.entityLabel,
+    askFieldIds: slot.askFieldIds,
+    askRequiredFieldIds: slot.askRequiredFieldIds,
+    fieldAskOptions: slot.fieldAskOptions,
+  };
 }
 
 export function getNestedDraftCount(
@@ -473,17 +634,85 @@ export function validateCreateAskRequired(options: {
   outcome: AutomationOutcome;
   entities: Entity[];
   values: Record<string, string>;
+  sourceEntity?: Entity | null;
+  triggerRecordId?: string;
+  triggerValues?: Record<string, string>;
+  getRecordTitle?: (entity: Entity, recordId: string) => string;
   isFieldFilled: (
     field: EntityField,
     value: string,
     relationGroupsMode?: string,
   ) => boolean;
 }): string | null {
-  const slots = getOutcomeCreateAskSlots(options.outcome, options.entities);
+  const slots = getOutcomeCreateAskSlots(options.outcome, options.entities, {
+    sourceEntity: options.sourceEntity,
+    triggerRecordId: options.triggerRecordId,
+    triggerValues: options.triggerValues,
+    getRecordTitle: options.getRecordTitle,
+  });
   const missingLabels: string[] = [];
   for (const slot of slots) {
     const entity = options.entities.find((item) => item.id === slot.entityId);
     if (!entity) continue;
+    if (slot.underRelatedParents) {
+      for (const parent of slot.underRelatedParents) {
+        const count = getNestedDraftCount(
+          options.values,
+          slot.actionId,
+          parent.nestedId,
+        );
+        for (let index = 0; index < count; index++) {
+          for (const fieldId of slot.askRequiredFieldIds) {
+            const field = entity.fields.find((item) => item.id === fieldId);
+            if (!field) continue;
+            const key = createRecordNestedAskDraftKey(
+              slot.actionId,
+              parent.nestedId,
+              index,
+              fieldId,
+            );
+            const mode =
+              slot.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full";
+            if (
+              !options.isFieldFilled(field, options.values[key] ?? "", mode)
+            ) {
+              missingLabels.push(
+                `${slot.entityLabel} · ${parent.parentTitle} #${index + 1}: ${getEntityFieldDisplayName(field)}`,
+              );
+            }
+          }
+        }
+      }
+      continue;
+    }
+    if (slot.multiple) {
+      const multi = createAskMultiNestedSlot(slot);
+      const count = getNestedDraftCount(
+        options.values,
+        slot.actionId,
+        multi.nestedId,
+      );
+      for (let index = 0; index < count; index++) {
+        for (const fieldId of multi.askRequiredFieldIds) {
+          const field = entity.fields.find((item) => item.id === fieldId);
+          if (!field) continue;
+          const key = createRecordNestedAskDraftKey(
+            slot.actionId,
+            multi.nestedId,
+            index,
+            fieldId,
+          );
+          const mode =
+            multi.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full";
+          if (!options.isFieldFilled(field, options.values[key] ?? "", mode)) {
+            missingLabels.push(
+              `${slot.entityLabel} #${index + 1}: ${getEntityFieldDisplayName(field)}`,
+            );
+          }
+        }
+      }
+      continue;
+    }
     for (const fieldId of slot.askRequiredFieldIds) {
       const field = entity.fields.find((item) => item.id === fieldId);
       if (!field) continue;
