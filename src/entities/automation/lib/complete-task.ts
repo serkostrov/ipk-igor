@@ -406,6 +406,8 @@ export async function completeAutomationTask(
       actorUserId: actorUserId ?? null,
       depth: 1,
       formValues: formValues ?? {},
+      // Silent create runs before RPC; retries must not insert another child.
+      reuseExistingLinkedCreates: isAutomationSilentTaskKind(task.config.kind),
     });
     if (result.errors.length > 0) {
       throw new Error(result.errors.join("; "));
@@ -425,6 +427,7 @@ export async function completeAutomationTask(
       recordId: task.recordId,
       triggerOptionId: task.triggerOptionId,
       stepOrder: task.stepOrder,
+      launchPhase: task.config.launchPhase ?? "onEnter",
       taskName: task.name,
     });
     throw new Error(message, { cause: error });
@@ -506,12 +509,10 @@ export async function returnAutomationTaskForRevision(
   return runId;
 }
 
-/**
- * Run pending silent autofill / actions tasks in step order.
- * Call before opening an interactive task so createRecord and setField from
- * earlier silent steps are already applied to the entity store.
- */
-export async function completePendingSilentAutomationTasks(
+/** One in-flight silent prep per record — Host + Dialog + Page must not race. */
+const silentCompleteByRecord = new Map<string, Promise<void>>();
+
+async function runSilentCompletesForTasks(
   tasks: readonly AutomationTask[],
   actorUserId?: string | null,
 ): Promise<void> {
@@ -554,6 +555,57 @@ export async function completePendingSilentAutomationTasks(
 }
 
 /**
+ * Run pending silent autofill / actions tasks in step order.
+ * Call before opening an interactive task so createRecord and setField from
+ * earlier silent steps are already applied to the entity store.
+ */
+export async function completePendingSilentAutomationTasks(
+  tasks: readonly AutomationTask[],
+  actorUserId?: string | null,
+): Promise<void> {
+  const silent = tasks.filter((task) =>
+    isAutomationSilentTaskKind(task.config.kind),
+  );
+  if (silent.length === 0) return;
+
+  const byRecord = new Map<string, AutomationTask[]>();
+  for (const task of silent) {
+    const list = byRecord.get(task.recordId) ?? [];
+    list.push(task);
+    byRecord.set(task.recordId, list);
+  }
+
+  const runs: Promise<void>[] = [];
+  for (const [recordId, recordTasks] of byRecord) {
+    const existing = silentCompleteByRecord.get(recordId);
+    if (existing) {
+      runs.push(existing);
+      continue;
+    }
+    const run = runSilentCompletesForTasks(recordTasks, actorUserId).finally(
+      () => {
+        if (silentCompleteByRecord.get(recordId) === run) {
+          silentCompleteByRecord.delete(recordId);
+        }
+      },
+    );
+    silentCompleteByRecord.set(recordId, run);
+    runs.push(run);
+  }
+  const results = await Promise.allSettled(runs);
+  const errors = results
+    .filter((item): item is PromiseRejectedResult => item.status === "rejected")
+    .map((item) =>
+      item.reason instanceof Error
+        ? item.reason.message
+        : String(item.reason ?? "ошибка"),
+    );
+  if (errors.length > 0) {
+    throw new Error(errors.join("\n"));
+  }
+}
+
+/**
  * Finish pending silent steps for a record before opening an interactive task.
  * Needed when the host race / inbox opens step N while autofill createRecord
  * for step N−1 is still pending.
@@ -564,9 +616,22 @@ export async function completePendingSilentAutomationTasksForRecord(
 ): Promise<void> {
   const id = recordId.trim();
   if (!id) return;
-  const pending = await fetchAutomationTasks({
-    recordId: id,
-    status: ["pending", "returned"],
+  const existing = silentCompleteByRecord.get(id);
+  if (existing) {
+    await existing;
+    return;
+  }
+  const run = (async () => {
+    const pending = await fetchAutomationTasks({
+      recordId: id,
+      status: ["pending", "returned"],
+    });
+    await runSilentCompletesForTasks(pending, actorUserId ?? null);
+  })().finally(() => {
+    if (silentCompleteByRecord.get(id) === run) {
+      silentCompleteByRecord.delete(id);
+    }
   });
-  await completePendingSilentAutomationTasks(pending, actorUserId ?? null);
+  silentCompleteByRecord.set(id, run);
+  await run;
 }

@@ -280,10 +280,11 @@ export function RelationGroupsFieldControl({
     getRelationRecordOptions(rootEntity, ctx.entities),
     rootLevel.displayFieldIds,
   );
-  const usedRootIds = new Set(groups.map((node) => node.id));
   const canEditRoot = editableThrough >= 0;
   const showDeeper = editableThrough >= 1;
   const rootLayout = rootLevel.layout === "row" ? "row" : "column";
+  const rootEntityLabel = getEntityDisplayName(rootEntity);
+  const rootSelectedIds = groups.map((node) => node.id);
 
   function renderLevel(
     node: EntityRelationGroupNode,
@@ -413,30 +414,67 @@ export function RelationGroupsFieldControl({
     );
   }
 
+  // «Только строки»: one compact multi-select (chips), no empty cards.
+  if (!showDeeper) {
+    if (!canEditRoot) {
+      return groups.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Пока ничего не выбрано</p>
+      ) : (
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          {groups.map((node) => {
+            const title = recordTitle(rootEntity, node.id, ctx);
+            return (
+              <span
+                key={node.id}
+                className="inline-flex h-6 max-w-full items-center rounded-md bg-primary/10 px-2 text-xs font-medium text-primary"
+              >
+                <span className="truncate">{title}</span>
+              </span>
+            );
+          })}
+        </div>
+      );
+    }
+    return (
+      <RelationSelect
+        id={id}
+        value={serializeEntityRelationIds(rootSelectedIds)}
+        options={rootOptions}
+        multiple
+        placeholder={`Выберите «${rootEntityLabel}»`}
+        className="h-9 min-h-9 w-full bg-background hover:bg-background aria-expanded:bg-background"
+        onChange={(next) => {
+          setRootIds(parseEntityRelationIds(next));
+        }}
+      />
+    );
+  }
+
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3">
+    <div className="flex w-full min-w-0 flex-col gap-2.5">
       {canEditRoot ? (
-        <RelationSelect
-          id={id}
-          value=""
-          options={rootOptions.filter((option) => !usedRootIds.has(option.id))}
-          multiple={false}
-          placeholder={`Добавить «${getEntityDisplayName(rootEntity)}»`}
-          className="h-8 min-h-8 w-full bg-background hover:bg-background aria-expanded:bg-background"
-          onChange={(next) => {
-            const ids = parseEntityRelationIds(next);
-            if (ids.length === 0) return;
-            setRootIds([...groups.map((node) => node.id), ...ids]);
-          }}
-        />
+        <div className="flex flex-col gap-1.5">
+          <LevelLabel>Строки · {rootEntityLabel}</LevelLabel>
+          <RelationSelect
+            id={id}
+            value={serializeEntityRelationIds(rootSelectedIds)}
+            options={rootOptions}
+            multiple
+            placeholder={`Выберите «${rootEntityLabel}»`}
+            className="h-9 min-h-9 w-full bg-background hover:bg-background aria-expanded:bg-background"
+            onChange={(next) => {
+              setRootIds(parseEntityRelationIds(next));
+            }}
+          />
+        </div>
       ) : null}
 
       {groups.length > 0 ? (
         <div
           className={cn(
             rootLayout === "row"
-              ? "grid grid-cols-1 gap-3 md:grid-cols-[repeat(auto-fit,minmax(15.5rem,1fr))]"
-              : "flex flex-col gap-3",
+              ? "grid grid-cols-1 gap-2 md:grid-cols-[repeat(auto-fit,minmax(15.5rem,1fr))]"
+              : "flex flex-col gap-2",
           )}
         >
           {groups.map((node) => {
@@ -450,17 +488,29 @@ export function RelationGroupsFieldControl({
             return (
               <section
                 key={node.id}
-                className="flex min-w-0 flex-col gap-3 rounded-lg border border-border/70 bg-muted/20 p-3"
+                className="flex min-w-0 flex-col gap-2 rounded-lg border border-border/60 bg-muted/15 p-2.5"
               >
-                <header className="flex items-start gap-2">
-                  <ItemMeta title={title} extras={extras} />
+                <header className="flex min-w-0 items-center gap-2">
+                  <span className="inline-flex h-6 max-w-full min-w-0 items-center rounded-md bg-primary/10 px-2 text-xs font-medium text-primary">
+                    <span className="truncate">{title}</span>
+                  </span>
+                  {extras ? (
+                    <span
+                      className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground"
+                      title={extras}
+                    >
+                      {extras}
+                    </span>
+                  ) : (
+                    <span className="min-w-0 flex-1" />
+                  )}
                   {canEditRoot ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon-sm"
-                      className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
-                      aria-label={`Удалить «${title}»`}
+                      className="size-6 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Убрать «${title}»`}
                       onClick={() =>
                         setRootIds(
                           groups
@@ -473,11 +523,15 @@ export function RelationGroupsFieldControl({
                     </Button>
                   ) : null}
                 </header>
-                {showDeeper ? renderLevel(node, [node.id], 1) : null}
+                {renderLevel(node, [node.id], 1)}
               </section>
             );
           })}
         </div>
+      ) : canEditRoot ? (
+        <p className="text-xs text-muted-foreground">
+          Выберите строки выше — для каждой откроются вложенные поля
+        </p>
       ) : (
         <p className="text-xs text-muted-foreground">Пока ничего не выбрано</p>
       )}

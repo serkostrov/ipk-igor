@@ -111,16 +111,11 @@ export function TaskInbox({
           selectedRecordId,
           sessionUser?.id ?? null,
         );
-        if (!cancelled) setSilentReadyRecordId(selectedRecordId);
       } catch (err: unknown) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Не удалось выполнить автозаполнение",
-          );
-        }
+        // Soft-fail: still open the interactive task (Host shows one toast).
+        console.error("[automation] silent prep in inbox failed", err);
       }
+      if (!cancelled) setSilentReadyRecordId(selectedRecordId);
     })();
     return () => {
       cancelled = true;
@@ -209,10 +204,6 @@ export function TaskInbox({
               );
             }}
           />
-        ) : selected && error ? (
-          <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 px-4 text-center text-sm text-destructive">
-            {error}
-          </div>
         ) : selected ? (
           <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
             <RotateCcw className="size-5 animate-spin opacity-50" />

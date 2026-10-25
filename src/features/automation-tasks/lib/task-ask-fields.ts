@@ -438,7 +438,7 @@ export function getOutcomeCreateAskSlots(
           entityLabel = useEntityCreateForm
             ? `Новые «${childLabel}»`
             : `${childLabel} · в «${resolved.parentLabel}»`;
-          underRelatedParents = resolved.parentRecordIds.map(
+          underRelatedParents = [...new Set(resolved.parentRecordIds)].map(
             (parentRecordId) => ({
               parentRecordId,
               parentTitle:

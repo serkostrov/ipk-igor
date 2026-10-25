@@ -145,10 +145,18 @@ function TaskFillFieldsDialogBody({
         }
         // Autofill createRecord on earlier silent steps must finish first —
         // otherwise related-ask resolves empty («Нет связанных записей»).
-        await completePendingSilentAutomationTasksForRecord(
-          next.recordId,
-          sessionUser?.id ?? null,
-        );
+        // Soft-fail: still open the interactive form (Host shows one toast).
+        try {
+          await completePendingSilentAutomationTasksForRecord(
+            next.recordId,
+            sessionUser?.id ?? null,
+          );
+        } catch (silentError: unknown) {
+          console.error(
+            "[automation] silent prep before fill dialog failed",
+            silentError,
+          );
+        }
         if (cancelled) return;
         setTask(next);
         const defaultOutcomeId = getDefaultSelectedOutcomeId(next);

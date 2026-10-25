@@ -26,6 +26,7 @@ import {
 import { resolveAutomationActionValue } from "../model/action-values";
 import type { AutomationAssigneeResolver } from "../model/assignee";
 import {
+  collectRecordsLinkedToParent,
   resolveCreateParentFromRelated,
   resolveHostChildParentLinkField,
 } from "./ask-related";
@@ -50,6 +51,11 @@ export type AutomationExecutionContext = {
    * mappings when creating records from createRecord.
    */
   formValues?: Record<string, string>;
+  /**
+   * Silent autofill retries: if a linked child already exists for this parent,
+   * reuse it instead of inserting another copy (create runs before RPC complete).
+   */
+  reuseExistingLinkedCreates?: boolean;
 };
 
 export type AutomationExecutionResult = {
@@ -198,6 +204,29 @@ function readNestedDraftCount(
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.min(Math.floor(n), 50);
+}
+
+/** Reuse a linked child on silent retry (create runs before RPC marks done). */
+function findExistingLinkedChild(
+  ctx: AutomationExecutionContext,
+  childEntityId: string,
+  parentEntityId: string,
+  parentRecordId: string,
+): { id: string } | null {
+  if (!ctx.reuseExistingLinkedCreates) return null;
+  const child =
+    ctx.entities.find((entity) => entity.id === childEntityId) ?? null;
+  const host =
+    ctx.entities.find((entity) => entity.id === parentEntityId) ?? null;
+  if (!child || !parentRecordId.trim()) return null;
+  const existing = collectRecordsLinkedToParent({
+    childEntity: child,
+    parentEntityId,
+    parentRecordId,
+    host,
+  });
+  const id = existing[0];
+  return id ? { id } : null;
 }
 
 async function createMappedRecord(
@@ -491,19 +520,32 @@ export async function executeAutomationActions(
             Object.keys(parentAsk).length > 0
               ? []
               : action.mappings;
-          const record = await createMappedRecord(
-            action.entityId,
-            singleMappings,
-            ctx,
-            createdRecordIds,
-            {
-              askOverrides: parentAsk,
-              parentLink: {
-                parentEntityId: createParentHost?.id ?? ctx.triggerEntityId,
-                parentRecordId: ctx.triggerRecordId,
-              },
-            },
-          );
+          const singleParentId = createParentHost?.id ?? ctx.triggerEntityId;
+          // Silent retry: do not insert another linked child when one exists.
+          const reused =
+            Object.keys(parentAsk).length === 0
+              ? findExistingLinkedChild(
+                  ctx,
+                  action.entityId,
+                  singleParentId,
+                  ctx.triggerRecordId,
+                )
+              : null;
+          const record = reused
+            ? { id: reused.id }
+            : await createMappedRecord(
+                action.entityId,
+                singleMappings,
+                ctx,
+                createdRecordIds,
+                {
+                  askOverrides: parentAsk,
+                  parentLink: {
+                    parentEntityId: singleParentId,
+                    parentRecordId: ctx.triggerRecordId,
+                  },
+                },
+              );
           createdRecordIds.push(record.id);
           if (action.linkBackFieldId) {
             const linked = serializeEntityRelationIds([record.id]);

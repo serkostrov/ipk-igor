@@ -84,10 +84,25 @@ export function AutomationTaskPage({
             return;
           }
           // Finish silent createRecord on this record before the form.
-          await completePendingSilentAutomationTasksForRecord(
-            next.recordId,
-            sessionUser?.id ?? null,
-          );
+          // On failure still open the interactive task (toast once) — never
+          // replace the page with a hard error that Host also spam-toasts.
+          try {
+            await completePendingSilentAutomationTasksForRecord(
+              next.recordId,
+              sessionUser?.id ?? null,
+            );
+          } catch (silentError: unknown) {
+            if (!cancelled) {
+              toast.error("Автозаполнение не выполнено", {
+                id: "automation-silent-complete-error",
+                description: getAutomationErrorMessage(
+                  silentError,
+                  "Не удалось выполнить автозаполнение",
+                ),
+                duration: 10_000,
+              });
+            }
+          }
           if (cancelled) return;
         }
         setTask(next);

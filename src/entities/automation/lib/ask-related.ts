@@ -173,13 +173,20 @@ export function collectRecordsLinkedToParent(options: {
     null;
   if (!linkField) return [];
 
-  return childEntity.records
-    .filter(
-      (record) =>
-        record.id !== parentRecordId &&
-        entityRelationIncludesId(record.values[linkField.id], parentRecordId),
-    )
-    .map((record) => record.id);
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const record of childEntity.records) {
+    if (record.id === parentRecordId) continue;
+    if (
+      !entityRelationIncludesId(record.values[linkField.id], parentRecordId)
+    ) {
+      continue;
+    }
+    if (seen.has(record.id)) continue;
+    seen.add(record.id);
+    ids.push(record.id);
+  }
+  return ids;
 }
 
 /**
@@ -237,15 +244,18 @@ export function resolveAskRelatedTarget(options: {
   if (!relatedEntity) return null;
 
   const forwardIds = parseEntityRelationIds(triggerValues[ask.relationFieldId]);
-  const relatedRecordIds =
-    forwardIds.length > 0
-      ? forwardIds
-      : collectRecordsLinkedToParent({
-          childEntity: relatedEntity,
-          parentEntityId: triggerEntity.id,
-          parentRecordId: triggerRecordId,
-          host: triggerEntity,
-        });
+  const relatedRecordIds = [
+    ...new Set(
+      forwardIds.length > 0
+        ? forwardIds
+        : collectRecordsLinkedToParent({
+            childEntity: relatedEntity,
+            parentEntityId: triggerEntity.id,
+            parentRecordId: triggerRecordId,
+            host: triggerEntity,
+          }),
+    ),
+  ];
 
   return {
     scopeKey: askRelatedScopeKey(ask),
@@ -476,7 +486,7 @@ export function resolveCreateParentFromRelated(options: {
       parentEntity,
       parentLabel:
         tab.name.trim() || getEntityDisplayName(parentEntity) || "Подсущность",
-      parentRecordIds,
+      parentRecordIds: [...new Set(parentRecordIds)],
     };
   }
 
@@ -491,15 +501,18 @@ export function resolveCreateParentFromRelated(options: {
       : undefined;
     if (!parentEntity) return null;
     const forwardIds = parseEntityRelationIds(triggerValues[relationFieldId]);
-    const parentRecordIds =
-      forwardIds.length > 0
-        ? forwardIds
-        : collectRecordsLinkedToParent({
-            childEntity: parentEntity,
-            parentEntityId: triggerEntity.id,
-            parentRecordId: triggerRecordId,
-            host: triggerEntity,
-          });
+    const parentRecordIds = [
+      ...new Set(
+        forwardIds.length > 0
+          ? forwardIds
+          : collectRecordsLinkedToParent({
+              childEntity: parentEntity,
+              parentEntityId: triggerEntity.id,
+              parentRecordId: triggerRecordId,
+              host: triggerEntity,
+            }),
+      ),
+    ];
     return {
       parentEntity,
       parentLabel: getEntityFieldDisplayName(relationField),

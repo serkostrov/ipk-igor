@@ -17,7 +17,7 @@ import {
   subscribeAutomationTaskDialog,
 } from "@/features/automation-tasks";
 import { pickEarliestAutomationTask } from "@/features/automation-tasks/lib/task-open-order";
-import { useAppNavigate } from "@/shared/lib/navigation";
+import { useAppLocation, useAppNavigate } from "@/shared/lib/navigation";
 import { TaskFillFieldsDialog } from "./TaskFillFieldsDialog";
 
 function isAssignedToUser(task: AutomationTask, userIds: Set<string>) {
@@ -25,15 +25,25 @@ function isAssignedToUser(task: AutomationTask, userIds: Set<string>) {
   return userIds.has(task.assigneeUserId);
 }
 
+const SILENT_ERROR_TOAST_ID = "automation-silent-complete-error";
+
 /** Opens fill-fields dialog when a matching automation task arrives. */
 export function AutomationTasksHost() {
   const sessionUser = useSessionUser();
   const { entities } = useEntityConfig();
+  const appLocation = useAppLocation();
   const { openRecord, openTask } = useAppNavigate();
   const [activeTaskId, setActiveTaskId] = useState(
     getActiveAutomationTaskDialogId,
   );
   const knownTaskIdsRef = useRef<Set<string> | null>(null);
+  const syncingRef = useRef(false);
+  const queuedSyncRef = useRef(false);
+  const lastSilentErrorKeyRef = useRef<string | null>(null);
+  // Inbox / task page — user opens rows themselves; never auto-popup there.
+  const onTasksSurfaceRef = useRef(false);
+  onTasksSurfaceRef.current =
+    appLocation.type === "tasks" || appLocation.type === "task";
 
   useEffect(() => {
     const unsubscribe = subscribeAutomationTaskDialog(() => {
@@ -44,6 +54,13 @@ export function AutomationTasksHost() {
     };
   }, []);
 
+  // On the inbox the list is the UI — close any auto-opened fill overlay.
+  useEffect(() => {
+    if (!onTasksSurfaceRef.current) return;
+    if (getActiveAutomationTaskDialogId() == null) return;
+    closeAutomationTaskFillDialog({ dismiss: true });
+  }, [appLocation.type]);
+
   const profileRecordId = sessionUser?.id
     ? (findSystemUserByAuthId(entities, sessionUser.id)?.id ?? null)
     : null;
@@ -51,6 +68,7 @@ export function AutomationTasksHost() {
   useEffect(() => {
     if (!sessionUser?.id) {
       knownTaskIdsRef.current = null;
+      lastSilentErrorKeyRef.current = null;
       return;
     }
 
@@ -60,6 +78,11 @@ export function AutomationTasksHost() {
     let cancelled = false;
 
     async function syncTasks(options?: { announceNew?: boolean }) {
+      if (syncingRef.current) {
+        queuedSyncRef.current = true;
+        return;
+      }
+      syncingRef.current = true;
       try {
         let tasks = await fetchAutomationTasks({
           status: ["pending", "returned"],
@@ -76,6 +99,7 @@ export function AutomationTasksHost() {
           sessionUser?.id ?? null,
         );
         if (cancelled) return;
+        lastSilentErrorKeyRef.current = null;
 
         // Silent complete may spawn the next sequential interactive task
         // and/or move the stage — re-read before picking what to open.
@@ -100,14 +124,15 @@ export function AutomationTasksHost() {
 
         knownTaskIdsRef.current = nextKnown;
 
-        // Offer interactive when: silent prep just ran, or a new task arrived.
+        // Only brand-new tasks — never fall back to every pending «mine»
+        // (that opened the fill dialog just by visiting / syncing the inbox).
         const candidates = hadSilent
-          ? spawnedAfterSilent.length > 0
-            ? spawnedAfterSilent
-            : mine
+          ? spawnedAfterSilent
           : options?.announceNew
             ? fresh
             : [];
+
+        if (onTasksSurfaceRef.current) return;
 
         const actionable = pickEarliestAutomationTask(
           candidates.filter(
@@ -118,6 +143,7 @@ export function AutomationTasksHost() {
         if (getActiveAutomationTaskDialogId() === actionable.id) return;
 
         window.setTimeout(() => {
+          if (cancelled || onTasksSurfaceRef.current) return;
           openAutomationTaskFillDialog(actionable.id);
           toast(actionable.name || "Новая задача", {
             description: "Выполните задание по порядку процесса",
@@ -130,14 +156,25 @@ export function AutomationTasksHost() {
         }, 80);
       } catch (error: unknown) {
         console.error("[automation] task host sync failed", error);
+        if (cancelled) return;
         const message =
           error instanceof Error
             ? error.message
             : "Не удалось выполнить автозаполнение";
+        // One toast per distinct error — realtime / entity churn must not flood.
+        if (lastSilentErrorKeyRef.current === message) return;
+        lastSilentErrorKeyRef.current = message;
         toast.error("Автозаполнение не выполнено", {
+          id: SILENT_ERROR_TOAST_ID,
           description: message,
           duration: 10_000,
         });
+      } finally {
+        syncingRef.current = false;
+        if (queuedSyncRef.current && !cancelled) {
+          queuedSyncRef.current = false;
+          void syncTasks({ announceNew: true });
+        }
       }
     }
 
@@ -151,7 +188,9 @@ export function AutomationTasksHost() {
       cancelled = true;
       unsubscribe();
     };
-  }, [sessionUser?.id, profileRecordId, openTask, entities]);
+    // Intentionally omit `entities`: record creates during silent complete would
+    // re-subscribe the effect and toast in an infinite loop.
+  }, [sessionUser?.id, profileRecordId, openTask]);
 
   return (
     <TaskFillFieldsDialog

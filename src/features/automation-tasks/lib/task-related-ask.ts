@@ -77,6 +77,8 @@ export function resolveRelatedAskLayout(options: {
   const groups: RelatedAskGroup[] = [];
   const emptyRelations: RelatedAskEmptyRelation[] = [];
   const seenEmpty = new Set<string>();
+  /** Merge relation + linked-tab scopes that resolve to the same child. */
+  const groupByRecord = new Map<string, RelatedAskGroup>();
 
   for (const [, asks] of byScope) {
     const sample = asks[0];
@@ -101,7 +103,8 @@ export function resolveRelatedAskLayout(options: {
       continue;
     }
 
-    for (const relatedRecordId of resolved.relatedRecordIds) {
+    const relatedRecordIds = [...new Set(resolved.relatedRecordIds)];
+    for (const relatedRecordId of relatedRecordIds) {
       const relatedRecord = resolved.relatedEntity.records.find(
         (item) => item.id === relatedRecordId,
       );
@@ -126,7 +129,18 @@ export function resolveRelatedAskLayout(options: {
         });
       }
       if (fields.length === 0) continue;
-      groups.push({
+      const mergeKey = `${resolved.relatedEntity.id}:${relatedRecordId}`;
+      const existing = groupByRecord.get(mergeKey);
+      if (existing) {
+        const seenField = new Set(existing.fields.map((row) => row.field.id));
+        for (const row of fields) {
+          if (seenField.has(row.field.id)) continue;
+          existing.fields.push(row);
+          seenField.add(row.field.id);
+        }
+        continue;
+      }
+      const group: RelatedAskGroup = {
         relationFieldId: resolved.scopeKey,
         relationLabel: resolved.label,
         relatedEntity: resolved.relatedEntity,
@@ -135,7 +149,9 @@ export function resolveRelatedAskLayout(options: {
           ? getEntityRecordTitle(ctx, resolved.relatedEntity, relatedRecord)
           : relatedRecordId,
         fields,
-      });
+      };
+      groupByRecord.set(mergeKey, group);
+      groups.push(group);
     }
   }
 
