@@ -453,20 +453,17 @@ export function RelationGroupsFieldControl({
   return (
     <div className="flex w-full min-w-0 flex-col gap-2.5">
       {canEditRoot ? (
-        <div className="flex flex-col gap-1.5">
-          <LevelLabel>Строки · {rootEntityLabel}</LevelLabel>
-          <RelationSelect
-            id={id}
-            value={serializeEntityRelationIds(rootSelectedIds)}
-            options={rootOptions}
-            multiple
-            placeholder={`Выберите «${rootEntityLabel}»`}
-            className="h-9 min-h-9 w-full bg-background hover:bg-background aria-expanded:bg-background"
-            onChange={(next) => {
-              setRootIds(parseEntityRelationIds(next));
-            }}
-          />
-        </div>
+        <RelationSelect
+          id={id}
+          value={serializeEntityRelationIds(rootSelectedIds)}
+          options={rootOptions}
+          multiple
+          placeholder={`Выберите «${rootEntityLabel}»`}
+          className="h-9 min-h-9 w-full bg-background hover:bg-background aria-expanded:bg-background"
+          onChange={(next) => {
+            setRootIds(parseEntityRelationIds(next));
+          }}
+        />
       ) : null}
 
       {groups.length > 0 ? (

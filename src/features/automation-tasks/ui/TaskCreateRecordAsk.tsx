@@ -253,10 +253,14 @@ export function TaskCreateRecordAsk({
                   {slot.underRelatedEmptyLabel ?? "связанной подсущности"}»
                 </p>
               ) : (
-                slot.underRelatedParents.map((parent) => (
+                slot.underRelatedParents.map((parent, parentIndex) => (
                   <div
                     key={parent.parentRecordId}
-                    className="flex flex-col gap-2.5 rounded-xl border border-border/60 bg-muted/10 px-3 py-3"
+                    className={
+                      parentIndex > 0
+                        ? "flex flex-col gap-2.5 border-t border-border/50 pt-3.5"
+                        : "flex flex-col gap-2.5"
+                    }
                   >
                     <CreateAskDraftList
                       title={`${slot.entityLabel} · ${parent.parentTitle}`}

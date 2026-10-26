@@ -46,7 +46,7 @@ export function TaskRelatedAskFields({
           (автозаполнение или предыдущий шаг).
         </p>
       ))}
-      {groups.map((group) => {
+      {groups.map((group, groupIndex) => {
         const showTitle =
           groups.filter(
             (item) => item.relationFieldId === group.relationFieldId,
@@ -54,21 +54,23 @@ export function TaskRelatedAskFields({
         return (
           <div
             key={`${group.relationFieldId}:${group.relatedRecordId}`}
-            className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/10 px-3 py-3"
+            className={
+              groupIndex > 0
+                ? "flex flex-col gap-3 border-t border-border/50 pt-3.5"
+                : "flex flex-col gap-3"
+            }
           >
-            <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium text-muted-foreground">
-                {group.relationLabel}
-                {showTitle ? (
-                  <>
-                    <span className="text-muted-foreground/50"> · </span>
-                    <span className="text-foreground">
-                      {group.relatedRecordTitle}
-                    </span>
-                  </>
-                ) : null}
-              </p>
-            </div>
+            <p className="truncate text-[11px] font-medium text-muted-foreground">
+              {group.relationLabel}
+              {showTitle ? (
+                <>
+                  <span className="text-muted-foreground/50"> · </span>
+                  <span className="text-foreground">
+                    {group.relatedRecordTitle}
+                  </span>
+                </>
+              ) : null}
+            </p>
             {group.fields.map((row) => {
               const { field, relatedEntity } = {
                 field: row.field,
