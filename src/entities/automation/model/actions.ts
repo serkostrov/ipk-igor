@@ -99,9 +99,15 @@ export type AutomationAction =
       multiple?: boolean;
       /**
        * Link new rows to existing related parents on the trigger
-       * (e.g. «Подзадачи» → each «Расчёт отдела»), not to the trigger itself.
+       * (e.g. «Подзадачи» → each «Расчёт отдела»), not only to the trigger.
+       * Several entries = create under each selected parent scope.
        */
-      parentFromRelated?: AutomationCreateParentFromRelated;
+      parentFromRelated?: AutomationCreateParentFromRelated[];
+      /**
+       * When `parentFromRelated` is set, also create rows under the current
+       * trigger record (multi-select includes «Текущая …»).
+       */
+      alsoLinkTrigger?: boolean;
       /**
        * Task form uses the entity «При создании» field set (not askFieldIds).
        * «Запросить создание записи» — assignee creates rows; automation does not.
@@ -473,7 +479,7 @@ export function parseCreateRecordNestedAskDraftKey(key: string): {
   };
 }
 
-function normalizeParentFromRelated(
+function normalizeParentFromRelatedItem(
   value: unknown,
 ): AutomationCreateParentFromRelated | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -496,6 +502,46 @@ function normalizeParentFromRelated(
   if (linkedTabId) return { linkedTabId };
   if (relationFieldId) return { relationFieldId };
   return undefined;
+}
+
+/** Accept legacy single object or a list of parent scopes. */
+function normalizeParentFromRelatedList(
+  value: unknown,
+): AutomationCreateParentFromRelated[] {
+  if (value == null) return [];
+  const items = Array.isArray(value) ? value : [value];
+  const result: AutomationCreateParentFromRelated[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const normalized = normalizeParentFromRelatedItem(item);
+    if (!normalized) continue;
+    const key = normalized.linkedTabId
+      ? `tab:${normalized.linkedTabId}`
+      : `rel:${normalized.relationFieldId ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
+}
+
+/** Related parent scopes for a createRecord action (always a list). */
+export function getCreateParentFromRelatedList(
+  action: Pick<
+    Extract<AutomationAction, { kind: "createRecord" }>,
+    "parentFromRelated"
+  >,
+): AutomationCreateParentFromRelated[] {
+  return action.parentFromRelated ?? [];
+}
+
+export function createRecordLinksToRelatedParents(
+  action: Pick<
+    Extract<AutomationAction, { kind: "createRecord" }>,
+    "parentFromRelated"
+  >,
+): boolean {
+  return getCreateParentFromRelatedList(action).length > 0;
 }
 
 export function normalizeAutomationAction(
@@ -535,17 +581,20 @@ export function normalizeAutomationAction(
         raw.fieldAskOptions,
         askFieldIds,
       );
-      const parentFromRelated = normalizeParentFromRelated(
+      const parentFromRelated = normalizeParentFromRelatedList(
         raw.parentFromRelated ?? raw.parent_from_related,
       );
+      const alsoLinkTrigger =
+        (raw.alsoLinkTrigger === true || raw.also_link_trigger === true) &&
+        parentFromRelated.length > 0;
       const useEntityCreateForm =
         raw.useEntityCreateForm === true || raw.use_entity_create_form === true;
       const multiple =
         raw.multiple === true ||
-        parentFromRelated != null ||
+        parentFromRelated.length > 0 ||
         useEntityCreateForm;
       const nestedCreates =
-        multiple || parentFromRelated || useEntityCreateForm
+        multiple || parentFromRelated.length > 0 || useEntityCreateForm
           ? []
           : normalizeNestedCreates(raw.nestedCreates);
       return {
@@ -557,7 +606,8 @@ export function normalizeAutomationAction(
             ? raw.linkBackFieldId.trim()
             : undefined,
         ...(multiple ? { multiple: true } : {}),
-        ...(parentFromRelated ? { parentFromRelated } : {}),
+        ...(parentFromRelated.length > 0 ? { parentFromRelated } : {}),
+        ...(alsoLinkTrigger ? { alsoLinkTrigger: true } : {}),
         ...(useEntityCreateForm ? { useEntityCreateForm: true } : {}),
         ...(useEntityCreateForm
           ? {}
@@ -715,13 +765,20 @@ export function describeAutomationAction(
       }
       const askCount = action.askFieldIds?.length ?? 0;
       const nestedCount = action.nestedCreates?.length ?? 0;
+      const relatedParents = getCreateParentFromRelatedList(action);
       const bits = [
-        action.multiple || action.parentFromRelated
+        action.multiple || relatedParents.length > 0
           ? `Создать записи в «${entity(action.entityId)}»`
           : `Создать запись в «${entity(action.entityId)}»`,
       ];
-      if (action.parentFromRelated) bits.push("к связанным");
-      else if (action.multiple) bits.push("несколько");
+      if (relatedParents.length > 0) {
+        bits.push(
+          relatedParents.length > 1
+            ? `к связанным (${relatedParents.length})`
+            : "к связанным",
+        );
+        if (action.alsoLinkTrigger) bits.push("и к текущей");
+      } else if (action.multiple) bits.push("несколько");
       if (askCount > 0) bits.push(`запрос: ${askCount}`);
       if (nestedCount > 0) bits.push(`вложенные: ${nestedCount}`);
       return bits.join(" · ");

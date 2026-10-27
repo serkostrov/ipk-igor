@@ -20,6 +20,7 @@ export {
   getCreateAskableFields,
   resolveCreateRecordAskFields,
   resolveCreateRecordParentHost,
+  resolveCreateRecordParentHosts,
 } from "./lib/create-ask-fields";
 export {
   AUTOMATION_ACTION_KIND_GROUPS,
@@ -30,11 +31,13 @@ export {
   createAutomationActionId,
   createAutomationNestedCreateId,
   createRecordAskDraftKey,
+  createRecordLinksToRelatedParents,
   createRecordNestedAskDraftKey,
   createRecordNestedCountDraftKey,
   createRecordUnderRelatedNestedId,
   defaultAutomationAction,
   describeAutomationAction,
+  getCreateParentFromRelatedList,
   normalizeAutomationAction,
   normalizeAutomationActions,
   parseCreateRecordAskDraftKey,

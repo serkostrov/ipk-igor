@@ -4,7 +4,9 @@ import {
   createRecordNestedAskDraftKey,
   createRecordNestedCountDraftKey,
   createRecordUnderRelatedNestedId,
+  getCreateParentFromRelatedList,
   resolveCreateParentFromRelated,
+  resolveCreateRecordParentHosts,
   resolveCreateRecordAskFields,
   resolveCreateRecordParentHost,
   resolveHostChildParentLinkField,
@@ -373,27 +375,29 @@ export function getOutcomeCreateAskSlots(
   const slots: AutomationCreateAskSlot[] = [];
   for (const action of outcome.actions) {
     if (action.kind !== "createRecord") continue;
-    const parentFromRelated = action.parentFromRelated ?? null;
+    const parentFromRelatedList = getCreateParentFromRelatedList(action);
+    const hasRelatedParents = parentFromRelatedList.length > 0;
     const useEntityCreateForm = action.useEntityCreateForm === true;
     const multiple =
-      action.multiple === true ||
-      parentFromRelated != null ||
-      useEntityCreateForm;
+      action.multiple === true || hasRelatedParents || useEntityCreateForm;
     const entity = entities.find((item) => item.id === action.entityId);
     if (!entity) continue;
-    const parentHost = resolveCreateRecordParentHost(
+    const parentHosts = resolveCreateRecordParentHosts(
       action,
       sourceEntity,
       entities,
     );
+    const parentHost =
+      parentHosts[0] ??
+      resolveCreateRecordParentHost(action, sourceEntity, entities);
     const resolvedAsk = resolveCreateRecordAskFields(
       action,
       entity,
-      parentHost,
+      parentHosts.length > 0 ? parentHosts : parentHost,
     );
     const askFieldIds = uniquePreserveOrder(resolvedAsk.askFieldIds);
     const nested =
-      multiple || parentFromRelated || useEntityCreateForm
+      multiple || hasRelatedParents || useEntityCreateForm
         ? []
         : (action.nestedCreates ?? [])
             .map((item) => nestedSpecToSlot(item, entities, entity))
@@ -402,7 +406,7 @@ export function getOutcomeCreateAskSlots(
             );
     if (
       !multiple &&
-      !parentFromRelated &&
+      !hasRelatedParents &&
       !useEntityCreateForm &&
       askFieldIds.length === 0 &&
       nested.length === 0
@@ -421,25 +425,27 @@ export function getOutcomeCreateAskSlots(
       entity,
     );
 
-    if (parentFromRelated) {
+    if (hasRelatedParents) {
       underRelatedParents = [];
-      underRelatedEmptyLabel = "связанной подсущности";
+      const emptyLabels: string[] = [];
+      const parentLabels: string[] = [];
+      const seenParentRecords = new Set<string>();
       if (sourceEntity && options.triggerRecordId) {
-        const resolved = resolveCreateParentFromRelated({
-          triggerEntity: sourceEntity,
-          entities,
-          parentFrom: parentFromRelated,
-          triggerRecordId: options.triggerRecordId,
-          triggerValues: options.triggerValues ?? {},
-        });
-        if (resolved) {
-          underRelatedEmptyLabel = resolved.parentLabel;
-          const childLabel = childEntityLabel(resolved.parentEntity, entity);
-          entityLabel = useEntityCreateForm
-            ? `Новые «${childLabel}»`
-            : `${childLabel} · в «${resolved.parentLabel}»`;
-          underRelatedParents = [...new Set(resolved.parentRecordIds)].map(
-            (parentRecordId) => ({
+        for (const parentFrom of parentFromRelatedList) {
+          const resolved = resolveCreateParentFromRelated({
+            triggerEntity: sourceEntity,
+            entities,
+            parentFrom,
+            triggerRecordId: options.triggerRecordId,
+            triggerValues: options.triggerValues ?? {},
+          });
+          if (!resolved) continue;
+          emptyLabels.push(resolved.parentLabel);
+          parentLabels.push(resolved.parentLabel);
+          for (const parentRecordId of new Set(resolved.parentRecordIds)) {
+            if (seenParentRecords.has(parentRecordId)) continue;
+            seenParentRecords.add(parentRecordId);
+            underRelatedParents.push({
               parentRecordId,
               parentTitle:
                 options.getRecordTitle?.(
@@ -451,13 +457,30 @@ export function getOutcomeCreateAskSlots(
                   parentRecordId,
                 ),
               nestedId: createRecordUnderRelatedNestedId(parentRecordId),
-            }),
-          );
+            });
+          }
         }
       }
+      underRelatedEmptyLabel =
+        emptyLabels.length > 0
+          ? [...new Set(emptyLabels)].join(", ")
+          : "связанной подсущности";
+      const primaryHost = parentHosts[0] ?? null;
+      const childLabel = childEntityLabel(primaryHost, entity);
+      const scopeLabel =
+        parentLabels.length > 1
+          ? [...new Set(parentLabels)].join(", ")
+          : (parentLabels[0] ?? underRelatedEmptyLabel);
+      entityLabel = useEntityCreateForm
+        ? `Новые «${childLabel}»`
+        : `${childLabel} · в «${scopeLabel}»`;
     } else if (useEntityCreateForm) {
       entityLabel = `Новые «${entityLabel}»`;
     }
+
+    const linkToTriggerMultiple =
+      (multiple && !hasRelatedParents) ||
+      (hasRelatedParents && action.alsoLinkTrigger === true);
 
     slots.push({
       actionId: action.id,
@@ -472,7 +495,7 @@ export function getOutcomeCreateAskSlots(
       fieldAskOptions: useEntityCreateForm
         ? {}
         : (action.fieldAskOptions ?? {}),
-      ...(multiple && !parentFromRelated ? { multiple: true } : {}),
+      ...(linkToTriggerMultiple ? { multiple: true } : {}),
       ...(underRelatedParents
         ? { underRelatedParents, underRelatedEmptyLabel }
         : {}),
@@ -487,7 +510,7 @@ export function outcomeHasCreateAsk(outcome: AutomationOutcome) {
     if (action.kind !== "createRecord") return false;
     return (
       action.multiple === true ||
-      action.parentFromRelated != null ||
+      getCreateParentFromRelatedList(action).length > 0 ||
       action.useEntityCreateForm === true ||
       (action.askFieldIds?.length ?? 0) > 0 ||
       (action.nestedCreates?.length ?? 0) > 0

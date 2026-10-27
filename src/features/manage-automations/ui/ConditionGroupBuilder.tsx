@@ -24,14 +24,17 @@ import {
 } from "@/entities/automation";
 import {
   getEntityFieldDisplayName,
+  getEntityFieldValueKind,
   getEntityRelationTargetId,
   getEntityTabFilesValueKey,
   getRelationRecordOptions,
   isEntityFilesTab,
+  isEntityRelationLikeFieldType,
   parseEntityListValueIds,
   parseEntityRelationIds,
   ListSelect,
   RelationSelect,
+  resolveEntityFieldSource,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
   serializeEntityListValueIds,
@@ -100,13 +103,14 @@ function findSource(
   return sources.find((source) => sourceId(source) === fieldId) ?? null;
 }
 
+/** Default first: «равно» — pick one concrete record / person. */
 const RELATION_LIST_OPERATORS: AutomationConditionOperator[] = [
+  "equals",
+  "notEquals",
   "in",
   "notIn",
   "includesAny",
   "includesAll",
-  "equals",
-  "notEquals",
   "empty",
   "notEmpty",
 ];
@@ -133,6 +137,8 @@ const NUMBER_OPERATORS: AutomationConditionOperator[] = [
 
 function operatorsForSource(
   source: ConditionSource | null,
+  entity: Entity | null,
+  entities: Entity[],
 ): AutomationConditionOperator[] {
   if (!source) return [...AUTOMATION_CONDITION_OPERATORS];
   if (source.kind === "filesTab") {
@@ -142,13 +148,22 @@ function operatorsForSource(
   if (type === "file") {
     return ["folderHasFiles", "folderEmpty"];
   }
-  if (type === "relation" || type === "list") {
+  if (entity) {
+    const kind = getEntityFieldValueKind(entity, source.field, entities);
+    if (kind === "relation" || kind === "list") {
+      return RELATION_LIST_OPERATORS;
+    }
+    if (kind === "boolean") {
+      return BOOLEAN_OPERATORS;
+    }
+    if (kind === "number") {
+      return NUMBER_OPERATORS;
+    }
+  } else if (type === "relation" || type === "belonging" || type === "list") {
     return RELATION_LIST_OPERATORS;
-  }
-  if (type === "boolean") {
+  } else if (type === "boolean") {
     return BOOLEAN_OPERATORS;
-  }
-  if (type === "number" || type === "numberSum") {
+  } else if (type === "number" || type === "numberSum") {
     return NUMBER_OPERATORS;
   }
   return AUTOMATION_CONDITION_OPERATORS.filter(
@@ -194,6 +209,11 @@ function usesIdPicker(operator: AutomationConditionOperator) {
   );
 }
 
+/** «равно» / «не равно» — one concrete id (person, record, list option). */
+function isSingleIdOperator(operator: AutomationConditionOperator) {
+  return operator === "equals" || operator === "notEquals";
+}
+
 function folderOptions(source: ConditionSource | null): string[] {
   if (!source || source.kind !== "filesTab") return [];
   return source.tab.defaultFolders.map((folder) => folder.name);
@@ -223,7 +243,7 @@ export function ConditionGroupBuilder({
     setNoneMode(false);
     const source = sources[0] ?? null;
     const fieldId = source ? sourceId(source) : "";
-    const operators = operatorsForSource(source);
+    const operators = operatorsForSource(source, entity, entities);
     const operator = operators[0] ?? "notEmpty";
     const folder = folderOptions(source)[0];
     updateRules([
@@ -301,6 +321,7 @@ export function ConditionGroupBuilder({
             <RuleRow
               key={node.id}
               rule={node}
+              entity={entity}
               sources={sources}
               entities={entities}
               onChange={(rule) => {
@@ -417,11 +438,13 @@ export function ConditionGroupBuilder({
 
 function ConditionValueControl({
   rule,
+  entity,
   source,
   entities,
   onChange,
 }: {
   rule: AutomationConditionRule;
+  entity: Entity | null;
   source: ConditionSource | null;
   entities: Entity[];
   onChange: (rule: AutomationConditionRule) => void;
@@ -429,6 +452,7 @@ function ConditionValueControl({
   const isFolderOp = isAutomationFolderFileOperator(rule.operator);
   const folders = folderOptions(source);
   const selectedIds = ruleSelectedIds(rule);
+  const single = isSingleIdOperator(rule.operator);
 
   if (isFolderOp) {
     return (
@@ -476,52 +500,63 @@ function ConditionValueControl({
     );
   }
 
-  if (
-    source?.kind === "field" &&
-    source.field.type === "relation" &&
-    usesIdPicker(rule.operator)
-  ) {
-    const targetId = getEntityRelationTargetId(source.field);
-    const target = entities.find((item) => item.id === targetId) ?? null;
-    return (
-      <RelationSelect
-        multiple
-        options={getRelationRecordOptions(target)}
-        value={serializeEntityRelationIds(selectedIds)}
-        placeholder="Выберите записи"
-        aria-label="Значение условия"
-        className="h-8"
-        onChange={(next) =>
-          onChange(withSelectedIds(rule, parseEntityRelationIds(next)))
-        }
-      />
-    );
-  }
+  if (source?.kind === "field" && usesIdPicker(rule.operator)) {
+    const resolvedField =
+      entity != null
+        ? (resolveEntityFieldSource(entity, source.field, entities)?.field ??
+          null)
+        : isEntityRelationLikeFieldType(source.field.type) ||
+            source.field.type === "list"
+          ? source.field
+          : null;
 
-  if (
-    source?.kind === "field" &&
-    source.field.type === "list" &&
-    usesIdPicker(rule.operator)
-  ) {
-    const options = resolveEntityListFieldOptions(source.field, entities);
-    const presentation = resolveEntityListFieldPresentation(
-      source.field,
-      entities,
-    );
-    return (
-      <ListSelect
-        multiple
-        options={options}
-        value={serializeEntityListValueIds(selectedIds)}
-        showColors={presentation.listUseColors}
-        emptyLabel="Выберите варианты"
-        aria-label="Значение условия"
-        className="h-8"
-        onChange={(next) =>
-          onChange(withSelectedIds(rule, parseEntityListValueIds(next)))
-        }
-      />
-    );
+    if (resolvedField && isEntityRelationLikeFieldType(resolvedField.type)) {
+      const targetId = getEntityRelationTargetId(resolvedField);
+      const target = entities.find((item) => item.id === targetId) ?? null;
+      const valueIds = single ? selectedIds.slice(0, 1) : selectedIds;
+      return (
+        <RelationSelect
+          multiple={!single}
+          options={getRelationRecordOptions(target)}
+          value={serializeEntityRelationIds(valueIds)}
+          placeholder={single ? "Выберите запись" : "Выберите записи"}
+          aria-label="Значение условия"
+          className="h-8"
+          onChange={(next) => {
+            const ids = parseEntityRelationIds(next);
+            onChange(
+              withSelectedIds(rule, single ? ids.slice(0, 1) : ids),
+            );
+          }}
+        />
+      );
+    }
+
+    if (resolvedField?.type === "list") {
+      const options = resolveEntityListFieldOptions(resolvedField, entities);
+      const presentation = resolveEntityListFieldPresentation(
+        resolvedField,
+        entities,
+      );
+      const valueIds = single ? selectedIds.slice(0, 1) : selectedIds;
+      return (
+        <ListSelect
+          multiple={!single}
+          options={options}
+          value={serializeEntityListValueIds(valueIds)}
+          showColors={presentation.listUseColors}
+          emptyLabel={single ? "Выберите вариант" : "Выберите варианты"}
+          aria-label="Значение условия"
+          className="h-8"
+          onChange={(next) => {
+            const ids = parseEntityListValueIds(next);
+            onChange(
+              withSelectedIds(rule, single ? ids.slice(0, 1) : ids),
+            );
+          }}
+        />
+      );
+    }
   }
 
   return (
@@ -540,19 +575,21 @@ function ConditionValueControl({
 
 function RuleRow({
   rule,
+  entity,
   sources,
   entities,
   onChange,
   onRemove,
 }: {
   rule: AutomationConditionRule;
+  entity: Entity | null;
   sources: ConditionSource[];
   entities: Entity[];
   onChange: (rule: AutomationConditionRule) => void;
   onRemove: () => void;
 }) {
   const source = findSource(sources, rule.fieldId);
-  const operators = operatorsForSource(source);
+  const operators = operatorsForSource(source, entity, entities);
   const needsValue = ![
     "empty",
     "notEmpty",
@@ -563,7 +600,7 @@ function RuleRow({
 
   function selectSource(nextId: string) {
     const next = findSource(sources, nextId);
-    const nextOperators = operatorsForSource(next);
+    const nextOperators = operatorsForSource(next, entity, entities);
     const nextOperator = nextOperators.includes(rule.operator)
       ? rule.operator
       : (nextOperators[0] ?? "notEmpty");
@@ -583,8 +620,12 @@ function RuleRow({
     }
     const keepIds =
       next?.kind === "field" &&
-      (next.field.type === "relation" || next.field.type === "list") &&
-      usesIdPicker(nextOperator)
+      entity != null &&
+      usesIdPicker(nextOperator) &&
+      (() => {
+        const kind = getEntityFieldValueKind(entity, next.field, entities);
+        return kind === "relation" || kind === "list";
+      })()
         ? ruleSelectedIds(rule)
         : [];
     onChange(
@@ -708,6 +749,7 @@ function RuleRow({
       {needsValue ? (
         <ConditionValueControl
           rule={rule}
+          entity={entity}
           source={source}
           entities={entities}
           onChange={onChange}

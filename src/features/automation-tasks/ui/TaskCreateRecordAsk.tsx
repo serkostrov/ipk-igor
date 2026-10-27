@@ -242,6 +242,8 @@ export function TaskCreateRecordAsk({
         if (!entity) return null;
         const requiredIds = new Set(slot.askRequiredFieldIds);
         if (slot.underRelatedParents) {
+          const triggerMulti =
+            slot.multiple === true ? createAskMultiNestedSlot(slot) : null;
           return (
             <div key={slot.actionId} className="flex flex-col gap-4">
               <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
@@ -284,6 +286,22 @@ export function TaskCreateRecordAsk({
                   </div>
                 ))
               )}
+              {triggerMulti ? (
+                <div className="flex flex-col gap-2.5 border-t border-border/50 pt-3.5">
+                  <CreateAskDraftList
+                    title={`${slot.entityLabel} · текущая запись`}
+                    nested={triggerMulti}
+                    entity={entity}
+                    actionId={slot.actionId}
+                    values={values}
+                    entities={entities}
+                    ctx={ctx}
+                    disabled={disabled}
+                    onChange={onChange}
+                    onValuesChange={onValuesChange}
+                  />
+                </div>
+              ) : null}
             </div>
           );
         }

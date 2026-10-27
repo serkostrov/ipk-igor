@@ -52,9 +52,11 @@ import {
   flattenEntityTableNestedRows,
   formatEntityDecimalTotal,
   formatRecordFieldValue,
+  ENTITY_FIELD_GROUP_COLUMNS,
   getEntityFieldDisplayName,
   getEntityRecordTitle,
   getEntityTableFields,
+  isEntityFieldGroupTitleHidden,
   isEntityFieldVisibleOnRecord,
   isEntityInternal,
   getRecordFieldNumber,
@@ -66,6 +68,7 @@ import {
   isEntitySubEntity,
   isRecordValueDecorated,
   ListValueDisplay,
+  PRIMARY_ENTITY_FIELD_GROUP,
   normalizeEntityRecordColumns,
   normalizeEntityRecordsDisplay,
   parseEntityRelationIds,
@@ -84,6 +87,11 @@ import {
   type EntityTab,
   type EntityValueContext,
 } from "@/entities/entity";
+import {
+  collectLinkedTabRecordIds,
+  collectRecordsLinkedToParent,
+  resolveLinkedTabParentLinkFieldId,
+} from "@/entities/automation";
 import { cn } from "@/shared/lib/cn";
 import {
   ENTITY_TABLE_ACTIONS_WIDTH,
@@ -111,6 +119,8 @@ type RecordEntityTabPanelProps = {
   parentRecordId: string;
   entities: Entity[];
   onOpenRelation?: (entityId: string, recordId: string) => void;
+  /** Task / preview: same layout, no add / edit / delete. */
+  readOnly?: boolean;
 };
 
 type AddFlow = "closed" | "choice" | "existing";
@@ -342,12 +352,13 @@ function RecordsTable({
   entity: Entity;
   records: EntityRecord[];
   parentLinkFieldId: string | null;
-  onEdit: (record: EntityRecord) => void;
-  onDelete: (record: EntityRecord) => void;
+  onEdit?: (record: EntityRecord) => void;
+  onDelete?: (record: EntityRecord) => void;
   onOpenNested?: (entityId: string, recordId: string) => void;
   /** Create a nested-entity record under this host row (nested hierarchy). */
   onCreateNestedChild?: (parentRecordId: string) => void;
 }) {
+  const canMutate = onEdit != null || onDelete != null;
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const nestedTarget = resolveEntityTableNestedTarget(entity, entities);
@@ -511,12 +522,14 @@ function RecordsTable({
               }}
             />
           ))}
-          <col
-            style={{
-              width: ENTITY_TABLE_ACTIONS_WIDTH,
-              minWidth: ENTITY_TABLE_ACTIONS_WIDTH,
-            }}
-          />
+          {canMutate ? (
+            <col
+              style={{
+                width: ENTITY_TABLE_ACTIONS_WIDTH,
+                minWidth: ENTITY_TABLE_ACTIONS_WIDTH,
+              }}
+            />
+          ) : null}
         </colgroup>
         <TableHeader>
           <TableRow className="border-0 hover:bg-transparent">
@@ -532,9 +545,11 @@ function RecordsTable({
                 {getEntityFieldDisplayName(field)}
               </TableHead>
             ))}
-            <TableHead className={dataTableActionsHeadClass}>
-              Действия
-            </TableHead>
+            {canMutate ? (
+              <TableHead className={dataTableActionsHeadClass}>
+                Действия
+              </TableHead>
+            ) : null}
           </TableRow>
         </TableHeader>
         <TableBody className="[&_tr:last-child]:border-0">
@@ -584,10 +599,11 @@ function RecordsTable({
                   <Fragment key={`group:${groupId}`}>
                     <TableRow
                       className={cn(
-                        "cursor-pointer border-border/70 hover:bg-muted/35",
+                        "border-border/70 hover:bg-muted/35",
+                        onEdit && "cursor-pointer",
                         expanded && "border-b-transparent",
                       )}
-                      onClick={() => onEdit(parentRecord)}
+                      onClick={onEdit ? () => onEdit(parentRecord) : undefined}
                     >
                       {columns.map((field, index) => (
                         <RecordsTableFieldCell
@@ -615,38 +631,44 @@ function RecordsTable({
                           }
                         />
                       ))}
-                      <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
-                        <div
-                          className="inline-flex items-center justify-end gap-0.5"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="size-7 text-foreground"
-                            aria-label="Редактировать запись"
-                            onClick={() => onEdit(parentRecord)}
+                      {canMutate ? (
+                        <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
+                          <div
+                            className="inline-flex items-center justify-end gap-0.5"
+                            onClick={(event) => event.stopPropagation()}
                           >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="size-7 text-foreground hover:text-destructive"
-                            aria-label="Удалить запись"
-                            onClick={() => onDelete(parentRecord)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                            {onEdit ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="size-7 text-foreground"
+                                aria-label="Редактировать запись"
+                                onClick={() => onEdit(parentRecord)}
+                              >
+                                <Pencil className="size-3.5" />
+                              </Button>
+                            ) : null}
+                            {onDelete ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="size-7 text-foreground hover:text-destructive"
+                                aria-label="Удалить запись"
+                                onClick={() => onDelete(parentRecord)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      ) : null}
                     </TableRow>
                     {showEmptyAdd && onCreateNestedChild ? (
                       <TableRow className="border-border/70 hover:bg-transparent">
                         <TableCell
-                          colSpan={columns.length + 1}
+                          colSpan={columns.length + (canMutate ? 1 : 0)}
                           className="relative px-3 py-1.5 pl-3.5"
                         >
                           <TreeBranchGuides
@@ -799,7 +821,7 @@ function RecordsTable({
                   {showAddAfter ? (
                     <TableRow className="border-border/70 hover:bg-transparent">
                       <TableCell
-                        colSpan={columns.length + 1}
+                        colSpan={columns.length + (canMutate ? 1 : 0)}
                         className="relative px-3 py-1 pl-3.5"
                       >
                         <TreeBranchGuides
@@ -831,8 +853,11 @@ function RecordsTable({
             return (
               <TableRow
                 key={record.id}
-                className="cursor-pointer border-border/70 hover:bg-muted/35"
-                onClick={() => onEdit(record)}
+                className={cn(
+                  "border-border/70 hover:bg-muted/35",
+                  onEdit && "cursor-pointer",
+                )}
+                onClick={onEdit ? () => onEdit(record) : undefined}
               >
                 {columns.map((field, index) => (
                   <RecordsTableFieldCell
@@ -847,33 +872,39 @@ function RecordsTable({
                     isGroupEnd={meta?.isGroupEnd}
                   />
                 ))}
-                <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
-                  <div
-                    className="inline-flex items-center justify-end gap-0"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-7 text-foreground"
-                      aria-label="Редактировать запись"
-                      onClick={() => onEdit(record)}
+                {canMutate ? (
+                  <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
+                    <div
+                      className="inline-flex items-center justify-end gap-0"
+                      onClick={(event) => event.stopPropagation()}
                     >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-7 text-foreground hover:text-destructive"
-                      aria-label="Удалить запись"
-                      onClick={() => onDelete(record)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                </TableCell>
+                      {onEdit ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 text-foreground"
+                          aria-label="Редактировать запись"
+                          onClick={() => onEdit(record)}
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                      ) : null}
+                      {onDelete ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 text-foreground hover:text-destructive"
+                          aria-label="Удалить запись"
+                          onClick={() => onDelete(record)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                ) : null}
               </TableRow>
             );
           })}
@@ -919,7 +950,9 @@ function RecordsTable({
                   </TableCell>
                 );
               })}
-              <TableCell className={dataTableActionsFootClass} />
+              {canMutate ? (
+                <TableCell className={dataTableActionsFootClass} />
+              ) : null}
             </TableRow>
           </TableFooter>
         ) : null}
@@ -940,24 +973,97 @@ function getRecordTitle(
 }
 
 const RECORD_CARD_COLLAPSED_MAX_HEIGHT = 220;
+const RECORD_CARD_FIELD_COLUMNS = 4;
+
+function fieldColSpanOf(value: number | string | undefined) {
+  const span = typeof value === "string" ? Number(value) : (value ?? 1);
+  return Math.min(
+    RECORD_CARD_FIELD_COLUMNS,
+    Math.max(1, Number.isFinite(span) ? span : 1),
+  );
+}
+
+function RecordCardFieldValue({
+  entity,
+  record,
+  field,
+  entities,
+  valueContext,
+}: {
+  entity: Entity;
+  record: EntityRecord;
+  field: EntityField;
+  entities: Entity[];
+  valueContext: EntityValueContext;
+}) {
+  const label = getEntityFieldDisplayName(field);
+  const display = formatRecordFieldValue(valueContext, entity, record, field);
+  const empty = display === "—";
+  const listPresentation =
+    field.type === "list"
+      ? resolveEntityListFieldPresentation(field, entities)
+      : null;
+
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </p>
+      {field.type === "list" && listPresentation ? (
+        <div className="mt-1">
+          <ListValueDisplay
+            options={resolveEntityListFieldOptions(field, entities)}
+            value={record.values[field.id]}
+            multiple={listPresentation.listMultiple}
+            showColors={listPresentation.listUseColors}
+          />
+        </div>
+      ) : isRecordValueDecorated(field) ? (
+        <RecordValue
+          ctx={valueContext}
+          entity={entity}
+          record={record}
+          field={field}
+          className="mt-1 font-medium"
+        />
+      ) : (
+        <p
+          className={cn(
+            "mt-1 text-sm font-medium",
+            empty ? "text-muted-foreground/70" : "text-foreground",
+            !empty && "truncate",
+          )}
+          title={empty ? undefined : display}
+        >
+          {display}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function RecordCard({
   entity,
   record,
   parentLinkFieldId,
+  single = false,
   onEdit,
   onDelete,
 }: {
   entity: Entity;
   record: EntityRecord;
   parentLinkFieldId: string | null;
-  onEdit: () => void;
-  onDelete: () => void;
+  /** Full layout from field settings; never collapses. */
+  single?: boolean;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const fields = getRecordCardFields(entity, parentLinkFieldId);
-  const groups = groupEntityFields(fields, entity.fieldGroups);
+  const groups = groupEntityFields(fields, entity.fieldGroups).filter(
+    (group) => group.fields.length > 0,
+  );
   const flatFields = groups.flatMap((group) => group.fields);
   const title = getRecordTitle(valueContext, entity, record);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -965,6 +1071,7 @@ function RecordCard({
   const [overflows, setOverflows] = useState(false);
 
   useEffect(() => {
+    if (single) return;
     const node = bodyRef.current;
     if (!node) return;
 
@@ -977,9 +1084,17 @@ function RecordCard({
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [flatFields.length, record.id]);
+  }, [flatFields.length, record.id, single]);
 
-  const showToggle = overflows || expanded;
+  const showToggle = !single && (overflows || expanded);
+  const showGroupHeaders =
+    single &&
+    groups.length > 1 &&
+    groups.some(
+      (group) =>
+        group.name !== PRIMARY_ENTITY_FIELD_GROUP &&
+        !isEntityFieldGroupTitleHidden(group.name, entity.fieldGroups),
+    );
 
   return (
     <article className="group/card overflow-hidden rounded-xl border border-border bg-card">
@@ -987,101 +1102,129 @@ function RecordCard({
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
           {title}
         </h3>
-        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/card:opacity-100 focus-within:opacity-100">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="size-8"
-            aria-label="Редактировать"
-            onClick={onEdit}
-          >
-            <Pencil className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="size-8 text-muted-foreground hover:text-destructive"
-            aria-label="Удалить"
-            onClick={onDelete}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        </div>
+        {onEdit || onDelete ? (
+          <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/card:opacity-100 focus-within:opacity-100">
+            {onEdit ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-8"
+                aria-label="Редактировать"
+                onClick={onEdit}
+              >
+                <Pencil className="size-3.5" />
+              </Button>
+            ) : null}
+            {onDelete ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-8 text-muted-foreground hover:text-destructive"
+                aria-label="Удалить"
+                onClick={onDelete}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
-      <div className="relative">
-        <div
-          ref={bodyRef}
-          className={cn(
-            "grid grid-cols-2 gap-x-6 gap-y-4 px-4 pt-4 transition-[max-height] duration-300 ease-out",
-            expanded ? "max-h-none pb-4" : "overflow-hidden pb-2",
-          )}
-          style={
-            expanded
-              ? undefined
-              : { maxHeight: RECORD_CARD_COLLAPSED_MAX_HEIGHT }
-          }
-        >
-          {flatFields.map((field) => {
-            const label = getEntityFieldDisplayName(field);
-            const display = formatRecordFieldValue(
-              valueContext,
-              entity,
-              record,
-              field,
+      {single ? (
+        <div className="grid grid-cols-2 items-start gap-4 p-4">
+          {groups.map((group) => {
+            const span = Math.min(
+              ENTITY_FIELD_GROUP_COLUMNS,
+              Math.max(1, group.colSpan),
             );
-            const empty = display === "—";
-            const listPresentation =
-              field.type === "list"
-                ? resolveEntityListFieldPresentation(field, entities)
-                : null;
+            const showHeader =
+              showGroupHeaders &&
+              group.name !== PRIMARY_ENTITY_FIELD_GROUP &&
+              !isEntityFieldGroupTitleHidden(group.name, entity.fieldGroups);
             return (
-              <div key={field.id} className="min-w-0">
-                <p className="truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                  {label}
-                </p>
-                {field.type === "list" && listPresentation ? (
-                  <div className="mt-1">
-                    <ListValueDisplay
-                      options={resolveEntityListFieldOptions(field, entities)}
-                      value={record.values[field.id]}
-                      multiple={listPresentation.listMultiple}
-                      showColors={listPresentation.listUseColors}
-                    />
-                  </div>
-                ) : isRecordValueDecorated(field) ? (
-                  <RecordValue
-                    ctx={valueContext}
-                    entity={entity}
-                    record={record}
-                    field={field}
-                    className="mt-1 font-medium"
-                  />
-                ) : (
-                  <p
-                    className={cn(
-                      "mt-1 truncate text-sm font-medium",
-                      empty ? "text-muted-foreground/70" : "text-foreground",
-                    )}
-                    title={empty ? undefined : display}
-                  >
-                    {display}
-                  </p>
+              <div
+                key={group.name}
+                className={cn(
+                  "min-w-0",
+                  showHeader &&
+                    "overflow-hidden rounded-lg border border-border/70",
                 )}
+                style={{ gridColumn: `span ${span}` }}
+              >
+                {showHeader ? (
+                  <header className="flex h-8 items-center border-b border-border/70 bg-muted/30 px-3">
+                    <h4 className="min-w-0 truncate text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                      {group.name}
+                    </h4>
+                  </header>
+                ) : null}
+                <div
+                  className={cn(
+                    "grid gap-x-6 gap-y-4",
+                    showHeader ? "p-3" : null,
+                  )}
+                  style={{
+                    gridTemplateColumns: `repeat(${RECORD_CARD_FIELD_COLUMNS}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {group.fields.map((field) => (
+                    <div
+                      key={field.id}
+                      className="min-w-0"
+                      style={{
+                        gridColumn: `span ${fieldColSpanOf(field.colSpan)}`,
+                      }}
+                    >
+                      <RecordCardFieldValue
+                        entity={entity}
+                        record={record}
+                        field={field}
+                        entities={entities}
+                        valueContext={valueContext}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             );
           })}
         </div>
-
-        {showToggle && !expanded ? (
+      ) : (
+        <div className="relative">
           <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent"
-          />
-        ) : null}
-      </div>
+            ref={bodyRef}
+            className={cn(
+              "grid grid-cols-2 gap-x-6 gap-y-4 px-4 pt-4 transition-[max-height] duration-300 ease-out",
+              expanded ? "max-h-none pb-4" : "overflow-hidden pb-2",
+            )}
+            style={
+              expanded
+                ? undefined
+                : { maxHeight: RECORD_CARD_COLLAPSED_MAX_HEIGHT }
+            }
+          >
+            {flatFields.map((field) => (
+              <RecordCardFieldValue
+                key={field.id}
+                entity={entity}
+                record={record}
+                field={field}
+                entities={entities}
+                valueContext={valueContext}
+              />
+            ))}
+          </div>
+
+          {showToggle && !expanded ? (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent"
+            />
+          ) : null}
+        </div>
+      )}
 
       {showToggle ? (
         <button
@@ -1264,9 +1407,12 @@ export function RecordEntityTabPanel({
   parentRecordId,
   entities,
   onOpenRelation,
+  readOnly = false,
 }: RecordEntityTabPanelProps) {
   const valueContext = useEntityValueContext();
-  const parentLinkFieldId = tab.parentLinkFieldId;
+  const parentLinkFieldId =
+    resolveLinkedTabParentLinkFieldId(tab, linkedEntity, parentEntityId) ??
+    tab.parentLinkFieldId;
   const isSelfRef = linkedEntity.id === parentEntityId;
   const [addFlow, setAddFlow] = useState<AddFlow>("closed");
   const [dialogRecord, setDialogRecord] = useState<EntityRecord | null | "new">(
@@ -1287,6 +1433,11 @@ export function RecordEntityTabPanel({
       nestedTarget.entity)
     : null;
 
+  const hostEntity = useMemo(
+    () => entities.find((item) => item.id === parentEntityId) ?? null,
+    [entities, parentEntityId],
+  );
+
   const parentRecord = useMemo(
     () =>
       isSelfRef
@@ -1297,33 +1448,28 @@ export function RecordEntityTabPanel({
   );
 
   const records = useMemo(() => {
-    if (!parentLinkFieldId) return [];
-    const outgoingIds = parseEntityRelationIds(
-      parentRecord?.values[parentLinkFieldId],
-    );
-
-    return (linkedEntity.records ?? []).filter((record) => {
-      if (record.id === parentRecordId) return false;
-      // Direct: related record points to the current one.
-      if (
-        entityRelationIncludesId(
-          record.values[parentLinkFieldId],
-          parentRecordId,
-        )
-      ) {
-        return true;
-      }
-      // Reverse (self-link): current record points to the related one.
-      if (isSelfRef && outgoingIds.includes(record.id)) return true;
-      return false;
+    let ids = collectLinkedTabRecordIds({
+      tab,
+      linkedEntity,
+      parentEntityId,
+      parentRecordId,
     });
-  }, [
-    isSelfRef,
-    linkedEntity.records,
-    parentLinkFieldId,
-    parentRecord,
-    parentRecordId,
-  ]);
+    if (ids.length === 0) {
+      ids = collectRecordsLinkedToParent({
+        childEntity: linkedEntity,
+        parentEntityId,
+        parentRecordId,
+        host: hostEntity,
+      });
+    }
+    if (ids.length === 0) return [];
+    const byId = new Map(
+      (linkedEntity.records ?? []).map((record) => [record.id, record]),
+    );
+    return ids
+      .map((id) => byId.get(id))
+      .filter((record): record is EntityRecord => record != null);
+  }, [hostEntity, linkedEntity, parentEntityId, parentRecordId, tab]);
 
   const linkedRecordIds = useMemo(
     () => new Set(records.map((record) => record.id)),
@@ -1344,8 +1490,10 @@ export function RecordEntityTabPanel({
   const recordColumns = normalizeEntityRecordColumns(
     linkedEntity.recordColumns,
   );
+  const singleRecord = Boolean(tab.singleRecord);
+  const atSingleRecordLimit = singleRecord && records.length >= 1;
   const columnsClass =
-    recordColumns === 1
+    singleRecord || recordColumns === 1
       ? "grid-cols-1"
       : recordColumns === 3
         ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
@@ -1372,31 +1520,48 @@ export function RecordEntityTabPanel({
     isEntitySubEntity(linkedEntity) &&
     linkedEntity.parentEntityId === parentEntityId;
 
+  function openAdd() {
+    if (atSingleRecordLimit) return;
+    if (ownsLinkedRecords) {
+      setDialogRecord("new");
+      return;
+    }
+    setAddFlow("choice");
+  }
+
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+    <section
+      className={cn(
+        "overflow-hidden rounded-xl bg-card",
+        readOnly ? "border-0" : "border border-border",
+      )}
+    >
+      <header
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 border-b border-border",
+          readOnly ? "px-1 pb-3" : "px-4 py-3",
+        )}
+      >
         <h2 className="text-base font-semibold tracking-tight text-foreground">
           {tab.name}
         </h2>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            {records.length} записей
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => {
-              if (ownsLinkedRecords) {
-                setDialogRecord("new");
-                return;
-              }
-              setAddFlow("choice");
-            }}
-          >
-            <Plus className="size-3.5" />
-            Добавить
-          </Button>
+          {singleRecord ? null : (
+            <span className="text-sm text-muted-foreground">
+              {records.length} записей
+            </span>
+          )}
+          {!readOnly && !atSingleRecordLimit ? (
+            <Button
+              type="button"
+              size="sm"
+              className="gap-1.5"
+              onClick={openAdd}
+            >
+              <Plus className="size-3.5" />
+              Добавить
+            </Button>
+          ) : null}
         </div>
       </header>
 
@@ -1404,19 +1569,23 @@ export function RecordEntityTabPanel({
         <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-12 text-center">
           <p className="text-sm font-medium text-foreground">Нет записей</p>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Добавьте первую запись, чтобы она появилась здесь.
+            {readOnly
+              ? "Связанных записей пока нет."
+              : singleRecord
+                ? "Добавьте запись, чтобы она появилась здесь."
+                : "Добавьте первую запись, чтобы она появилась здесь."}
           </p>
         </div>
-      ) : recordsDisplay === "table" ? (
+      ) : recordsDisplay === "table" && !singleRecord ? (
         <RecordsTable
           entity={linkedEntity}
           records={records}
           parentLinkFieldId={parentLinkFieldId}
-          onEdit={(record) => setDialogRecord(record)}
-          onDelete={(record) => setPendingDelete(record)}
+          onEdit={readOnly ? undefined : (record) => setDialogRecord(record)}
+          onDelete={readOnly ? undefined : (record) => setPendingDelete(record)}
           onOpenNested={onOpenRelation}
           onCreateNestedChild={
-            nestedTarget
+            !readOnly && nestedTarget
               ? (hostRecordId) => setNestedCreateParentId(hostRecordId)
               : undefined
           }
@@ -1429,202 +1598,218 @@ export function RecordEntityTabPanel({
               entity={linkedEntity}
               record={record}
               parentLinkFieldId={parentLinkFieldId}
-              onEdit={() => setDialogRecord(record)}
-              onDelete={() => setPendingDelete(record)}
+              single={singleRecord}
+              onEdit={readOnly ? undefined : () => setDialogRecord(record)}
+              onDelete={readOnly ? undefined : () => setPendingDelete(record)}
             />
           ))}
         </div>
       )}
 
-      <AddChoiceDialog
-        open={addFlow === "choice"}
-        entityLabel={entityLabel}
-        onOpenChange={(open) => {
-          if (!open) setAddFlow("closed");
-        }}
-        onCreateNew={() => {
-          setAddFlow("closed");
-          setDialogRecord("new");
-        }}
-        onPickExisting={() => setAddFlow("existing")}
-      />
+      {!readOnly ? (
+        <>
+          <AddChoiceDialog
+            open={addFlow === "choice"}
+            entityLabel={entityLabel}
+            onOpenChange={(open) => {
+              if (!open) setAddFlow("closed");
+            }}
+            onCreateNew={() => {
+              if (atSingleRecordLimit) {
+                setAddFlow("closed");
+                return;
+              }
+              setAddFlow("closed");
+              setDialogRecord("new");
+            }}
+            onPickExisting={() => {
+              if (atSingleRecordLimit) {
+                setAddFlow("closed");
+                return;
+              }
+              setAddFlow("existing");
+            }}
+          />
 
-      <LinkExistingDialog
-        open={addFlow === "existing"}
-        options={availableExistingOptions}
-        entityLabel={entityLabel}
-        onOpenChange={(open) => {
-          if (!open) setAddFlow("closed");
-        }}
-        onSubmit={(recordId) => {
-          if (!parentLinkFieldId) return;
-          const record = linkedEntity.records.find(
-            (item) => item.id === recordId,
-          );
-          if (!record) return;
-          updateEntityRecord(linkedEntity.id, recordId, {
-            ...record.values,
-            [parentLinkFieldId]: serializeEntityRelationIds([
-              ...parseEntityRelationIds(record.values[parentLinkFieldId]),
-              parentRecordId,
-            ]),
-          });
-          setAddFlow("closed");
-        }}
-      />
+          <LinkExistingDialog
+            open={addFlow === "existing"}
+            options={availableExistingOptions}
+            entityLabel={entityLabel}
+            onOpenChange={(open) => {
+              if (!open) setAddFlow("closed");
+            }}
+            onSubmit={(recordId) => {
+              if (!parentLinkFieldId || atSingleRecordLimit) return;
+              const record = linkedEntity.records.find(
+                (item) => item.id === recordId,
+              );
+              if (!record) return;
+              updateEntityRecord(linkedEntity.id, recordId, {
+                ...record.values,
+                [parentLinkFieldId]: serializeEntityRelationIds([
+                  ...parseEntityRelationIds(record.values[parentLinkFieldId]),
+                  parentRecordId,
+                ]),
+              });
+              setAddFlow("closed");
+            }}
+          />
 
-      <EntityRecordDialog
-        open={dialogRecord !== null}
-        onOpenChange={(open) => {
-          if (!open) setDialogRecord(null);
-        }}
-        entity={linkedEntity}
-        record={dialogRecord === "new" ? null : dialogRecord}
-        entities={entities}
-        presetValues={presetValues}
-        hiddenFieldIds={
-          parentLinkFieldId ? new Set([parentLinkFieldId]) : undefined
-        }
-        titleOverride={dialogRecord !== null ? dialogTitle : undefined}
-        submitLabel="Сохранить"
-        onSubmit={async (values) => {
-          if (!parentLinkFieldId) return;
-          const previousLink =
-            dialogRecord && dialogRecord !== "new"
-              ? dialogRecord.values[parentLinkFieldId]
-              : "";
-          const nextValues = {
-            ...values,
-            [parentLinkFieldId]: serializeEntityRelationIds([
-              ...parseEntityRelationIds(previousLink),
-              parentRecordId,
-            ]),
-          };
-          if (dialogRecord === "new") {
-            const created = addEntityRecord(linkedEntity.id, nextValues);
-            await waitForEntityRecordInsert(created.id);
-            // Nested hierarchy: open child create right after the parent.
-            if (nestedTarget) {
-              setNestedCreateParentId(created.id);
+          <EntityRecordDialog
+            open={dialogRecord !== null}
+            onOpenChange={(open) => {
+              if (!open) setDialogRecord(null);
+            }}
+            entity={linkedEntity}
+            record={dialogRecord === "new" ? null : dialogRecord}
+            entities={entities}
+            presetValues={presetValues}
+            hiddenFieldIds={
+              parentLinkFieldId ? new Set([parentLinkFieldId]) : undefined
             }
-            return;
-          }
-          if (dialogRecord) {
-            await updateEntityRecord(
-              linkedEntity.id,
-              dialogRecord.id,
-              nextValues,
-            );
-          }
-        }}
-      />
+            titleOverride={dialogRecord !== null ? dialogTitle : undefined}
+            submitLabel="Сохранить"
+            onSubmit={async (values) => {
+              if (!parentLinkFieldId) return;
+              if (dialogRecord === "new" && atSingleRecordLimit) return;
+              const previousLink =
+                dialogRecord && dialogRecord !== "new"
+                  ? dialogRecord.values[parentLinkFieldId]
+                  : "";
+              const nextValues = {
+                ...values,
+                [parentLinkFieldId]: serializeEntityRelationIds([
+                  ...parseEntityRelationIds(previousLink),
+                  parentRecordId,
+                ]),
+              };
+              if (dialogRecord === "new") {
+                const created = addEntityRecord(linkedEntity.id, nextValues);
+                await waitForEntityRecordInsert(created.id);
+                // Nested hierarchy: open child create right after the parent.
+                if (nestedTarget) {
+                  setNestedCreateParentId(created.id);
+                }
+                return;
+              }
+              if (dialogRecord) {
+                await updateEntityRecord(
+                  linkedEntity.id,
+                  dialogRecord.id,
+                  nextValues,
+                );
+              }
+            }}
+          />
 
-      {nestedEntity && nestedTarget ? (
-        <EntityRecordDialog
-          open={nestedCreateParentId != null}
-          onOpenChange={(open) => {
-            if (!open) setNestedCreateParentId(null);
-          }}
-          entity={nestedEntity}
-          record={null}
-          entities={entities}
-          presetValues={
-            nestedCreateParentId
-              ? { [nestedTarget.parentLinkFieldId]: nestedCreateParentId }
-              : undefined
-          }
-          hiddenFieldIds={new Set([nestedTarget.parentLinkFieldId])}
-          titleOverride={`Новый ${
-            nestedEntity.name.trim().toLowerCase() ||
-            nestedTarget.label.trim().toLowerCase() ||
-            "элемент"
-          }`}
-          submitLabel="Сохранить"
-          onSubmit={async (values) => {
-            if (!nestedCreateParentId) return;
-            const nextValues = {
-              ...values,
-              [nestedTarget.parentLinkFieldId]: nestedCreateParentId,
-            };
-            const created = addEntityRecord(nestedEntity.id, nextValues);
-            await waitForEntityRecordInsert(created.id);
-          }}
-        />
-      ) : null}
+          {nestedEntity && nestedTarget ? (
+            <EntityRecordDialog
+              open={nestedCreateParentId != null}
+              onOpenChange={(open) => {
+                if (!open) setNestedCreateParentId(null);
+              }}
+              entity={nestedEntity}
+              record={null}
+              entities={entities}
+              presetValues={
+                nestedCreateParentId
+                  ? { [nestedTarget.parentLinkFieldId]: nestedCreateParentId }
+                  : undefined
+              }
+              hiddenFieldIds={new Set([nestedTarget.parentLinkFieldId])}
+              titleOverride={`Новый ${
+                nestedEntity.name.trim().toLowerCase() ||
+                nestedTarget.label.trim().toLowerCase() ||
+                "элемент"
+              }`}
+              submitLabel="Сохранить"
+              onSubmit={async (values) => {
+                if (!nestedCreateParentId) return;
+                const nextValues = {
+                  ...values,
+                  [nestedTarget.parentLinkFieldId]: nestedCreateParentId,
+                };
+                const created = addEntityRecord(nestedEntity.id, nextValues);
+                await waitForEntityRecordInsert(created.id);
+              }}
+            />
+          ) : null}
 
-      {ownsLinkedRecords ? (
-        <RecordDeleteConfirmDialog
-          open={pendingDelete != null}
-          onOpenChange={(open) => {
-            if (!open) setPendingDelete(null);
-          }}
-          entityId={linkedEntity.id}
-          recordIds={pendingDelete ? [pendingDelete.id] : []}
-          title="Удалить запись?"
-          description={
-            pendingDelete
-              ? `Вы уверены, что хотите удалить «${getRecordTitle(valueContext, linkedEntity, pendingDelete)}»?`
-              : "Вы уверены, что хотите удалить эту запись?"
-          }
-          confirmLabel="Удалить"
-          onConfirm={() => {
-            if (!pendingDelete) return;
-            removeEntityRecord(linkedEntity.id, pendingDelete.id);
-          }}
-        />
-      ) : (
-        <ConfirmDialog
-          open={pendingDelete != null}
-          onOpenChange={(open) => {
-            if (!open) setPendingDelete(null);
-          }}
-          title="Убрать с вкладки?"
-          description={
-            pendingDelete
-              ? `Убрать «${getRecordTitle(valueContext, linkedEntity, pendingDelete)}» с этой вкладки? Запись останется в системе.`
-              : "Убрать запись с этой вкладки? Она останется в системе."
-          }
-          confirmLabel="Убрать"
-          onConfirm={() => {
-            if (!pendingDelete || !parentLinkFieldId) return;
+          {ownsLinkedRecords ? (
+            <RecordDeleteConfirmDialog
+              open={pendingDelete != null}
+              onOpenChange={(open) => {
+                if (!open) setPendingDelete(null);
+              }}
+              entityId={linkedEntity.id}
+              recordIds={pendingDelete ? [pendingDelete.id] : []}
+              title="Удалить запись?"
+              description={
+                pendingDelete
+                  ? `Вы уверены, что хотите удалить «${getRecordTitle(valueContext, linkedEntity, pendingDelete)}»?`
+                  : "Вы уверены, что хотите удалить эту запись?"
+              }
+              confirmLabel="Удалить"
+              onConfirm={() => {
+                if (!pendingDelete) return;
+                removeEntityRecord(linkedEntity.id, pendingDelete.id);
+              }}
+            />
+          ) : (
+            <ConfirmDialog
+              open={pendingDelete != null}
+              onOpenChange={(open) => {
+                if (!open) setPendingDelete(null);
+              }}
+              title="Убрать с вкладки?"
+              description={
+                pendingDelete
+                  ? `Убрать «${getRecordTitle(valueContext, linkedEntity, pendingDelete)}» с этой вкладки? Запись останется в системе.`
+                  : "Убрать запись с этой вкладки? Она останется в системе."
+              }
+              confirmLabel="Убрать"
+              onConfirm={() => {
+                if (!pendingDelete || !parentLinkFieldId) return;
 
-            // Direct link: related → current. Reverse self-link: current → related.
-            if (
-              entityRelationIncludesId(
-                pendingDelete.values[parentLinkFieldId],
-                parentRecordId,
-              )
-            ) {
-              updateEntityRecord(linkedEntity.id, pendingDelete.id, {
-                ...pendingDelete.values,
-                [parentLinkFieldId]: serializeEntityRelationIds(
-                  parseEntityRelationIds(
+                // Direct link: related → current. Reverse self-link: current → related.
+                if (
+                  entityRelationIncludesId(
                     pendingDelete.values[parentLinkFieldId],
-                  ).filter((id) => id !== parentRecordId),
-                ),
-              });
-            } else if (
-              isSelfRef &&
-              parentRecord &&
-              entityRelationIncludesId(
-                parentRecord.values[parentLinkFieldId],
-                pendingDelete.id,
-              )
-            ) {
-              updateEntityRecord(linkedEntity.id, parentRecord.id, {
-                ...parentRecord.values,
-                [parentLinkFieldId]: serializeEntityRelationIds(
-                  parseEntityRelationIds(
+                    parentRecordId,
+                  )
+                ) {
+                  updateEntityRecord(linkedEntity.id, pendingDelete.id, {
+                    ...pendingDelete.values,
+                    [parentLinkFieldId]: serializeEntityRelationIds(
+                      parseEntityRelationIds(
+                        pendingDelete.values[parentLinkFieldId],
+                      ).filter((id) => id !== parentRecordId),
+                    ),
+                  });
+                } else if (
+                  isSelfRef &&
+                  parentRecord &&
+                  entityRelationIncludesId(
                     parentRecord.values[parentLinkFieldId],
-                  ).filter((id) => id !== pendingDelete.id),
-                ),
-              });
-            }
+                    pendingDelete.id,
+                  )
+                ) {
+                  updateEntityRecord(linkedEntity.id, parentRecord.id, {
+                    ...parentRecord.values,
+                    [parentLinkFieldId]: serializeEntityRelationIds(
+                      parseEntityRelationIds(
+                        parentRecord.values[parentLinkFieldId],
+                      ).filter((id) => id !== pendingDelete.id),
+                    ),
+                  });
+                }
 
-            setPendingDelete(null);
-          }}
-        />
-      )}
+                setPendingDelete(null);
+              }}
+            />
+          )}
+        </>
+      ) : null}
     </section>
   );
 }

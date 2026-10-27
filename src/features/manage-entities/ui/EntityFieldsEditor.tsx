@@ -5122,6 +5122,7 @@ export function EntityFieldsEditor({
           parentEntityId={entity.id}
           tabId={subEntitySettings.tabId}
           tabName={subEntitySettingsTab.name}
+          singleRecord={subEntitySettingsTab.singleRecord}
           entity={subEntitySettingsEntity}
         />
       ) : null}

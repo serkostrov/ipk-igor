@@ -757,6 +757,11 @@ export type EntityTab = {
    * Empty for other tab kinds.
    */
   defaultFolders: EntityTabDefaultFolder[];
+  /**
+   * For `kind: "entity"` — at most one record may be added or linked.
+   * The record is shown fully (not collapsed) with field layout from settings.
+   */
+  singleRecord: boolean;
 };
 
 /** Free-form entries on a `kind: "records"` tab (stored on the parent record). */
@@ -1000,6 +1005,7 @@ export function createEntityOverviewTab(): EntityTab {
     sourceRelationFieldId: null,
     sourceTabId: null,
     defaultFolders: [],
+    singleRecord: false,
   };
 }
 
@@ -1241,11 +1247,12 @@ export function buildEntityTabDefaultFileEntries(
 export function normalizeEntityTab(
   tab: Omit<
     EntityTab,
-    "defaultFolders" | "sourceRelationFieldId" | "sourceTabId"
+    "defaultFolders" | "sourceRelationFieldId" | "sourceTabId" | "singleRecord"
   > & {
     defaultFolders?: EntityTabDefaultFolder[] | unknown;
     sourceRelationFieldId?: string | null;
     sourceTabId?: string | null;
+    singleRecord?: boolean;
   },
 ): EntityTab {
   const locked = isEntityOverviewTab(tab);
@@ -1273,6 +1280,7 @@ export function normalizeEntityTab(
     kind === "files"
       ? normalizeEntityTabDefaultFolders(tab.defaultFolders)
       : [];
+  const singleRecord = kind === "entity" && Boolean(tab.singleRecord);
   return {
     id: locked ? ENTITY_OVERVIEW_TAB_ID : tab.id,
     name:
@@ -1288,6 +1296,7 @@ export function normalizeEntityTab(
     sourceRelationFieldId: locked ? null : sourceRelationFieldId,
     sourceTabId: locked ? null : sourceTabId,
     defaultFolders,
+    singleRecord,
   };
 }
 

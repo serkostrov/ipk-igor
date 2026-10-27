@@ -204,10 +204,12 @@ function scrubAction(
             : undefined,
         };
       });
-      const parentFromRelated =
-        action.parentFromRelated?.relationFieldId === fieldId
-          ? undefined
-          : action.parentFromRelated;
+      const parentFromRelated = (action.parentFromRelated ?? []).filter(
+        (item) => item.relationFieldId !== fieldId,
+      );
+      const relatedCleared =
+        (action.parentFromRelated?.length ?? 0) > 0 &&
+        parentFromRelated.length === 0;
       return {
         ...action,
         linkBackFieldId:
@@ -221,8 +223,11 @@ function scrubAction(
         fieldAskOptions:
           Object.keys(fieldAskOptions).length > 0 ? fieldAskOptions : undefined,
         nestedCreates: nestedCreates.length > 0 ? nestedCreates : undefined,
-        parentFromRelated,
-        ...(parentFromRelated == null && action.parentFromRelated
+        parentFromRelated:
+          parentFromRelated.length > 0 ? parentFromRelated : undefined,
+        alsoLinkTrigger:
+          parentFromRelated.length > 0 ? action.alsoLinkTrigger : undefined,
+        ...(relatedCleared
           ? { multiple: action.multiple === true ? true : undefined }
           : {}),
       };

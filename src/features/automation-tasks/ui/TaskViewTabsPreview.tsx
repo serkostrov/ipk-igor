@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
-  entityRelationIncludesId,
   filterEntityFieldGroupsForTab,
   formatEntityFileSize,
   getEntityFieldDisplayName,
@@ -34,7 +33,6 @@ import {
   isEntityNameField,
   isEntityRecordsTab,
   isEntityTabWithLinkedEntity,
-  parseEntityRelationIds,
   parseEntityTabFileEntries,
   PRIMARY_ENTITY_FIELD_GROUP,
   RecordNotesEditor,
@@ -51,6 +49,7 @@ import {
   type EntityTabFileEntry,
 } from "@/entities/entity";
 import { useEntityRecordEvents } from "@/entities/history";
+import { RecordEntityTabPanel } from "@/pages/entity/ui/RecordEntityTabPanel";
 import { formatTimestampDisplay } from "@/shared/lib/format-date";
 import { pluralRu } from "@/shared/lib/plural";
 import { cn } from "@/shared/lib/cn";
@@ -824,67 +823,20 @@ function LinkedEntityPreview({
   const { entities } = useEntityConfig();
   const linkedEntity =
     entities.find((item) => item.id === tab.linkedEntityId) ?? null;
-  const parentLinkFieldId = tab.parentLinkFieldId;
-
-  const records = useMemo(() => {
-    if (!linkedEntity || !parentLinkFieldId) return [];
-    const isSelfRef = linkedEntity.id === parentEntityId;
-    const parentRecord = isSelfRef
-      ? (linkedEntity.records.find((item) => item.id === parentRecordId) ??
-        null)
-      : null;
-    const outgoingIds = parseEntityRelationIds(
-      parentRecord?.values[parentLinkFieldId],
-    );
-
-    return (linkedEntity.records ?? []).filter((item) => {
-      if (item.id === parentRecordId) return false;
-      if (
-        entityRelationIncludesId(item.values[parentLinkFieldId], parentRecordId)
-      ) {
-        return true;
-      }
-      if (isSelfRef && outgoingIds.includes(item.id)) return true;
-      return false;
-    });
-  }, [linkedEntity, parentEntityId, parentLinkFieldId, parentRecordId]);
 
   if (!linkedEntity) {
     return <EmptyPreview>Связанная сущность не найдена</EmptyPreview>;
   }
-  if (!parentLinkFieldId) {
-    return <EmptyPreview>Не настроено поле связи вкладки</EmptyPreview>;
-  }
-  if (records.length === 0) {
-    return <EmptyPreview>Связанных записей пока нет</EmptyPreview>;
-  }
-
-  const nameField =
-    linkedEntity.fields.find((field) => isEntityNameField(field)) ?? null;
-  const shown = records.slice(0, PREVIEW_LIMIT);
-  const rest = records.length - shown.length;
 
   return (
-    <ul className="flex flex-col gap-1.5">
-      {shown.map((item) => {
-        const title = nameField
-          ? item.values[nameField.id]?.trim() || "Без названия"
-          : item.id;
-        return (
-          <li
-            key={item.id}
-            className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm font-medium text-foreground"
-          >
-            <span className="line-clamp-2">{title}</span>
-          </li>
-        );
-      })}
-      {rest > 0 ? (
-        <li className="text-center text-[11px] text-muted-foreground">
-          и ещё {rest}
-        </li>
-      ) : null}
-    </ul>
+    <RecordEntityTabPanel
+      tab={tab}
+      linkedEntity={linkedEntity}
+      parentEntityId={parentEntityId}
+      parentRecordId={parentRecordId}
+      entities={entities}
+      readOnly
+    />
   );
 }
 

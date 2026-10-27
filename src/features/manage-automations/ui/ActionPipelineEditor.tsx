@@ -24,6 +24,7 @@ import {
   automationRelationGroupsAskModes,
   createAutomationNestedCreateId,
   defaultAutomationAction,
+  getCreateParentFromRelatedList,
   getCreateParentFromRelatedOptions,
   resolveHostChildParentLinkField,
   toAutomationFieldRef,
@@ -33,6 +34,7 @@ import {
   type AutomationCreateParentFromRelated,
   type AutomationFieldAskOptions,
   type AutomationRelationGroupsAskMode,
+  type CreateParentFromRelatedOption,
 } from "@/entities/automation";
 import {
   getEntityDisplayName,
@@ -154,20 +156,22 @@ export function ActionPipelineEditor({
           ? getEntityDisplayName(createTarget)
           : "новой записи";
         const useEntityCreateForm = createAction?.useEntityCreateForm === true;
+        const createRelatedList = createAction
+          ? getCreateParentFromRelatedList(createAction)
+          : [];
         const createMultiple =
           createAction?.multiple === true ||
-          createAction?.parentFromRelated != null ||
+          createRelatedList.length > 0 ||
           useEntityCreateForm;
         const createRelatedParent =
-          createAction?.parentFromRelated && sourceEntity && createTarget
+          createRelatedList.length > 0 && sourceEntity && createTarget
             ? (getCreateParentFromRelatedOptions(
                 sourceEntity,
                 createTarget,
                 entities,
               ).find((option) =>
-                sameParentFromRelated(
-                  option.parentFrom,
-                  createAction.parentFromRelated!,
+                createRelatedList.some((item) =>
+                  sameParentFromRelated(option.parentFrom, item),
                 ),
               ) ?? null)
             : null;
@@ -182,7 +186,7 @@ export function ActionPipelineEditor({
           createAction != null &&
           !createMultiple &&
           !useEntityCreateForm &&
-          createAction.parentFromRelated == null &&
+          createRelatedList.length === 0 &&
           ((createAction.nestedCreates?.length ?? 0) > 0 ||
             Boolean(createExtras[action.id]?.nested));
         const nestedOptions = createTarget
@@ -450,8 +454,9 @@ function ActionFields({
   }
 
   if (action.kind === "createRecord") {
+    const createRecord = action;
     const target =
-      entities.find((entity) => entity.id === action.entityId) ?? null;
+      entities.find((entity) => entity.id === createRecord.entityId) ?? null;
     const sourceLabel = sourceEntity
       ? getEntityDisplayName(sourceEntity)
       : "текущей записи";
@@ -459,26 +464,27 @@ function ActionFields({
       sourceEntity && target
         ? getCreateParentFromRelatedOptions(sourceEntity, target, entities)
         : [];
-    const parentFromRelated = action.parentFromRelated ?? null;
-    const selectedRelatedParent =
-      parentFromRelated != null
-        ? (relatedParentOptions.find((option) =>
-            sameParentFromRelated(option.parentFrom, parentFromRelated),
-          ) ?? null)
-        : null;
-    const targetLabel = target
-      ? selectedRelatedParent
-        ? getChildEntityLabel(selectedRelatedParent.parentEntity, target)
-        : sourceEntity
-          ? getChildEntityLabel(sourceEntity, target)
-          : getEntityDisplayName(target)
-      : "новой записи";
+    const parentFromRelatedList = getCreateParentFromRelatedList(createRecord);
+    const hasRelatedParents = parentFromRelatedList.length > 0;
+    const selectedRelatedParents = relatedParentOptions.filter((option) =>
+      parentFromRelatedList.some((item) =>
+        sameParentFromRelated(option.parentFrom, item),
+      ),
+    );
+    const primaryRelatedParent = selectedRelatedParents[0] ?? null;
+    const canLinkTriggerDirectly =
+      sourceEntity != null &&
+      target != null &&
+      resolveHostChildParentLinkField(sourceEntity, target) != null;
     const parentLink =
-      sourceEntity && target && !parentFromRelated
+      sourceEntity && target && !hasRelatedParents
         ? resolveHostChildParentLinkField(sourceEntity, target)
         : null;
-    const parentLinked = parentLink != null;
-    const multiple = action.multiple === true || parentFromRelated != null;
+    const parentLinked = canLinkTriggerDirectly;
+    const multiple =
+      createRecord.multiple === true ||
+      hasRelatedParents ||
+      createRecord.alsoLinkTrigger === true;
     const linkBackFields = fields.filter((field) => {
       if (field.type !== "relation" && field.type !== "dependencies") {
         return false;
@@ -487,13 +493,105 @@ function ActionFields({
       const targetId = getEntityRelationTargetId(field);
       return !targetId || targetId === target.id;
     });
-    const parentModeValue = parentFromRelated
-      ? parentFromRelatedKey(parentFromRelated)
-      : parentLinked
-        ? "__trigger__"
-        : "__none__";
+    const bindOptions = createRecordBindOptions({
+      parentLinked,
+      sourceLabel,
+      relatedParentOptions,
+    });
+    const bindSelectedIds = createRecordBindOptionIds(
+      createRecord,
+      parentLinked,
+    );
+    const bindValue = serializeEntityListValueIds(
+      bindSelectedIds.filter((id) =>
+        bindOptions.some((option) => option.id === id),
+      ),
+    );
+    const targetLabel = target
+      ? primaryRelatedParent
+        ? getChildEntityLabel(primaryRelatedParent.parentEntity, target)
+        : sourceEntity
+          ? getChildEntityLabel(sourceEntity, target)
+          : getEntityDisplayName(target)
+      : "новой записи";
 
-    if (action.useEntityCreateForm) {
+    function applyBindTargets(nextIds: string[]) {
+      // «Без автопривязки» is exclusive — clears related / trigger targets.
+      if (nextIds.includes(BIND_NONE_ID) && !parentLinked) {
+        const onlyNone =
+          nextIds.length === 1 || !bindSelectedIds.includes(BIND_NONE_ID);
+        if (onlyNone) {
+          onChange({
+            ...createRecord,
+            parentFromRelated: undefined,
+            alsoLinkTrigger: undefined,
+            multiple: undefined,
+          });
+          return;
+        }
+      }
+      let selected = nextIds.filter((id) => id !== BIND_NONE_ID);
+      if (selected.length === 0) {
+        selected = parentLinked ? [BIND_TRIGGER_ID] : [];
+      }
+      if (!parentLinked && selected.length === 0) {
+        onChange({
+          ...createRecord,
+          parentFromRelated: undefined,
+          alsoLinkTrigger: undefined,
+          multiple: undefined,
+        });
+        return;
+      }
+      const parsed = parseCreateRecordBindSelection(
+        selected,
+        relatedParentOptions,
+        parentLinked,
+      );
+      const askHost =
+        parsed.parentFromRelated?.[0] != null
+          ? (relatedParentOptions.find((option) =>
+              sameParentFromRelated(
+                option.parentFrom,
+                parsed.parentFromRelated![0]!,
+              ),
+            )?.parentEntity ?? sourceEntity)
+          : sourceEntity;
+      const askFieldIds = target
+        ? defaultCreateAskFieldIds(target, askHost)
+        : [];
+      const linksRelated = (parsed.parentFromRelated?.length ?? 0) > 0;
+      const keepTriggerMultiple =
+        !linksRelated &&
+        parentLinked &&
+        selected.includes(BIND_TRIGGER_ID) &&
+        multiple;
+      onChange({
+        ...createRecord,
+        parentFromRelated: parsed.parentFromRelated,
+        alsoLinkTrigger: parsed.alsoLinkTrigger,
+        nestedCreates: undefined,
+        askFieldIds:
+          askFieldIds.length > 0 ? askFieldIds : createRecord.askFieldIds,
+        multiple:
+          linksRelated || parsed.alsoLinkTrigger || keepTriggerMultiple
+            ? true
+            : undefined,
+      });
+    }
+
+    if (createRecord.useEntityCreateForm) {
+      const askBindOptions = createRecordBindOptions({
+        parentLinked,
+        sourceLabel,
+        relatedParentOptions,
+        forAskCreate: true,
+      });
+      const askBindValue = serializeEntityListValueIds(
+        bindSelectedIds.filter((id) =>
+          askBindOptions.some((option) => option.id === id),
+        ),
+      );
       return (
         <div className="flex flex-col gap-2.5">
           <div className="flex flex-col gap-1">
@@ -531,9 +629,12 @@ function ActionFields({
                   linkBackFieldId: undefined,
                   useEntityCreateForm: true,
                   multiple: true,
+                  alsoLinkTrigger: undefined,
                   parentFromRelated: canLinkTrigger
                     ? undefined
-                    : (nextRelated[0]?.parentFrom ?? undefined),
+                    : nextRelated[0]
+                      ? [nextRelated[0].parentFrom]
+                      : undefined,
                 });
               }}
             />
@@ -545,61 +646,36 @@ function ActionFields({
               <p className="text-[11px] font-medium text-muted-foreground">
                 Куда
               </p>
-              <Select
-                value={parentModeValue}
-                onValueChange={(next) => {
-                  if (next == null) return;
-                  const key = String(next);
-                  if (key === "__trigger__" || key === "__none__") {
-                    onChange({
-                      ...action,
-                      parentFromRelated: undefined,
-                      useEntityCreateForm: true,
-                      multiple: true,
-                      mappings: [],
-                      askFieldIds: undefined,
-                    });
-                    return;
-                  }
-                  const option = relatedParentOptions.find(
-                    (item) => parentFromRelatedKey(item.parentFrom) === key,
+              <ListSelect
+                options={askBindOptions}
+                value={askBindValue}
+                multiple
+                size="sm"
+                emptyLabel="Выберите"
+                aria-label="Куда привязать новые записи"
+                className="h-8 rounded-md border-input font-normal shadow-xs"
+                onChange={(next) => {
+                  const ids = parseEntityListValueIds(next);
+                  const parsed = parseCreateRecordBindSelection(
+                    ids.length > 0
+                      ? ids
+                      : parentLinked
+                        ? [BIND_TRIGGER_ID]
+                        : [],
+                    relatedParentOptions,
+                    parentLinked,
                   );
-                  if (!option) return;
                   onChange({
                     ...action,
-                    parentFromRelated: option.parentFrom,
+                    parentFromRelated: parsed.parentFromRelated,
+                    alsoLinkTrigger: parsed.alsoLinkTrigger,
                     useEntityCreateForm: true,
                     multiple: true,
                     mappings: [],
                     askFieldIds: undefined,
                   });
                 }}
-              >
-                <SelectTrigger size="sm" className="h-8">
-                  <SelectValue>
-                    {parentFromRelated && selectedRelatedParent
-                      ? `В «${selectedRelatedParent.label}»`
-                      : parentLinked
-                        ? `В текущей «${sourceLabel}»`
-                        : "Выберите"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {parentLinked ? (
-                    <SelectItem value="__trigger__">
-                      В текущей «{sourceLabel}»
-                    </SelectItem>
-                  ) : null}
-                  {relatedParentOptions.map((option) => (
-                    <SelectItem
-                      key={parentFromRelatedKey(option.parentFrom)}
-                      value={parentFromRelatedKey(option.parentFrom)}
-                    >
-                      В «{option.label}»
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             </div>
           ) : null}
           <p className="text-[10px] leading-snug text-muted-foreground">
@@ -653,7 +729,10 @@ function ActionFields({
                 askRequiredFieldIds: undefined,
                 fieldAskOptions: undefined,
                 nestedCreates: undefined,
-                parentFromRelated: autoRelated?.parentFrom,
+                alsoLinkTrigger: undefined,
+                parentFromRelated: autoRelated
+                  ? [autoRelated.parentFrom]
+                  : undefined,
                 useEntityCreateForm: undefined,
                 multiple:
                   autoRelated != null || (canLinkTrigger && multiple)
@@ -662,9 +741,9 @@ function ActionFields({
               });
             }}
           />
-          {parentLinked && !parentFromRelated ? (
+          {parentLinked && !hasRelatedParents ? (
             <p className="text-[10px] leading-snug text-muted-foreground">
-              {parentLink.tab
+              {parentLink?.tab
                 ? `Новая запись попадёт во вкладку «${parentLink.tab.name?.trim() || "Подсущность"}» и привяжется к «${sourceLabel}»`
                 : `Новая запись автоматически привяжется к текущей «${sourceLabel}» как к родителю`}
             </p>
@@ -677,80 +756,34 @@ function ActionFields({
             <p className="text-[11px] font-medium text-muted-foreground">
               Куда привязать новые записи
             </p>
-            <Select
-              value={parentModeValue}
-              onValueChange={(next) => {
-                if (next == null) return;
-                const key = String(next);
-                if (key === "__trigger__" || key === "__none__") {
-                  const askFieldIds = target
-                    ? defaultCreateAskFieldIds(target, sourceEntity)
-                    : [];
-                  onChange({
-                    ...action,
-                    parentFromRelated: undefined,
-                    nestedCreates: undefined,
-                    askFieldIds:
-                      askFieldIds.length > 0 ? askFieldIds : action.askFieldIds,
-                    multiple:
-                      key === "__trigger__" && multiple ? true : undefined,
-                  });
-                  return;
-                }
-                const option = relatedParentOptions.find(
-                  (item) => parentFromRelatedKey(item.parentFrom) === key,
-                );
-                if (!option) return;
-                const askFieldIds = defaultCreateAskFieldIds(
-                  target,
-                  option.parentEntity,
-                );
-                onChange({
-                  ...action,
-                  parentFromRelated: option.parentFrom,
-                  multiple: true,
-                  nestedCreates: undefined,
-                  askFieldIds:
-                    askFieldIds.length > 0 ? askFieldIds : action.askFieldIds,
-                });
-              }}
-            >
-              <SelectTrigger size="sm" className="h-8">
-                <SelectValue>
-                  {parentFromRelated && selectedRelatedParent
-                    ? `Уже существующие «${selectedRelatedParent.label}»`
-                    : parentLinked
-                      ? `Текущая «${sourceLabel}»`
-                      : "Без автопривязки"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {parentLinked ? (
-                  <SelectItem value="__trigger__">
-                    Текущая «{sourceLabel}»
-                  </SelectItem>
-                ) : (
-                  <SelectItem value="__none__">Без автопривязки</SelectItem>
-                )}
-                {relatedParentOptions.map((option) => (
-                  <SelectItem
-                    key={parentFromRelatedKey(option.parentFrom)}
-                    value={parentFromRelatedKey(option.parentFrom)}
-                  >
-                    Уже существующие «{option.label}»
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {relatedParentOptions.length > 0 && !parentFromRelated ? (
+            <ListSelect
+              options={bindOptions}
+              value={bindValue}
+              multiple
+              size="sm"
+              emptyLabel={
+                parentLinked ? `Текущая «${sourceLabel}»` : "Выберите"
+              }
+              aria-label="Куда привязать новые записи"
+              className="h-8 rounded-md border-input font-normal shadow-xs"
+              onChange={(next) =>
+                applyBindTargets(parseEntityListValueIds(next))
+              }
+            />
+            {relatedParentOptions.length > 0 && !hasRelatedParents ? (
               <p className="text-[10px] leading-snug text-muted-foreground">
-                Если расчёты уже созданы раньше — выберите «Уже существующие…»,
-                а не создание вложенных в этом же задании
+                Можно выбрать несколько целей. Если расчёты уже созданы раньше —
+                добавьте «Уже существующие…»
+              </p>
+            ) : hasRelatedParents ? (
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Новые записи будут созданы под каждой выбранной целью
+                {action.alsoLinkTrigger ? " и под текущей записью" : ""}
               </p>
             ) : null}
           </div>
         ) : null}
-        {parentLinked && !parentFromRelated ? (
+        {parentLinked && !hasRelatedParents ? (
           <SettingSwitch
             id={`create-record-multiple-${action.id}`}
             title="Несколько записей"
@@ -763,10 +796,15 @@ function ActionFields({
                   multiple: true,
                   nestedCreates: undefined,
                   parentFromRelated: undefined,
+                  alsoLinkTrigger: undefined,
                 });
                 return;
               }
-              onChange({ ...action, multiple: undefined });
+              onChange({
+                ...action,
+                multiple: undefined,
+                alsoLinkTrigger: undefined,
+              });
             }}
           />
         ) : null}
@@ -835,7 +873,7 @@ function ActionFields({
             ) : null}
             {!createNestedVisible &&
             !multiple &&
-            !parentFromRelated &&
+            !hasRelatedParents &&
             onOpenCreateNested ? (
               <Button
                 type="button"
@@ -1772,6 +1810,9 @@ function getCreateNestedEntityOptions(
     );
 }
 
+const BIND_TRIGGER_ID = "__trigger__";
+const BIND_NONE_ID = "__none__";
+
 function parentFromRelatedKey(
   parentFrom: AutomationCreateParentFromRelated,
 ): string {
@@ -1787,6 +1828,90 @@ function sameParentFromRelated(
   right: AutomationCreateParentFromRelated,
 ): boolean {
   return parentFromRelatedKey(left) === parentFromRelatedKey(right);
+}
+
+function createRecordBindOptionIds(
+  action: Extract<AutomationAction, { kind: "createRecord" }>,
+  parentLinked: boolean,
+): string[] {
+  const related = getCreateParentFromRelatedList(action);
+  if (related.length === 0) {
+    return parentLinked ? [BIND_TRIGGER_ID] : [BIND_NONE_ID];
+  }
+  const ids = related.map(parentFromRelatedKey).filter(Boolean);
+  if (action.alsoLinkTrigger && parentLinked) {
+    return [BIND_TRIGGER_ID, ...ids];
+  }
+  return ids;
+}
+
+function parseCreateRecordBindSelection(
+  selectedIds: string[],
+  relatedParentOptions: CreateParentFromRelatedOption[],
+  parentLinked: boolean,
+): {
+  parentFromRelated: AutomationCreateParentFromRelated[] | undefined;
+  alsoLinkTrigger: boolean | undefined;
+} {
+  const relatedKeys = selectedIds.filter(
+    (id) => id !== BIND_TRIGGER_ID && id !== BIND_NONE_ID,
+  );
+  const parentFromRelated = relatedKeys
+    .map(
+      (key) =>
+        relatedParentOptions.find(
+          (item) => parentFromRelatedKey(item.parentFrom) === key,
+        )?.parentFrom,
+    )
+    .filter((item): item is AutomationCreateParentFromRelated => item != null);
+  const hasTrigger = selectedIds.includes(BIND_TRIGGER_ID);
+  if (parentFromRelated.length === 0) {
+    return { parentFromRelated: undefined, alsoLinkTrigger: undefined };
+  }
+  return {
+    parentFromRelated,
+    alsoLinkTrigger: hasTrigger && parentLinked ? true : undefined,
+  };
+}
+
+function createRecordBindOptions(options: {
+  parentLinked: boolean;
+  sourceLabel: string;
+  relatedParentOptions: CreateParentFromRelatedOption[];
+  forAskCreate?: boolean;
+}): EntityListOption[] {
+  const { parentLinked, sourceLabel, relatedParentOptions, forAskCreate } =
+    options;
+  const related = relatedParentOptions.map((option) => ({
+    id: parentFromRelatedKey(option.parentFrom),
+    name: forAskCreate
+      ? `В «${option.label}»`
+      : `Уже существующие «${option.label}»`,
+    color: "#94a3b8",
+    parentOptionId: null,
+  }));
+  if (parentLinked) {
+    return [
+      {
+        id: BIND_TRIGGER_ID,
+        name: forAskCreate
+          ? `В текущей «${sourceLabel}»`
+          : `Текущая «${sourceLabel}»`,
+        color: "#94a3b8",
+        parentOptionId: null,
+      },
+      ...related,
+    ];
+  }
+  return [
+    {
+      id: BIND_NONE_ID,
+      name: "Без автопривязки",
+      color: "#94a3b8",
+      parentOptionId: null,
+    },
+    ...related,
+  ];
 }
 
 /** Display name for a child under `parent` (linked-tab title when available). */

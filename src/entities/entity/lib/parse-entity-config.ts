@@ -679,6 +679,7 @@ function parseTab(value: unknown): EntityTab | null {
     defaultFolders: Array.isArray(value.defaultFolders)
       ? value.defaultFolders
       : [],
+    singleRecord: Boolean(value.singleRecord),
   });
 }
 

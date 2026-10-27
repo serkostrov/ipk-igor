@@ -1620,18 +1620,19 @@ export function addEntityTabWithExistingEntity(
 export function updateEntityTab(
   entityId: string,
   tabId: string,
-  patch: Partial<Pick<EntityTab, "name" | "defaultFolders">>,
+  patch: Partial<Pick<EntityTab, "name" | "defaultFolders" | "singleRecord">>,
 ) {
   const parent = config.entities.find((item) => item.id === entityId);
   if (!parent) return;
   const target = parent.tabs.find((tab) => tab.id === tabId);
   const nextName = patch.name?.trim();
+  const hasSingleRecordPatch = patch.singleRecord !== undefined;
 
   if (
     target &&
     isEntityTabWithLinkedEntity(target) &&
     target.linkedEntityId &&
-    nextName
+    (nextName || hasSingleRecordPatch)
   ) {
     const linked = config.entities.find(
       (item) => item.id === target.linkedEntityId,
@@ -1645,12 +1646,18 @@ export function updateEntityTab(
             ...entity,
             tabs: entity.tabs.map((tab) =>
               tab.id === tabId
-                ? normalizeEntityTab({ ...tab, name: nextName })
+                ? normalizeEntityTab({
+                    ...tab,
+                    ...(nextName ? { name: nextName } : null),
+                    ...(hasSingleRecordPatch
+                      ? { singleRecord: patch.singleRecord }
+                      : null),
+                  })
                 : tab,
             ),
           };
         }
-        if (ownsLinked && entity.id === target.linkedEntityId) {
+        if (ownsLinked && nextName && entity.id === target.linkedEntityId) {
           return {
             ...entity,
             name: nextName,
@@ -1679,6 +1686,10 @@ export function updateEntityTab(
                 patch.defaultFolders !== undefined
                   ? patch.defaultFolders
                   : tab.defaultFolders,
+              singleRecord:
+                patch.singleRecord !== undefined
+                  ? patch.singleRecord
+                  : tab.singleRecord,
               locked: isOverview,
             })
           : tab,

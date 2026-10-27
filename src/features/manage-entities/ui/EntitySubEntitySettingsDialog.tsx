@@ -10,6 +10,7 @@ import {
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { SettingSwitch } from "@/shared/ui/setting-controls";
 import {
   normalizeEntityRecordColumns,
   normalizeEntityRecordsDisplay,
@@ -27,6 +28,8 @@ type EntitySubEntitySettingsDialogProps = {
   parentEntityId: string;
   tabId: string;
   tabName: string;
+  /** Current «единичная запись» flag from the parent tab. */
+  singleRecord?: boolean;
   entity: Entity;
 };
 
@@ -34,16 +37,19 @@ function EntitySubEntitySettingsForm({
   parentEntityId,
   tabId,
   tabName,
+  singleRecord: initialSingleRecord = false,
   entity,
   onCancel,
 }: {
   parentEntityId: string;
   tabId: string;
   tabName: string;
+  singleRecord?: boolean;
   entity: Entity;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(tabName);
+  const [singleRecord, setSingleRecord] = useState(initialSingleRecord);
   const [recordsDisplay, setRecordsDisplay] = useState<EntityRecordsDisplay>(
     normalizeEntityRecordsDisplay(entity.recordsDisplay),
   );
@@ -60,7 +66,10 @@ function EntitySubEntitySettingsForm({
   const canSubmit = trimmedName.length > 0;
 
   function persist() {
-    updateEntityTab(parentEntityId, tabId, { name: trimmedName });
+    updateEntityTab(parentEntityId, tabId, {
+      name: trimmedName,
+      singleRecord,
+    });
     updateEntity(entity.id, {
       recordsDisplay,
       recordColumns,
@@ -95,6 +104,14 @@ function EntitySubEntitySettingsForm({
             }}
           />
         </div>
+
+        <SettingSwitch
+          id="sub-entity-single-record"
+          title="Единичная запись"
+          description="На вкладке можно добавить или привязать только одну запись"
+          checked={singleRecord}
+          onCheckedChange={setSingleRecord}
+        />
 
         <EntityRecordsDisplayFields
           recordsDisplay={recordsDisplay}
@@ -133,6 +150,7 @@ export function EntitySubEntitySettingsDialog({
   parentEntityId,
   tabId,
   tabName,
+  singleRecord = false,
   entity,
 }: EntitySubEntitySettingsDialogProps) {
   return (
@@ -140,10 +158,11 @@ export function EntitySubEntitySettingsDialog({
       <DialogContent className="sm:max-w-md">
         {open ? (
           <EntitySubEntitySettingsForm
-            key={`${tabId}-${tabName}-${entity.id}-${entity.recordColumns}-${entity.recordsDisplay}-${entity.tableParentFieldId ?? ""}-${entity.tableNestedEntityId ?? ""}`}
+            key={`${tabId}-${tabName}-${singleRecord}-${entity.id}-${entity.recordColumns}-${entity.recordsDisplay}-${entity.tableParentFieldId ?? ""}-${entity.tableNestedEntityId ?? ""}`}
             parentEntityId={parentEntityId}
             tabId={tabId}
             tabName={tabName}
+            singleRecord={singleRecord}
             entity={entity}
             onCancel={() => onOpenChange(false)}
           />

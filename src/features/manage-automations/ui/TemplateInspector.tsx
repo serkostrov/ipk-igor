@@ -102,6 +102,7 @@ import { TemplateRichText } from "./TemplateRichText";
 import { cn } from "@/shared/lib/cn";
 
 const OUTCOME_FIELD_MIME = "application/x-ipk-outcome-field";
+const OUTCOME_RELATED_FIELD_MIME = "application/x-ipk-outcome-related-field";
 
 function createAskRelatedFieldId() {
   return `arel-${crypto.randomUUID()}`;
@@ -896,6 +897,10 @@ function OutcomeAskFieldsEditor({
 
   function applyReorder(beforeFieldId: string | null) {
     if (!draggingId) return;
+    if (!access.visibleFieldIds.includes(draggingId)) {
+      endDrag();
+      return;
+    }
     const nextIds = reorderFieldIds(
       access.visibleFieldIds,
       draggingId,
@@ -906,6 +911,31 @@ function OutcomeAskFieldsEditor({
       nextIds.every((id, index) => id === access.visibleFieldIds[index]);
     if (!unchanged) {
       onChange({ ...access, visibleFieldIds: nextIds });
+    }
+    endDrag();
+  }
+
+  function applyRelatedReorder(beforeAskId: string | null) {
+    if (!draggingId) return;
+    const relatedIds = access.relatedVisibleFields.map((item) => item.id);
+    if (!relatedIds.includes(draggingId)) {
+      endDrag();
+      return;
+    }
+    const nextIds = reorderFieldIds(relatedIds, draggingId, beforeAskId);
+    const unchanged =
+      nextIds.length === relatedIds.length &&
+      nextIds.every((id, index) => id === relatedIds[index]);
+    if (!unchanged) {
+      const byId = new Map(
+        access.relatedVisibleFields.map((item) => [item.id, item]),
+      );
+      onChange({
+        ...access,
+        relatedVisibleFields: nextIds
+          .map((id) => byId.get(id))
+          .filter((item): item is AutomationAskRelatedField => item != null),
+      });
     }
     endDrag();
   }
@@ -1067,7 +1097,10 @@ function OutcomeAskFieldsEditor({
               const label = getEntityFieldDisplayName(field);
               const isDragging = draggingId === field.id;
               const dropEdge: "before" | "after" | null =
-                dropHint == null || draggingId === field.id
+                dropHint == null ||
+                draggingId === field.id ||
+                draggingId == null ||
+                !access.visibleFieldIds.includes(draggingId)
                   ? null
                   : dropHint.beforeFieldId === field.id
                     ? "before"
@@ -1110,7 +1143,13 @@ function OutcomeAskFieldsEditor({
                     }}
                     onDragEnd={endDrag}
                     onDragOver={(event) => {
-                      if (draggingId == null || draggingId === field.id) return;
+                      if (
+                        draggingId == null ||
+                        draggingId === field.id ||
+                        !access.visibleFieldIds.includes(draggingId)
+                      ) {
+                        return;
+                      }
                       event.preventDefault();
                       event.dataTransfer.dropEffect = "move";
                       const edge = getDropEdge(event);
@@ -1126,7 +1165,11 @@ function OutcomeAskFieldsEditor({
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
-                      if (draggingId == null || draggingId === field.id) {
+                      if (
+                        draggingId == null ||
+                        draggingId === field.id ||
+                        !access.visibleFieldIds.includes(draggingId)
+                      ) {
                         endDrag();
                         return;
                       }
@@ -1266,101 +1309,234 @@ function OutcomeAskFieldsEditor({
           <p className="text-xs font-medium text-muted-foreground">
             Поля связанных записей и подсущностей
           </p>
-          <ul className="mt-2 flex flex-col gap-1">
-            {relatedSelected.map((item) => {
-              const row = resolveRelatedRow(item);
-              const required = access.relatedRequiredIds.includes(item.id);
-              const toComments = access.relatedCommentIds.includes(item.id);
-              const toRecord = access.relatedRecordIds.includes(item.id);
-              const isRelationGroups =
-                row.targetField?.type === "relationGroups";
-              return (
-                <li key={item.id} className="list-none">
-                  <div className="flex flex-col gap-1 rounded-md bg-muted/30 px-2 py-1.5">
-                    <div className="flex h-6 items-center gap-1.5">
-                      <span className="min-w-0 flex-1 truncate text-xs">
-                        <span className="text-muted-foreground">
-                          {row.relationLabel}
-                        </span>
-                        <span className="text-muted-foreground"> · </span>
-                        {row.fieldLabel}
-                      </span>
-                      <FieldFlagCheckbox
-                        checked={required}
-                        label="обяз."
-                        title="Обязательное поле связанной записи"
-                        onCheckedChange={(checked) =>
-                          setRelatedRequired(item.id, checked)
+          <LayoutGroup id="outcome-ask-related-fields">
+            <ul className="mt-2 flex flex-col gap-1">
+              {relatedSelected.map((item, index) => {
+                const row = resolveRelatedRow(item);
+                const required = access.relatedRequiredIds.includes(item.id);
+                const toComments = access.relatedCommentIds.includes(item.id);
+                const toRecord = access.relatedRecordIds.includes(item.id);
+                const isRelationGroups =
+                  row.targetField?.type === "relationGroups";
+                const label = `${row.relationLabel} · ${row.fieldLabel}`;
+                const isDragging = draggingId === item.id;
+                const dropEdge: "before" | "after" | null =
+                  dropHint == null ||
+                  draggingId === item.id ||
+                  !relatedSelected.some((entry) => entry.id === draggingId)
+                    ? null
+                    : dropHint.beforeFieldId === item.id
+                      ? "before"
+                      : dropHint.beforeFieldId == null &&
+                          index === relatedSelected.length - 1
+                        ? "after"
+                        : null;
+
+                return (
+                  <li key={item.id} className="list-none">
+                    <div
+                      className="group/field relative"
+                      draggable
+                      onMouseDown={(event) => {
+                        allowDragRef.current = Boolean(
+                          event.target instanceof Element &&
+                          event.target.closest("[data-drag-handle]"),
+                        );
+                        if (allowDragRef.current) {
+                          window.getSelection()?.removeAllRanges();
                         }
-                      />
-                      <FieldFlagCheckbox
-                        checked={toComments}
-                        disabled={!row.hasRecordsTab}
-                        label="комм."
-                        title={
-                          row.hasRecordsTab
-                            ? "Добавить содержимое в комментарии связанной записи"
-                            : "Нет вкладки «Записи» у связанной сущности"
+                      }}
+                      onDragStart={(event) => {
+                        if (!allowDragRef.current) {
+                          event.preventDefault();
+                          return;
                         }
-                        onCheckedChange={(checked) =>
-                          setRelatedComment(item.id, checked)
-                        }
-                      />
-                      <FieldFlagCheckbox
-                        checked={toRecord}
-                        label="запись"
-                        title="Записать значение в поле связанной записи"
-                        onCheckedChange={(checked) =>
-                          setRelatedRecord(item.id, checked)
-                        }
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="size-6 shrink-0"
-                        aria-label="Убрать поле"
-                        onClick={() => removeRelatedField(item.id)}
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
-                    </div>
-                    {isRelationGroups ? (
-                      <div className="flex flex-wrap items-center gap-1 border-t border-border/40 pt-1.5 pb-0.5">
-                        <span className="mr-0.5 text-[10px] text-muted-foreground">
-                          Спросить
-                        </span>
-                        {automationRelationGroupsAskModes(
-                          row.targetField?.relationGroups?.levels.length ?? 2,
-                        ).map((mode) => {
-                          const active =
-                            (item.relationGroupsMode ?? "full") === mode;
-                          return (
-                            <button
-                              key={mode}
-                              type="button"
-                              className={cn(
-                                "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors",
-                                active
-                                  ? "bg-primary/10 text-primary"
-                                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                              )}
-                              title={automationRelationGroupsAskModeLabel(mode)}
-                              onClick={() =>
-                                setRelatedRelationGroupsMode(item.id, mode)
-                              }
-                            >
-                              {automationRelationGroupsAskModeLabel(mode)}
-                            </button>
+                        lockDragSelection();
+                        dragLockedRef.current = true;
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData(
+                          OUTCOME_RELATED_FIELD_MIME,
+                          item.id,
+                        );
+                        event.dataTransfer.setData("text/plain", item.id);
+                        const preview =
+                          event.currentTarget.querySelector<HTMLElement>(
+                            "[data-outcome-related-field-card]",
                           );
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                        if (preview) setFieldDragPreview(event, preview);
+                        setDraggingId(item.id);
+                        setDropHint(null);
+                      }}
+                      onDragEnd={endDrag}
+                      onDragOver={(event) => {
+                        if (
+                          draggingId == null ||
+                          draggingId === item.id ||
+                          !relatedSelected.some(
+                            (entry) => entry.id === draggingId,
+                          )
+                        ) {
+                          return;
+                        }
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        const edge = getDropEdge(event);
+                        const beforeAskId =
+                          edge === "before"
+                            ? item.id
+                            : (relatedSelected[index + 1]?.id ?? null);
+                        setDropHint((prev) =>
+                          prev?.beforeFieldId === beforeAskId
+                            ? prev
+                            : { beforeFieldId: beforeAskId },
+                        );
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        if (
+                          draggingId == null ||
+                          draggingId === item.id ||
+                          !relatedSelected.some(
+                            (entry) => entry.id === draggingId,
+                          )
+                        ) {
+                          endDrag();
+                          return;
+                        }
+                        const edge = getDropEdge(event);
+                        const beforeAskId =
+                          edge === "before"
+                            ? item.id
+                            : (relatedSelected[index + 1]?.id ?? null);
+                        applyRelatedReorder(beforeAskId);
+                      }}
+                    >
+                      <motion.div
+                        layout="position"
+                        layoutId={`outcome-related-field-${item.id}`}
+                        transition={fieldLayoutTransition}
+                        className="relative flex items-stretch gap-0.5"
+                      >
+                        <FieldDragHandle
+                          label={`Перетащить «${label}»`}
+                          active={isDragging}
+                        />
+                        <div className="relative min-w-0 flex-1">
+                          <AnimatePresence initial={false}>
+                            {dropEdge ? (
+                              <FieldDropIndicator key="drop" edge={dropEdge} />
+                            ) : null}
+                          </AnimatePresence>
+                          {isDragging ? (
+                            <div
+                              aria-hidden
+                              className="h-8 rounded border-2 border-dashed border-primary/35 bg-primary/[0.04]"
+                            />
+                          ) : (
+                            <div
+                              data-outcome-related-field-card
+                              className="flex flex-col gap-1 rounded-md bg-muted/30 px-2 py-1.5 transition-colors duration-150 group-hover/field:bg-muted/45"
+                            >
+                              <div className="flex h-6 items-center gap-1.5">
+                                <span className="min-w-0 flex-1 truncate text-xs">
+                                  <span className="text-muted-foreground">
+                                    {row.relationLabel}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    {" · "}
+                                  </span>
+                                  {row.fieldLabel}
+                                </span>
+                                <FieldFlagCheckbox
+                                  checked={required}
+                                  label="обяз."
+                                  title="Обязательное поле связанной записи"
+                                  onCheckedChange={(checked) =>
+                                    setRelatedRequired(item.id, checked)
+                                  }
+                                />
+                                <FieldFlagCheckbox
+                                  checked={toComments}
+                                  disabled={!row.hasRecordsTab}
+                                  label="комм."
+                                  title={
+                                    row.hasRecordsTab
+                                      ? "Добавить содержимое в комментарии связанной записи"
+                                      : "Нет вкладки «Записи» у связанной сущности"
+                                  }
+                                  onCheckedChange={(checked) =>
+                                    setRelatedComment(item.id, checked)
+                                  }
+                                />
+                                <FieldFlagCheckbox
+                                  checked={toRecord}
+                                  label="запись"
+                                  title="Записать значение в поле связанной записи"
+                                  onCheckedChange={(checked) =>
+                                    setRelatedRecord(item.id, checked)
+                                  }
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="size-6 shrink-0"
+                                  aria-label="Убрать поле"
+                                  onClick={() => removeRelatedField(item.id)}
+                                >
+                                  <Trash2 className="size-3" />
+                                </Button>
+                              </div>
+                              {isRelationGroups ? (
+                                <div className="flex flex-wrap items-center gap-1 border-t border-border/40 pt-1.5 pb-0.5">
+                                  <span className="mr-0.5 text-[10px] text-muted-foreground">
+                                    Спросить
+                                  </span>
+                                  {automationRelationGroupsAskModes(
+                                    row.targetField?.relationGroups?.levels
+                                      .length ?? 2,
+                                  ).map((mode) => {
+                                    const active =
+                                      (item.relationGroupsMode ?? "full") ===
+                                      mode;
+                                    return (
+                                      <button
+                                        key={mode}
+                                        type="button"
+                                        className={cn(
+                                          "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                                          active
+                                            ? "bg-primary/10 text-primary"
+                                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                        )}
+                                        title={automationRelationGroupsAskModeLabel(
+                                          mode,
+                                        )}
+                                        onClick={() =>
+                                          setRelatedRelationGroupsMode(
+                                            item.id,
+                                            mode,
+                                          )
+                                        }
+                                      >
+                                        {automationRelationGroupsAskModeLabel(
+                                          mode,
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </LayoutGroup>
         </div>
       ) : null}
     </div>
@@ -1519,7 +1695,7 @@ function OutcomeActionsPanel({
         multiple: true,
         useEntityCreateForm: true,
         ...(options.parentFrom
-          ? { parentFromRelated: options.parentFrom }
+          ? { parentFromRelated: [options.parentFrom] }
           : {}),
       },
     ]);
