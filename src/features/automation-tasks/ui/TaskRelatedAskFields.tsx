@@ -1,7 +1,9 @@
 import {
+  createEntityDraftRecord,
   getEntityFieldDisplayName,
   getEntityListParentField,
   getVisibleListOptions,
+  isEntityFieldVisibleByConditions,
   parseEntityListValueIds,
   resolveEntityListFieldPresentation,
   type Entity,
@@ -92,6 +94,20 @@ export function TaskRelatedAskFields({
                   ]),
                 ),
               };
+              const relatedDraft = createEntityDraftRecord(
+                relatedMerged,
+                group.relatedRecordId,
+              );
+              if (
+                !isEntityFieldVisibleByConditions(
+                  ctx,
+                  relatedEntity,
+                  relatedDraft,
+                  field,
+                )
+              ) {
+                return null;
+              }
               const parentValue = parentField
                 ? (relatedMerged[parentField.id] ?? "")
                 : undefined;

@@ -84,38 +84,59 @@ export function resolveEntityRecordNameTemplate(
 }
 
 /**
- * Free-text addition to an entity-wide name template (stored in the name field).
- * Empty when there is no entity template or the name value still looks like a
- * per-record template (`{{fieldId}}`).
+ * Resolved text from the entity-wide name template for the given values.
+ * Empty when the entity has no template or tokens do not resolve yet.
  */
-export function getEntityNameTemplateSuffix(
-  entity: Pick<Entity, "nameTemplate" | "fields">,
-  record: Pick<EntityRecord, "values">,
+export function resolveEntityNameAutofill(
+  ctx: EntityValueContext,
+  entity: Entity,
+  values: Record<string, string>,
 ): string {
-  if (!entity.nameTemplate.trim()) return "";
-  const nameField = entity.fields.find((field) => isEntityNameField(field));
-  if (!nameField) return "";
-  const raw = (record.values[nameField.id] ?? "").trim();
-  if (!raw || entityNameValueHasTemplate(raw)) return "";
-  return raw;
-}
-
-/** Join resolved template text with an optional free-text suffix. */
-export function joinEntityNameTemplateWithSuffix(
-  renderedTemplate: string,
-  suffix: string,
-): string {
-  const base = renderedTemplate.trim();
-  const extra = suffix.trim();
-  if (!base) return extra;
-  if (!extra) return base;
-  return `${base} ${extra}`.replace(/\s+/g, " ").trim();
+  const template = entity.nameTemplate.trim();
+  if (!template) return "";
+  const record: EntityRecord = {
+    id: "__name-autofill__",
+    values,
+    authUserId: null,
+    createdBy: null,
+  };
+  return entityNameValueHasTemplate(template)
+    ? renderEntityNameTemplate(ctx, entity, record, template)
+    : template;
 }
 
 /**
- * Record title for UI: entity template or name field value, with tokens resolved.
- * When the entity has a name template, the name field may hold an optional
- * free-text suffix the user typed after the template.
+ * Soft-fill the name field from `entity.nameTemplate`.
+ * Updates only when the name is empty or still equals the previous autofill
+ * (user has not customized it). Skips when the name field itself changed.
+ */
+export function softFillEntityNameFromTemplate(
+  ctx: EntityValueContext,
+  entity: Entity,
+  previous: Record<string, string>,
+  next: Record<string, string>,
+  changedFieldId?: string | null,
+): Record<string, string> {
+  const template = entity.nameTemplate.trim();
+  if (!template) return next;
+  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  if (!nameField) return next;
+  if (changedFieldId === nameField.id) return next;
+
+  const nextAuto = resolveEntityNameAutofill(ctx, entity, next);
+  if (!nextAuto) return next;
+
+  const currentName = (next[nameField.id] ?? "").trim();
+  const previousAuto = resolveEntityNameAutofill(ctx, entity, previous);
+  if (currentName && currentName !== previousAuto) return next;
+  if (currentName === nextAuto) return next;
+  return { ...next, [nameField.id]: nextAuto };
+}
+
+/**
+ * Record title for UI: the name field is the stored title (editable).
+ * Entity `nameTemplate` only autofills that field; if the name is empty,
+ * the template is rendered as a display fallback.
  */
 export function getEntityRecordTitle(
   ctx: EntityValueContext,
@@ -123,15 +144,25 @@ export function getEntityRecordTitle(
   record: EntityRecord,
   empty = "Без названия",
 ): string {
-  const template = resolveEntityRecordNameTemplate(entity, record);
-  if (!template) return empty;
-  const rendered = entityNameValueHasTemplate(template)
-    ? renderEntityNameTemplate(ctx, entity, record, template)
-    : template;
-  const text = joinEntityNameTemplateWithSuffix(
-    rendered,
-    getEntityNameTemplateSuffix(entity, record),
-  );
-  if (!text || text === "—") return empty;
-  return text;
+  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  const nameRaw = nameField ? (record.values[nameField.id] ?? "").trim() : "";
+
+  if (nameRaw) {
+    if (entityNameValueHasTemplate(nameRaw)) {
+      const text = renderEntityNameTemplate(ctx, entity, record, nameRaw);
+      if (text && text !== "—") return text;
+      return empty;
+    }
+    return nameRaw;
+  }
+
+  const entityTemplate = entity.nameTemplate.trim();
+  if (entityTemplate) {
+    const text = entityNameValueHasTemplate(entityTemplate)
+      ? renderEntityNameTemplate(ctx, entity, record, entityTemplate)
+      : entityTemplate;
+    if (text && text !== "—") return text;
+  }
+
+  return empty;
 }

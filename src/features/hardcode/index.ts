@@ -5,4 +5,5 @@ export {
   type DdsWalletSummarySetup,
 } from "./dds/wallet-summary/model";
 export { DdsWalletSummaryTable } from "./dds/wallet-summary/ui";
+export { DdsWalletTimelineSection } from "./dds/wallet-summary/timeline-section";
 export { HardcodeTimelineSlot } from "./ui/HardcodeTimelineSlot";

@@ -14,6 +14,7 @@ import { Label } from "@/shared/ui/label";
 import {
   addEntityRecord,
   applyEntityFieldValue,
+  createEntityDraftRecord,
   sanitizeEntityRelationDependencies,
   getEntityFieldDisplayName,
   getEntityFieldGroupName,
@@ -24,6 +25,7 @@ import {
   groupEntityFields,
   isEntityFieldGroupTitleHidden,
   isEntityComputedFieldType,
+  isEntityFieldVisibleByConditions,
   isEntityFieldVisibleOnCreate,
   isEntityFieldVisibleOnRecord,
   isEntityInternal,
@@ -100,10 +102,17 @@ function canSubmitRecord(
   fields: EntityField[],
   values: Record<string, string>,
 ) {
-  const hasEntityNameTemplate = entity.nameTemplate.trim().length > 0;
   return fields.every((field) => {
     if (isEntityComputedFieldType(field.type)) return true;
-    if (hasEntityNameTemplate && isEntityNameField(field)) return true;
+    // Entity name template soft-fills the title; empty name still has a
+    // display fallback from the template, so do not block create/edit.
+    if (
+      isEntityNameField(field) &&
+      entity.nameTemplate.trim().length > 0 &&
+      !(values[field.id] ?? "").trim()
+    ) {
+      return true;
+    }
     const raw = values[field.id] ?? "";
     if (field.type === "email" && !isValidEntityEmail(raw)) return false;
     if (!field.required) return true;
@@ -181,7 +190,7 @@ function EntityRecordForm({
   );
   // UI: honour «При создании». Values still include all editable fields so
   // lookups / formulas can resolve through hidden sources.
-  const visibleFields = useMemo(
+  const layoutVisibleFields = useMemo(
     () =>
       editableFields.filter((field) => {
         if (!isEntityFieldVisibleOnRecord(field)) return false;
@@ -215,6 +224,22 @@ function EntityRecordForm({
   const [password, setPassword] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const draftRecord = useMemo(
+    () => createEntityDraftRecord(values, draftRecordId),
+    [values, draftRecordId],
+  );
+  const visibleFields = useMemo(
+    () =>
+      layoutVisibleFields.filter((field) =>
+        isEntityFieldVisibleByConditions(
+          valueContext,
+          entity,
+          draftRecord,
+          field,
+        ),
+      ),
+    [layoutVisibleFields, valueContext, entity, draftRecord],
+  );
   const needsPassword = requireAccountPassword && !isEdit;
   const canSubmit =
     canSubmitRecord(entity, visibleFields, values) &&
@@ -236,8 +261,18 @@ function EntityRecordForm({
     if (!isEdit && !isEntityFieldVisibleOnCreate(field)) {
       return null;
     }
+    if (
+      !isEntityFieldVisibleByConditions(
+        valueContext,
+        entity,
+        draftRecord,
+        field,
+      )
+    ) {
+      return null;
+    }
     return field;
-  }, [entity, hiddenFieldIds, isEdit]);
+  }, [entity, hiddenFieldIds, isEdit, valueContext, draftRecord]);
   const pinnedFields = useMemo(() => {
     const fields: EntityField[] = [];
     if (nameField) fields.push(nameField);

@@ -26,6 +26,7 @@ import {
   getEntityTabFilesValueKey,
   getSystemUserNameByAuthId,
   groupEntityFields,
+  isEntityFieldVisibleByConditions,
   isEntityFieldVisibleOnRecord,
   isEntityFilesTab,
   isEntityHistoryTab,
@@ -755,6 +756,11 @@ function FieldsPreview({
     const fields = entity.fields.filter((field) => {
       if (isEntityNameField(field)) return false;
       if (!isEntityFieldVisibleOnRecord(field)) return false;
+      if (
+        !isEntityFieldVisibleByConditions(valueContext, entity, record, field)
+      ) {
+        return false;
+      }
       const groupName = getEntityFieldGroupName(field.group);
       if (groupName === PRIMARY_ENTITY_FIELD_GROUP) return false;
       if (
@@ -768,7 +774,7 @@ function FieldsPreview({
       fields,
       filterEntityFieldGroupsForTab(entity.fieldGroups, tab.id, fields),
     ).filter((group) => group.fields.length > 0);
-  }, [entity, tab.id]);
+  }, [entity, tab.id, valueContext, record]);
 
   if (groups.length === 0) {
     return <EmptyPreview>На этой вкладке нет полей</EmptyPreview>;

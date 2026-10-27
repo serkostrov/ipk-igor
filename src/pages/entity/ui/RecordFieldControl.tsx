@@ -34,7 +34,6 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
-import { TemplateRichText } from "@/features/manage-automations/ui/TemplateRichText";
 import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
 import { DependenciesFieldControl } from "./DependenciesFieldControl";
 import { FileFieldControl } from "./FileFieldControl";
@@ -391,39 +390,17 @@ export function RecordFieldControl({
   if (isEntityNameField(field)) {
     const entityTemplate = entity.nameTemplate.trim();
     if (entityTemplate) {
-      const previewRecord = createEntityDraftRecord(
-        { ...values, [field.id]: value },
-        recordId,
-      );
-      const preview = formatRecordFieldValue(ctx, entity, previewRecord, field);
       return (
         <div className="flex min-w-0 flex-col gap-2">
           {labelNode}
-          <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-sm">
-            <TemplateRichText
-              value={entityTemplate}
-              fields={entity.fields}
-              empty="По шаблону сущности"
-            />
-            {preview && preview !== "—" ? (
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                Сейчас: {preview}
-              </p>
-            ) : (
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                Название собирается из полей по шаблону сущности
-              </p>
-            )}
-          </div>
           <Input
             id={id}
             value={value}
-            placeholder="Дополнить название…"
-            aria-label={`${label}: дополнение к шаблону`}
+            placeholder="Название записи"
             onChange={(event) => onChange(event.target.value)}
           />
           <p className="text-[11px] leading-snug text-muted-foreground">
-            Можно дописать текст к названию по шаблону
+            Подставляется из шаблона — можно изменить или дописать
           </p>
         </div>
       );

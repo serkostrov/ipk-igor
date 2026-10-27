@@ -6,7 +6,9 @@ import {
   type AutomationOutcomeFieldAccess,
 } from "@/entities/automation";
 import {
+  createEntityDraftRecord,
   getEntityRecordTitle,
+  isEntityFieldVisibleByConditions,
   normalizeEntityFieldInputValue,
   resolveEntityFieldLabel,
   updateEntityRecord,
@@ -332,6 +334,7 @@ export function validateRelatedAskRequired(options: {
   fieldAccess: AutomationOutcomeFieldAccess;
   values: Record<string, string>;
   triggerRecordId: string;
+  ctx?: EntityValueContext;
   isFieldFilled: (
     field: EntityField,
     value: string,
@@ -344,6 +347,7 @@ export function validateRelatedAskRequired(options: {
     triggerEntity,
     entities,
     triggerRecordId,
+    ctx,
     isFieldFilled,
   } = options;
   if (fieldAccess.relatedRequiredIds.length === 0) return null;
@@ -388,6 +392,38 @@ export function validateRelatedAskRequired(options: {
         relatedRecordId,
         ask.fieldId,
       );
+      if (ctx) {
+        const relatedRecord = resolved.relatedEntity.records.find(
+          (item) => item.id === relatedRecordId,
+        );
+        const relatedMerged = {
+          ...(relatedRecord?.values ?? {}),
+          [ask.fieldId]: values[key] ?? "",
+        };
+        // Merge other draft keys for this related record when present.
+        for (const other of fieldAccess.relatedVisibleFields) {
+          if (other.fieldId === ask.fieldId) continue;
+          const otherKey = relatedAskValueKey(
+            resolved.scopeKey,
+            relatedRecordId,
+            other.fieldId,
+          );
+          if (otherKey in values) {
+            relatedMerged[other.fieldId] = values[otherKey] ?? "";
+          }
+        }
+        const draft = createEntityDraftRecord(relatedMerged, relatedRecordId);
+        if (
+          !isEntityFieldVisibleByConditions(
+            ctx,
+            resolved.relatedEntity,
+            draft,
+            field,
+          )
+        ) {
+          continue;
+        }
+      }
       if (
         !isFieldFilled(
           field,
@@ -412,6 +448,7 @@ export function countMissingRelatedRequired(options: {
   relatedRequiredIds: string[];
   values: Record<string, string>;
   triggerRecordId: string;
+  ctx?: EntityValueContext;
   isFieldFilled: (
     field: EntityField,
     value: string,
@@ -436,6 +473,7 @@ export function countMissingRelatedRequired(options: {
     },
     values: options.values,
     triggerRecordId: options.triggerRecordId,
+    ctx: options.ctx,
     isFieldFilled: options.isFieldFilled,
   });
   if (!message) return 0;

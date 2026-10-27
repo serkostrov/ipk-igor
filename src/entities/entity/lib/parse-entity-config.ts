@@ -30,6 +30,7 @@ import type {
 } from "../model/types";
 import { ENTITY_ROLLUP_AGGREGATIONS, isEntityBrowseView } from "../model/types";
 import { normalizeEntityPageLayout } from "../model/page-layout";
+import { isEntityTableParentField } from "../model/table-hierarchy";
 import {
   ENTITY_OVERVIEW_TAB_ID,
   ensureEntityFieldGroups,
@@ -441,6 +442,9 @@ export function normalizeEntityField(field: EntityField): EntityField {
     showInFilters: field.showInFilters !== false,
     showOnRecord: field.showOnRecord !== false,
     showOnCreate: field.showOnCreate !== false,
+    visibilityConditions: locked
+      ? []
+      : normalizeEntityConditions(field.visibilityConditions),
     includeInTotal:
       (type === "number" ||
         type === "numberSum" ||
@@ -506,6 +510,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     showInTable: true,
     showOnRecord: true,
     showOnCreate: true,
+    visibilityConditions: [],
     includeInTotal: false,
     tableOrder: 0,
     relationEntityId: null,
@@ -602,6 +607,7 @@ function parseField(value: unknown): EntityField | null {
     showInFilters: value.showInFilters !== false,
     showOnRecord: value.showOnRecord !== false,
     showOnCreate: value.showOnCreate !== false,
+    visibilityConditions: normalizeEntityConditions(value.visibilityConditions),
     includeInTotal: Boolean(value.includeInTotal),
     tableOrder: clampSpan(value.tableOrder, 0, 9999, 0),
     relationEntityId:
@@ -725,7 +731,7 @@ function resolveKanbanFieldId(
   return null;
 }
 
-/** Single-choice list/relation field used to group the table into a tree. */
+/** List / relation / belonging / relationGroups field used to group the table. */
 function resolveTableParentFieldId(
   fields: Entity["fields"],
   _entityId: string,
@@ -736,9 +742,7 @@ function resolveTableParentFieldId(
   if (!requested) return null;
   const field = fields.find((item) => item.id === requested);
   if (!field) return null;
-  if (field.type === "list" && !field.listMultiple) return field.id;
-  if (field.type === "relation" && !field.relationMultiple) return field.id;
-  if (field.type === "belonging") return field.id;
+  if (isEntityTableParentField(field)) return field.id;
   return null;
 }
 

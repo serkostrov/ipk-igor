@@ -3854,6 +3854,7 @@ export function EntityFieldsEditor({
         showInTable: data.showInTable,
         showInFilters: data.showInFilters,
         showOnCreate: data.showOnCreate,
+        visibilityConditions: isTabLink ? [] : data.visibilityConditions,
         includeInTotal: isTabLink ? false : data.includeInTotal,
         relationEntityId: isTabLink
           ? dialog.field.relationEntityId
@@ -3897,6 +3898,7 @@ export function EntityFieldsEditor({
       showInTable: data.showInTable,
       showInFilters: data.showInFilters,
       showOnCreate: data.showOnCreate,
+      visibilityConditions: data.visibilityConditions,
       includeInTotal: data.includeInTotal,
       relationEntityId: data.relationEntityId,
       relationMultiple: data.relationMultiple,

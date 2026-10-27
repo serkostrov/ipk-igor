@@ -46,6 +46,7 @@ import {
   getEntityUrlHref,
   getVisibleListOptions,
   groupEntityFields,
+  isEntityFieldVisibleByConditions,
   isEntityFieldVisibleOnRecord,
   isEntityFilesTab,
   isEntityHistoryTab,
@@ -1094,8 +1095,13 @@ export function EntityRecordPage({
     const field = getEntityHeaderField(entity);
     if (!field || !isEntityFieldVisibleOnRecord(field)) return null;
     if (!canField(role, entity.id, field.id, "view")) return null;
+    if (
+      !isEntityFieldVisibleByConditions(valueContext, entity, record, field)
+    ) {
+      return null;
+    }
     return field;
-  }, [entity, role]);
+  }, [entity, role, valueContext, record]);
   const pinnedFieldIds = useMemo(() => {
     const ids = new Set<string>();
     if (headerField) ids.add(headerField.id);
@@ -1108,9 +1114,10 @@ export function EntityRecordPage({
           !isEntityNameField(field) &&
           !pinnedFieldIds.has(field.id) &&
           isEntityFieldVisibleOnRecord(field) &&
-          canField(role, entity.id, field.id, "view"),
+          canField(role, entity.id, field.id, "view") &&
+          isEntityFieldVisibleByConditions(valueContext, entity, record, field),
       ),
-    [entity.fields, entity.id, pinnedFieldIds, role],
+    [entity, pinnedFieldIds, role, valueContext, record],
   );
   const isUsersEntity = entity.systemKey === SYSTEM_ENTITY_KEY_USERS;
   const primaryGroups = useMemo(

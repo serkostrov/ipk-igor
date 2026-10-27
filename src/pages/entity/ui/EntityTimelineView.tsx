@@ -17,11 +17,10 @@ import {
   useEntityConfig,
   useEntityValueContext,
   type Entity,
-  type EntityCashFlowPeriod,
   type EntityRecord,
 } from "@/entities/entity";
 import {
-  HardcodeTimelineSlot,
+  DdsWalletTimelineSection,
   resolveDdsWalletSummarySetup,
 } from "@/features/hardcode";
 import {
@@ -46,15 +45,6 @@ import {
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 import { TimelineGroupRecordsDialog } from "./TimelineGroupRecordsDialog";
-
-function cashFlowPeriodFromFilters(
-  filters: EntityFiltersState,
-  dateFieldId: string,
-): EntityCashFlowPeriod {
-  const filter = filters[dateFieldId];
-  if (filter?.kind !== "datetime") return { from: "", to: "" };
-  return { from: filter.from.trim(), to: filter.to.trim() };
-}
 
 function filtersWithoutField(
   filters: EntityFiltersState,
@@ -264,14 +254,6 @@ export function EntityTimelineView({
     search,
     valueContext,
   ]);
-
-  const ddsWalletPeriod = useMemo((): EntityCashFlowPeriod => {
-    if (!ddsWalletSetup) return { from: "", to: "" };
-    return cashFlowPeriodFromFilters(
-      filters,
-      ddsWalletSetup.cashFlow.dateFieldId,
-    );
-  }, [ddsWalletSetup, filters]);
 
   const groups = useMemo(
     () =>
@@ -487,13 +469,6 @@ export function EntityTimelineView({
         />
       </div>
       {headerSlot}
-      {ddsWalletSetup ? (
-        <HardcodeTimelineSlot
-          entity={entity}
-          historyRecords={ddsWalletHistoryRecords}
-          period={ddsWalletPeriod}
-        />
-      ) : null}
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs"
@@ -566,6 +541,22 @@ export function EntityTimelineView({
           </div>
 
           <div className="relative">
+            {ddsWalletSetup ? (
+              <DdsWalletTimelineSection
+                entity={entity}
+                historyRecords={ddsWalletHistoryRecords}
+                columns={columns}
+                listWidth={LIST_WIDTH}
+                chartWidth={chartWidth}
+                columnWidth={TIMELINE_COLUMN_WIDTH}
+                rowHeight={ROW_HEIGHT}
+                isWeekendColumn={
+                  scale === "day"
+                    ? (column) => isWeekendDayNumber(column.start)
+                    : undefined
+                }
+              />
+            ) : null}
             {rows.map((row) => {
               if (row.kind === "group") {
                 const tint =

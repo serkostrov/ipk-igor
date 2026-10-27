@@ -64,7 +64,7 @@ import {
   resolveRelationRecordLabel,
   getEntityFileDownloadUrl,
   flattenEntityTableHierarchyRows,
-  parseEntityTableParentId,
+  parseEntityTableParentGroupIds,
   resolveEntityTableParentField,
   updateEntityRecord,
   useEntityConfig,
@@ -480,7 +480,12 @@ export function EntityTableView({
     if (!parentField) return new Set<string>();
     const ids = new Set<string>();
     for (const record of filteredRecords) {
-      ids.add(parseEntityTableParentId(record.values[parentField.id]));
+      for (const id of parseEntityTableParentGroupIds(
+        parentField,
+        record.values[parentField.id],
+      )) {
+        ids.add(id);
+      }
     }
     return ids;
   }, [filteredRecords, parentField]);
@@ -538,6 +543,8 @@ export function EntityTableView({
 
   const hierarchyMetaById = useMemo(() => {
     if (!pagedHierarchyRows) return null;
+    const rowKey = (groupId: string, recordId: string) =>
+      `${groupId}:${recordId}`;
     const groupStart = new Set<string>();
     const groupEnd = new Set<string>();
     for (let i = 0; i < pagedHierarchyRows.length; i += 1) {
@@ -552,11 +559,15 @@ export function EntityTableView({
       }
       if (start > i) {
         const startRow = pagedHierarchyRows[start]!;
-        if (startRow.kind === "record") groupStart.add(startRow.record.id);
+        if (startRow.kind === "record") {
+          groupStart.add(rowKey(startRow.groupId, startRow.record.id));
+        }
       }
       if (end > i) {
         const endRow = pagedHierarchyRows[end]!;
-        if (endRow.kind === "record") groupEnd.add(endRow.record.id);
+        if (endRow.kind === "record") {
+          groupEnd.add(rowKey(endRow.groupId, endRow.record.id));
+        }
       }
     }
     const meta = new Map<
@@ -590,14 +601,15 @@ export function EntityTableView({
         });
         continue;
       }
-      meta.set(row.record.id, {
+      const key = rowKey(row.groupId, row.record.id);
+      meta.set(key, {
         depth: 1,
         hasChildren: false,
         childCount: 0,
         expanded: false,
         inOpenGroup: true,
-        isGroupStart: groupStart.has(row.record.id),
-        isGroupEnd: groupEnd.has(row.record.id),
+        isGroupStart: groupStart.has(key),
+        isGroupEnd: groupEnd.has(key),
         isGroup: false,
         groupId: row.groupId,
         groupLabel: "",
@@ -972,8 +984,9 @@ export function EntityTableView({
                     }
 
                     const record = row.record;
+                    const rowKey = `${row.groupId}:${record.id}`;
                     const rowSelected = selectedSet.has(record.id);
-                    const hierarchyMeta = hierarchyMetaById?.get(record.id);
+                    const hierarchyMeta = hierarchyMetaById?.get(rowKey);
                     const hierarchyDepth = hierarchyMeta?.depth ?? 0;
                     const hierarchyInOpenGroup =
                       hierarchyMeta?.inOpenGroup === true;
@@ -986,7 +999,7 @@ export function EntityTableView({
                       hierarchyInOpenGroup && !hierarchyIsGroupEnd;
                     return (
                       <TableRow
-                        key={record.id}
+                        key={rowKey}
                         className={cn(
                           "border-border/70",
                           hierarchyInOpenGroup && "overflow-visible",

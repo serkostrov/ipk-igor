@@ -41,6 +41,7 @@ import {
   isEntityListOptionFinal,
   isEntityListOptionProblem,
 } from "./list-process";
+import { softFillEntityNameFromTemplate } from "./name-template";
 import {
   buildEntityTabDefaultFileEntries,
   getEntityTabFilesValueKey,
@@ -1027,12 +1028,11 @@ export function formatRecordFieldValue(
     }
     default: {
       if (isEntityNameField(field)) {
-        const entityTemplate = entity.nameTemplate.trim();
-        const raw = entityTemplate || (record.values[field.id] ?? "").trim();
-        if (!raw) return "—";
-        let text = raw;
-        if (/\{\{[^}]+\}\}/.test(raw)) {
-          text = raw
+        // Avoid importing getEntityRecordTitle (cycle with name-template).
+        const nameRaw = (record.values[field.id] ?? "").trim();
+        if (nameRaw) {
+          if (!/\{\{[^}]+\}\}/.test(nameRaw)) return nameRaw;
+          const text = nameRaw
             .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
               const ref = entity.fields.find(
                 (item) => item.id === rawId.trim(),
@@ -1048,13 +1048,25 @@ export function formatRecordFieldValue(
             })
             .replace(/\s+/g, " ")
             .trim();
+          return text || "—";
         }
-        if (entityTemplate) {
-          const suffix = (record.values[field.id] ?? "").trim();
-          if (suffix && !/\{\{[^}]+\}\}/.test(suffix)) {
-            text = `${text} ${suffix}`.replace(/\s+/g, " ").trim();
-          }
-        }
+        const entityTemplate = entity.nameTemplate.trim();
+        if (!entityTemplate) return "—";
+        if (!/\{\{[^}]+\}\}/.test(entityTemplate)) return entityTemplate;
+        const text = entityTemplate
+          .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
+            const ref = entity.fields.find((item) => item.id === rawId.trim());
+            if (!ref || isEntityNameField(ref)) return "";
+            const part = formatRecordFieldValue(
+              ctx,
+              entity,
+              record,
+              ref,
+            ).trim();
+            return !part || part === "—" ? "" : part;
+          })
+          .replace(/\s+/g, " ")
+          .trim();
         return text || "—";
       }
       return formatEntityFieldScalarValue(field, record.values[field.id]);
@@ -1282,6 +1294,25 @@ export function matchesEntityConditions(
   if (!conditions || conditions.length === 0) return true;
   return conditions.every((condition) =>
     matchesEntityCondition(ctx, entity, record, condition, source),
+  );
+}
+
+/**
+ * Value-based field visibility (`visibilityConditions`).
+ * Title fields and empty conditions are always visible.
+ */
+export function isEntityFieldVisibleByConditions(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: Pick<EntityField, "locked" | "visibilityConditions">,
+): boolean {
+  if (isEntityNameField(field)) return true;
+  return matchesEntityConditions(
+    ctx,
+    entity,
+    record,
+    field.visibilityConditions,
   );
 }
 
@@ -1806,9 +1837,19 @@ export function applyEntityFieldValue(
     entities,
     fieldId,
   );
-  return mirrored === sanitized
-    ? sanitized
-    : sanitizeDependentRelationValues(entity, mirrored, entities);
+  const afterDeps =
+    mirrored === sanitized
+      ? sanitized
+      : sanitizeDependentRelationValues(entity, mirrored, entities);
+  if (!entity.nameTemplate.trim()) return afterDeps;
+  const ctx = getEntityValueContext(entities);
+  return softFillEntityNameFromTemplate(
+    ctx,
+    entity,
+    values,
+    afterDeps,
+    fieldId,
+  );
 }
 
 /** Drop relation values that no longer match filters / nested parent scope. */
@@ -1868,9 +1909,18 @@ export function sanitizeEntityRelationDependencies(
 ): Record<string, string> {
   const sanitized = sanitizeDependentRelationValues(entity, values, entities);
   const mirrored = syncRelationsFromLookups(entity, sanitized, entities, null);
-  return mirrored === sanitized
-    ? sanitized
-    : sanitizeDependentRelationValues(entity, mirrored, entities);
+  let next =
+    mirrored === sanitized
+      ? sanitized
+      : sanitizeDependentRelationValues(entity, mirrored, entities);
+  if (!entity.nameTemplate.trim()) return next;
+  return softFillEntityNameFromTemplate(
+    getEntityValueContext(entities),
+    entity,
+    values,
+    next,
+    null,
+  );
 }
 
 /** Stored default for a new record (`null` — no default). */
@@ -1972,19 +2022,12 @@ export function getEntityRecordCopyValues(
   record: EntityRecord,
 ): Record<string, string> {
   const values: Record<string, string> = {};
-  const hasEntityNameTemplate = Boolean(entity.nameTemplate?.trim());
   for (const field of entity.fields) {
     if (field.type === "file" || isEntityComputedFieldType(field.type)) {
       continue;
     }
     const value = record.values[field.id];
     if (isEntityNameField(field)) {
-      if (hasEntityNameTemplate) {
-        // Suffix lives in the name field when the entity uses a title template.
-        const suffix = (value ?? "").trim();
-        values[field.id] = suffix ? `${suffix} (копия)` : "(копия)";
-        continue;
-      }
       if (value === undefined) continue;
       values[field.id] = value.trim() ? `${value.trim()} (копия)` : value;
       continue;

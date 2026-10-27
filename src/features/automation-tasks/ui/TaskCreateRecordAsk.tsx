@@ -6,9 +6,11 @@ import {
   type AutomationFieldAskOptions,
 } from "@/entities/automation";
 import {
+  createEntityDraftRecord,
   getEntityFieldDisplayName,
   getEntityListParentField,
   getVisibleListOptions,
+  isEntityFieldVisibleByConditions,
   parseEntityListValueIds,
   resolveEntityListFieldPresentation,
   type Entity,
@@ -151,9 +153,18 @@ function CreateAskFieldList({
   disabled?: boolean;
   onChange: (draftKey: string, value: string) => void;
 }) {
+  // Local draft bag only — parent entity values are not mixed here.
+  const localValues: Record<string, string> = {};
+  for (const id of fieldIds) {
+    localValues[id] = values[draftKeyFor(id)] ?? "";
+  }
+  const draftRecord = createEntityDraftRecord(localValues);
   const fields = fieldIds
     .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-    .filter((field): field is EntityField => field != null);
+    .filter((field): field is EntityField => field != null)
+    .filter((field) =>
+      isEntityFieldVisibleByConditions(ctx, entity, draftRecord, field),
+    );
 
   if (fields.length === 0) return null;
 
@@ -177,11 +188,6 @@ function CreateAskFieldList({
           parentField != null &&
           parseEntityListValueIds(parentValue).length === 0;
         const required = requiredIds.has(field.id);
-        // Local draft bag only — parent entity values are not mixed here.
-        const localValues: Record<string, string> = {};
-        for (const id of fieldIds) {
-          localValues[id] = values[draftKeyFor(id)] ?? "";
-        }
 
         return (
           <div key={field.id}>

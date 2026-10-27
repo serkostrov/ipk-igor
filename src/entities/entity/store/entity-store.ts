@@ -55,6 +55,7 @@ import {
   findSystemUserByAuthId,
   syncUsersRoleFieldOptions,
 } from "../model/system-entities";
+import { isEntityTableParentField } from "../model/table-hierarchy";
 import {
   DEFAULT_ENTITY_FIELD_GROUP,
   ENTITY_FIELD_GROUP_COLUMNS,
@@ -872,6 +873,7 @@ export function addEntityField(
     showInFilters: data?.showInFilters ?? false,
     showOnRecord: data?.showOnRecord ?? true,
     showOnCreate: data?.showOnCreate ?? true,
+    visibilityConditions: data?.visibilityConditions ?? [],
     includeInTotal: Boolean(data?.includeInTotal),
     tableOrder: data?.tableOrder ?? 0,
     relationEntityId:
@@ -1258,9 +1260,7 @@ function resolveTableParentFieldIdForStore(
   if (!requested) return null;
   const field = entity.fields.find((item) => item.id === requested);
   if (!field) return null;
-  if (field.type === "list" && !field.listMultiple) return requested;
-  if (field.type === "relation" && !field.relationMultiple) return requested;
-  if (field.type === "belonging") return requested;
+  if (isEntityTableParentField(field)) return requested;
   return null;
 }
 
@@ -1413,6 +1413,7 @@ export function addEntityTabWithLinkedEntity(
     showInFilters: false,
     showOnRecord: true,
     showOnCreate: true,
+    visibilityConditions: [],
     includeInTotal: false,
     tableOrder: 0,
     relationEntityId: parentEntityId,
@@ -1541,6 +1542,7 @@ export function addEntityTabWithExistingEntity(
       showInFilters: false,
       showOnRecord: true,
       showOnCreate: true,
+      visibilityConditions: [],
       includeInTotal: false,
       tableOrder: 0,
       relationEntityId: parentEntityId,

@@ -239,12 +239,12 @@ function TableSettingsPanel({
       <SettingSelect
         id="entity-records-table-hierarchy"
         title="Сгруппировать по"
-        description="Поле — группы из значений. Вложенная сущность — записи вкладки внутри каждой строки."
+        description="Поле (список, связь, стадии/группы) — группы из значений. Вложенная сущность — записи вкладки внутри каждой строки."
         value={hierarchyValue}
         options={options}
         optionGroups={optionGroups.length > 0 ? optionGroups : undefined}
         emptyLabel="Плоский список"
-        noOptionsLabel="Добавьте поле связи/списка или вкладку связанной сущности"
+        noOptionsLabel="Добавьте список, связь, группы связей или вкладку связанной сущности"
         onChange={(next) => onTableHierarchyChange(decodeHierarchyValue(next))}
       />
 

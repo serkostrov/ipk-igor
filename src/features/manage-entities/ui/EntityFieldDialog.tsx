@@ -32,6 +32,7 @@ import {
 import { Switch } from "@/shared/ui/switch";
 import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import {
+  ConditionBuilder,
   DEFAULT_ENTITY_FIELD_GROUP,
   ENTITY_FIELD_TYPE_GROUPS,
   getEntityFieldDisplayName,
@@ -49,6 +50,7 @@ import {
   resolveEntityListFieldPresentation,
   SYSTEM_ENTITY_KEY_USERS,
   type Entity,
+  type EntityCondition,
   type EntityField,
   type EntityFieldType,
 } from "@/entities/entity";
@@ -65,6 +67,7 @@ import {
 } from "../model/field-type-settings";
 import {
   DecimalsSelect,
+  SettingLabel,
   SettingSelect,
   SettingSwitch,
 } from "@/shared/ui/setting-controls";
@@ -91,6 +94,8 @@ export type EntityFieldFormData = {
   showInFilters: boolean;
   /** When false, hidden in the new-record form (required/title always shown). */
   showOnCreate: boolean;
+  /** Show field only when the record matches these conditions. */
+  visibilityConditions: EntityCondition[];
   includeInTotal: boolean;
   /** 1-based column index when `showInTable` is true. */
   tablePosition: number;
@@ -1058,6 +1063,7 @@ function buildEntityFieldFormData({
   showInTable,
   showInFilters,
   showOnCreate,
+  visibilityConditions,
   includeInTotal,
   tablePosition,
   tableColumnCount,
@@ -1088,6 +1094,7 @@ function buildEntityFieldFormData({
   showInTable: boolean;
   showInFilters: boolean;
   showOnCreate: boolean;
+  visibilityConditions: EntityCondition[];
   includeInTotal: boolean;
   tablePosition: number;
   tableColumnCount: number;
@@ -1119,6 +1126,7 @@ function buildEntityFieldFormData({
       showInTable: true,
       showInFilters,
       showOnCreate: true,
+      visibilityConditions: [],
       includeInTotal: false,
       tablePosition: 1,
       relationEntityId: null,
@@ -1163,6 +1171,7 @@ function buildEntityFieldFormData({
     showInTable,
     showInFilters,
     showOnCreate: required ? true : Boolean(showOnCreate),
+    visibilityConditions,
     includeInTotal: isEntityNumericFieldType(resolvedType) && includeInTotal,
     tablePosition: Math.min(columnTotal, Math.max(minPosition, tablePosition)),
     relationEntityId: resolvedRelationEntityId,
@@ -1315,6 +1324,9 @@ function EntityFieldForm({
   const [showOnCreate, setShowOnCreate] = useState(
     field?.showOnCreate !== false,
   );
+  const [visibilityConditions, setVisibilityConditions] = useState<
+    EntityCondition[]
+  >(() => field?.visibilityConditions ?? []);
   const [includeInTotal, setIncludeInTotal] = useState(
     field != null &&
       isEntityNumericFieldType(field.type) &&
@@ -1469,6 +1481,8 @@ function EntityFieldForm({
       showInTable,
       showInFilters,
       showOnCreate,
+      visibilityConditions:
+        isNameField || systemBindingLocked ? [] : visibilityConditions,
       includeInTotal,
       tablePosition,
       tableColumnCount,
@@ -1629,8 +1643,8 @@ function EntityFieldForm({
               onChange={setNameTemplate}
             />
             <p className="text-[11px] leading-snug text-muted-foreground">
-              Если задан — название всех записей собирается из полей. Пусто —
-              вводится вручную в каждой записи.
+              Если задан — подставляется в поле «Название» (можно изменить или
+              дописать). Пусто — название вводится вручную.
             </p>
           </div>
         ) : null}
@@ -2018,6 +2032,21 @@ function EntityFieldForm({
                     />
                   </div>
                 )}
+
+                {!isNameField && !systemBindingLocked && currentEntity ? (
+                  <div className="flex flex-col gap-1.5 rounded-md border border-border px-3 py-2.5">
+                    <SettingLabel
+                      title="Показывать если"
+                      description="Пусто — поле всегда видно"
+                    />
+                    <ConditionBuilder
+                      entity={currentEntity}
+                      entities={entities}
+                      conditions={visibilityConditions}
+                      onChange={setVisibilityConditions}
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
           </>

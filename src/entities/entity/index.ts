@@ -240,6 +240,7 @@ export {
   sanitizeEntityRelationDependencies,
   isRecordValueDecorated,
   matchesEntityConditions,
+  isEntityFieldVisibleByConditions,
   resolveEntityFieldDefaultValue,
   resolveEntityFieldSource,
   resolveEntityLookupTarget,
@@ -254,13 +255,13 @@ export {
 export {
   entityNameValueHasTemplate,
   fieldNameTemplateToken,
-  getEntityNameTemplateSuffix,
   getEntityRecordTitle,
-  joinEntityNameTemplateWithSuffix,
   parseEntityNameTemplateParts,
   renderEntityNameTemplate,
+  resolveEntityNameAutofill,
   resolveEntityRecordNameTemplate,
   serializeEntityNameTemplateParts,
+  softFillEntityNameFromTemplate,
   type EntityNameTemplatePart,
 } from "./model/name-template";
 export {
@@ -418,6 +419,8 @@ export {
   getEntityTableParentFieldOptions,
   isEntityTableParentField,
   parseEntityTableParentId,
+  parseEntityTableParentGroupIds,
+  encodeEntityTableParentValue,
   resolveEntityTableNestedTarget,
   resolveEntityTableParentField,
   type EntityTableHierarchyGroupRow,

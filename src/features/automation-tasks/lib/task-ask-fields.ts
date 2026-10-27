@@ -17,13 +17,37 @@ import {
   type AutomationTask,
 } from "@/entities/automation";
 import {
+  createEntityDraftRecord,
   getEntityDisplayName,
   getEntityFieldDisplayName,
+  isEntityFieldVisibleByConditions,
   isEntityNameField,
   isEntityTabWithLinkedEntity,
   type Entity,
   type EntityField,
+  type EntityValueContext,
 } from "@/entities/entity";
+
+function isCreateAskFieldVisible(options: {
+  ctx: EntityValueContext | undefined;
+  entity: Entity;
+  field: EntityField;
+  fieldIds: string[];
+  values: Record<string, string>;
+  draftKeyFor: (fieldId: string) => string;
+}): boolean {
+  if (!options.ctx) return true;
+  const localValues: Record<string, string> = {};
+  for (const id of options.fieldIds) {
+    localValues[id] = options.values[options.draftKeyFor(id)] ?? "";
+  }
+  return isEntityFieldVisibleByConditions(
+    options.ctx,
+    options.entity,
+    createEntityDraftRecord(localValues),
+    options.field,
+  );
+}
 
 /** Prefer linked-tab title when naming a child under `parent`. */
 function childEntityLabel(parent: Entity | null, child: Entity): string {
@@ -686,6 +710,7 @@ export function validateCreateAskRequired(options: {
   triggerRecordId?: string;
   triggerValues?: Record<string, string>;
   getRecordTitle?: (entity: Entity, recordId: string) => string;
+  ctx?: EntityValueContext;
   isFieldFilled: (
     field: EntityField,
     value: string,
@@ -713,6 +738,24 @@ export function validateCreateAskRequired(options: {
           for (const fieldId of slot.askRequiredFieldIds) {
             const field = entity.fields.find((item) => item.id === fieldId);
             if (!field) continue;
+            if (
+              !isCreateAskFieldVisible({
+                ctx: options.ctx,
+                entity,
+                field,
+                fieldIds: slot.askFieldIds,
+                values: options.values,
+                draftKeyFor: (id) =>
+                  createRecordNestedAskDraftKey(
+                    slot.actionId,
+                    parent.nestedId,
+                    index,
+                    id,
+                  ),
+              })
+            ) {
+              continue;
+            }
             const key = createRecordNestedAskDraftKey(
               slot.actionId,
               parent.nestedId,
@@ -744,6 +787,24 @@ export function validateCreateAskRequired(options: {
         for (const fieldId of multi.askRequiredFieldIds) {
           const field = entity.fields.find((item) => item.id === fieldId);
           if (!field) continue;
+          if (
+            !isCreateAskFieldVisible({
+              ctx: options.ctx,
+              entity,
+              field,
+              fieldIds: multi.askFieldIds,
+              values: options.values,
+              draftKeyFor: (id) =>
+                createRecordNestedAskDraftKey(
+                  slot.actionId,
+                  multi.nestedId,
+                  index,
+                  id,
+                ),
+            })
+          ) {
+            continue;
+          }
           const key = createRecordNestedAskDraftKey(
             slot.actionId,
             multi.nestedId,
@@ -764,6 +825,18 @@ export function validateCreateAskRequired(options: {
     for (const fieldId of slot.askRequiredFieldIds) {
       const field = entity.fields.find((item) => item.id === fieldId);
       if (!field) continue;
+      if (
+        !isCreateAskFieldVisible({
+          ctx: options.ctx,
+          entity,
+          field,
+          fieldIds: slot.askFieldIds,
+          values: options.values,
+          draftKeyFor: (id) => createRecordAskDraftKey(slot.actionId, id),
+        })
+      ) {
+        continue;
+      }
       const key = createRecordAskDraftKey(slot.actionId, fieldId);
       const mode = slot.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full";
       if (!options.isFieldFilled(field, options.values[key] ?? "", mode)) {
@@ -786,6 +859,24 @@ export function validateCreateAskRequired(options: {
         for (const fieldId of nested.askRequiredFieldIds) {
           const field = child.fields.find((item) => item.id === fieldId);
           if (!field) continue;
+          if (
+            !isCreateAskFieldVisible({
+              ctx: options.ctx,
+              entity: child,
+              field,
+              fieldIds: nested.askFieldIds,
+              values: options.values,
+              draftKeyFor: (id) =>
+                createRecordNestedAskDraftKey(
+                  slot.actionId,
+                  nested.nestedId,
+                  index,
+                  id,
+                ),
+            })
+          ) {
+            continue;
+          }
           const key = createRecordNestedAskDraftKey(
             slot.actionId,
             nested.nestedId,

@@ -62,11 +62,11 @@ function TableSettingsForm({
         <SettingSelect
           id="entity-table-parent-field"
           title="Сгруппировать по"
-          description="Строки станут деревом: группа и записи внутри"
+          description="Строки станут деревом: группа и записи внутри. Подходят список, связь, принадлежность и группы связей (стадии)."
           value={parentFieldId}
           options={parentOptions}
           emptyLabel="Плоский список"
-          noOptionsLabel="Нужен список, связь или принадлежность"
+          noOptionsLabel="Нужен список, связь, принадлежность или группы связей"
           onChange={setParentFieldId}
         />
         <SettingSwitch

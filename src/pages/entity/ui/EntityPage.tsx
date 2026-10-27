@@ -20,6 +20,7 @@ import {
   isEntityBrowseView,
   isEntityInternal,
   hasEntityPageLayout,
+  encodeEntityTableParentValue,
   resolveEntityDefaultView,
   resolveEntityTableParentField,
   useEntityConfig,
@@ -499,7 +500,12 @@ export function EntityPage({
             ...(createHierarchyGroupId != null &&
             createHierarchyGroupId !== "" &&
             tableParentField
-              ? { [tableParentField.id]: createHierarchyGroupId }
+              ? {
+                  [tableParentField.id]: encodeEntityTableParentValue(
+                    tableParentField,
+                    createHierarchyGroupId,
+                  ),
+                }
               : {}),
           }}
           onSubmit={

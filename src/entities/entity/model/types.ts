@@ -334,6 +334,12 @@ export type EntityField = {
    * fields are always shown on create.
    */
   showOnCreate: boolean;
+  /**
+   * When non-empty, the field is shown only if the record matches
+   * all conditions (e.g. hide «Часы» unless «Тип расчета» is hours).
+   * Hidden values are kept so lookups / formulas still resolve.
+   */
+  visibilityConditions: EntityCondition[];
   /** Number / numberSum fields: include column in the table totals row. */
   includeInTotal: boolean;
   /** Lower values appear earlier among non-title table columns. */
@@ -436,6 +442,7 @@ export function createEntityNameField(id: string): EntityField {
     showInFilters: true,
     showOnRecord: true,
     showOnCreate: true,
+    visibilityConditions: [],
     includeInTotal: false,
     tableOrder: 0,
     relationEntityId: null,
@@ -507,6 +514,7 @@ export function ensureEntityNameField(fields: EntityField[]): EntityField[] {
     showInTable: true,
     showOnRecord: true,
     showOnCreate: true,
+    visibilityConditions: [],
   };
   const rest = withFlags
     .filter((_, index) => index !== nameIndex)
@@ -1706,43 +1714,36 @@ function resolveRecordNameLabel(
 ): string {
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   if (!nameField) return "Без названия";
+  const nameRaw = (values[nameField.id] ?? "").trim();
   const entityTemplate = entity.nameTemplate?.trim() ?? "";
-  const raw = entityTemplate || (values[nameField.id] ?? "").trim();
+  const raw = nameRaw || entityTemplate;
   if (!raw) return "Без названия";
-  let text = raw;
-  if (/\{\{[^}]+\}\}/.test(raw)) {
-    text = raw
-      .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
-        const fieldId = rawId.trim();
-        const field = entity.fields.find((item) => item.id === fieldId);
-        if (!field || isEntityNameField(field)) return "";
-        if (field.type === "list") {
-          const label = formatEntityListFieldValue(
-            field,
-            values[field.id],
-            entities,
-          );
-          return !label || label === "—" ? "" : label;
-        }
-        if (field.type === "relation") {
-          const targetId = getEntityRelationTargetId(field);
-          const target = targetId
-            ? entities?.find((item) => item.id === targetId)
-            : null;
-          return resolveRelationRecordLabel(target, values[field.id]) ?? "";
-        }
-        const label = formatEntityFieldScalarValue(field, values[field.id]);
+  if (!/\{\{[^}]+\}\}/.test(raw)) return raw;
+  const text = raw
+    .replace(/\{\{([^}]+)\}\}/g, (_match, rawId: string) => {
+      const fieldId = rawId.trim();
+      const field = entity.fields.find((item) => item.id === fieldId);
+      if (!field || isEntityNameField(field)) return "";
+      if (field.type === "list") {
+        const label = formatEntityListFieldValue(
+          field,
+          values[field.id],
+          entities,
+        );
         return !label || label === "—" ? "" : label;
-      })
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-  if (entityTemplate) {
-    const suffix = (values[nameField.id] ?? "").trim();
-    if (suffix && !/\{\{[^}]+\}\}/.test(suffix)) {
-      text = `${text} ${suffix}`.replace(/\s+/g, " ").trim();
-    }
-  }
+      }
+      if (field.type === "relation") {
+        const targetId = getEntityRelationTargetId(field);
+        const target = targetId
+          ? entities?.find((item) => item.id === targetId)
+          : null;
+        return resolveRelationRecordLabel(target, values[field.id]) ?? "";
+      }
+      const label = formatEntityFieldScalarValue(field, values[field.id]);
+      return !label || label === "—" ? "" : label;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
   return text || "Без названия";
 }
 

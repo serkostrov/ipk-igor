@@ -57,6 +57,7 @@ import {
   getEntityRecordTitle,
   getEntityTableFields,
   isEntityFieldGroupTitleHidden,
+  isEntityFieldVisibleByConditions,
   isEntityFieldVisibleOnRecord,
   isEntityInternal,
   getRecordFieldNumber,
@@ -97,7 +98,6 @@ import {
   ENTITY_TABLE_ACTIONS_WIDTH,
   getEntityTableHeaderMinWidth,
 } from "../lib/table-column-width";
-import { getEntityBrowseFilterFields } from "./EntityBrowseFilters";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 
 const dataTableHeadClass =
@@ -137,23 +137,47 @@ function getRecordCardFields(entity: Entity, parentLinkFieldId: string | null) {
 function getLinkedTableColumns(
   entity: Entity,
   parentLinkFieldId: string | null,
+  /** When grouping by a field, hide that column (value is already the group). */
+  hierarchyFieldId: string | null = null,
 ) {
   const tableFields = getEntityTableFields(entity.fields, {
     preferArrayOrder: isEntityInternal(entity),
-  }).filter((field) => !isEntityParentLinkField(field, parentLinkFieldId));
+  }).filter(
+    (field) =>
+      !isEntityParentLinkField(field, parentLinkFieldId) &&
+      field.id !== hierarchyFieldId,
+  );
   if (tableFields.length > 0) return tableFields;
   const nameField = entity.fields.find((field) => isEntityNameField(field));
-  const fallback = getRecordCardFields(entity, parentLinkFieldId).slice(0, 4);
+  const fallback = getRecordCardFields(entity, parentLinkFieldId)
+    .filter((field) => field.id !== hierarchyFieldId)
+    .slice(0, 4);
   return nameField ? [nameField, ...fallback] : fallback;
 }
 
-/** Nested-row fields: browse filters of the child entity (not the parent link). */
+/**
+ * Nested-row fields: child entity table columns (`showInTable`), excluding
+ * the title (already in the first cell), the parent-link relation, and
+ * fields hidden by `visibilityConditions`.
+ */
 function getNestedRowDisplayFields(
   nestedEntity: Entity,
   parentLinkFieldId: string | null,
+  valueContext: EntityValueContext,
+  record: EntityRecord,
 ) {
-  return getEntityBrowseFilterFields(nestedEntity).filter(
-    (field) => !isEntityParentLinkField(field, parentLinkFieldId),
+  return getEntityTableFields(nestedEntity.fields, {
+    preferArrayOrder: isEntityInternal(nestedEntity),
+  }).filter(
+    (field) =>
+      !isEntityNameField(field) &&
+      !isEntityParentLinkField(field, parentLinkFieldId) &&
+      isEntityFieldVisibleByConditions(
+        valueContext,
+        nestedEntity,
+        record,
+        field,
+      ),
   );
 }
 
@@ -219,7 +243,7 @@ function NestedRecordFieldsStrip({
 }) {
   if (fields.length === 0) return null;
   return (
-    <div className="flex min-w-0 flex-wrap items-start gap-x-5 gap-y-1.5">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
       {fields.map((field) => {
         const display = formatRecordFieldValue(
           valueContext,
@@ -228,22 +252,22 @@ function NestedRecordFieldsStrip({
           field,
         );
         return (
-          <div key={field.id} className="min-w-0 max-w-[14rem]">
-            <p className="truncate text-[10px] font-medium tracking-wide text-muted-foreground/75 uppercase">
-              {getEntityFieldDisplayName(field)}
-            </p>
-            <div
-              className="mt-0.5 min-w-0 text-sm text-foreground/90"
-              title={display === "—" ? undefined : display}
-            >
-              <NestedRecordFieldValue
-                entity={entity}
-                record={record}
-                field={field}
-                entities={entities}
-                valueContext={valueContext}
-              />
-            </div>
+          <div
+            key={field.id}
+            className="min-w-0 max-w-[14rem] text-sm text-foreground/90"
+            title={
+              display === "—"
+                ? getEntityFieldDisplayName(field)
+                : `${getEntityFieldDisplayName(field)}: ${display}`
+            }
+          >
+            <NestedRecordFieldValue
+              entity={entity}
+              record={record}
+              field={field}
+              entities={entities}
+              valueContext={valueContext}
+            />
           </div>
         );
       })}
@@ -437,7 +461,11 @@ function RecordsTable({
     return map;
   }, [nestedTarget, records]);
 
-  const columns = getLinkedTableColumns(entity, parentLinkFieldId);
+  const columns = getLinkedTableColumns(
+    entity,
+    parentLinkFieldId,
+    parentField?.id ?? null,
+  );
   const columnMinWidths = columns.map((field, index) => {
     const listLabels =
       field.type === "list"
@@ -494,7 +522,8 @@ function RecordsTable({
       if (!row || (row.kind !== "record" && row.kind !== "nested")) continue;
       const prev = hierarchyRows[i - 1];
       const next = hierarchyRows[i + 1];
-      meta.set(row.record.id, {
+      // Include groupId — same record can appear under several groups.
+      meta.set(`${row.groupId}:${row.record.id}`, {
         isGroupStart: !prev || prev.kind === "group",
         isGroupEnd: !next || next.kind === "group",
       });
@@ -724,7 +753,7 @@ function RecordsTable({
 
             if (row.kind === "nested") {
               const nestedEntity = nestedTarget!.entity;
-              const meta = recordMeta?.get(row.record.id);
+              const meta = recordMeta?.get(`${row.groupId}:${row.record.id}`);
               const title = getEntityRecordTitle(
                 valueContext,
                 nestedEntity,
@@ -733,6 +762,8 @@ function RecordsTable({
               const nestedFields = getNestedRowDisplayFields(
                 nestedEntity,
                 nestedTarget!.parentLinkFieldId,
+                valueContext,
+                row.record,
               );
               const isLastChild = meta?.isGroupEnd === true;
               const showAddAfter =
@@ -847,12 +878,13 @@ function RecordsTable({
             }
 
             const record = row.record;
-            const meta = recordMeta?.get(record.id);
+            const rowKey = `${row.groupId}:${record.id}`;
+            const meta = recordMeta?.get(rowKey);
             const indented = Boolean(parentField);
 
             return (
               <TableRow
-                key={record.id}
+                key={rowKey}
                 className={cn(
                   "border-border/70 hover:bg-muted/35",
                   onEdit && "cursor-pointer",

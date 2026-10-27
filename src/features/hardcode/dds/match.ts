@@ -1,7 +1,18 @@
 import type { Entity } from "@/entities/entity";
 
-/** Menu / entity names used for DDS operations (see restore-department-menu). */
-const DDS_OPERATIONS_KEYS = ["Записи ДДС", "Операции ДДС"] as const;
+/** Exact name / plural / id matches for DDS operations. */
+const DDS_OPERATIONS_KEYS = [
+  "ДДС",
+  "Записи ДДС",
+  "Операции ДДС",
+  "Операции движения денежных средств",
+] as const;
+
+const DDS_EXCLUDE_KEYS = ["Статьи ДДС", "Уровни ДДС", "Кошельки"] as const;
+
+function normalizeName(value: string): string {
+  return value.trim().toLocaleLowerCase("ru");
+}
 
 /**
  * True when the entity is the DDS operations register (name-based hardcode).
@@ -12,5 +23,25 @@ export function isDdsOperationsEntity(
   const candidates = [entity.id, entity.name, entity.namePlural]
     .map((value) => value.trim())
     .filter(Boolean);
-  return DDS_OPERATIONS_KEYS.some((key) => candidates.includes(key));
+  if (candidates.length === 0) return false;
+
+  const excluded = new Set(DDS_EXCLUDE_KEYS.map(normalizeName));
+  if (candidates.some((value) => excluded.has(normalizeName(value)))) {
+    return false;
+  }
+
+  if (
+    DDS_OPERATIONS_KEYS.some((key) =>
+      candidates.some((value) => normalizeName(value) === normalizeName(key)),
+    )
+  ) {
+    return true;
+  }
+
+  // Soft match: «…ДДС…» operations-like names (not articles / levels).
+  return candidates.some((value) => {
+    const name = normalizeName(value);
+    if (!name.includes("ддс")) return false;
+    return name.includes("операц") || name.includes("запис") || name === "ддс";
+  });
 }

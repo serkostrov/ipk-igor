@@ -14,6 +14,7 @@ import { automationUploadTargetBlocksComplete } from "../lib/upload-to-files-tab
 import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
   applyEntityFieldValue,
+  createEntityDraftRecord,
   getCurrentUserRecordId,
   getEntityFieldDisplayName,
   resolveEntityFieldLabel,
@@ -21,6 +22,7 @@ import {
   getEntityPreviewValueContext,
   getEntityRecordTitle,
   getVisibleListOptions,
+  isEntityFieldVisibleByConditions,
   isEntityNameField,
   normalizeEntityFieldInputValue,
   parseEntityListValueIds,
@@ -354,24 +356,44 @@ function TaskWorkspaceBody({
     });
   }
 
+  const mergedValues = useMemo(
+    () => ({ ...(record?.values ?? {}), ...values }),
+    [record?.values, values],
+  );
+  const formDraft = useMemo(
+    () => createEntityDraftRecord(mergedValues, record?.id ?? task.recordId),
+    [mergedValues, record?.id, task.recordId],
+  );
+
   const fields =
     !entity || !ask
       ? []
       : ask.visibleFieldIds
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-          .filter((field): field is EntityField => field != null);
+          .filter((field): field is EntityField => field != null)
+          .filter((field) =>
+            isEntityFieldVisibleByConditions(
+              previewContext,
+              entity,
+              formDraft,
+              field,
+            ),
+          );
 
   const viewFields =
     !entity || !ask
       ? []
       : ask.viewFieldIds
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-          .filter((field): field is EntityField => field != null);
-
-  const mergedValues = useMemo(
-    () => ({ ...(record?.values ?? {}), ...values }),
-    [record?.values, values],
-  );
+          .filter((field): field is EntityField => field != null)
+          .filter((field) =>
+            isEntityFieldVisibleByConditions(
+              previewContext,
+              entity,
+              formDraft,
+              field,
+            ),
+          );
 
   const title = recordTitle(valueContext, entity, record);
   /** View tabs from any outcome — shown before a result is chosen. */
@@ -390,6 +412,16 @@ function TaskWorkspaceBody({
         const field = entity?.fields.find((item) => item.id === fieldId);
         if (!field) return false;
         if (!entity || !record) return true;
+        if (
+          !isEntityFieldVisibleByConditions(
+            previewContext,
+            entity,
+            formDraft,
+            field,
+          )
+        ) {
+          return false;
+        }
         return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
           ctx: previewContext,
           entity,
@@ -409,6 +441,7 @@ function TaskWorkspaceBody({
           relatedRequiredIds: relatedRequiredForForm,
           values: mergedValues,
           triggerRecordId: record?.id ?? task.recordId,
+          ctx: previewContext,
           isFieldFilled: (field, value, relationGroupsMode) =>
             isTaskAskFieldFilled(field, value, {
               relationGroupsMode: relationGroupsMode ?? "full",
@@ -512,6 +545,16 @@ function TaskWorkspaceBody({
       // Deleted fields are ignored (purged from config on entity field remove).
       if (!field) return false;
       if (!record) return true;
+      if (
+        !isEntityFieldVisibleByConditions(
+          previewContext,
+          entity,
+          formDraft,
+          field,
+        )
+      ) {
+        return false;
+      }
       return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
         ctx: previewContext,
         entity,
@@ -533,6 +576,7 @@ function TaskWorkspaceBody({
       fieldAccess: outcome.fieldAccess,
       values: mergedValues,
       triggerRecordId: record?.id ?? task.recordId,
+      ctx: previewContext,
       isFieldFilled: (field, value, relationGroupsMode) =>
         isTaskAskFieldFilled(field, value, {
           relationGroupsMode: relationGroupsMode ?? "full",
@@ -553,6 +597,7 @@ function TaskWorkspaceBody({
         if (!parentRecord) return "Запись";
         return getEntityRecordTitle(previewContext, parentEntity, parentRecord);
       },
+      ctx: previewContext,
       isFieldFilled: (field, value, relationGroupsMode) =>
         isTaskAskFieldFilled(field, value, {
           relationGroupsMode:

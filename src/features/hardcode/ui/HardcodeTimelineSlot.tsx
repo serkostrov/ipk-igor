@@ -47,7 +47,15 @@ export function HardcodeTimelineSlot({
     );
   }, [entity, historyRecords, period, setup, valueContext]);
 
-  if (!setup || rows.length === 0) return null;
+  if (!setup) return null;
+
+  if (rows.length === 0) {
+    return (
+      <div className="shrink-0 rounded-xl border border-border bg-card px-3 py-4 text-center text-sm text-muted-foreground shadow-xs">
+        Нет данных по кошелькам за выбранный период
+      </div>
+    );
+  }
 
   return (
     <div className="shrink-0">

@@ -6,6 +6,13 @@ import {
   parseEntityRelationIds,
 } from "./field";
 import {
+  collectRelationGroupsIdsAtDepth,
+  getRelationGroupsLevelEntityId,
+  isEntityRelationGroupsConfigReady,
+  parseEntityRelationGroups,
+  serializeEntityRelationGroups,
+} from "./relation-groups";
+import {
   getRelationRecordOptions,
   isEntityTabWithLinkedEntity,
   resolveEntityListFieldOptions,
@@ -24,10 +31,13 @@ export function isEntityTableParentField(field: EntityField): boolean {
   if (field.type === "list") return !field.listMultiple;
   if (field.type === "relation") return !field.relationMultiple;
   if (field.type === "belonging") return true;
+  if (field.type === "relationGroups") {
+    return isEntityRelationGroupsConfigReady(field.relationGroups);
+  }
   return false;
 }
 
-/** List / relation fields (single choice) for table hierarchy. */
+/** List / relation / groups fields for table hierarchy. */
 export function getEntityTableParentFieldCandidates(
   entity: Entity,
 ): EntityField[] {
@@ -47,13 +57,81 @@ export function resolveEntityTableParentField(
   );
 }
 
-/** Option / related-record id stored in the hierarchy field. */
+/** Option / related-record id stored in the hierarchy field (first value). */
 export function parseEntityTableParentId(value: string | undefined): string {
   return (
     parseEntityListValueIds(value)[0]?.trim() ||
     parseEntityRelationIds(value)[0]?.trim() ||
     ""
   );
+}
+
+/**
+ * Group ids for a record under the hierarchy field.
+ * `relationGroups` — each selected root (stage/department); empty → one
+ * empty group. A record with several roots appears once per root.
+ * List / relation / belonging — single id (or empty).
+ */
+export function parseEntityTableParentGroupIds(
+  field: EntityField,
+  value: string | undefined,
+): string[] {
+  if (field.type === "relationGroups") {
+    const roots = collectRelationGroupsIdsAtDepth(
+      parseEntityRelationGroups(value),
+      0,
+    ).filter((id) => id.trim().length > 0);
+    return roots.length > 0 ? roots : [ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID];
+  }
+  return [parseEntityTableParentId(value)];
+}
+
+/** Value to prefill when creating a record under a hierarchy group. */
+export function encodeEntityTableParentValue(
+  field: EntityField,
+  groupId: string,
+): string {
+  const id = groupId.trim();
+  if (!id) return "";
+  if (field.type === "relationGroups") {
+    return serializeEntityRelationGroups([{ id, children: [] }]);
+  }
+  return id;
+}
+
+function resolveRelationGroupsRootEntity(
+  field: EntityField,
+  entities: readonly Entity[],
+): Entity | null {
+  const level = field.relationGroups?.levels[0];
+  if (!level) return null;
+  const resolveFieldTarget = (entityId: string, fieldId: string) => {
+    const entity = entities.find((item) => item.id === entityId);
+    const bridge = entity?.fields.find((item) => item.id === fieldId);
+    return bridge ? getEntityRelationTargetId(bridge) : null;
+  };
+  const rootId = getRelationGroupsLevelEntityId(level, null, resolveFieldTarget);
+  if (!rootId) return null;
+  return entities.find((item) => item.id === rootId) ?? null;
+}
+
+function relationTargetLabels(
+  target: Entity | null,
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const option of getRelationRecordOptions(target)) {
+    labels.set(option.id, option.label);
+  }
+  if (target) {
+    for (const record of target.records) {
+      if (labels.has(record.id)) continue;
+      labels.set(
+        record.id,
+        resolveRelationRecordLabel(target, record.id) ?? "Без названия",
+      );
+    }
+  }
+  return labels;
 }
 
 export type EntityTableHierarchyGroupRow = {
@@ -91,20 +169,12 @@ function resolveHierarchyGroupLabels(
     const target = targetId
       ? (entities.find((item) => item.id === targetId) ?? null)
       : null;
-    const labels = new Map<string, string>();
-    for (const option of getRelationRecordOptions(target)) {
-      labels.set(option.id, option.label);
-    }
-    if (target) {
-      for (const record of target.records) {
-        if (labels.has(record.id)) continue;
-        labels.set(
-          record.id,
-          resolveRelationRecordLabel(target, record.id) ?? "Без названия",
-        );
-      }
-    }
-    return labels;
+    return relationTargetLabels(target);
+  }
+  if (parentField.type === "relationGroups") {
+    return relationTargetLabels(
+      resolveRelationGroupsRootEntity(parentField, entities),
+    );
   }
   return new Map();
 }
@@ -116,6 +186,8 @@ function resolveHierarchyGroupLabels(
  * When the parent field points at records of this same table (belonging /
  * self-relation), a parent is already the group header — do not also list it
  * under «Без значения».
+ *
+ * For `relationGroups`, a record with several roots appears under each root.
  */
 export function flattenEntityTableHierarchyRows(
   records: readonly EntityRecord[],
@@ -126,10 +198,15 @@ export function flattenEntityTableHierarchyRows(
   const labels = resolveHierarchyGroupLabels(parentField, entities);
   const byGroup = new Map<string, EntityRecord[]>();
   for (const record of records) {
-    const groupId = parseEntityTableParentId(record.values[parentField.id]);
-    const list = byGroup.get(groupId) ?? [];
-    list.push(record);
-    byGroup.set(groupId, list);
+    const groupIds = parseEntityTableParentGroupIds(
+      parentField,
+      record.values[parentField.id],
+    );
+    for (const groupId of groupIds) {
+      const list = byGroup.get(groupId) ?? [];
+      list.push(record);
+      byGroup.set(groupId, list);
+    }
   }
 
   const recordIds = new Set(records.map((record) => record.id));
