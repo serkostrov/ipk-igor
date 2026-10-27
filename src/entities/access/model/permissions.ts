@@ -1,6 +1,8 @@
 import {
   AUTOMATION_TASKS_ITEM_ID,
   HISTORY_ITEM_ID,
+  OPIU_ITEM_ID,
+  FINANCE_DASHBOARDS_ITEM_ID,
   NOTIFICATIONS_ITEM_ID,
   SETTINGS_ITEM_ID,
 } from "@/entities/menu";
@@ -262,6 +264,15 @@ export function canMenuItem(
   }
   if (menuItemId === NOTIFICATIONS_ITEM_ID) {
     return canAccessNotifications(role);
+  }
+  if (menuItemId === OPIU_ITEM_ID) {
+    // Visible when role menu allows the item (admin "*" or explicit id).
+    const allowed = role.permissions.menuItemIds;
+    return allowed === "*" || allowed.includes(OPIU_ITEM_ID);
+  }
+  if (menuItemId === FINANCE_DASHBOARDS_ITEM_ID) {
+    const allowed = role.permissions.menuItemIds;
+    return allowed === "*" || allowed.includes(FINANCE_DASHBOARDS_ITEM_ID);
   }
 
   const allowed = role.permissions.menuItemIds;

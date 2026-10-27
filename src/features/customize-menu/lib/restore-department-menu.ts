@@ -1,5 +1,7 @@
 import { isEntityInternal, type Entity } from "@/entities/entity";
 import {
+  OPIU_ITEM_ID,
+  FINANCE_DASHBOARDS_ITEM_ID,
   addMenuGroup,
   getMenuConfig,
   getMenuEntryLocation,
@@ -266,6 +268,32 @@ export function restoreDepartmentMenu(entities: Entity[]): string[] {
   }
   reorderInGroup(financeId, orders.finance, financeDictId);
   reorderInGroup(financeDictId, orders.financeDict, null);
+
+  // Hardcoded ОПиУ + Дашборды — place in finance group after entity items.
+  updateMenuItem(OPIU_ITEM_ID, {
+    label: "ОПиУ",
+    icon: "calculator",
+    groupId: financeId,
+  });
+  updateMenuItem(FINANCE_DASHBOARDS_ITEM_ID, {
+    label: "Дашборды",
+    icon: "layout",
+    groupId: financeId,
+  });
+  const opiuLoc = getMenuEntryLocation(OPIU_ITEM_ID);
+  if (opiuLoc) {
+    moveMenuEntry(opiuLoc, {
+      parentGroupId: financeId,
+      index: orders.finance.length,
+    });
+  }
+  const dashLoc = getMenuEntryLocation(FINANCE_DASHBOARDS_ITEM_ID);
+  if (dashLoc) {
+    moveMenuEntry(dashLoc, {
+      parentGroupId: financeId,
+      index: orders.finance.length + 1,
+    });
+  }
 
   log.push("Восстановлена структура меню ПБК / коммерция / финансы");
   return log;

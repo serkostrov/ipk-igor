@@ -259,9 +259,19 @@ export function DdsWalletTimelineSection({
           strong: options?.strong,
         })}
         <div className="flex h-full shrink-0" style={{ width: chartWidth }}>
-          {columns.map((column) => {
+          {columns.map((column, columnIndex) => {
             const cf = byColumn[column.key];
-            const value = cf?.[metric] ?? null;
+            const prevKey = columns[columnIndex - 1]?.key;
+            const prevCf = prevKey ? byColumn[prevKey] : null;
+            const hasMovement =
+              cf != null && (cf.income !== 0 || cf.expense !== 0);
+            const openingChanged =
+              cf?.opening != null &&
+              (prevCf?.opening == null || prevCf.opening !== cf.opening);
+            // Skip carry-forward duplicates: empty months kept repeating the
+            // same opening after the last movement.
+            const showValue = hasMovement || openingChanged;
+            const value = showValue ? (cf?.[metric] ?? null) : null;
             const title =
               cf == null
                 ? undefined

@@ -6,6 +6,8 @@ const SETTINGS_ID = "settings";
 const HISTORY_ID = "history";
 const TASKS_ID = "automation-tasks";
 const NOTIFICATIONS_ID = "notifications";
+const OPIU_ID = "opiu";
+const FINANCE_DASHBOARDS_ID = "finance-dashboards";
 const ENTITY_PREFIX = "entity-";
 
 /** Settings page tabs (kept here so shared routing does not import access). */
@@ -44,6 +46,8 @@ export type AppLocation =
   | { type: "tasks" }
   | { type: "task"; taskId: string }
   | { type: "notifications" }
+  | { type: "opiu" }
+  | { type: "finance-dashboards" }
   | { type: "entity"; entityId: string; view?: EntityBrowsePathView }
   | { type: "record"; entityId: string; recordId: string; tabId?: string };
 
@@ -73,6 +77,10 @@ export function toPath(location: AppLocation): string {
       return `/tasks/${encodeURIComponent(location.taskId)}`;
     case "notifications":
       return "/notifications";
+    case "opiu":
+      return "/opiu";
+    case "finance-dashboards":
+      return "/finance-dashboards";
     case "entity": {
       const base = `/e/${encodeURIComponent(location.entityId)}`;
       return location.view
@@ -98,6 +106,8 @@ export function parsePath(pathname: string): AppLocation | null {
   if (path === "/history") return { type: "history" };
   if (path === "/tasks") return { type: "tasks" };
   if (path === "/notifications") return { type: "notifications" };
+  if (path === "/opiu") return { type: "opiu" };
+  if (path === "/finance-dashboards") return { type: "finance-dashboards" };
 
   const taskPath = /^\/tasks\/([^/]+)$/.exec(path);
   if (taskPath) {
@@ -181,6 +191,10 @@ export function locationToMenuId(location: AppLocation): string {
       return TASKS_ID;
     case "notifications":
       return NOTIFICATIONS_ID;
+    case "opiu":
+      return OPIU_ID;
+    case "finance-dashboards":
+      return FINANCE_DASHBOARDS_ID;
     case "entity":
     case "record":
       return location.entityId;
@@ -193,6 +207,8 @@ export function menuIdToLocation(menuId: string): AppLocation {
   if (menuId === HISTORY_ID) return { type: "history" };
   if (menuId === TASKS_ID) return { type: "tasks" };
   if (menuId === NOTIFICATIONS_ID) return { type: "notifications" };
+  if (menuId === OPIU_ID) return { type: "opiu" };
+  if (menuId === FINANCE_DASHBOARDS_ID) return { type: "finance-dashboards" };
   if (menuId.startsWith(ENTITY_PREFIX)) {
     return { type: "entity", entityId: menuId };
   }
@@ -257,6 +273,8 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     case "history":
     case "tasks":
     case "notifications":
+    case "opiu":
+    case "finance-dashboards":
       return true;
     case "task": {
       const other = b as typeof a;

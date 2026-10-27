@@ -187,6 +187,12 @@ export const AUTOMATION_TASKS_ITEM_ID = "automation-tasks";
 /** System page «Уведомления». */
 export const NOTIFICATIONS_ITEM_ID = "notifications";
 
+/** Hardcoded page «ОПиУ». */
+export const OPIU_ITEM_ID = "opiu";
+
+/** Hardcoded page «Дашборды» (финансовый отдел). */
+export const FINANCE_DASHBOARDS_ITEM_ID = "finance-dashboards";
+
 /** Default icon for a menu item (пункт). */
 export const DEFAULT_MENU_ITEM_ICON: MenuIconName = "circle-help";
 
@@ -334,6 +340,8 @@ export function isSystemMenuItem(id: string) {
     id === HISTORY_ITEM_ID ||
     id === AUTOMATION_TASKS_ITEM_ID ||
     id === NOTIFICATIONS_ITEM_ID ||
+    id === OPIU_ITEM_ID ||
+    id === FINANCE_DASHBOARDS_ITEM_ID ||
     id === SYSTEM_USERS_MENU_ITEM_ID
   );
 }

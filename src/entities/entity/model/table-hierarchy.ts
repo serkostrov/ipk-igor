@@ -110,14 +110,16 @@ function resolveRelationGroupsRootEntity(
     const bridge = entity?.fields.find((item) => item.id === fieldId);
     return bridge ? getEntityRelationTargetId(bridge) : null;
   };
-  const rootId = getRelationGroupsLevelEntityId(level, null, resolveFieldTarget);
+  const rootId = getRelationGroupsLevelEntityId(
+    level,
+    null,
+    resolveFieldTarget,
+  );
   if (!rootId) return null;
   return entities.find((item) => item.id === rootId) ?? null;
 }
 
-function relationTargetLabels(
-  target: Entity | null,
-): Map<string, string> {
+function relationTargetLabels(target: Entity | null): Map<string, string> {
   const labels = new Map<string, string>();
   for (const option of getRelationRecordOptions(target)) {
     labels.set(option.id, option.label);

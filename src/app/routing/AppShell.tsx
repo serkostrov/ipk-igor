@@ -50,6 +50,8 @@ import {
 import { EntityPage } from "@/pages/entity";
 import { HistoryPage } from "@/pages/history";
 import { NotificationsPage } from "@/pages/notifications";
+import { OpiuPage } from "@/pages/opiu";
+import { FinanceDashboardsPage } from "@/pages/finance-dashboards";
 import { SettingsPage } from "@/pages/settings";
 import { NotificationsHost } from "@/widgets/notifications";
 import { Sidebar } from "@/widgets/sidebar";
@@ -81,6 +83,10 @@ function isLocationAllowed(
     return canAccessAutomationTasks(role);
   }
   if (location.type === "notifications") return canAccessNotifications(role);
+  if (location.type === "opiu") return canMenuItem(role, "opiu");
+  if (location.type === "finance-dashboards") {
+    return canMenuItem(role, "finance-dashboards");
+  }
   if (location.type === "entity" || location.type === "record") {
     return (
       canMenuItem(role, location.entityId, location.entityId) &&
@@ -324,6 +330,10 @@ export function AppShell() {
             onOpenRecord={handleOpenRecord}
             onOpenTasks={() => goMenu("automation-tasks")}
           />
+        ) : accessResolved.type === "opiu" ? (
+          <OpiuPage />
+        ) : accessResolved.type === "finance-dashboards" ? (
+          <FinanceDashboardsPage />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-auto p-8">
             <h1 className="text-2xl font-semibold tracking-tight">Раздел</h1>

@@ -14,6 +14,8 @@ import {
   DEFAULT_MENU_ITEM_ICON,
   AUTOMATION_TASKS_ITEM_ID,
   HISTORY_ITEM_ID,
+  OPIU_ITEM_ID,
+  FINANCE_DASHBOARDS_ITEM_ID,
   NOTIFICATIONS_ITEM_ID,
   SETTINGS_ITEM_ID,
   walkMenuGroups,
@@ -152,6 +154,8 @@ const SYSTEM_PAGE_ITEMS: MenuItem[] = [
     icon: "kanban",
   },
   { id: NOTIFICATIONS_ITEM_ID, label: "Уведомления", icon: "bell" },
+  { id: OPIU_ITEM_ID, label: "ОПиУ", icon: "calculator" },
+  { id: FINANCE_DASHBOARDS_ITEM_ID, label: "Дашборды", icon: "layout" },
 ];
 
 function hasMenuItem(entries: MenuEntry[], itemId: string): boolean {
