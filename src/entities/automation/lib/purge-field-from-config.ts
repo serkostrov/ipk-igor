@@ -162,7 +162,25 @@ function scrubAction(
         : action;
     case "viewField": {
       const fieldIds = withoutId(action.fieldIds, fieldId);
-      return { ...action, fieldIds };
+      const relatedFields = (action.relatedFields ?? []).filter(
+        (item) => item.fieldId !== fieldId && item.relationFieldId !== fieldId,
+      );
+      const entityFields = (action.entityFields ?? [])
+        .map((item) => ({
+          ...item,
+          matches: item.matches.filter(
+            (match) =>
+              match.entityFieldId !== fieldId &&
+              match.triggerFieldId !== fieldId,
+          ),
+        }))
+        .filter((item) => item.fieldId !== fieldId && item.matches.length > 0);
+      const next = { ...action, fieldIds };
+      if (relatedFields.length > 0) next.relatedFields = relatedFields;
+      else delete next.relatedFields;
+      if (entityFields.length > 0) next.entityFields = entityFields;
+      else delete next.entityFields;
+      return next;
     }
     case "requireFields": {
       const fieldIds = withoutId(action.fieldIds, fieldId);

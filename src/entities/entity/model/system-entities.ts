@@ -263,6 +263,7 @@ export function createSystemUsersEntity(): Entity {
     kanbanCardFieldIds: null,
     tableMassSelection: false,
     tableParentFieldId: null,
+    tableSubgroupFieldId: null,
     tableNestedEntityId: null,
     tabs: [createEntityOverviewTab()],
     fieldGroups: [],

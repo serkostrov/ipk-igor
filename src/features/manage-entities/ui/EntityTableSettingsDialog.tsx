@@ -16,7 +16,9 @@ import {
 } from "@/shared/ui/setting-controls";
 import {
   getEntityTableParentFieldOptions,
+  getEntityTableSubgroupFieldOptions,
   resolveEntityTableParentField,
+  resolveEntityTableSubgroupField,
   setEntityTableSettings,
   type Entity,
 } from "@/entities/entity";
@@ -47,6 +49,13 @@ function TableSettingsForm({
   const [parentFieldId, setParentFieldId] = useState<string | null>(
     () => resolveEntityTableParentField(entity)?.id ?? null,
   );
+  const [subgroupFieldId, setSubgroupFieldId] = useState<string | null>(
+    () => resolveEntityTableSubgroupField(entity)?.id ?? null,
+  );
+  const subgroupOptions = useMemo(
+    () => getEntityTableSubgroupFieldOptions(entity, parentFieldId),
+    [entity, parentFieldId],
+  );
 
   return (
     <>
@@ -59,16 +68,35 @@ function TableSettingsForm({
       </DialogHeader>
 
       <div className="flex flex-col gap-4">
-        <SettingSelect
-          id="entity-table-parent-field"
-          title="Сгруппировать по"
-          description="Строки станут деревом: группа и записи внутри. Подходят список, связь, принадлежность и группы связей (стадии)."
-          value={parentFieldId}
-          options={parentOptions}
-          emptyLabel="Плоский список"
-          noOptionsLabel="Нужен список, связь, принадлежность или группы связей"
-          onChange={setParentFieldId}
-        />
+        <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+          <SettingSelect
+            id="entity-table-parent-field"
+            title="Сгруппировать по"
+            description="Строки станут деревом: группа и записи внутри. Подходят список, связь, принадлежность и группы связей (стадии)."
+            value={parentFieldId}
+            options={parentOptions}
+            emptyLabel="Плоский список"
+            noOptionsLabel="Нужен список, связь, принадлежность или группы связей"
+            onChange={(next) => {
+              setParentFieldId(next);
+              if (!next || next === subgroupFieldId) setSubgroupFieldId(null);
+            }}
+          />
+          {parentFieldId ? (
+            <div className="border-t border-border/60 pt-3">
+              <SettingSelect
+                id="entity-table-subgroup-field"
+                title="Затем по"
+                description="Подгруппы внутри каждой группы — ещё одно поле списка, связи или стадий."
+                value={subgroupFieldId}
+                options={subgroupOptions}
+                emptyLabel="Без подгрупп"
+                noOptionsLabel="Нужно ещё одно поле списка, связи или групп"
+                onChange={setSubgroupFieldId}
+              />
+            </div>
+          ) : null}
+        </div>
         <SettingSwitch
           id="entity-table-mass-selection"
           title="Массовый выбор"
@@ -105,6 +133,7 @@ function TableSettingsForm({
             setEntityTableSettings(entity.id, {
               massSelection,
               parentFieldId,
+              subgroupFieldId,
             });
             onClose();
           }}

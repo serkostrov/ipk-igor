@@ -3,7 +3,13 @@
  * Domain scenarios compose these; no commercial_* action kinds.
  */
 
-import type { AutomationFieldAskOptions } from "./types";
+import {
+  normalizeAskRelatedFields,
+  normalizeViewEntityFields,
+  type AutomationAskRelatedField,
+  type AutomationFieldAskOptions,
+  type AutomationViewEntityField,
+} from "./types";
 
 export const AUTOMATION_ACTION_KINDS = [
   "noop",
@@ -65,8 +71,18 @@ export type AutomationAction =
   | {
       id: string;
       kind: "viewField";
-      /** Show these fields read-only on the task form (context for filling). */
+      /** Trigger-entity fields shown read-only on the task form. */
       fieldIds: string[];
+      /**
+       * Related / linked-tab fields (same shape as outcome related ask).
+       * Resolved from the trigger record’s links.
+       */
+      relatedFields?: AutomationAskRelatedField[];
+      /**
+       * Fields from any entity, matched to the trigger via field equality
+       * parameters (`matches`).
+       */
+      entityFields?: AutomationViewEntityField[];
     }
   | {
       id: string;
@@ -265,7 +281,7 @@ export function defaultAutomationAction(
     case "setFieldPrevious":
       return { id, kind, fieldId: "" };
     case "viewField":
-      return { id, kind, fieldIds: [] };
+      return { id, kind, fieldIds: [], relatedFields: [], entityFields: [] };
     case "viewTabs":
       return {
         id,
@@ -683,13 +699,32 @@ export function normalizeAutomationAction(
             : { type: "currentUser" },
       };
     case "requireFields":
-    case "viewField":
       return {
         ...withId,
         fieldIds: Array.isArray(raw.fieldIds)
           ? raw.fieldIds.filter((id): id is string => typeof id === "string")
           : [],
       };
+    case "viewField": {
+      const fieldIds = Array.isArray(raw.fieldIds)
+        ? raw.fieldIds.filter(
+            (id): id is string =>
+              typeof id === "string" && id.trim().length > 0,
+          )
+        : [];
+      const relatedFields = normalizeAskRelatedFields(
+        raw.relatedFields ?? raw.related_fields,
+      );
+      const entityFields = normalizeViewEntityFields(
+        raw.entityFields ?? raw.entity_fields,
+      );
+      return {
+        ...withId,
+        fieldIds,
+        ...(relatedFields.length > 0 ? { relatedFields } : {}),
+        ...(entityFields.length > 0 ? { entityFields } : {}),
+      };
+    }
     case "viewTabs": {
       const tabIds = Array.isArray(raw.tabIds)
         ? raw.tabIds.filter(
@@ -746,10 +781,19 @@ export function describeAutomationAction(
       return `Установить «${field(action.fieldId)}»`;
     case "setFieldPrevious":
       return `Вернуть «${field(action.fieldId)}»`;
-    case "viewField":
-      return action.fieldIds.length > 0
-        ? `Показать: ${action.fieldIds.map(field).join(", ")}`
-        : "Показать поля";
+    case "viewField": {
+      const relatedCount = action.relatedFields?.length ?? 0;
+      const entityCount = action.entityFields?.length ?? 0;
+      const total = action.fieldIds.length + relatedCount + entityCount;
+      if (total === 0) return "Показать поля";
+      const parts: string[] = [];
+      if (action.fieldIds.length > 0) {
+        parts.push(action.fieldIds.map(field).join(", "));
+      }
+      if (relatedCount > 0) parts.push(`связанные: ${relatedCount}`);
+      if (entityCount > 0) parts.push(`из сущностей: ${entityCount}`);
+      return `Показать: ${parts.join(" · ")}`;
+    }
     case "viewTabs": {
       if (action.tabIds.length === 0) return "Показать вкладки";
       const filtered = Object.values(action.filesTabEntryIds ?? {}).reduce(

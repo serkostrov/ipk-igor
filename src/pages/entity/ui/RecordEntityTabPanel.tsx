@@ -78,6 +78,7 @@ import {
   resolveEntityListFieldPresentation,
   resolveEntityTableNestedTarget,
   resolveEntityTableParentField,
+  resolveEntityTableSubgroupField,
   RecordValue,
   serializeEntityRelationIds,
   useEntityConfig,
@@ -137,20 +138,26 @@ function getRecordCardFields(entity: Entity, parentLinkFieldId: string | null) {
 function getLinkedTableColumns(
   entity: Entity,
   parentLinkFieldId: string | null,
-  /** When grouping by a field, hide that column (value is already the group). */
-  hierarchyFieldId: string | null = null,
+  /** When grouping by a field, hide those columns (value is already the group). */
+  hierarchyFieldIds: ReadonlySet<string> | string | null = null,
 ) {
+  const hideIds =
+    hierarchyFieldIds == null
+      ? null
+      : typeof hierarchyFieldIds === "string"
+        ? new Set([hierarchyFieldIds])
+        : hierarchyFieldIds;
   const tableFields = getEntityTableFields(entity.fields, {
     preferArrayOrder: isEntityInternal(entity),
   }).filter(
     (field) =>
       !isEntityParentLinkField(field, parentLinkFieldId) &&
-      field.id !== hierarchyFieldId,
+      !hideIds?.has(field.id),
   );
   if (tableFields.length > 0) return tableFields;
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   const fallback = getRecordCardFields(entity, parentLinkFieldId)
-    .filter((field) => field.id !== hierarchyFieldId)
+    .filter((field) => !hideIds?.has(field.id))
     .slice(0, 4);
   return nameField ? [nameField, ...fallback] : fallback;
 }
@@ -282,6 +289,7 @@ function RecordsTableFieldCell({
   entities,
   valueContext,
   indent = false,
+  indentLevel = 1,
   isGroupStart = false,
   isGroupEnd = false,
   leading = null,
@@ -293,6 +301,8 @@ function RecordsTableFieldCell({
   entities: Entity[];
   valueContext: EntityValueContext;
   indent?: boolean;
+  /** 1 — under root group; 2 — under subgroup. */
+  indentLevel?: 1 | 2;
   isGroupStart?: boolean;
   isGroupEnd?: boolean;
   /** Content before the value (e.g. hierarchy expand control). */
@@ -347,7 +357,7 @@ function RecordsTableFieldCell({
         <TreeBranchGuides
           isFirst={isGroupStart}
           isLast={isGroupEnd}
-          className="left-[11px]"
+          className={indentLevel === 2 ? "left-[35px]" : "left-[11px]"}
           armClassName="w-3"
           elbowTopPx={18}
         />
@@ -358,7 +368,14 @@ function RecordsTableFieldCell({
           <div className="min-w-0 flex-1">{value}</div>
         </div>
       ) : (
-        <div className={cn(indent && "relative pl-5")}>{value}</div>
+        <div
+          className={cn(
+            indent && "relative",
+            indent && (indentLevel === 2 ? "pl-11" : "pl-5"),
+          )}
+        >
+          {value}
+        </div>
       )}
     </TableCell>
   );
@@ -389,6 +406,9 @@ function RecordsTable({
   const parentField = nestedTarget
     ? null
     : resolveEntityTableParentField(entity);
+  const subgroupField = nestedTarget
+    ? null
+    : resolveEntityTableSubgroupField(entity);
   /** `null` — all groups expanded by default until the user toggles. */
   const [expandedIds, setExpandedIds] = useState<Set<string> | null>(null);
 
@@ -404,15 +424,32 @@ function RecordsTable({
         .map((row) => row.id);
     }
     if (!parentField) return [] as string[];
-    return flattenEntityTableHierarchyRows(
+    // Fully expand roots so subgroup row ids are included.
+    const rootIds = flattenEntityTableHierarchyRows(
       records,
       parentField,
       new Set(),
       entities,
-    )
-      .filter((row) => row.kind === "group")
-      .map((row) => row.id);
-  }, [entities, entity, nestedTarget, parentField, records, valueContext]);
+      subgroupField,
+    ).flatMap((row) =>
+      row.kind === "group" && row.depth === 0 ? [row.id] : [],
+    );
+    return flattenEntityTableHierarchyRows(
+      records,
+      parentField,
+      new Set(rootIds),
+      entities,
+      subgroupField,
+    ).flatMap((row) => (row.kind === "group" ? [row.id] : []));
+  }, [
+    entities,
+    entity,
+    nestedTarget,
+    parentField,
+    records,
+    subgroupField,
+    valueContext,
+  ]);
 
   const effectiveExpandedIds = useMemo(
     () => expandedIds ?? new Set(hierarchyGroupIds),
@@ -434,6 +471,7 @@ function RecordsTable({
       parentField,
       effectiveExpandedIds,
       entities,
+      subgroupField,
     );
   }, [
     effectiveExpandedIds,
@@ -442,6 +480,7 @@ function RecordsTable({
     nestedTarget,
     parentField,
     records,
+    subgroupField,
     valueContext,
   ]);
 
@@ -464,7 +503,13 @@ function RecordsTable({
   const columns = getLinkedTableColumns(
     entity,
     parentLinkFieldId,
-    parentField?.id ?? null,
+    parentField
+      ? new Set(
+          [parentField.id, subgroupField?.id].filter((id): id is string =>
+            Boolean(id),
+          ),
+        )
+      : null,
   );
   const columnMinWidths = columns.map((field, index) => {
     const listLabels =
@@ -508,6 +553,7 @@ function RecordsTable({
       kind: "record" as const,
       record,
       groupId: "",
+      rootGroupId: "",
       depth: 1 as const,
     }));
 
@@ -515,17 +561,26 @@ function RecordsTable({
     if (!hierarchyRows) return null;
     const meta = new Map<
       string,
-      { isGroupStart: boolean; isGroupEnd: boolean }
+      { isGroupStart: boolean; isGroupEnd: boolean; depth: number }
     >();
     for (let i = 0; i < hierarchyRows.length; i += 1) {
       const row = hierarchyRows[i];
       if (!row || (row.kind !== "record" && row.kind !== "nested")) continue;
       const prev = hierarchyRows[i - 1];
       const next = hierarchyRows[i + 1];
-      // Include groupId — same record can appear under several groups.
+      // Same immediate parent: start/end of the contiguous record block.
+      const prevSame =
+        prev?.kind === "record" || prev?.kind === "nested"
+          ? prev.groupId === row.groupId
+          : false;
+      const nextSame =
+        next?.kind === "record" || next?.kind === "nested"
+          ? next.groupId === row.groupId
+          : false;
       meta.set(`${row.groupId}:${row.record.id}`, {
-        isGroupStart: !prev || prev.kind === "group",
-        isGroupEnd: !next || next.kind === "group",
+        isGroupStart: !prevSame,
+        isGroupEnd: !nextSame,
+        depth: "depth" in row ? row.depth : 1,
       });
     }
     return meta;
@@ -722,20 +777,39 @@ function RecordsTable({
                 );
               }
 
-              // List-field hierarchy: option label only.
+              // List-field hierarchy: option label only (root or subgroup).
+              const isSubgroup = row.depth === 1;
               return (
                 <TableRow
                   key={`group:${groupId}`}
                   className={cn(
-                    "border-border/70 bg-muted/55",
+                    "border-border/70",
+                    isSubgroup ? "bg-muted/30" : "bg-muted/55",
                     expanded ? "border-b-transparent" : "border-b-border/70",
                   )}
                 >
                   <TableCell
                     colSpan={Math.max(columns.length, 1)}
-                    className="relative min-w-0 px-3 py-2 font-semibold text-foreground"
+                    className={cn(
+                      "relative min-w-0 px-3 py-2 text-foreground",
+                      isSubgroup ? "font-medium" : "font-semibold",
+                    )}
                   >
-                    <div className="flex min-w-0 items-center gap-1.5">
+                    {isSubgroup ? (
+                      <TreeBranchGuides
+                        isFirst={false}
+                        isLast={!expanded}
+                        className="left-[11px]"
+                        armClassName="w-3"
+                        elbowTopPx={18}
+                      />
+                    ) : null}
+                    <div
+                      className={cn(
+                        "flex min-w-0 items-center gap-1.5",
+                        isSubgroup && "relative pl-5",
+                      )}
+                    >
                       {expandButton}
                       <span className="min-w-0 flex-1 truncate">
                         {row.label}
@@ -881,6 +955,8 @@ function RecordsTable({
             const rowKey = `${row.groupId}:${record.id}`;
             const meta = recordMeta?.get(rowKey);
             const indented = Boolean(parentField);
+            const indentLevel: 1 | 2 =
+              meta?.depth === 2 || row.depth === 2 ? 2 : 1;
 
             return (
               <TableRow
@@ -900,6 +976,7 @@ function RecordsTable({
                     entities={entities}
                     valueContext={valueContext}
                     indent={indented && index === 0}
+                    indentLevel={indentLevel}
                     isGroupStart={meta?.isGroupStart}
                     isGroupEnd={meta?.isGroupEnd}
                   />

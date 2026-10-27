@@ -1,10 +1,13 @@
 import {
   addEntityRecord,
+  entityNameValueHasTemplate,
   getEntityConfig,
   getEntityParentLinkField,
   getEntityRelationTargetId,
   isEntityComputedFieldType,
+  isEntityNameField,
   isEntityParentLinkField,
+  parseEntityListValueIds,
   parseEntityRelationIds,
   resolveEntityFieldLabel,
   serializeEntityRelationIds,
@@ -291,10 +294,27 @@ function mappingsHaveTargets(mappings: AutomationFieldMapping[]) {
   return mappings.some((mapping) => mapping.targetFieldId.trim().length > 0);
 }
 
+function fieldValueIsPresent(
+  field: { id: string; type: EntityFieldType },
+  values: Record<string, string>,
+): boolean {
+  const raw = (values[field.id] ?? "").trim();
+  if (!raw) return false;
+  if (field.type === "boolean") return raw === "true";
+  if (field.type === "relation" || field.type === "belonging") {
+    return parseEntityRelationIds(raw).length > 0;
+  }
+  if (field.type === "list") {
+    return parseEntityListValueIds(raw).length > 0;
+  }
+  return true;
+}
+
 /**
  * Values that are only parent-links / relations / empty would create a
  * «Без названия» ghost row — skip those inserts.
- * A row needs a name or other non-link content (text, list, date, number…).
+ * Prefer a real name (or a nameTemplate that can resolve); never create
+ * catalog rows that show up as ghost stages in relationGroups.
  */
 function createValuesAreMeaningful(
   target: Entity | null | undefined,
@@ -305,14 +325,46 @@ function createValuesAreMeaningful(
     return Object.values(values).some((value) => value.trim().length > 0);
   }
   const exclude = new Set(parentLinkFieldIds.filter(Boolean));
+  const nameField = target.fields.find((field) => isEntityNameField(field));
+  if (nameField && !exclude.has(nameField.id)) {
+    const name = (values[nameField.id] ?? "").trim();
+    if (name && name !== "Без названия") return true;
+  }
+
+  const template = target.nameTemplate?.trim() ?? "";
+  if (template) {
+    if (!entityNameValueHasTemplate(template)) {
+      return template !== "Без названия";
+    }
+    const refs = [...template.matchAll(/\{\{([^}]+)\}\}/g)].map((match) =>
+      match[1]!.trim(),
+    );
+    const templateFed = refs.some((fieldId) => {
+      if (!fieldId) return false;
+      const field = target.fields.find((item) => item.id === fieldId);
+      if (!field || isEntityComputedFieldType(field.type)) return false;
+      if (
+        field.type === "relationGroups" ||
+        field.type === "dependencies" ||
+        field.type === "file"
+      ) {
+        return false;
+      }
+      return fieldValueIsPresent(field, values);
+    });
+    if (templateFed) return true;
+  }
+
+  // Named catalogs (stages, departments, …): without a usable title do not
+  // create a row — list/number alone becomes a ghost «Без названия» chip.
+  if (nameField) return false;
+
   return target.fields.some((field) => {
     if (exclude.has(field.id)) return false;
     if (isEntityParentLinkField(field, parentLinkFieldIds[0] ?? null)) {
       return false;
     }
     if (isEntityComputedFieldType(field.type)) return false;
-    // Links alone never justify a row — otherwise parent belonging / write-back
-    // targets create empty «Без названия» stages in relationGroups catalogs.
     if (
       field.type === "relation" ||
       field.type === "belonging" ||
@@ -322,11 +374,7 @@ function createValuesAreMeaningful(
     ) {
       return false;
     }
-    const raw = (values[field.id] ?? "").trim();
-    if (!raw) return false;
-    // Default boolean false is not content.
-    if (field.type === "boolean") return raw === "true";
-    return true;
+    return fieldValueIsPresent(field, values);
   });
 }
 

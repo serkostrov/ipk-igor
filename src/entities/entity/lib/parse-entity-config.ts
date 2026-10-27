@@ -746,6 +746,22 @@ function resolveTableParentFieldId(
   return null;
 }
 
+/** Second grouping field inside each parent group (must differ from parent). */
+function resolveTableSubgroupFieldId(
+  fields: Entity["fields"],
+  tableParentFieldId: string | null,
+  tableSubgroupFieldId: unknown,
+): string | null {
+  if (!tableParentFieldId) return null;
+  const requested =
+    typeof tableSubgroupFieldId === "string" ? tableSubgroupFieldId.trim() : "";
+  if (!requested || requested === tableParentFieldId) return null;
+  const field = fields.find((item) => item.id === requested);
+  if (!field) return null;
+  if (isEntityTableParentField(field)) return field.id;
+  return null;
+}
+
 /** Legacy entity-level list config → first list field (one-time migrate on load). */
 function migrateLegacyListOptionsToFields(
   fields: EntityField[],
@@ -827,6 +843,11 @@ export function normalizeEntity(
     });
   });
   const resolvedFields = resolveEntityListDependencies(withSums);
+  const tableParentFieldId = resolveTableParentFieldId(
+    resolvedFields,
+    entity.id,
+    (entity as { tableParentFieldId?: unknown }).tableParentFieldId,
+  );
 
   const views = normalizeEntityViews(entity.views);
   return {
@@ -850,10 +871,11 @@ export function normalizeEntity(
       (entity as { kanbanCardFieldIds?: unknown }).kanbanCardFieldIds,
     ),
     tableMassSelection: entity.tableMassSelection === true,
-    tableParentFieldId: resolveTableParentFieldId(
+    tableParentFieldId,
+    tableSubgroupFieldId: resolveTableSubgroupFieldId(
       resolvedFields,
-      entity.id,
-      (entity as { tableParentFieldId?: unknown }).tableParentFieldId,
+      tableParentFieldId,
+      (entity as { tableSubgroupFieldId?: unknown }).tableSubgroupFieldId,
     ),
     tableNestedEntityId:
       typeof (entity as { tableNestedEntityId?: unknown })
@@ -890,6 +912,11 @@ export function normalizeEntity(
 /** Structure only — records live in relational `entity_records`. */
 export function toEntityStructure(entity: Entity) {
   const views = normalizeEntityViews(entity.views);
+  const tableParentFieldId = resolveTableParentFieldId(
+    entity.fields,
+    entity.id,
+    entity.tableParentFieldId,
+  );
   return {
     id: entity.id,
     name: entity.name.trim(),
@@ -907,10 +934,11 @@ export function toEntityStructure(entity: Entity) {
       entity.kanbanCardFieldIds,
     ),
     tableMassSelection: entity.tableMassSelection === true,
-    tableParentFieldId: resolveTableParentFieldId(
+    tableParentFieldId,
+    tableSubgroupFieldId: resolveTableSubgroupFieldId(
       entity.fields,
-      entity.id,
-      entity.tableParentFieldId,
+      tableParentFieldId,
+      entity.tableSubgroupFieldId,
     ),
     tableNestedEntityId: entity.tableNestedEntityId?.trim() || null,
     tabs: ensureEntityTabs(entity.tabs.map((tab) => normalizeEntityTab(tab))),
@@ -999,6 +1027,10 @@ export function parseEntityConfig(value: unknown): EntityConfig {
         tableParentFieldId:
           typeof item.tableParentFieldId === "string"
             ? item.tableParentFieldId
+            : null,
+        tableSubgroupFieldId:
+          typeof item.tableSubgroupFieldId === "string"
+            ? item.tableSubgroupFieldId
             : null,
         tableNestedEntityId:
           typeof item.tableNestedEntityId === "string"

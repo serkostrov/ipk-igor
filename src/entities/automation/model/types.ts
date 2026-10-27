@@ -86,6 +86,24 @@ export type AutomationAskRelatedField = {
 };
 
 /**
+ * Read-only field from an arbitrary entity on the task form.
+ * Records are resolved by matching entity fields to trigger field values.
+ */
+export type AutomationViewEntityField = {
+  /** Stable row id (not an entity field id). */
+  id: string;
+  entityId: string;
+  /** Field on that entity to show. */
+  fieldId: string;
+  /**
+   * Keep records where every pair matches:
+   * `entity[entityFieldId]` equals `trigger[triggerFieldId]`
+   * (ids for relations/lists, trimmed text otherwise).
+   */
+  matches: Array<{ entityFieldId: string; triggerFieldId: string }>;
+};
+
+/**
  * How a `relationGroups` field is asked on a task form.
  * - full — both levels
  * - items — only «Строки»
@@ -210,7 +228,7 @@ function normalizeStringIdList(value: unknown): string[] {
   );
 }
 
-function normalizeAskRelatedFields(
+export function normalizeAskRelatedFields(
   value: unknown,
 ): AutomationAskRelatedField[] {
   if (!Array.isArray(value)) return [];
@@ -258,6 +276,66 @@ function normalizeAskRelatedFields(
         ? { relationGroupsMode }
         : {}),
     });
+  }
+  return result;
+}
+
+export function normalizeViewEntityFields(
+  value: unknown,
+): AutomationViewEntityField[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: AutomationViewEntityField[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const entityId =
+      typeof raw.entityId === "string"
+        ? raw.entityId.trim()
+        : typeof raw.entity_id === "string"
+          ? raw.entity_id.trim()
+          : "";
+    const fieldId =
+      typeof raw.fieldId === "string"
+        ? raw.fieldId.trim()
+        : typeof raw.field_id === "string"
+          ? raw.field_id.trim()
+          : "";
+    if (!entityId || !fieldId) continue;
+    const matchesRaw = Array.isArray(raw.matches) ? raw.matches : [];
+    const matches: AutomationViewEntityField["matches"] = [];
+    const matchSeen = new Set<string>();
+    for (const match of matchesRaw) {
+      if (!match || typeof match !== "object") continue;
+      const row = match as Record<string, unknown>;
+      const entityFieldId =
+        typeof row.entityFieldId === "string"
+          ? row.entityFieldId.trim()
+          : typeof row.entity_field_id === "string"
+            ? row.entity_field_id.trim()
+            : "";
+      const triggerFieldId =
+        typeof row.triggerFieldId === "string"
+          ? row.triggerFieldId.trim()
+          : typeof row.trigger_field_id === "string"
+            ? row.trigger_field_id.trim()
+            : "";
+      if (!entityFieldId || !triggerFieldId) continue;
+      const key = `${entityFieldId}:${triggerFieldId}`;
+      if (matchSeen.has(key)) continue;
+      matchSeen.add(key);
+      matches.push({ entityFieldId, triggerFieldId });
+    }
+    if (matches.length === 0) continue;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : `view-entity-${entityId}-${fieldId}-${matches
+            .map((match) => `${match.entityFieldId}:${match.triggerFieldId}`)
+            .join("|")}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push({ id, entityId, fieldId, matches });
   }
   return result;
 }

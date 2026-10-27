@@ -59,6 +59,9 @@ function EntitySubEntitySettingsForm({
   const [tableParentFieldId, setTableParentFieldId] = useState<string | null>(
     entity.tableParentFieldId,
   );
+  const [tableSubgroupFieldId, setTableSubgroupFieldId] = useState<
+    string | null
+  >(entity.tableSubgroupFieldId);
   const [tableNestedEntityId, setTableNestedEntityId] = useState<string | null>(
     entity.tableNestedEntityId,
   );
@@ -74,6 +77,7 @@ function EntitySubEntitySettingsForm({
       recordsDisplay,
       recordColumns,
       tableParentFieldId,
+      tableSubgroupFieldId,
       tableNestedEntityId,
     });
     onCancel();
@@ -120,12 +124,15 @@ function EntitySubEntitySettingsForm({
           onRecordColumnsChange={setRecordColumns}
           entity={entity}
           tableParentFieldId={tableParentFieldId}
+          tableSubgroupFieldId={tableSubgroupFieldId}
           tableNestedEntityId={tableNestedEntityId}
           onTableHierarchyChange={({
             tableParentFieldId: nextParent,
+            tableSubgroupFieldId: nextSubgroup,
             tableNestedEntityId: nextNested,
           }) => {
             setTableParentFieldId(nextParent);
+            setTableSubgroupFieldId(nextSubgroup);
             setTableNestedEntityId(nextNested);
           }}
           columnsSelectId="sub-entity-columns"
@@ -158,7 +165,7 @@ export function EntitySubEntitySettingsDialog({
       <DialogContent className="sm:max-w-md">
         {open ? (
           <EntitySubEntitySettingsForm
-            key={`${tabId}-${tabName}-${singleRecord}-${entity.id}-${entity.recordColumns}-${entity.recordsDisplay}-${entity.tableParentFieldId ?? ""}-${entity.tableNestedEntityId ?? ""}`}
+            key={`${tabId}-${tabName}-${singleRecord}-${entity.id}-${entity.recordColumns}-${entity.recordsDisplay}-${entity.tableParentFieldId ?? ""}-${entity.tableSubgroupFieldId ?? ""}-${entity.tableNestedEntityId ?? ""}`}
             parentEntityId={parentEntityId}
             tabId={tabId}
             tabName={tabName}

@@ -15,6 +15,7 @@ import {
   type AutomationFieldAskOptions,
   type AutomationOutcome,
   type AutomationTask,
+  type AutomationViewEntityField,
 } from "@/entities/automation";
 import {
   createEntityDraftRecord,
@@ -91,6 +92,16 @@ export type AutomationAskFields = {
   relatedRequiredIds: string[];
   relatedCommentIds: string[];
   relatedRecordIds: string[];
+  /**
+   * Read-only related / linked-tab fields from «Просмотреть поле».
+   * Not editable — separate from `relatedVisibleFields`.
+   */
+  viewRelatedFields: AutomationAskRelatedField[];
+  /**
+   * Read-only fields from arbitrary entities (match params) from
+   * «Просмотреть поле».
+   */
+  viewEntityFields: AutomationViewEntityField[];
   /** Per-field ask presentation (e.g. relationGroups mode). */
   fieldAskOptions: Record<string, AutomationFieldAskOptions>;
 };
@@ -107,6 +118,8 @@ const EMPTY_ASK_FIELDS: AutomationAskFields = {
   relatedRequiredIds: [],
   relatedCommentIds: [],
   relatedRecordIds: [],
+  viewRelatedFields: [],
+  viewEntityFields: [],
   fieldAskOptions: {},
 };
 
@@ -170,6 +183,19 @@ function uniqueRelatedFields(
   return result;
 }
 
+function uniqueViewEntityFields(
+  fields: AutomationViewEntityField[],
+): AutomationViewEntityField[] {
+  const seen = new Set<string>();
+  const result: AutomationViewEntityField[] = [];
+  for (const item of fields) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    result.push(item);
+  }
+  return result;
+}
+
 /** Fields / tabs for a single outcome (form appears only after that button). */
 export function getAutomationOutcomeAskFields(
   outcome: AutomationOutcome,
@@ -208,6 +234,8 @@ export function getAutomationOutcomeAskFields(
   );
 
   const viewOnly: string[] = [];
+  const viewRelated: AutomationAskRelatedField[] = [];
+  const viewEntity: AutomationViewEntityField[] = [];
   const viewTabs: string[] = [];
   const viewFilesTabEntryIds: Record<string, string[]> = {};
   let viewFilesTabAllowMove = false;
@@ -216,6 +244,12 @@ export function getAutomationOutcomeAskFields(
     if (action.kind === "viewField") {
       for (const fieldId of action.fieldIds) {
         if (fieldId.trim()) viewOnly.push(fieldId);
+      }
+      if (action.relatedFields?.length) {
+        viewRelated.push(...action.relatedFields);
+      }
+      if (action.entityFields?.length) {
+        viewEntity.push(...action.entityFields);
       }
     }
     if (action.kind === "viewTabs") {
@@ -230,6 +264,10 @@ export function getAutomationOutcomeAskFields(
   // Prefer editable form over read-only when the same field appears in both.
   const viewFieldIds = uniquePreserveOrder(viewOnly).filter(
     (fieldId) => !visibleSet.has(fieldId),
+  );
+  // Skip related view rows that are already editable on the form.
+  const viewRelatedFields = uniqueRelatedFields(viewRelated).filter(
+    (item) => !relatedVisibleIds.has(item.id),
   );
 
   const fieldAskOptions: Record<string, AutomationFieldAskOptions> = {};
@@ -252,6 +290,8 @@ export function getAutomationOutcomeAskFields(
     relatedRequiredIds,
     relatedCommentIds,
     relatedRecordIds,
+    viewRelatedFields,
+    viewEntityFields: uniqueViewEntityFields(viewEntity),
     fieldAskOptions,
   };
 }
@@ -269,6 +309,8 @@ export function getAutomationTaskAskFields(
   const relatedRequired: string[] = [];
   const relatedComment: string[] = [];
   const relatedRecord: string[] = [];
+  const viewRelated: AutomationAskRelatedField[] = [];
+  const viewEntity: AutomationViewEntityField[] = [];
   const fieldAskOptions: Record<string, AutomationFieldAskOptions> = {};
   let viewFilesTabAllowMove = false;
   let requireAttachment = false;
@@ -287,6 +329,8 @@ export function getAutomationTaskAskFields(
     relatedRequired.push(...ask.relatedRequiredIds);
     relatedComment.push(...ask.relatedCommentIds);
     relatedRecord.push(...ask.relatedRecordIds);
+    viewRelated.push(...ask.viewRelatedFields);
+    viewEntity.push(...ask.viewEntityFields);
   }
 
   const visibleFieldIds = uniquePreserveOrder(visible);
@@ -316,6 +360,10 @@ export function getAutomationTaskAskFields(
     relatedRecordIds: uniquePreserveOrder(relatedRecord).filter((id) =>
       relatedVisibleIds.has(id),
     ),
+    viewRelatedFields: uniqueRelatedFields(viewRelated).filter(
+      (item) => !relatedVisibleIds.has(item.id),
+    ),
+    viewEntityFields: uniqueViewEntityFields(viewEntity),
     fieldAskOptions,
   };
 }
@@ -702,6 +750,121 @@ export function collectNestedAskFieldValues(
   return result;
 }
 
+/** Synthetic record id for a nested create-ask draft row. */
+export function createAskDraftRecordId(
+  actionId: string,
+  nestedId: string,
+  index: number,
+) {
+  return `draft:${actionId}:${nestedId}:${index}`;
+}
+
+export function parseCreateAskDraftRecordId(
+  recordId: string,
+): { actionId: string; nestedId: string; index: number } | null {
+  if (!recordId.startsWith("draft:")) return null;
+  const parts = recordId.split(":");
+  // draft : actionId : nestedId : index  (nestedId may contain underscores)
+  if (parts.length < 4) return null;
+  const index = Number(parts[parts.length - 1]);
+  if (!Number.isFinite(index) || index < 0) return null;
+  const actionId = parts[1] ?? "";
+  const nestedId = parts.slice(2, -1).join(":");
+  if (!actionId || !nestedId) return null;
+  return { actionId, nestedId, index };
+}
+
+export function buildCreateAskDraftRecord(
+  values: Record<string, string>,
+  actionId: string,
+  nestedId: string,
+  index: number,
+  askFieldIds: string[],
+) {
+  return createEntityDraftRecord(
+    collectNestedAskFieldValues(values, actionId, nestedId, index, askFieldIds),
+    createAskDraftRecordId(actionId, nestedId, index),
+  );
+}
+
+/** Write dialog field values into nested draft keys for one row. */
+export function writeNestedAskFieldValues(
+  values: Record<string, string>,
+  actionId: string,
+  nestedId: string,
+  index: number,
+  askFieldIds: string[],
+  fieldValues: Record<string, string>,
+): Record<string, string> {
+  const next = { ...values };
+  for (const fieldId of askFieldIds) {
+    next[createRecordNestedAskDraftKey(actionId, nestedId, index, fieldId)] =
+      fieldValues[fieldId] ?? "";
+  }
+  return next;
+}
+
+/** Whether a single (non-multiple) create-ask already has a draft. */
+export function singleCreateAskHasDraft(
+  values: Record<string, string>,
+  actionId: string,
+  askFieldIds: string[],
+) {
+  return askFieldIds.some(
+    (fieldId) => createRecordAskDraftKey(actionId, fieldId) in values,
+  );
+}
+
+export function collectSingleCreateAskFieldValues(
+  values: Record<string, string>,
+  actionId: string,
+  askFieldIds: string[],
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const fieldId of askFieldIds) {
+    const key = createRecordAskDraftKey(actionId, fieldId);
+    if (key in values) result[fieldId] = values[key] ?? "";
+  }
+  return result;
+}
+
+export function writeSingleCreateAskFieldValues(
+  values: Record<string, string>,
+  actionId: string,
+  askFieldIds: string[],
+  fieldValues: Record<string, string>,
+): Record<string, string> {
+  const next = { ...values };
+  for (const fieldId of askFieldIds) {
+    next[createRecordAskDraftKey(actionId, fieldId)] =
+      fieldValues[fieldId] ?? "";
+  }
+  return next;
+}
+
+export function clearSingleCreateAskFieldValues(
+  values: Record<string, string>,
+  actionId: string,
+  askFieldIds: string[],
+): Record<string, string> {
+  const next = { ...values };
+  for (const fieldId of askFieldIds) {
+    delete next[createRecordAskDraftKey(actionId, fieldId)];
+  }
+  return next;
+}
+
+export function buildSingleCreateAskDraftRecord(
+  values: Record<string, string>,
+  actionId: string,
+  askFieldIds: string[],
+) {
+  return createEntityDraftRecord(
+    collectSingleCreateAskFieldValues(values, actionId, askFieldIds),
+    `draft:${actionId}:single:0`,
+  );
+}
+
 export function validateCreateAskRequired(options: {
   outcome: AutomationOutcome;
   entities: Entity[];
@@ -906,6 +1069,8 @@ export function automationOutcomeNeedsInput(outcome: AutomationOutcome) {
     ask.viewFieldIds.length > 0 ||
     ask.viewTabIds.length > 0 ||
     ask.relatedVisibleFields.length > 0 ||
+    ask.viewRelatedFields.length > 0 ||
+    ask.viewEntityFields.length > 0 ||
     ask.requireAttachment ||
     outcomeHasCreateAsk(outcome)
   );

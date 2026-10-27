@@ -772,6 +772,7 @@ export function addEntity(data: {
     kanbanCardFieldIds: null,
     tableMassSelection: false,
     tableParentFieldId: null,
+    tableSubgroupFieldId: null,
     tableNestedEntityId: null,
     tabs: [],
     fieldGroups: [],
@@ -807,6 +808,7 @@ export function updateEntity(
       | "recordColumns"
       | "recordsDisplay"
       | "tableParentFieldId"
+      | "tableSubgroupFieldId"
       | "tableNestedEntityId"
     >
   >,
@@ -819,12 +821,27 @@ export function updateEntity(
         patch.tableParentFieldId,
       );
       if (next.tableParentFieldId) next.tableNestedEntityId = null;
+      else next.tableSubgroupFieldId = null;
+    }
+    if (patch.tableSubgroupFieldId !== undefined) {
+      next.tableSubgroupFieldId = resolveTableSubgroupFieldIdForStore(
+        next,
+        patch.tableSubgroupFieldId,
+      );
     }
     if (patch.tableNestedEntityId !== undefined) {
       const nestedId = patch.tableNestedEntityId?.trim() || null;
       next.tableNestedEntityId = nestedId;
-      if (nestedId) next.tableParentFieldId = null;
+      if (nestedId) {
+        next.tableParentFieldId = null;
+        next.tableSubgroupFieldId = null;
+      }
     }
+    // Subgroup requires a parent field and must not equal it.
+    next.tableSubgroupFieldId = resolveTableSubgroupFieldIdForStore(
+      next,
+      next.tableSubgroupFieldId,
+    );
     return next;
   });
 }
@@ -1120,11 +1137,16 @@ export function updateEntityField(
       nextEntity.fields,
       kanbanFieldId,
     );
+    const tableParentFieldId = resolveTableParentFieldIdForStore(
+      nextEntity,
+      nextEntity.tableParentFieldId,
+    );
     return {
       ...nextEntity,
-      tableParentFieldId: resolveTableParentFieldIdForStore(
-        nextEntity,
-        nextEntity.tableParentFieldId,
+      tableParentFieldId,
+      tableSubgroupFieldId: resolveTableSubgroupFieldIdForStore(
+        { ...nextEntity, tableParentFieldId },
+        nextEntity.tableSubgroupFieldId,
       ),
       kanbanFieldId,
       kanbanCardFieldIds: normalizeEntityKanbanCardFieldIds(
@@ -1150,7 +1172,7 @@ export function removeEntityField(entityId: string, fieldId: string) {
     const kanbanFieldId =
       entity.kanbanFieldId === fieldId ? null : entity.kanbanFieldId;
     const groupFieldId = resolveEntityKanbanFieldId(nextFields, kanbanFieldId);
-    return withResolvedListDependencies({
+    const withFields = withResolvedListDependencies({
       ...entity,
       fields: nextFields,
       fieldGroups: ensureEntityFieldGroups(entity.fieldGroups, nextFields),
@@ -1163,6 +1185,18 @@ export function removeEntityField(entityId: string, fieldId: string) {
         entity.kanbanCardFieldIds,
       ),
     });
+    const tableParentFieldId = resolveTableParentFieldIdForStore(
+      withFields,
+      withFields.tableParentFieldId,
+    );
+    return {
+      ...withFields,
+      tableParentFieldId,
+      tableSubgroupFieldId: resolveTableSubgroupFieldIdForStore(
+        { ...withFields, tableParentFieldId },
+        withFields.tableSubgroupFieldId,
+      ),
+    };
   });
 
   if (!removed) return;
@@ -1264,14 +1298,41 @@ function resolveTableParentFieldIdForStore(
   return null;
 }
 
+/** Subgroup only when a parent group field is set and the ids differ. */
+function resolveTableSubgroupFieldIdForStore(
+  entity: Pick<Entity, "fields" | "tableParentFieldId">,
+  fieldId: string | null,
+): string | null {
+  const parentId = entity.tableParentFieldId?.trim() || null;
+  if (!parentId) return null;
+  const requested = fieldId?.trim() || null;
+  if (!requested || requested === parentId) return null;
+  const field = entity.fields.find((item) => item.id === requested);
+  if (!field) return null;
+  if (isEntityTableParentField(field)) return requested;
+  return null;
+}
+
 export function setEntityTableParentField(
   entityId: string,
   fieldId: string | null,
 ) {
-  mapEntity(entityId, (entity) => ({
-    ...entity,
-    tableParentFieldId: resolveTableParentFieldIdForStore(entity, fieldId),
-  }));
+  mapEntity(entityId, (entity) => {
+    const tableParentFieldId = resolveTableParentFieldIdForStore(
+      entity,
+      fieldId,
+    );
+    return {
+      ...entity,
+      tableParentFieldId,
+      tableSubgroupFieldId: tableParentFieldId
+        ? resolveTableSubgroupFieldIdForStore(
+            { ...entity, tableParentFieldId },
+            entity.tableSubgroupFieldId,
+          )
+        : null,
+    };
+  });
 }
 
 /** Save both table settings in one write and flush to remote immediately. */
@@ -1280,16 +1341,29 @@ export function setEntityTableSettings(
   settings: {
     massSelection: boolean;
     parentFieldId: string | null;
+    subgroupFieldId?: string | null;
   },
 ) {
-  mapEntity(entityId, (entity) => ({
-    ...entity,
-    tableMassSelection: settings.massSelection,
-    tableParentFieldId: resolveTableParentFieldIdForStore(
+  mapEntity(entityId, (entity) => {
+    const tableParentFieldId = resolveTableParentFieldIdForStore(
       entity,
       settings.parentFieldId,
-    ),
-  }));
+    );
+    const withParent = { ...entity, tableParentFieldId };
+    return {
+      ...entity,
+      tableMassSelection: settings.massSelection,
+      tableParentFieldId,
+      tableSubgroupFieldId: tableParentFieldId
+        ? resolveTableSubgroupFieldIdForStore(
+            withParent,
+            settings.subgroupFieldId !== undefined
+              ? settings.subgroupFieldId
+              : entity.tableSubgroupFieldId,
+          )
+        : null,
+    };
+  });
   if (!schemaEditSession) {
     flushStructureToRemote(true);
   }
@@ -1447,6 +1521,7 @@ export function addEntityTabWithLinkedEntity(
     kanbanCardFieldIds: null,
     tableMassSelection: false,
     tableParentFieldId: null,
+    tableSubgroupFieldId: null,
     tableNestedEntityId: null,
     tabs: [],
     fieldGroups: [],

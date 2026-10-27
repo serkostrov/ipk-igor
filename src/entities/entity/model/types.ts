@@ -645,6 +645,12 @@ export type Entity = {
    */
   tableParentFieldId: string | null;
   /**
+   * Table view: second grouping field inside each `tableParentFieldId` group.
+   * Same candidate types as the parent field; must differ from it.
+   * `null` — one level only. Cleared when parent / nested hierarchy is off.
+   */
+  tableSubgroupFieldId: string | null;
+  /**
    * Table view (linked tab): nest records of this child entity under each row.
    * Child must be linked via an entity tab on this entity.
    * `null` — no nesting. Mutually exclusive with `tableParentFieldId`.
@@ -1761,6 +1767,28 @@ export function resolveRelationRecordLabel(
     return resolveRecordNameLabel(target, record.values, entities);
   });
   return labels.length > 0 ? labels.join(", ") : null;
+}
+
+/**
+ * Missing / empty / «Без названия» catalog rows — must not appear in
+ * relationGroups pickers or saved values (ghost stages).
+ */
+export function isEntityRelationRecordGhost(
+  target:
+    Pick<Entity, "fields" | "records" | "nameTemplate"> | null | undefined,
+  recordId: string,
+  entities?: readonly Entity[],
+): boolean {
+  const id = recordId.trim();
+  if (!target || !id) return true;
+  const record = target.records.find((item) => item.id === id);
+  if (!record) return true;
+  const nameField = target.fields.find((field) => isEntityNameField(field));
+  if (!nameField) return false;
+  const nameRaw = (record.values[nameField.id] ?? "").trim();
+  if (nameRaw === "Без названия") return true;
+  const label = resolveRelationRecordLabel(target, id, entities)?.trim() ?? "";
+  return !label || label === "Без названия" || label === id;
 }
 
 export type RelationRecordOption = {

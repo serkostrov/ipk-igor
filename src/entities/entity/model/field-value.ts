@@ -32,6 +32,7 @@ import {
   serializeEntityPeriod,
   parseEntityListValueIds,
   parseEntityRelationIds,
+  pruneEntityRelationGroupsValue,
   serializeEntityRelationIds,
   withEntityRelationGroupsDefaults,
   type EntityRelationGroupNode,
@@ -60,6 +61,7 @@ import {
   getEntityListOptions,
   getVisibleListOptions,
   isEntityNameField,
+  isEntityRelationRecordGhost,
   resolveEntityListFieldOptions,
   resolveRelationRecordLabel,
   sanitizeListValueAgainstOptions,
@@ -889,21 +891,6 @@ export function getRelationGroupsDisplayTree(
     return undefined;
   }
 
-  function isGhostRecord(
-    host: Entity | undefined,
-    recordId: string,
-  ): boolean {
-    if (!host) return true;
-    const record = host.records.find((item) => item.id === recordId);
-    if (!record) return true;
-    const nameField = host.fields.find((item) => isEntityNameField(item));
-    if (!nameField) return false;
-    if ((record.values[nameField.id] ?? "").trim()) return false;
-    const label =
-      resolveRelationRecordLabel(host, recordId, ctx.entities)?.trim() ?? "";
-    return !label || label === "Без названия" || label === recordId;
-  }
-
   function buildNode(
     node: EntityRelationGroupNode,
     depth: number,
@@ -927,7 +914,9 @@ export function getRelationGroupsDisplayTree(
       if (!option?.name.trim()) return null;
       title = option.name;
     } else {
-      if (isGhostRecord(entity, node.id)) return null;
+      if (isEntityRelationRecordGhost(entity, node.id, ctx.entities)) {
+        return null;
+      }
       title =
         resolveRelationRecordLabel(entity, node.id, ctx.entities) ??
         "Без названия";
@@ -946,7 +935,9 @@ export function getRelationGroupsDisplayTree(
         ? []
         : node.children
             .map((child) => buildNode(child, depth + 1))
-            .filter((child): child is RelationGroupsDisplayNode => child != null);
+            .filter(
+              (child): child is RelationGroupsDisplayNode => child != null,
+            );
     return {
       id: node.id,
       title,
@@ -1853,25 +1844,21 @@ export function applyEntityFieldValue(
     entities,
     fieldId,
   );
+  const groupsClean = sanitizeRelationGroupsValues(entity, sanitized, entities);
   const mirrored = syncRelationsFromLookups(
     entity,
-    sanitized,
+    groupsClean,
     entities,
     fieldId,
   );
   const afterDeps =
-    mirrored === sanitized
-      ? sanitized
+    mirrored === groupsClean
+      ? groupsClean
       : sanitizeDependentRelationValues(entity, mirrored, entities);
-  if (!entity.nameTemplate.trim()) return afterDeps;
+  const cleaned = sanitizeRelationGroupsValues(entity, afterDeps, entities);
+  if (!entity.nameTemplate.trim()) return cleaned;
   const ctx = getEntityValueContext(entities);
-  return softFillEntityNameFromTemplate(
-    ctx,
-    entity,
-    values,
-    afterDeps,
-    fieldId,
-  );
+  return softFillEntityNameFromTemplate(ctx, entity, values, cleaned, fieldId);
 }
 
 /** Drop relation values that no longer match filters / nested parent scope. */
@@ -1923,6 +1910,88 @@ function sanitizeDependentRelationValues(
   return next;
 }
 
+/**
+ * Drop ghost / deleted ids from a relationGroups value using live catalogs.
+ * Call on form open, field change, and persist so «Без названия» never sticks.
+ */
+export function sanitizeEntityRelationGroupsFieldValue(
+  field: Pick<EntityField, "type" | "relationGroups">,
+  value: string,
+  entities: readonly Entity[],
+): string {
+  if (field.type !== "relationGroups" || !field.relationGroups) return value;
+  const levels = field.relationGroups.levels;
+  if (levels.length === 0) return value;
+  const entityById = new Map(entities.map((item) => [item.id, item]));
+
+  function levelEntityAt(depth: number): Entity | null {
+    let previous: string | null = null;
+    for (let i = 0; i <= depth; i += 1) {
+      const level = levels[i];
+      if (!level) return null;
+      let entityId: string | null = null;
+      if (level.source.kind === "entity") {
+        entityId = level.source.entityId;
+      } else if (level.source.kind === "field" && previous) {
+        const sourceFieldId = level.source.fieldId;
+        if (sourceFieldId) {
+          const host = entityById.get(previous);
+          const source = host?.fields.find((item) => item.id === sourceFieldId);
+          entityId = source ? getEntityRelationTargetId(source) : null;
+        }
+      }
+      if (!entityId) return null;
+      if (i === depth) return entityById.get(entityId) ?? null;
+      previous = entityId;
+    }
+    return null;
+  }
+
+  function isValidId(itemId: string, depth: number): boolean {
+    const level = levels[depth];
+    if (!level) return false;
+    if (depth > 0 && level.source.kind === "field") {
+      const sourceFieldId = level.source.fieldId;
+      const parentEntity = levelEntityAt(depth - 1);
+      const sourceField = parentEntity?.fields.find(
+        (item) => item.id === sourceFieldId,
+      );
+      if (sourceField?.type === "list") {
+        const option = sourceField.listOptions.find(
+          (item) => item.id === itemId,
+        );
+        return Boolean(option?.name.trim());
+      }
+    }
+    const host = levelEntityAt(depth);
+    if (!host) return false;
+    return !isEntityRelationRecordGhost(host, itemId, entities);
+  }
+
+  return pruneEntityRelationGroupsValue(value, isValidId);
+}
+
+function sanitizeRelationGroupsValues(
+  entity: Entity,
+  values: Record<string, string>,
+  entities: readonly Entity[],
+): Record<string, string> {
+  let next = values;
+  for (const field of entity.fields) {
+    if (field.type !== "relationGroups") continue;
+    if (next[field.id] === undefined) continue;
+    const cleaned = sanitizeEntityRelationGroupsFieldValue(
+      field,
+      next[field.id] ?? "",
+      entities,
+    );
+    if (cleaned === (next[field.id] ?? "")) continue;
+    if (next === values) next = { ...values };
+    next[field.id] = cleaned;
+  }
+  return next;
+}
+
 /** Align relation values with nested parent scope (e.g. on form open). */
 export function sanitizeEntityRelationDependencies(
   entity: Entity,
@@ -1930,11 +1999,18 @@ export function sanitizeEntityRelationDependencies(
   entities: readonly Entity[],
 ): Record<string, string> {
   const sanitized = sanitizeDependentRelationValues(entity, values, entities);
-  const mirrored = syncRelationsFromLookups(entity, sanitized, entities, null);
-  const next =
-    mirrored === sanitized
-      ? sanitized
+  const groupsClean = sanitizeRelationGroupsValues(entity, sanitized, entities);
+  const mirrored = syncRelationsFromLookups(
+    entity,
+    groupsClean,
+    entities,
+    null,
+  );
+  const afterMirror =
+    mirrored === groupsClean
+      ? groupsClean
       : sanitizeDependentRelationValues(entity, mirrored, entities);
+  const next = sanitizeRelationGroupsValues(entity, afterMirror, entities);
   if (!entity.nameTemplate.trim()) return next;
   return softFillEntityNameFromTemplate(
     getEntityValueContext(entities),

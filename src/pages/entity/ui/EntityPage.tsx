@@ -23,6 +23,7 @@ import {
   encodeEntityTableParentValue,
   resolveEntityDefaultView,
   resolveEntityTableParentField,
+  resolveEntityTableSubgroupField,
   useEntityConfig,
   useEntityStatus,
   type EntityBrowseView,
@@ -148,6 +149,9 @@ export function EntityPage({
       : undefined;
   const [createOpen, setCreateOpen] = useState(false);
   const [createHierarchyGroupId, setCreateHierarchyGroupId] = useState<
+    string | null
+  >(null);
+  const [createHierarchySubgroupId, setCreateHierarchySubgroupId] = useState<
     string | null
   >(null);
   const [timelineSettingsOpen, setTimelineSettingsOpen] = useState(false);
@@ -300,12 +304,14 @@ export function EntityPage({
   }
 
   const tableParentField = resolveEntityTableParentField(currentEntity);
+  const tableSubgroupField = resolveEntityTableSubgroupField(currentEntity);
 
   const addAction = canCreateRecord ? (
     <AddRecordButton
       onClick={() => {
         setEditingRecord(null);
         setCreateHierarchyGroupId(null);
+        setCreateHierarchySubgroupId(null);
         setCreateOpen(true);
       }}
     />
@@ -382,9 +388,10 @@ export function EntityPage({
         onOpenRelation,
         onCreateChildRecord:
           canCreateRecord && tableParentField
-            ? (groupValue: string) => {
+            ? (groupValue: string, subgroupValue?: string) => {
                 setEditingRecord(null);
                 setCreateHierarchyGroupId(groupValue);
+                setCreateHierarchySubgroupId(subgroupValue ?? null);
                 setCreateOpen(true);
               }
             : undefined,
@@ -488,7 +495,10 @@ export function EntityPage({
           open={createOpen}
           onOpenChange={(open) => {
             setCreateOpen(open);
-            if (!open) setCreateHierarchyGroupId(null);
+            if (!open) {
+              setCreateHierarchyGroupId(null);
+              setCreateHierarchySubgroupId(null);
+            }
           }}
           entity={currentEntity}
           requireAccountPassword={isUsersEntity}
@@ -504,6 +514,16 @@ export function EntityPage({
                   [tableParentField.id]: encodeEntityTableParentValue(
                     tableParentField,
                     createHierarchyGroupId,
+                  ),
+                }
+              : {}),
+            ...(createHierarchySubgroupId != null &&
+            createHierarchySubgroupId !== "" &&
+            tableSubgroupField
+              ? {
+                  [tableSubgroupField.id]: encodeEntityTableParentValue(
+                    tableSubgroupField,
+                    createHierarchySubgroupId,
                   ),
                 }
               : {}),

@@ -57,6 +57,41 @@ export function resolveEntityTableParentField(
   );
 }
 
+/** Resolved subgroup field inside each parent group, if valid. */
+export function resolveEntityTableSubgroupField(
+  entity: Entity,
+): EntityField | null {
+  const parentId = entity.tableParentFieldId?.trim() ?? "";
+  const id = entity.tableSubgroupFieldId?.trim() ?? "";
+  if (!parentId || !id || id === parentId) return null;
+  return (
+    getEntityTableParentFieldCandidates(entity).find(
+      (field) => field.id === id,
+    ) ?? null
+  );
+}
+
+/** Separator for composite subgroup row ids (`parentId` + sep + `subgroupId`). */
+const ENTITY_TABLE_SUBGROUP_ROW_SEP = "\u0001";
+
+export function encodeEntityTableSubgroupRowId(
+  parentGroupId: string,
+  subgroupValueId: string,
+): string {
+  return `${parentGroupId}${ENTITY_TABLE_SUBGROUP_ROW_SEP}${subgroupValueId}`;
+}
+
+export function parseEntityTableSubgroupRowId(
+  rowId: string,
+): { parentGroupId: string; subgroupValueId: string } | null {
+  const index = rowId.indexOf(ENTITY_TABLE_SUBGROUP_ROW_SEP);
+  if (index < 0) return null;
+  return {
+    parentGroupId: rowId.slice(0, index),
+    subgroupValueId: rowId.slice(index + ENTITY_TABLE_SUBGROUP_ROW_SEP.length),
+  };
+}
+
 /** Option / related-record id stored in the hierarchy field (first value). */
 export function parseEntityTableParentId(value: string | undefined): string {
   return (
@@ -141,14 +176,26 @@ export type EntityTableHierarchyGroupRow = {
   id: string;
   label: string;
   childCount: number;
-  depth: 0;
+  /** 0 — root group; 1 — subgroup inside a root group. */
+  depth: 0 | 1;
+  /** For subgroups: id of the root group. */
+  parentGroupId?: string;
+  /**
+   * Raw option / relation id for this row (without parent prefix).
+   * Equals `id` for root groups; for subgroups — the subgroup value only.
+   */
+  valueId: string;
 };
 
 export type EntityTableHierarchyRecordRow = {
   kind: "record";
   record: EntityRecord;
+  /** Immediate parent group/subgroup row id (for expand / tree guides). */
   groupId: string;
-  depth: 1;
+  /** Root group id (for pagination when subgroups are used). */
+  rootGroupId: string;
+  /** 1 — under a root group; 2 — under a subgroup. */
+  depth: 1 | 2;
 };
 
 export type EntityTableHierarchyRow =
@@ -181,28 +228,32 @@ function resolveHierarchyGroupLabels(
   return new Map();
 }
 
-/**
- * Flat group → records rows for a hierarchy table.
- * Groups follow option / related-record order; empty value is last when present.
- *
- * When the parent field points at records of this same table (belonging /
- * self-relation), a parent is already the group header — do not also list it
- * under «Без значения».
- *
- * For `relationGroups`, a record with several roots appears under each root.
- */
-export function flattenEntityTableHierarchyRows(
+function orderHierarchyGroupIds(
+  byGroup: Map<string, EntityRecord[]>,
+  labels: Map<string, string>,
+): string[] {
+  const orderedIds: string[] = [];
+  for (const id of labels.keys()) {
+    if (byGroup.has(id)) orderedIds.push(id);
+  }
+  if (byGroup.has(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID)) {
+    orderedIds.push(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID);
+  }
+  for (const id of byGroup.keys()) {
+    if (!orderedIds.includes(id)) orderedIds.push(id);
+  }
+  return orderedIds;
+}
+
+function groupRecordsByHierarchyField(
   records: readonly EntityRecord[],
-  parentField: EntityField,
-  expandedIds: ReadonlySet<string>,
-  entities: readonly Entity[] = [],
-): EntityTableHierarchyRow[] {
-  const labels = resolveHierarchyGroupLabels(parentField, entities);
+  field: EntityField,
+): Map<string, EntityRecord[]> {
   const byGroup = new Map<string, EntityRecord[]>();
   for (const record of records) {
     const groupIds = parseEntityTableParentGroupIds(
-      parentField,
-      record.values[parentField.id],
+      field,
+      record.values[field.id],
     );
     for (const groupId of groupIds) {
       const list = byGroup.get(groupId) ?? [];
@@ -210,7 +261,18 @@ export function flattenEntityTableHierarchyRows(
       byGroup.set(groupId, list);
     }
   }
+  return byGroup;
+}
 
+/**
+ * When the parent field points at records of this same table (belonging /
+ * self-relation), a parent is already the group header — do not also list it
+ * under «Без значения».
+ */
+function omitSelfParentsFromEmptyGroup(
+  byGroup: Map<string, EntityRecord[]>,
+  records: readonly EntityRecord[],
+) {
   const recordIds = new Set(records.map((record) => record.id));
   const usedAsParent = new Set(
     [...byGroup.entries()]
@@ -222,47 +284,105 @@ export function flattenEntityTableHierarchyRows(
       )
       .map(([id]) => id),
   );
-  if (usedAsParent.size > 0) {
-    const emptyChildren =
-      byGroup.get(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID) ?? [];
-    const filtered = emptyChildren.filter(
-      (record) => !usedAsParent.has(record.id),
-    );
-    if (filtered.length === 0) {
-      byGroup.delete(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID);
-    } else {
-      byGroup.set(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID, filtered);
-    }
+  if (usedAsParent.size === 0) return;
+  const emptyChildren =
+    byGroup.get(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID) ?? [];
+  const filtered = emptyChildren.filter(
+    (record) => !usedAsParent.has(record.id),
+  );
+  if (filtered.length === 0) {
+    byGroup.delete(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID);
+  } else {
+    byGroup.set(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID, filtered);
   }
+}
 
-  const orderedIds: string[] = [];
-  for (const id of labels.keys()) {
-    if (byGroup.has(id)) orderedIds.push(id);
-  }
-  if (byGroup.has(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID)) {
-    orderedIds.push(ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID);
-  }
-  for (const id of byGroup.keys()) {
-    if (!orderedIds.includes(id)) orderedIds.push(id);
-  }
+function hierarchyGroupLabel(id: string, labels: Map<string, string>): string {
+  return id === ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID
+    ? "Без значения"
+    : labels.get(id)?.trim() || "Без названия";
+}
+
+/**
+ * Flat group → [subgroup →] records rows for a hierarchy table.
+ * Groups follow option / related-record order; empty value is last when present.
+ *
+ * When the parent field points at records of this same table (belonging /
+ * self-relation), a parent is already the group header — do not also list it
+ * under «Без значения».
+ *
+ * For `relationGroups`, a record with several roots appears under each root.
+ * With `subgroupField`, each root expands into subgroup headers, then records.
+ */
+export function flattenEntityTableHierarchyRows(
+  records: readonly EntityRecord[],
+  parentField: EntityField,
+  expandedIds: ReadonlySet<string>,
+  entities: readonly Entity[] = [],
+  subgroupField: EntityField | null = null,
+): EntityTableHierarchyRow[] {
+  const labels = resolveHierarchyGroupLabels(parentField, entities);
+  const byGroup = groupRecordsByHierarchyField(records, parentField);
+  omitSelfParentsFromEmptyGroup(byGroup, records);
+
+  const subgroupLabels = subgroupField
+    ? resolveHierarchyGroupLabels(subgroupField, entities)
+    : null;
 
   const rows: EntityTableHierarchyRow[] = [];
-  for (const id of orderedIds) {
+  for (const id of orderHierarchyGroupIds(byGroup, labels)) {
     const children = byGroup.get(id) ?? [];
     if (children.length === 0) continue;
     rows.push({
       kind: "group",
       id,
-      label:
-        id === ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID
-          ? "Без значения"
-          : labels.get(id)?.trim() || "Без названия",
+      label: hierarchyGroupLabel(id, labels),
       childCount: children.length,
       depth: 0,
+      valueId: id,
     });
     if (!expandedIds.has(id)) continue;
-    for (const record of children) {
-      rows.push({ kind: "record", record, groupId: id, depth: 1 });
+
+    if (!subgroupField || !subgroupLabels) {
+      for (const record of children) {
+        rows.push({
+          kind: "record",
+          record,
+          groupId: id,
+          rootGroupId: id,
+          depth: 1,
+        });
+      }
+      continue;
+    }
+
+    const bySubgroup = groupRecordsByHierarchyField(children, subgroupField);
+    for (const subValueId of orderHierarchyGroupIds(
+      bySubgroup,
+      subgroupLabels,
+    )) {
+      const subChildren = bySubgroup.get(subValueId) ?? [];
+      if (subChildren.length === 0) continue;
+      const subgroupRowId = encodeEntityTableSubgroupRowId(id, subValueId);
+      rows.push({
+        kind: "group",
+        id: subgroupRowId,
+        label: hierarchyGroupLabel(subValueId, subgroupLabels),
+        childCount: subChildren.length,
+        depth: 1,
+        parentGroupId: id,
+        valueId: subValueId,
+      });
+      if (!expandedIds.has(subgroupRowId)) continue;
+      for (const record of subChildren) {
+        rows.push({
+          kind: "record",
+          record,
+          groupId: subgroupRowId,
+          rootGroupId: id,
+          depth: 2,
+        });
+      }
     }
   }
   return rows;
@@ -273,6 +393,20 @@ export function getEntityTableParentFieldOptions(entity: Entity) {
     value: field.id,
     label: getEntityFieldDisplayName(field),
   }));
+}
+
+/** Subgroup options exclude the current parent grouping field. */
+export function getEntityTableSubgroupFieldOptions(
+  entity: Entity,
+  parentFieldId: string | null = entity.tableParentFieldId,
+) {
+  const exclude = parentFieldId?.trim() || null;
+  return getEntityTableParentFieldCandidates(entity)
+    .filter((field) => field.id !== exclude)
+    .map((field) => ({
+      value: field.id,
+      label: getEntityFieldDisplayName(field),
+    }));
 }
 
 /** Child entity linked from a host entity tab — can nest under each host row. */

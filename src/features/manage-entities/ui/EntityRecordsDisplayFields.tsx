@@ -14,6 +14,7 @@ import {
   ENTITY_RECORD_COLUMN_OPTIONS,
   getEntityTableNestedEntityOptions,
   getEntityTableParentFieldOptions,
+  getEntityTableSubgroupFieldOptions,
   normalizeEntityRecordColumns,
   useEntityConfig,
   type Entity,
@@ -97,9 +98,11 @@ type EntityRecordsDisplayFieldsProps = {
   /** Linked entity — needed for table hierarchy options. */
   entity?: Entity | null;
   tableParentFieldId?: string | null;
+  tableSubgroupFieldId?: string | null;
   tableNestedEntityId?: string | null;
   onTableHierarchyChange?: (next: {
     tableParentFieldId: string | null;
+    tableSubgroupFieldId: string | null;
     tableNestedEntityId: string | null;
   }) => void;
   /** @deprecated use onTableHierarchyChange */
@@ -172,15 +175,18 @@ function CardsSettingsPanel({
 function TableSettingsPanel({
   entity,
   tableParentFieldId,
+  tableSubgroupFieldId,
   tableNestedEntityId,
   onTableHierarchyChange,
   onBack,
 }: {
   entity: Entity;
   tableParentFieldId: string | null;
+  tableSubgroupFieldId: string | null;
   tableNestedEntityId: string | null;
   onTableHierarchyChange: (next: {
     tableParentFieldId: string | null;
+    tableSubgroupFieldId: string | null;
     tableNestedEntityId: string | null;
   }) => void;
   onBack: () => void;
@@ -208,12 +214,18 @@ function TableSettingsPanel({
     { label: "Вложенная сущность", options: nestedOptions },
   ].filter((group) => group.options.length > 0);
 
+  const subgroupOptions = useMemo(
+    () => getEntityTableSubgroupFieldOptions(entity, tableParentFieldId),
+    [entity, tableParentFieldId],
+  );
+
   const entityLabel =
     entity.namePlural.trim() || entity.name.trim() || "записи";
   const hierarchyValue = encodeHierarchyValue(
     tableParentFieldId,
     tableNestedEntityId,
   );
+  const fieldGroupingActive = Boolean(tableParentFieldId?.trim());
 
   return (
     <div className="flex flex-col gap-3">
@@ -236,17 +248,51 @@ function TableSettingsPanel({
         </div>
       </div>
 
-      <SettingSelect
-        id="entity-records-table-hierarchy"
-        title="Сгруппировать по"
-        description="Поле (список, связь, стадии/группы) — группы из значений. Вложенная сущность — записи вкладки внутри каждой строки."
-        value={hierarchyValue}
-        options={options}
-        optionGroups={optionGroups.length > 0 ? optionGroups : undefined}
-        emptyLabel="Плоский список"
-        noOptionsLabel="Добавьте список, связь, группы связей или вкладку связанной сущности"
-        onChange={(next) => onTableHierarchyChange(decodeHierarchyValue(next))}
-      />
+      <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+        <SettingSelect
+          id="entity-records-table-hierarchy"
+          title="Сгруппировать по"
+          description="Поле (список, связь, стадии/группы) — группы из значений. Вложенная сущность — записи вкладки внутри каждой строки."
+          value={hierarchyValue}
+          options={options}
+          optionGroups={optionGroups.length > 0 ? optionGroups : undefined}
+          emptyLabel="Плоский список"
+          noOptionsLabel="Добавьте список, связь, группы связей или вкладку связанной сущности"
+          onChange={(next) => {
+            const decoded = decodeHierarchyValue(next);
+            onTableHierarchyChange({
+              ...decoded,
+              tableSubgroupFieldId: decoded.tableParentFieldId
+                ? tableSubgroupFieldId &&
+                  tableSubgroupFieldId !== decoded.tableParentFieldId
+                  ? tableSubgroupFieldId
+                  : null
+                : null,
+            });
+          }}
+        />
+
+        {fieldGroupingActive ? (
+          <div className="border-t border-border/60 pt-3">
+            <SettingSelect
+              id="entity-records-table-subgroup"
+              title="Затем по"
+              description="Подгруппы внутри каждой группы — ещё одно поле списка, связи или стадий."
+              value={tableSubgroupFieldId}
+              options={subgroupOptions}
+              emptyLabel="Без подгрупп"
+              noOptionsLabel="Нужно ещё одно поле списка, связи или групп"
+              onChange={(next) =>
+                onTableHierarchyChange({
+                  tableParentFieldId,
+                  tableSubgroupFieldId: next,
+                  tableNestedEntityId: null,
+                })
+              }
+            />
+          </div>
+        ) : null}
+      </div>
 
       <Button type="button" className="w-full" onClick={onBack}>
         Готово
@@ -262,6 +308,7 @@ export function EntityRecordsDisplayFields({
   onRecordColumnsChange,
   entity = null,
   tableParentFieldId = null,
+  tableSubgroupFieldId = null,
   tableNestedEntityId = null,
   onTableHierarchyChange,
   onTableParentFieldIdChange,
@@ -274,6 +321,7 @@ export function EntityRecordsDisplayFields({
     (onTableParentFieldIdChange
       ? (next: {
           tableParentFieldId: string | null;
+          tableSubgroupFieldId: string | null;
           tableNestedEntityId: string | null;
         }) => {
           onTableParentFieldIdChange(next.tableParentFieldId);
@@ -298,6 +346,7 @@ export function EntityRecordsDisplayFields({
       <TableSettingsPanel
         entity={entity}
         tableParentFieldId={tableParentFieldId}
+        tableSubgroupFieldId={tableSubgroupFieldId}
         tableNestedEntityId={tableNestedEntityId}
         onTableHierarchyChange={handleHierarchyChange}
         onBack={() => setSettingsKind(null)}

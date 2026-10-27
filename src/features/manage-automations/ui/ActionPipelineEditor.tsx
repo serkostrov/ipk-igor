@@ -13,7 +13,13 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import {
@@ -24,16 +30,19 @@ import {
   automationRelationGroupsAskModes,
   createAutomationNestedCreateId,
   defaultAutomationAction,
+  getAskRelatedLinkedTabs,
   getCreateParentFromRelatedList,
   getCreateParentFromRelatedOptions,
   resolveHostChildParentLinkField,
   toAutomationFieldRef,
   type AutomationAction,
   type AutomationActionKind,
+  type AutomationAskRelatedField,
   type AutomationCreateNestedSpec,
   type AutomationCreateParentFromRelated,
   type AutomationFieldAskOptions,
   type AutomationRelationGroupsAskMode,
+  type AutomationViewEntityField,
   type CreateParentFromRelatedOption,
 } from "@/entities/automation";
 import {
@@ -1143,12 +1152,11 @@ function ActionFields({
 
   if (action.kind === "viewField") {
     return (
-      <RequireFieldsEditor
-        fields={fields}
-        selectedIds={action.fieldIds}
-        title="Показать в форме задачи"
-        hint="Только просмотр — чтобы заполнять другие поля на их основе"
-        onChange={(fieldIds) => onChange({ ...action, fieldIds })}
+      <ViewFieldEditor
+        action={action}
+        sourceEntity={sourceEntity}
+        entities={entities}
+        onChange={onChange}
       />
     );
   }
@@ -1643,6 +1651,599 @@ function ViewTabsEditor({
             })
           }
         />
+      ) : null}
+    </div>
+  );
+}
+
+function createViewRelatedFieldId() {
+  return `vrel-${crypto.randomUUID()}`;
+}
+
+function createViewEntityFieldId() {
+  return `vent-${crypto.randomUUID()}`;
+}
+
+function isViewableContextField(field: EntityField) {
+  return field.type !== "dependencies";
+}
+
+function suggestViewEntityMatches(
+  target: Entity,
+  trigger: Entity,
+): AutomationViewEntityField["matches"] {
+  const triggerByName = new Map(
+    trigger.fields.map((field) => [normalizeMappingFieldName(field), field]),
+  );
+  const matches: AutomationViewEntityField["matches"] = [];
+  for (const field of target.fields) {
+    if (!isViewableContextField(field)) continue;
+    if (field.type === "file" || field.type === "period") continue;
+    const source = triggerByName.get(normalizeMappingFieldName(field));
+    if (!source) continue;
+    if (!fieldsCompatibleForAutoMap(field, source)) continue;
+    matches.push({ entityFieldId: field.id, triggerFieldId: source.id });
+    if (matches.length >= 2) break;
+  }
+  if (matches.length > 0) return matches;
+  const firstTrigger =
+    trigger.fields.find((field) => isViewableContextField(field)) ?? null;
+  const firstEntity =
+    target.fields.find((field) => isViewableContextField(field)) ?? null;
+  if (firstTrigger && firstEntity) {
+    return [
+      {
+        entityFieldId: firstEntity.id,
+        triggerFieldId: firstTrigger.id,
+      },
+    ];
+  }
+  return [];
+}
+
+function ViewFieldEditor({
+  action,
+  sourceEntity,
+  entities,
+  onChange,
+}: {
+  action: Extract<AutomationAction, { kind: "viewField" }>;
+  sourceEntity: Entity | null;
+  entities: Entity[];
+  onChange: (action: AutomationAction) => void;
+}) {
+  const triggerFields =
+    sourceEntity?.fields.filter(isViewableContextField) ?? [];
+  const relatedFields = useMemo(
+    () => action.relatedFields ?? [],
+    [action.relatedFields],
+  );
+  const entityFields = useMemo(
+    () => action.entityFields ?? [],
+    [action.entityFields],
+  );
+  const entityById = useMemo(
+    () => new Map(entities.map((item) => [item.id, item])),
+    [entities],
+  );
+
+  const usedRelatedKeys = useMemo(
+    () =>
+      new Set(
+        relatedFields.map((item) =>
+          item.linkedTabId
+            ? `tab:${item.linkedTabId}:${item.fieldId}`
+            : `${item.relationFieldId}:${item.fieldId}`,
+        ),
+      ),
+    [relatedFields],
+  );
+
+  const relatedPickers = useMemo(() => {
+    if (!sourceEntity) return [];
+    return sourceEntity.fields
+      .filter((field) => field.type === "relation")
+      .map((relation) => {
+        const targetId = getEntityRelationTargetId(relation);
+        const target = targetId ? entityById.get(targetId) : undefined;
+        if (!target) return null;
+        const availableFields = target.fields.filter(
+          (field) =>
+            isViewableContextField(field) &&
+            !usedRelatedKeys.has(`${relation.id}:${field.id}`),
+        );
+        if (availableFields.length === 0) return null;
+        return { relation, target, availableFields };
+      })
+      .filter(
+        (
+          item,
+        ): item is {
+          relation: EntityField;
+          target: Entity;
+          availableFields: EntityField[];
+        } => item != null,
+      );
+  }, [entityById, sourceEntity, usedRelatedKeys]);
+
+  const linkedTabPickers = useMemo(() => {
+    if (!sourceEntity) return [];
+    return getAskRelatedLinkedTabs(sourceEntity, entities)
+      .map(({ tab, target }) => {
+        const availableFields = target.fields.filter(
+          (field) =>
+            isViewableContextField(field) &&
+            !isEntityParentLinkField(field, tab.parentLinkFieldId) &&
+            !usedRelatedKeys.has(`tab:${tab.id}:${field.id}`),
+        );
+        if (availableFields.length === 0) return null;
+        return { tab, target, availableFields };
+      })
+      .filter(
+        (
+          item,
+        ): item is {
+          tab: EntityTab;
+          target: Entity;
+          availableFields: EntityField[];
+        } => item != null,
+      );
+  }, [entities, sourceEntity, usedRelatedKeys]);
+
+  const canAddRelated =
+    relatedPickers.length > 0 || linkedTabPickers.length > 0;
+
+  function setFieldIds(fieldIds: string[]) {
+    onChange({ ...action, fieldIds });
+  }
+
+  function setRelatedFields(next: AutomationAskRelatedField[]) {
+    onChange({
+      ...action,
+      relatedFields: next.length > 0 ? next : undefined,
+    });
+  }
+
+  function setEntityFields(next: AutomationViewEntityField[]) {
+    onChange({
+      ...action,
+      entityFields: next.length > 0 ? next : undefined,
+    });
+  }
+
+  function addRelatedField(relationFieldId: string, fieldId: string) {
+    setRelatedFields([
+      ...relatedFields,
+      {
+        id: createViewRelatedFieldId(),
+        relationFieldId,
+        fieldId,
+      },
+    ]);
+  }
+
+  function addLinkedTabField(linkedTabId: string, fieldId: string) {
+    setRelatedFields([
+      ...relatedFields,
+      {
+        id: createViewRelatedFieldId(),
+        relationFieldId: "",
+        linkedTabId,
+        fieldId,
+      },
+    ]);
+  }
+
+  function removeRelatedField(id: string) {
+    setRelatedFields(relatedFields.filter((item) => item.id !== id));
+  }
+
+  function resolveRelatedLabel(item: AutomationAskRelatedField) {
+    if (!sourceEntity) {
+      return { scope: "Связь", field: item.fieldId };
+    }
+    if (item.linkedTabId) {
+      const tab = sourceEntity.tabs.find(
+        (entry) => entry.id === item.linkedTabId,
+      );
+      const target = tab?.linkedEntityId
+        ? entityById.get(tab.linkedEntityId)
+        : undefined;
+      const targetField = target?.fields.find(
+        (field) => field.id === item.fieldId,
+      );
+      return {
+        scope:
+          tab?.name.trim() ||
+          (target ? getEntityDisplayName(target) : "Подсущность"),
+        field: targetField
+          ? getEntityFieldDisplayName(targetField)
+          : item.fieldId,
+      };
+    }
+    const relation = sourceEntity.fields.find(
+      (field) => field.id === item.relationFieldId,
+    );
+    const targetId = relation ? getEntityRelationTargetId(relation) : null;
+    const target = targetId ? entityById.get(targetId) : undefined;
+    const targetField = target?.fields.find(
+      (field) => field.id === item.fieldId,
+    );
+    return {
+      scope: relation ? getEntityFieldDisplayName(relation) : "Связь",
+      field: targetField
+        ? getEntityFieldDisplayName(targetField)
+        : item.fieldId,
+    };
+  }
+
+  function addEntityField() {
+    if (!sourceEntity) return;
+    const preferred =
+      entities.find((item) => item.id !== sourceEntity.id) ?? entities[0];
+    if (!preferred) return;
+    const field =
+      preferred.fields.find(isViewableContextField) ?? preferred.fields[0];
+    if (!field) return;
+    const matches = suggestViewEntityMatches(preferred, sourceEntity);
+    if (matches.length === 0) return;
+    setEntityFields([
+      ...entityFields,
+      {
+        id: createViewEntityFieldId(),
+        entityId: preferred.id,
+        fieldId: field.id,
+        matches,
+      },
+    ]);
+  }
+
+  function updateEntityField(
+    id: string,
+    patch: Partial<AutomationViewEntityField>,
+  ) {
+    setEntityFields(
+      entityFields.map((item) =>
+        item.id === id ? { ...item, ...patch } : item,
+      ),
+    );
+  }
+
+  function removeEntityField(id: string) {
+    setEntityFields(entityFields.filter((item) => item.id !== id));
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <RequireFieldsEditor
+        fields={triggerFields}
+        selectedIds={action.fieldIds}
+        title="Показать в форме задачи"
+        hint="Только просмотр — чтобы заполнять другие поля на их основе"
+        onChange={setFieldIds}
+      />
+
+      {sourceEntity ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0 flex-col gap-0.5">
+              <p className="text-[11px] font-medium text-muted-foreground">
+                Связанные поля
+              </p>
+              <p className="text-[10px] leading-snug text-muted-foreground/80">
+                Через связь или подсущность текущей записи
+              </p>
+            </div>
+            {canAddRelated ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 border-dashed px-2 text-xs text-muted-foreground"
+                    />
+                  }
+                >
+                  <Plus className="size-3.5 shrink-0" />
+                  Поле
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-72 min-w-52">
+                  {relatedPickers.length > 0 ? (
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                        Через связь
+                      </DropdownMenuLabel>
+                      {relatedPickers.map(
+                        ({ relation, target, availableFields }) => (
+                          <DropdownMenuSub key={relation.id}>
+                            <DropdownMenuSubTrigger>
+                              {getEntityFieldDisplayName(relation)}
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="max-h-64 min-w-44">
+                              <DropdownMenuGroup>
+                                <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+                                  {getEntityDisplayName(target)}
+                                </DropdownMenuLabel>
+                                {availableFields.map((field) => (
+                                  <DropdownMenuItem
+                                    key={field.id}
+                                    onClick={() =>
+                                      addRelatedField(relation.id, field.id)
+                                    }
+                                  >
+                                    {getEntityFieldDisplayName(field)}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuGroup>
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
+                        ),
+                      )}
+                    </DropdownMenuGroup>
+                  ) : null}
+                  {relatedPickers.length > 0 && linkedTabPickers.length > 0 ? (
+                    <DropdownMenuSeparator />
+                  ) : null}
+                  {linkedTabPickers.length > 0 ? (
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
+                        Подсущность
+                      </DropdownMenuLabel>
+                      {linkedTabPickers.map(
+                        ({ tab, target, availableFields }) => (
+                          <DropdownMenuSub key={tab.id}>
+                            <DropdownMenuSubTrigger>
+                              {tab.name.trim() || getEntityDisplayName(target)}
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="max-h-64 min-w-44">
+                              <DropdownMenuGroup>
+                                <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+                                  {getEntityDisplayName(target)}
+                                </DropdownMenuLabel>
+                                {availableFields.map((field) => (
+                                  <DropdownMenuItem
+                                    key={field.id}
+                                    onClick={() =>
+                                      addLinkedTabField(tab.id, field.id)
+                                    }
+                                  >
+                                    {getEntityFieldDisplayName(field)}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuGroup>
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
+                        ),
+                      )}
+                    </DropdownMenuGroup>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
+          {relatedFields.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">Не выбрано</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {relatedFields.map((item) => {
+                const labels = resolveRelatedLabel(item);
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-2 py-1.5"
+                  >
+                    <p className="min-w-0 flex-1 truncate text-xs">
+                      <span className="text-muted-foreground">
+                        {labels.scope}
+                      </span>
+                      <span className="text-muted-foreground/50"> · </span>
+                      <span>{labels.field}</span>
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label="Удалить"
+                      onClick={() => removeRelatedField(item.id)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {sourceEntity ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-muted-foreground">
+                Из другой сущности
+              </p>
+              <p className="text-[10px] leading-snug text-muted-foreground/80">
+                Найти запись по совпадению полей с текущей
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 border-dashed px-2 text-xs text-muted-foreground"
+              onClick={addEntityField}
+              disabled={entities.length === 0}
+            >
+              <Plus className="size-3.5 shrink-0" />
+              Добавить
+            </Button>
+          </div>
+          {entityFields.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">Не выбрано</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {entityFields.map((item) => {
+                const target = entityById.get(item.entityId) ?? null;
+                const targetFields =
+                  target?.fields.filter(isViewableContextField) ?? [];
+                const triggerMatchFields = sourceEntity.fields.filter(
+                  isViewableContextField,
+                );
+                return (
+                  <div
+                    key={item.id}
+                    className="flex flex-col gap-2 rounded-md border border-border/70 bg-muted/15 p-2"
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className="grid min-w-0 flex-1 gap-1.5 sm:grid-cols-2">
+                        <EntitySelect
+                          entities={entities}
+                          sourceEntity={sourceEntity}
+                          value={item.entityId}
+                          onChange={(entityId) => {
+                            const nextTarget = entityById.get(entityId);
+                            if (!nextTarget) {
+                              updateEntityField(item.id, { entityId });
+                              return;
+                            }
+                            const nextField =
+                              nextTarget.fields.find(isViewableContextField) ??
+                              nextTarget.fields[0];
+                            const matches = suggestViewEntityMatches(
+                              nextTarget,
+                              sourceEntity,
+                            );
+                            updateEntityField(item.id, {
+                              entityId,
+                              fieldId: nextField?.id ?? "",
+                              matches:
+                                matches.length > 0 ? matches : item.matches,
+                            });
+                          }}
+                        />
+                        <FieldSelect
+                          fields={targetFields}
+                          value={item.fieldId}
+                          placeholder="Поле"
+                          onChange={(fieldId) =>
+                            updateEntityField(item.id, { fieldId })
+                          }
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        aria-label="Удалить"
+                        onClick={() => removeEntityField(item.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-[10px] font-medium text-muted-foreground">
+                        Параметры совпадения
+                      </p>
+                      {item.matches.map((match, matchIndex) => (
+                        <div
+                          key={`${match.entityFieldId}:${match.triggerFieldId}:${matchIndex}`}
+                          className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-1.5"
+                        >
+                          <FieldSelect
+                            fields={targetFields}
+                            value={match.entityFieldId}
+                            placeholder="Поле сущности"
+                            onChange={(entityFieldId) => {
+                              const matches = item.matches.map((row, index) =>
+                                index === matchIndex
+                                  ? { ...row, entityFieldId }
+                                  : row,
+                              );
+                              updateEntityField(item.id, { matches });
+                            }}
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            =
+                          </span>
+                          <FieldSelect
+                            fields={triggerMatchFields}
+                            value={match.triggerFieldId}
+                            placeholder="Поле записи"
+                            onChange={(triggerFieldId) => {
+                              const matches = item.matches.map((row, index) =>
+                                index === matchIndex
+                                  ? { ...row, triggerFieldId }
+                                  : row,
+                              );
+                              updateEntityField(item.id, { matches });
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="size-6 shrink-0 text-muted-foreground hover:text-destructive"
+                            aria-label="Удалить условие"
+                            disabled={item.matches.length <= 1}
+                            onClick={() => {
+                              const matches = item.matches.filter(
+                                (_, index) => index !== matchIndex,
+                              );
+                              updateEntityField(item.id, { matches });
+                            }}
+                          >
+                            <Trash2 className="size-3" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 justify-start px-1.5 text-xs text-muted-foreground"
+                        onClick={() => {
+                          const entityFieldId =
+                            targetFields.find(
+                              (field) =>
+                                !item.matches.some(
+                                  (row) => row.entityFieldId === field.id,
+                                ),
+                            )?.id ??
+                            targetFields[0]?.id ??
+                            "";
+                          const triggerFieldId =
+                            triggerMatchFields.find(
+                              (field) =>
+                                !item.matches.some(
+                                  (row) => row.triggerFieldId === field.id,
+                                ),
+                            )?.id ??
+                            triggerMatchFields[0]?.id ??
+                            "";
+                          if (!entityFieldId || !triggerFieldId) return;
+                          updateEntityField(item.id, {
+                            matches: [
+                              ...item.matches,
+                              { entityFieldId, triggerFieldId },
+                            ],
+                          });
+                        }}
+                      >
+                        <Plus className="size-3.5" />
+                        Условие
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       ) : null}
     </div>
   );

@@ -5,6 +5,7 @@ import {
   automationRequiresTimeTracking,
   getAutomationUploadTarget,
   resolveAutomationGateError,
+  resolveViewEntityFieldsLayout,
   type AutomationTask,
 } from "@/entities/automation";
 import { cn } from "@/shared/lib/cn";
@@ -76,6 +77,7 @@ import {
 import { resumePendingRecordListChange } from "../model/pending-list-change";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
+import { TaskViewContextFields } from "./TaskViewContextFields";
 import { TaskViewTabsPreview } from "./TaskViewTabsPreview";
 
 function recordTitle(
@@ -313,6 +315,31 @@ function TaskWorkspaceBody({
         })
       : { groups: [], emptyRelations: [] };
 
+  const viewRelatedFieldsForForm = ask?.viewRelatedFields ?? [];
+  const viewEntityFieldsForForm = ask?.viewEntityFields ?? [];
+  const viewRelatedLayout =
+    entity && viewRelatedFieldsForForm.length > 0
+      ? resolveRelatedAskLayout({
+          triggerEntity: entity,
+          entities,
+          relatedFields: viewRelatedFieldsForForm,
+          relatedRequiredIds: [],
+          triggerValues: { ...(record?.values ?? {}), ...values },
+          triggerRecordId: record?.id ?? task.recordId,
+          ctx: previewContext,
+        })
+      : { groups: [], emptyRelations: [] };
+  const viewEntityLayout =
+    entity && viewEntityFieldsForForm.length > 0
+      ? resolveViewEntityFieldsLayout({
+          triggerEntity: entity,
+          entities,
+          entityFields: viewEntityFieldsForForm,
+          triggerValues: { ...(record?.values ?? {}), ...values },
+          ctx: previewContext,
+        })
+      : { groups: [], empty: [] };
+
   function applyOutcomeAutofill(outcomeId: string) {
     if (!entity || !record) return;
     const outcome =
@@ -400,13 +427,16 @@ function TaskWorkspaceBody({
   const earlyViewTabIds = taskAsk.viewTabIds;
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
+  const hasViewContext =
+    viewFields.length > 0 ||
+    viewRelatedLayout.groups.length > 0 ||
+    viewRelatedLayout.emptyRelations.length > 0 ||
+    viewEntityLayout.groups.length > 0 ||
+    viewEntityLayout.empty.length > 0;
   const hasCreateAsk = createAskSlots.length > 0;
   const hasFillForm =
     ask != null &&
-    (fields.length > 0 ||
-      viewFields.length > 0 ||
-      hasRelatedAsk ||
-      hasCreateAsk);
+    (fields.length > 0 || hasViewContext || hasRelatedAsk || hasCreateAsk);
   const missingLocalRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {
         const field = entity?.fields.find((item) => item.id === fieldId);
@@ -766,36 +796,32 @@ function TaskWorkspaceBody({
                     {autosave.error ?? autosaveLabel}
                   </p>
                 ) : null}
-                {viewFields.length > 0 ? (
-                  <div className="flex flex-col gap-2.5">
-                    <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                      Контекст
-                    </p>
-                    <div className="grid gap-2">
-                      {viewFields.map((field) => (
-                        <div
-                          key={field.id}
-                          className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5"
-                        >
-                          <p className="text-[11px] font-medium text-muted-foreground">
-                            {getEntityFieldDisplayName(field)}
-                          </p>
-                          <RecordValue
-                            ctx={previewContext}
-                            entity={entity}
-                            record={{ ...record, values: mergedValues }}
-                            field={field}
-                            className="mt-0.5 text-sm text-foreground"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                {hasViewContext ? (
+                  <TaskViewContextFields
+                    triggerViewFields={viewFields.map((field) => ({
+                      id: field.id,
+                      label: getEntityFieldDisplayName(field),
+                      node: (
+                        <RecordValue
+                          ctx={previewContext}
+                          entity={entity}
+                          record={{ ...record, values: mergedValues }}
+                          field={field}
+                          className="text-sm text-foreground"
+                        />
+                      ),
+                    }))}
+                    relatedGroups={viewRelatedLayout.groups}
+                    relatedEmpty={viewRelatedLayout.emptyRelations}
+                    entityGroups={viewEntityLayout.groups}
+                    entityEmpty={viewEntityLayout.empty}
+                    ctx={previewContext}
+                  />
                 ) : null}
 
                 {fields.length > 0 ? (
                   <div className="flex flex-col gap-3.5">
-                    {viewFields.length > 0 ? (
+                    {hasViewContext ? (
                       <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
                         Заполнить
                       </p>

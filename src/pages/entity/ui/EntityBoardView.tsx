@@ -69,7 +69,7 @@ type EntityBoardViewProps = {
   onEditRecord?: (record: EntityRecord) => void;
   onOpenRecord?: (record: EntityRecord) => void;
   onOpenRelation?: (entityId: string, recordId: string) => void;
-  onCreateChildRecord?: (groupValue: string) => void;
+  onCreateChildRecord?: (groupValue: string, subgroupValue?: string) => void;
 };
 
 function PanelChrome({
@@ -385,7 +385,7 @@ function BoardPanel({
   onEditRecord?: (record: EntityRecord) => void;
   onOpenRecord?: (record: EntityRecord) => void;
   onOpenRelation?: (entityId: string, recordId: string) => void;
-  onCreateChildRecord?: (groupValue: string) => void;
+  onCreateChildRecord?: (groupValue: string, subgroupValue?: string) => void;
 }) {
   if (panel.type === "records") {
     return (

@@ -41,9 +41,13 @@ export function AutomationTasksHost() {
   const queuedSyncRef = useRef(false);
   const lastSilentErrorKeyRef = useRef<string | null>(null);
   // Inbox / task page — user opens rows themselves; never auto-popup there.
-  const onTasksSurfaceRef = useRef(false);
-  onTasksSurfaceRef.current =
+  const onTasksSurface =
     appLocation.type === "tasks" || appLocation.type === "task";
+  const onTasksSurfaceRef = useRef(onTasksSurface);
+
+  useEffect(() => {
+    onTasksSurfaceRef.current = onTasksSurface;
+  }, [onTasksSurface]);
 
   useEffect(() => {
     const unsubscribe = subscribeAutomationTaskDialog(() => {
@@ -56,10 +60,10 @@ export function AutomationTasksHost() {
 
   // On the inbox the list is the UI — close any auto-opened fill overlay.
   useEffect(() => {
-    if (!onTasksSurfaceRef.current) return;
+    if (!onTasksSurface) return;
     if (getActiveAutomationTaskDialogId() == null) return;
     closeAutomationTaskFillDialog({ dismiss: true });
-  }, [appLocation.type]);
+  }, [onTasksSurface]);
 
   const profileRecordId = sessionUser?.id
     ? (findSystemUserByAuthId(entities, sessionUser.id)?.id ?? null)

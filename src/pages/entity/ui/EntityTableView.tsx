@@ -66,6 +66,7 @@ import {
   flattenEntityTableHierarchyRows,
   parseEntityTableParentGroupIds,
   resolveEntityTableParentField,
+  resolveEntityTableSubgroupField,
   updateEntityRecord,
   useEntityConfig,
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
@@ -300,16 +301,24 @@ function TableSelectCheckbox({
  * Tree gutter matches the group chevron column (size-6).
  * Placed at left-3 so it lines up with in-flow content after cell px-3;
  * stem at left-1/2 = exact chevron center. Arm w-2 ends before pl-9 content.
+ * `level` 1 — under a root group; 2 — under a subgroup (extra inset).
  */
 function HierarchyTreeGuides({
   isFirst,
   isLast,
+  level = 1,
 }: {
   isFirst: boolean;
   isLast: boolean;
+  level?: 1 | 2;
 }) {
   return (
-    <div className="pointer-events-none absolute inset-y-0 left-3 w-6">
+    <div
+      className={cn(
+        "pointer-events-none absolute inset-y-0 w-6",
+        level === 2 ? "left-12" : "left-3",
+      )}
+    >
       <TreeBranchGuides
         isFirst={isFirst}
         isLast={isLast}
@@ -330,8 +339,11 @@ type EntityTableViewProps = {
   /** Row click — open full record (optional). */
   onOpenRecord?: (record: EntityRecord) => void;
   onOpenRelation?: (entityId: string, recordId: string) => void;
-  /** Create a record under this hierarchy group (list option id). */
-  onCreateChildRecord?: (groupValue: string) => void;
+  /**
+   * Create a record under this hierarchy group.
+   * `groupValue` — parent group option id; `subgroupValue` — optional subgroup.
+   */
+  onCreateChildRecord?: (groupValue: string, subgroupValue?: string) => void;
   /** Hide the filter bar (filters applied upstream, e.g. board layout). */
   hideFilters?: boolean;
 };
@@ -415,15 +427,21 @@ export function EntityTableView({
     () => resolveEntityTableParentField(entity),
     [entity],
   );
+  const subgroupField = useMemo(
+    () => resolveEntityTableSubgroupField(entity),
+    [entity],
+  );
   const tableFields = useMemo(() => {
     const fields = getEntityTableFields(entity.fields, {
       preferArrayOrder: isEntityInternal(entity),
     });
     if (!parentField) return fields;
-    return fields.filter((field) => field.id !== parentField.id);
-  }, [entity, parentField]);
+    return fields.filter(
+      (field) => field.id !== parentField.id && field.id !== subgroupField?.id,
+    );
+  }, [entity, parentField, subgroupField]);
   const filterFields = getEntityBrowseFilterFields(entity).filter(
-    (field) => field.id !== parentField?.id,
+    (field) => field.id !== parentField?.id && field.id !== subgroupField?.id,
   );
 
   const [selectionEntityId, setSelectionEntityId] = useState(entity.id);
@@ -442,7 +460,7 @@ export function EntityTableView({
 
   const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
   const sortKey = sort ? `${sort.fieldId}:${sort.direction}` : "";
-  const paginationResetKey = `${entity.id}|${search}|${filtersKey}|${sortKey}|${pageSize}|${parentField?.id ?? ""}`;
+  const paginationResetKey = `${entity.id}|${search}|${filtersKey}|${sortKey}|${pageSize}|${parentField?.id ?? ""}|${subgroupField?.id ?? ""}`;
   const [activePaginationKey, setActivePaginationKey] =
     useState(paginationResetKey);
 
@@ -478,17 +496,28 @@ export function EntityTableView({
 
   const hierarchyGroupIds = useMemo(() => {
     if (!parentField) return new Set<string>();
-    const ids = new Set<string>();
+    const rootIds = new Set<string>();
     for (const record of filteredRecords) {
       for (const id of parseEntityTableParentGroupIds(
         parentField,
         record.values[parentField.id],
       )) {
-        ids.add(id);
+        rootIds.add(id);
       }
     }
-    return ids;
-  }, [filteredRecords, parentField]);
+    // Expand roots so subgroup row ids appear in the scan.
+    return new Set(
+      flattenEntityTableHierarchyRows(
+        filteredRecords,
+        parentField,
+        rootIds,
+        entities,
+        subgroupField,
+      )
+        .filter((row) => row.kind === "group")
+        .map((row) => row.id),
+    );
+  }, [entities, filteredRecords, parentField, subgroupField]);
 
   const effectiveExpandedIds = useMemo(() => {
     const next = new Set<string>();
@@ -505,13 +534,22 @@ export function EntityTableView({
       parentField,
       effectiveExpandedIds,
       entities,
+      subgroupField,
     );
-  }, [effectiveExpandedIds, entities, filteredRecords, parentField]);
+  }, [
+    effectiveExpandedIds,
+    entities,
+    filteredRecords,
+    parentField,
+    subgroupField,
+  ]);
 
-  const hierarchyRootRows = useMemo(
-    () => hierarchyRows?.filter((row) => row.kind === "group") ?? null,
-    [hierarchyRows],
-  );
+  const hierarchyRootRows = useMemo(() => {
+    if (!hierarchyRows) return null;
+    return hierarchyRows.flatMap((row) =>
+      row.kind === "group" && row.depth === 0 ? [row] : [],
+    );
+  }, [hierarchyRows]);
 
   const total = hierarchyRootRows
     ? hierarchyRootRows.length
@@ -527,8 +565,10 @@ export function EntityTableView({
     );
     return hierarchyRows.filter((row) =>
       row.kind === "group"
-        ? pagedRoots.has(row.id)
-        : pagedRoots.has(row.groupId),
+        ? row.depth === 0
+          ? pagedRoots.has(row.id)
+          : pagedRoots.has(row.parentGroupId ?? "")
+        : pagedRoots.has(row.rootGroupId),
     );
   }, [currentPage, hierarchyRootRows, hierarchyRows, pageSize]);
 
@@ -553,7 +593,11 @@ export function EntityTableView({
       let start = -1;
       let end = i;
       for (let j = i + 1; j < pagedHierarchyRows.length; j += 1) {
-        if (pagedHierarchyRows[j]!.kind === "group") break;
+        const next = pagedHierarchyRows[j]!;
+        // Stop at next sibling-or-ancestor group (same or shallower depth).
+        if (next.kind === "group" && next.depth <= row.depth) break;
+        if (next.kind !== "record") continue;
+        if (next.groupId !== row.id) continue;
         if (start < 0) start = j;
         end = j;
       }
@@ -588,7 +632,7 @@ export function EntityTableView({
     for (const row of pagedHierarchyRows) {
       if (row.kind === "group") {
         meta.set(`group:${row.id}`, {
-          depth: 0,
+          depth: row.depth,
           hasChildren: row.childCount > 0,
           childCount: row.childCount,
           expanded: effectiveExpandedIds.has(row.id),
@@ -603,7 +647,7 @@ export function EntityTableView({
       }
       const key = rowKey(row.groupId, row.record.id);
       meta.set(key, {
-        depth: 1,
+        depth: row.depth,
         hasChildren: false,
         childCount: 0,
         expanded: false,
@@ -895,16 +939,22 @@ export function EntityTableView({
                       kind: "record" as const,
                       record,
                       groupId: "",
+                      rootGroupId: "",
                       depth: 1 as const,
                     }))
                   ).map((row) => {
                     if (row.kind === "group") {
                       const expanded = effectiveExpandedIds.has(row.id);
+                      const isSubgroup = row.depth === 1;
+                      const rootGroupId = isSubgroup
+                        ? (row.parentGroupId ?? "")
+                        : row.id;
                       return (
                         <TableRow
                           key={`group:${row.id}`}
                           className={cn(
-                            "border-border/70 bg-muted/55",
+                            "border-border/70",
+                            isSubgroup ? "bg-muted/30" : "bg-muted/55",
                             expanded
                               ? "border-b-transparent"
                               : "border-b-border/70",
@@ -915,9 +965,23 @@ export function EntityTableView({
                           ) : null}
                           <TableCell
                             colSpan={Math.max(tableFields.length, 1)}
-                            className="relative min-w-0 px-3 py-2 font-semibold text-foreground"
+                            className={cn(
+                              "relative min-w-0 px-3 py-2 text-foreground",
+                              isSubgroup ? "font-medium" : "font-semibold",
+                            )}
                           >
-                            <div className="flex min-w-0 items-center gap-1.5">
+                            {isSubgroup ? (
+                              <HierarchyTreeGuides
+                                isFirst={false}
+                                isLast={!expanded}
+                              />
+                            ) : null}
+                            <div
+                              className={cn(
+                                "flex min-w-0 items-center gap-1.5",
+                                isSubgroup && "pl-9",
+                              )}
+                            >
                               <button
                                 type="button"
                                 className={cn(
@@ -969,9 +1033,13 @@ export function EntityTableView({
                                     setExpandedHierarchyIds((prev) => {
                                       const next = new Set(prev);
                                       next.add(row.id);
+                                      if (rootGroupId) next.add(rootGroupId);
                                       return next;
                                     });
-                                    onCreateChildRecord(row.id);
+                                    onCreateChildRecord(
+                                      rootGroupId,
+                                      isSubgroup ? row.valueId : undefined,
+                                    );
                                   }}
                                 >
                                   <Plus className="size-3.5" />
@@ -988,6 +1056,8 @@ export function EntityTableView({
                     const rowSelected = selectedSet.has(record.id);
                     const hierarchyMeta = hierarchyMetaById?.get(rowKey);
                     const hierarchyDepth = hierarchyMeta?.depth ?? 0;
+                    const hierarchyTreeLevel: 1 | 2 =
+                      hierarchyDepth >= 2 ? 2 : 1;
                     const hierarchyInOpenGroup =
                       hierarchyMeta?.inOpenGroup === true;
                     const hierarchyIsGroupStart =
@@ -1093,7 +1163,12 @@ export function EntityTableView({
                                   "pl-3.5",
                                 hierarchySepInset &&
                                   (index === 0 && hierarchyDepth > 0
-                                    ? "after:pointer-events-none after:absolute after:right-0 after:bottom-0 after:left-9 after:h-px after:bg-border/50"
+                                    ? cn(
+                                        "after:pointer-events-none after:absolute after:right-0 after:bottom-0 after:h-px after:bg-border/50",
+                                        hierarchyTreeLevel === 2
+                                          ? "after:left-[4.5rem]"
+                                          : "after:left-9",
+                                      )
                                     : "border-b border-border/50"),
                               )}
                               title={
@@ -1111,6 +1186,7 @@ export function EntityTableView({
                                 <HierarchyTreeGuides
                                   isFirst={hierarchyIsGroupStart}
                                   isLast={hierarchyIsGroupEnd}
+                                  level={hierarchyTreeLevel}
                                 />
                               ) : null}
                               <div
@@ -1118,7 +1194,12 @@ export function EntityTableView({
                                   "min-w-0",
                                   index === 0 &&
                                     hierarchyDepth > 0 &&
-                                    "overflow-hidden pl-9",
+                                    "overflow-hidden",
+                                  index === 0 &&
+                                    hierarchyDepth > 0 &&
+                                    (hierarchyTreeLevel === 2
+                                      ? "pl-[4.5rem]"
+                                      : "pl-9"),
                                 )}
                               >
                                 {field.type === "boolean" &&

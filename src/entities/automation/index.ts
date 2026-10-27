@@ -17,6 +17,13 @@ export {
   type HostChildParentLink,
 } from "./lib/ask-related";
 export {
+  resolveViewEntityFieldsLayout,
+  viewEntityFieldValuesMatch,
+  type ViewEntityEmpty,
+  type ViewEntityFieldRow,
+  type ViewEntityGroup,
+} from "./lib/view-entity-field";
+export {
   defaultCreateAskFieldIds,
   getCreateAskableFields,
   resolveCreateRecordAskFields,
@@ -164,7 +171,10 @@ export {
   type AutomationNotificationEvent,
   type AutomationNotificationRule,
   type AutomationAskRelatedField,
+  type AutomationViewEntityField,
   type AutomationFieldAskOptions,
+  normalizeAskRelatedFields,
+  normalizeViewEntityFields,
   type AutomationOutcome,
   type AutomationOutcomeFieldAccess,
   type AutomationRelationGroupsAskMode,

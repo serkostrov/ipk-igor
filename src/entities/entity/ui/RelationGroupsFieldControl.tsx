@@ -25,7 +25,7 @@ import {
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   getRelationRecordOptions,
-  isEntityNameField,
+  isEntityRelationRecordGhost,
   resolveRelationRecordLabel,
   type Entity,
   type EntityField,
@@ -65,17 +65,14 @@ function formatRecordExtras(
 }
 
 /** True when the catalog record exists and has a real title (not a ghost). */
-function isSelectableRecord(entity: Entity | null | undefined, id: string) {
+function isSelectableRecord(
+  entity: Entity | null | undefined,
+  id: string,
+  entities?: readonly Entity[],
+) {
   if (!entity || !id.trim()) return false;
-  const record = entity.records.find((item) => item.id === id);
-  if (!record) return false;
-  const nameField = entity.fields.find((field) => isEntityNameField(field));
-  if (!nameField) return true;
-  const name = (record.values[nameField.id] ?? "").trim();
-  if (name) return true;
-  // Empty name + empty template display → ghost «Без названия».
-  const label = resolveRelationRecordLabel(entity, id)?.trim() ?? "";
-  return Boolean(label && label !== "Без названия" && label !== id);
+  if (!entity.records.some((item) => item.id === id)) return false;
+  return !isEntityRelationRecordGhost(entity, id, entities);
 }
 
 function isSelectableListOption(
@@ -96,8 +93,7 @@ function recordTitle(
   const record = entity.records.find((item) => item.id === recordId);
   if (!record) return "Удалённая запись";
   return (
-    resolveRelationRecordLabel(entity, recordId, ctx.entities) ??
-    "Без названия"
+    resolveRelationRecordLabel(entity, recordId, ctx.entities) ?? "Без названия"
   );
 }
 
@@ -193,12 +189,22 @@ function allowedIdsFromParent(
 function seedChildren(
   defaults: readonly string[],
   deeperDefaults: readonly (readonly string[])[],
+  isValidId?: (id: string, depth: number) => boolean,
+  depth = 1,
 ): EntityRelationGroupNode[] {
   if (defaults.length === 0) return [];
-  return defaults.map((id) => ({
-    id,
-    children: seedChildren(deeperDefaults[0] ?? [], deeperDefaults.slice(1)),
-  }));
+  return defaults
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0 && (isValidId ? isValidId(id, depth) : true))
+    .map((id) => ({
+      id,
+      children: seedChildren(
+        deeperDefaults[0] ?? [],
+        deeperDefaults.slice(1),
+        isValidId,
+        depth + 1,
+      ),
+    }));
 }
 
 function findNode(
@@ -268,23 +274,28 @@ export function RelationGroupsFieldControl({
         return isSelectableListOption(sourceField, itemId);
       }
     }
-    return isSelectableRecord(levelEntityAt(depth), itemId);
+    return isSelectableRecord(levelEntityAt(depth), itemId, ctx.entities);
   }
 
   const parsedGroups = parseEntityRelationGroups(value);
   const groups = pruneEntityRelationGroupsNodes(parsedGroups, isValidGroupId);
   const prunedValue = serializeEntityRelationGroups(groups);
-  const lastPrunedRef = useRef<string | null>(null);
+  const lastSentPruneRef = useRef<string | null>(null);
 
-  // Drop ghost / deleted ids that show up as «Без названия» without being picked.
+  // Push a cleaned value once per dirty snapshot. Parent paths
+  // (`applyEntityFieldValue` / sanitize) also strip ghosts on write.
   useEffect(() => {
-    if (prunedValue === value) return;
-    if (lastPrunedRef.current === prunedValue) return;
-    lastPrunedRef.current = prunedValue;
+    if (prunedValue === value) {
+      lastSentPruneRef.current = null;
+      return;
+    }
+    if (lastSentPruneRef.current === `${value}→${prunedValue}`) return;
+    lastSentPruneRef.current = `${value}→${prunedValue}`;
     onChange(prunedValue);
   }, [onChange, prunedValue, value]);
 
   function commit(next: EntityRelationGroupNode[]) {
+    lastSentPruneRef.current = null;
     onChange(
       serializeEntityRelationGroups(
         pruneEntityRelationGroupsNodes(next, isValidGroupId),
@@ -296,14 +307,22 @@ export function RelationGroupsFieldControl({
     const byId = new Map(groups.map((node) => [node.id, node]));
     const defaultsFrom = levels.slice(1).map((level) => level.defaultIds);
     commit(
-      nextIds.map((itemId) => {
-        const existing = byId.get(itemId);
-        if (existing) return existing;
-        return {
-          id: itemId,
-          children: seedChildren(defaultsFrom[0] ?? [], defaultsFrom.slice(1)),
-        };
-      }),
+      nextIds
+        .map((itemId) => itemId.trim())
+        .filter((itemId) => isValidGroupId(itemId, 0))
+        .map((itemId) => {
+          const existing = byId.get(itemId);
+          if (existing) return existing;
+          return {
+            id: itemId,
+            children: seedChildren(
+              defaultsFrom[0] ?? [],
+              defaultsFrom.slice(1),
+              isValidGroupId,
+              1,
+            ),
+          };
+        }),
     );
   }
 
@@ -316,14 +335,22 @@ export function RelationGroupsFieldControl({
     const byId = new Map(
       (existingBranch?.children ?? []).map((node) => [node.id, node]),
     );
-    const nextChildren = childIds.map((childId) => {
-      const existing = byId.get(childId);
-      if (existing) return existing;
-      return {
-        id: childId,
-        children: seedChildren(defaultsFrom[0] ?? [], defaultsFrom.slice(1)),
-      };
-    });
+    const nextChildren = childIds
+      .map((childId) => childId.trim())
+      .filter((childId) => isValidGroupId(childId, childLevelIndex))
+      .map((childId) => {
+        const existing = byId.get(childId);
+        if (existing) return existing;
+        return {
+          id: childId,
+          children: seedChildren(
+            defaultsFrom[0] ?? [],
+            defaultsFrom.slice(1),
+            isValidGroupId,
+            childLevelIndex + 1,
+          ),
+        };
+      });
     commit(updateRelationGroupsNodeChildren(groups, path, nextChildren));
   }
 
@@ -342,7 +369,7 @@ export function RelationGroupsFieldControl({
     ctx,
     rootEntity,
     getRelationRecordOptions(rootEntity, ctx.entities).filter((option) =>
-      isSelectableRecord(rootEntity, option.id),
+      isSelectableRecord(rootEntity, option.id, ctx.entities),
     ),
     rootLevel.displayFieldIds,
   );
@@ -382,7 +409,7 @@ export function RelationGroupsFieldControl({
             entity,
             getRelationRecordOptions(entity, ctx.entities).filter(
               (option) =>
-                isSelectableRecord(entity, option.id) &&
+                isSelectableRecord(entity, option.id, ctx.entities) &&
                 (allowed ? allowed.has(option.id) : true),
             ),
             level.displayFieldIds,
