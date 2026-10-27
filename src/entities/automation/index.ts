@@ -9,6 +9,7 @@ export {
   resolveCreateParentFromRelated,
   resolveHostChildParentLinkField,
   resolveLinkedTabParentLinkFieldId,
+  resolveParentForwardChildField,
   type AskRelatedTargetResolution,
   type CreateParentFromRelatedOption,
   type CreateParentFromRelatedResolution,

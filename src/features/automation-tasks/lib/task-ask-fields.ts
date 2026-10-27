@@ -425,11 +425,13 @@ export function getOutcomeCreateAskSlots(
       entity,
     );
 
+    const linkAllParents = hasRelatedParents && action.alsoLinkTrigger === true;
+
     if (hasRelatedParents) {
-      underRelatedParents = [];
       const emptyLabels: string[] = [];
       const parentLabels: string[] = [];
       const seenParentRecords = new Set<string>();
+      const relatedParentsList: AutomationCreateAskUnderRelatedParent[] = [];
       if (sourceEntity && options.triggerRecordId) {
         for (const parentFrom of parentFromRelatedList) {
           const resolved = resolveCreateParentFromRelated({
@@ -445,7 +447,7 @@ export function getOutcomeCreateAskSlots(
           for (const parentRecordId of new Set(resolved.parentRecordIds)) {
             if (seenParentRecords.has(parentRecordId)) continue;
             seenParentRecords.add(parentRecordId);
-            underRelatedParents.push({
+            relatedParentsList.push({
               parentRecordId,
               parentTitle:
                 options.getRecordTitle?.(
@@ -471,16 +473,26 @@ export function getOutcomeCreateAskSlots(
         parentLabels.length > 1
           ? [...new Set(parentLabels)].join(", ")
           : (parentLabels[0] ?? underRelatedEmptyLabel);
-      entityLabel = useEntityCreateForm
-        ? `Новые «${childLabel}»`
-        : `${childLabel} · в «${scopeLabel}»`;
+      if (linkAllParents) {
+        // Unified list: one draft set linked to trigger + all related parents.
+        underRelatedParents = undefined;
+        entityLabel = useEntityCreateForm
+          ? `Новые «${childLabel}»`
+          : sourceEntity
+            ? `${childLabel} · к «${getEntityDisplayName(sourceEntity)}» и «${scopeLabel}»`
+            : `${childLabel} · к «${scopeLabel}»`;
+      } else {
+        underRelatedParents = relatedParentsList;
+        entityLabel = useEntityCreateForm
+          ? `Новые «${childLabel}»`
+          : `${childLabel} · в «${scopeLabel}»`;
+      }
     } else if (useEntityCreateForm) {
       entityLabel = `Новые «${entityLabel}»`;
     }
 
     const linkToTriggerMultiple =
-      (multiple && !hasRelatedParents) ||
-      (hasRelatedParents && action.alsoLinkTrigger === true);
+      (multiple && !hasRelatedParents) || linkAllParents;
 
     slots.push({
       actionId: action.id,

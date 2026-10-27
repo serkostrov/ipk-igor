@@ -100,12 +100,15 @@ export type AutomationAction =
       /**
        * Link new rows to existing related parents on the trigger
        * (e.g. «Подзадачи» → each «Расчёт отдела»), not only to the trigger.
-       * Several entries = create under each selected parent scope.
+       * Without `alsoLinkTrigger`: create under each related parent record.
+       * With `alsoLinkTrigger`: create once and link to the trigger **and**
+       * all related parents (one record, several связей).
        */
       parentFromRelated?: AutomationCreateParentFromRelated[];
       /**
-       * When `parentFromRelated` is set, also create rows under the current
-       * trigger record (multi-select includes «Текущая …»).
+       * When `parentFromRelated` is set and multi-select includes «Текущая …»:
+       * create records linked to the trigger and every related parent together
+       * (not a separate row under the trigger).
        */
       alsoLinkTrigger?: boolean;
       /**
@@ -772,12 +775,15 @@ export function describeAutomationAction(
           : `Создать запись в «${entity(action.entityId)}»`,
       ];
       if (relatedParents.length > 0) {
-        bits.push(
-          relatedParents.length > 1
-            ? `к связанным (${relatedParents.length})`
-            : "к связанным",
-        );
-        if (action.alsoLinkTrigger) bits.push("и к текущей");
+        if (action.alsoLinkTrigger) {
+          bits.push("к текущей и связанным");
+        } else {
+          bits.push(
+            relatedParents.length > 1
+              ? `под каждой связанной (${relatedParents.length})`
+              : "под связанными",
+          );
+        }
       } else if (action.multiple) bits.push("несколько");
       if (askCount > 0) bits.push(`запрос: ${askCount}`);
       if (nestedCount > 0) bits.push(`вложенные: ${nestedCount}`);

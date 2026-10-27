@@ -522,3 +522,19 @@ export function resolveCreateParentFromRelated(options: {
 
   return null;
 }
+
+/**
+ * Relation/dependencies field on `parent` that points at `childEntityId`
+ * (write created child id back onto the parent — tabs often read this side).
+ */
+export function resolveParentForwardChildField(
+  parent: Entity,
+  childEntityId: string,
+): EntityField | null {
+  const matches = parent.fields.filter(
+    (field) =>
+      (field.type === "relation" || field.type === "dependencies") &&
+      getEntityRelationTargetId(field) === childEntityId,
+  );
+  return matches[0] ?? null;
+}

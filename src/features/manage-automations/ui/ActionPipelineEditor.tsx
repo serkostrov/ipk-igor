@@ -775,10 +775,15 @@ function ActionFields({
                 Можно выбрать несколько целей. Если расчёты уже созданы раньше —
                 добавьте «Уже существующие…»
               </p>
+            ) : hasRelatedParents && action.alsoLinkTrigger ? (
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Новая запись будет привязана ко всем выбранным целям сразу
+                (текущая запись и связанные)
+              </p>
             ) : hasRelatedParents ? (
               <p className="text-[10px] leading-snug text-muted-foreground">
-                Новые записи будут созданы под каждой выбранной целью
-                {action.alsoLinkTrigger ? " и под текущей записью" : ""}
+                Новые записи будут созданы под каждой выбранной связанной
+                записью
               </p>
             ) : null}
           </div>

@@ -524,9 +524,7 @@ function ConditionValueControl({
           className="h-8"
           onChange={(next) => {
             const ids = parseEntityRelationIds(next);
-            onChange(
-              withSelectedIds(rule, single ? ids.slice(0, 1) : ids),
-            );
+            onChange(withSelectedIds(rule, single ? ids.slice(0, 1) : ids));
           }}
         />
       );
@@ -550,9 +548,7 @@ function ConditionValueControl({
           className="h-8"
           onChange={(next) => {
             const ids = parseEntityListValueIds(next);
-            onChange(
-              withSelectedIds(rule, single ? ids.slice(0, 1) : ids),
-            );
+            onChange(withSelectedIds(rule, single ? ids.slice(0, 1) : ids));
           }}
         />
       );
