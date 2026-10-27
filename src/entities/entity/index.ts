@@ -293,6 +293,8 @@ export {
   getRelationGroupsLevelEntityId,
   collectRelationGroupsLeafIds,
   collectRelationGroupsIdsAtDepth,
+  pruneEntityRelationGroupsNodes,
+  pruneEntityRelationGroupsValue,
   resolveRelationGroupsModeDepth,
   updateRelationGroupsNodeChildren,
   parseEntityPeriod,

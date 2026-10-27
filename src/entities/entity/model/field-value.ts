@@ -889,10 +889,25 @@ export function getRelationGroupsDisplayTree(
     return undefined;
   }
 
+  function isGhostRecord(
+    host: Entity | undefined,
+    recordId: string,
+  ): boolean {
+    if (!host) return true;
+    const record = host.records.find((item) => item.id === recordId);
+    if (!record) return true;
+    const nameField = host.fields.find((item) => isEntityNameField(item));
+    if (!nameField) return false;
+    if ((record.values[nameField.id] ?? "").trim()) return false;
+    const label =
+      resolveRelationRecordLabel(host, recordId, ctx.entities)?.trim() ?? "";
+    return !label || label === "Без названия" || label === recordId;
+  }
+
   function buildNode(
     node: EntityRelationGroupNode,
     depth: number,
-  ): RelationGroupsDisplayNode {
+  ): RelationGroupsDisplayNode | null {
     const level = levels[depth];
     const entity = resolveLevelEntity(depth);
     const previousEntity =
@@ -906,10 +921,13 @@ export function getRelationGroupsDisplayTree(
 
     let title: string;
     if (sourceField?.type === "list") {
-      title =
-        sourceField.listOptions.find((item) => item.id === node.id)?.name ??
-        node.id;
+      const option = sourceField.listOptions.find(
+        (item) => item.id === node.id,
+      );
+      if (!option?.name.trim()) return null;
+      title = option.name;
     } else {
+      if (isGhostRecord(entity, node.id)) return null;
       title =
         resolveRelationRecordLabel(entity, node.id, ctx.entities) ??
         "Без названия";
@@ -926,7 +944,9 @@ export function getRelationGroupsDisplayTree(
     const children =
       depth >= levels.length - 1
         ? []
-        : node.children.map((child) => buildNode(child, depth + 1));
+        : node.children
+            .map((child) => buildNode(child, depth + 1))
+            .filter((child): child is RelationGroupsDisplayNode => child != null);
     return {
       id: node.id,
       title,
@@ -936,7 +956,9 @@ export function getRelationGroupsDisplayTree(
     };
   }
 
-  return parseEntityRelationGroups(value).map((node) => buildNode(node, 0));
+  return parseEntityRelationGroups(value)
+    .map((node) => buildNode(node, 0))
+    .filter((node): node is RelationGroupsDisplayNode => node != null);
 }
 
 function formatRelationGroupsDisplayTree(
@@ -1909,7 +1931,7 @@ export function sanitizeEntityRelationDependencies(
 ): Record<string, string> {
   const sanitized = sanitizeDependentRelationValues(entity, values, entities);
   const mirrored = syncRelationsFromLookups(entity, sanitized, entities, null);
-  let next =
+  const next =
     mirrored === sanitized
       ? sanitized
       : sanitizeDependentRelationValues(entity, mirrored, entities);

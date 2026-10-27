@@ -292,8 +292,9 @@ function mappingsHaveTargets(mappings: AutomationFieldMapping[]) {
 }
 
 /**
- * Values that are only parent-links / empty would create a «Без названия» ghost
- * row — skip those inserts.
+ * Values that are only parent-links / relations / empty would create a
+ * «Без названия» ghost row — skip those inserts.
+ * A row needs a name or other non-link content (text, list, date, number…).
  */
 function createValuesAreMeaningful(
   target: Entity | null | undefined,
@@ -310,8 +311,22 @@ function createValuesAreMeaningful(
       return false;
     }
     if (isEntityComputedFieldType(field.type)) return false;
-    if (field.type === "file" || field.type === "dependencies") return false;
-    return (values[field.id] ?? "").trim().length > 0;
+    // Links alone never justify a row — otherwise parent belonging / write-back
+    // targets create empty «Без названия» stages in relationGroups catalogs.
+    if (
+      field.type === "relation" ||
+      field.type === "belonging" ||
+      field.type === "relationGroups" ||
+      field.type === "dependencies" ||
+      field.type === "file"
+    ) {
+      return false;
+    }
+    const raw = (values[field.id] ?? "").trim();
+    if (!raw) return false;
+    // Default boolean false is not content.
+    if (field.type === "boolean") return raw === "true";
+    return true;
   });
 }
 

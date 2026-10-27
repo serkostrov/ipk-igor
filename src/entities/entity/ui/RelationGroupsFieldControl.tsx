@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
@@ -6,6 +7,7 @@ import {
   parseEntityListValueIds,
   parseEntityRelationGroups,
   parseEntityRelationIds,
+  pruneEntityRelationGroupsNodes,
   resolveRelationGroupsModeDepth,
   serializeEntityListValueIds,
   serializeEntityRelationGroups,
@@ -23,6 +25,7 @@ import {
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   getRelationRecordOptions,
+  isEntityNameField,
   resolveRelationRecordLabel,
   type Entity,
   type EntityField,
@@ -61,14 +64,40 @@ function formatRecordExtras(
   return parts.join(" · ");
 }
 
+/** True when the catalog record exists and has a real title (not a ghost). */
+function isSelectableRecord(entity: Entity | null | undefined, id: string) {
+  if (!entity || !id.trim()) return false;
+  const record = entity.records.find((item) => item.id === id);
+  if (!record) return false;
+  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  if (!nameField) return true;
+  const name = (record.values[nameField.id] ?? "").trim();
+  if (name) return true;
+  // Empty name + empty template display → ghost «Без названия».
+  const label = resolveRelationRecordLabel(entity, id)?.trim() ?? "";
+  return Boolean(label && label !== "Без названия" && label !== id);
+}
+
+function isSelectableListOption(
+  field: EntityField | null | undefined,
+  id: string,
+) {
+  if (!field || field.type !== "list" || !id.trim()) return false;
+  const option = field.listOptions.find((item) => item.id === id);
+  if (!option) return false;
+  return Boolean(option.name.trim());
+}
+
 function recordTitle(
   entity: Entity,
   recordId: string,
   ctx: EntityValueContext,
 ) {
+  const record = entity.records.find((item) => item.id === recordId);
+  if (!record) return "Удалённая запись";
   return (
     resolveRelationRecordLabel(entity, recordId, ctx.entities) ??
-    "Удалённая запись"
+    "Без названия"
   );
 }
 
@@ -194,7 +223,6 @@ export function RelationGroupsFieldControl({
 }: RelationGroupsFieldControlProps) {
   const config = field.relationGroups;
   const levels = config?.levels ?? [];
-  const groups = parseEntityRelationGroups(value);
   const modeDepth = resolveRelationGroupsModeDepth(mode);
   const editableThrough =
     modeDepth == null
@@ -224,8 +252,44 @@ export function RelationGroupsFieldControl({
     return null;
   }
 
+  function isValidGroupId(itemId: string, depth: number): boolean {
+    const level = levels[depth];
+    if (!level) return false;
+    if (depth > 0) {
+      const parentEntity = levelEntityAt(depth - 1);
+      const sourceFieldId =
+        level.source.kind === "field" ? level.source.fieldId : null;
+      const sourceField =
+        sourceFieldId && parentEntity
+          ? (parentEntity.fields.find((item) => item.id === sourceFieldId) ??
+            null)
+          : null;
+      if (sourceField?.type === "list") {
+        return isSelectableListOption(sourceField, itemId);
+      }
+    }
+    return isSelectableRecord(levelEntityAt(depth), itemId);
+  }
+
+  const parsedGroups = parseEntityRelationGroups(value);
+  const groups = pruneEntityRelationGroupsNodes(parsedGroups, isValidGroupId);
+  const prunedValue = serializeEntityRelationGroups(groups);
+  const lastPrunedRef = useRef<string | null>(null);
+
+  // Drop ghost / deleted ids that show up as «Без названия» without being picked.
+  useEffect(() => {
+    if (prunedValue === value) return;
+    if (lastPrunedRef.current === prunedValue) return;
+    lastPrunedRef.current = prunedValue;
+    onChange(prunedValue);
+  }, [onChange, prunedValue, value]);
+
   function commit(next: EntityRelationGroupNode[]) {
-    onChange(serializeEntityRelationGroups(next));
+    onChange(
+      serializeEntityRelationGroups(
+        pruneEntityRelationGroupsNodes(next, isValidGroupId),
+      ),
+    );
   }
 
   function setRootIds(nextIds: string[]) {
@@ -277,7 +341,9 @@ export function RelationGroupsFieldControl({
   const rootOptions = enrichOptions(
     ctx,
     rootEntity,
-    getRelationRecordOptions(rootEntity, ctx.entities),
+    getRelationRecordOptions(rootEntity, ctx.entities).filter((option) =>
+      isSelectableRecord(rootEntity, option.id),
+    ),
     rootLevel.displayFieldIds,
   );
   const canEditRoot = editableThrough >= 0;
@@ -314,8 +380,10 @@ export function RelationGroupsFieldControl({
         ? enrichOptions(
             ctx,
             entity,
-            getRelationRecordOptions(entity, ctx.entities).filter((option) =>
-              allowed ? allowed.has(option.id) : true,
+            getRelationRecordOptions(entity, ctx.entities).filter(
+              (option) =>
+                isSelectableRecord(entity, option.id) &&
+                (allowed ? allowed.has(option.id) : true),
             ),
             level.displayFieldIds,
           )

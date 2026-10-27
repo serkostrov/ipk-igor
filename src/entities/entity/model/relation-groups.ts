@@ -610,3 +610,41 @@ export function updateRelationGroupsNodeChildren(
     };
   });
 }
+
+/**
+ * Drop nodes whose id is not accepted at that depth (missing / ghost records).
+ * Children of removed roots are dropped with them; valid children of kept roots
+ * are pruned recursively.
+ */
+export function pruneEntityRelationGroupsNodes(
+  nodes: readonly EntityRelationGroupNode[],
+  isValidId: (id: string, depth: number) => boolean,
+  depth = 0,
+): EntityRelationGroupNode[] {
+  const result: EntityRelationGroupNode[] = [];
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    const id = node.id.trim();
+    if (!id || seen.has(id) || !isValidId(id, depth)) continue;
+    seen.add(id);
+    result.push({
+      id,
+      children: pruneEntityRelationGroupsNodes(
+        node.children,
+        isValidId,
+        depth + 1,
+      ),
+    });
+  }
+  return result;
+}
+
+/** Serialize after pruning; returns `""` when nothing valid remains. */
+export function pruneEntityRelationGroupsValue(
+  value: string,
+  isValidId: (id: string, depth: number) => boolean,
+): string {
+  return serializeEntityRelationGroups(
+    pruneEntityRelationGroupsNodes(parseEntityRelationGroups(value), isValidId),
+  );
+}

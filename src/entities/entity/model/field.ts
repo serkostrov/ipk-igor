@@ -209,6 +209,8 @@ export {
   mapRelationGroupsNodes,
   normalizeEntityRelationGroupsConfig,
   parseEntityRelationGroups,
+  pruneEntityRelationGroupsNodes,
+  pruneEntityRelationGroupsValue,
   resolveRelationGroupsModeDepth,
   serializeEntityRelationGroups,
   updateRelationGroupsNodeChildren,
