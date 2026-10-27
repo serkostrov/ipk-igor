@@ -601,15 +601,6 @@ export async function executeAutomationActions(
                 createdRecordIds.push(child.id);
                 multiIds.push(child.id);
               }
-              if (action.linkBackFieldId && multiIds.length > 0) {
-                const linked = serializeEntityRelationIds(multiIds);
-                await updateEntityRecord(
-                  ctx.triggerEntityId,
-                  ctx.triggerRecordId,
-                  { [action.linkBackFieldId]: linked },
-                );
-                ctx.values[action.linkBackFieldId] = linked;
-              }
             } else {
               // Fan-out: create under each related parent record separately.
               if (!resolvedAny || relatedParentLinks.length === 0) {
@@ -663,6 +654,15 @@ export async function executeAutomationActions(
                   multiIds.push(child.id);
                 }
               }
+            }
+            if (action.linkBackFieldId && multiIds.length > 0) {
+              const linked = serializeEntityRelationIds(multiIds);
+              await updateEntityRecord(
+                ctx.triggerEntityId,
+                ctx.triggerRecordId,
+                { [action.linkBackFieldId]: linked },
+              );
+              ctx.values[action.linkBackFieldId] = linked;
             }
             logs.push({
               kind: "createRecord",
