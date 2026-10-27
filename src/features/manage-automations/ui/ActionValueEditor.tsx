@@ -255,16 +255,16 @@ function SourceFieldSelect({
   relatedRecordOption?: { value: string; label: string };
   className?: string;
 }) {
-  // Computed fields are valid sources (lookup / formula values).
+  // Compatibility filtering happens upstream (`compatibleNestedFields`).
+  // Do not drop relationGroups here — they are valid when the target is also
+  // a groups field (copy set → set).
   const options = fields.filter(
-    (field) =>
-      field.id !== excludeFieldId &&
-      field.type !== "file" &&
-      field.type !== "relationGroups",
+    (field) => field.id !== excludeFieldId && field.type !== "file",
   );
   const searchLabel = (field: EntityField) => {
     const name = getEntityFieldDisplayName(field);
     if (entitySuffix) return `${name} из ${entitySuffix}`;
+    if (field.type === "relationGroups") return `${name} · набор связей`;
     if (field.type === "relation") {
       const targetId = getEntityRelationTargetId(field);
       if (targetId === SYSTEM_USERS_ENTITY_ID) {
@@ -282,6 +282,14 @@ function SourceFieldSelect({
           <span className="truncate text-muted-foreground">
             из «{entitySuffix}»
           </span>
+        </span>
+      );
+    }
+    if (field.type === "relationGroups") {
+      return (
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate">{name}</span>
+          <span className="truncate text-muted-foreground">набор связей</span>
         </span>
       );
     }
@@ -1006,8 +1014,21 @@ function ActionValueEditorBody({
     : null;
   const mappingDirectFields = mapping
     ? compatibleNestedFields(field, sourceFields, { loose: true }).filter(
-        (sourceField) =>
-          !isBridgeSourceField(sourceField, entities, mappingSourceEntity),
+        (sourceField) => {
+          // Bridges go to «Из связанной сущности», except groups→groups:
+          // the groups field itself is the value to copy, not a hop.
+          if (
+            field.type === "relationGroups" &&
+            sourceField.type === "relationGroups"
+          ) {
+            return true;
+          }
+          return !isBridgeSourceField(
+            sourceField,
+            entities,
+            mappingSourceEntity,
+          );
+        },
       )
     : [];
 

@@ -11,10 +11,12 @@ import {
   parseEntityRelationIds,
   resolveEntityLookupTarget,
   resolveRelationRecordLabel,
+  serializeEntityRelationGroups,
   serializeEntityRelationIds,
   type Entity,
   type EntityField,
   type EntityFieldType,
+  type EntityRelationGroupNode,
 } from "@/entities/entity";
 import {
   addCalendarDays,
@@ -24,6 +26,39 @@ import {
 
 function wantsRelationIds(fieldType: EntityFieldType | undefined) {
   return fieldType === "relation" || fieldType === "dependencies";
+}
+
+function wantsRelationGroupsValue(fieldType: EntityFieldType | undefined) {
+  return fieldType === "relationGroups";
+}
+
+/** Union relation-groups trees by root/child ids (copy groups → groups). */
+function mergeRelationGroupsTrees(
+  trees: readonly EntityRelationGroupNode[][],
+): EntityRelationGroupNode[] {
+  const roots = new Map<string, EntityRelationGroupNode>();
+  for (const tree of trees) {
+    for (const node of tree) {
+      const existing = roots.get(node.id);
+      if (!existing) {
+        roots.set(node.id, {
+          id: node.id,
+          children: node.children.map((child) => ({
+            id: child.id,
+            children: [...child.children],
+          })),
+        });
+        continue;
+      }
+      const childIds = new Set(existing.children.map((child) => child.id));
+      for (const child of node.children) {
+        if (childIds.has(child.id)) continue;
+        childIds.add(child.id);
+        existing.children.push({ id: child.id, children: [...child.children] });
+      }
+    }
+  }
+  return [...roots.values()];
 }
 
 /** Human label for a trigger record (name field), never a raw id. */
@@ -420,6 +455,14 @@ function resolveRelatedFieldValue(
   if (nestedParts.length === 0) return "";
   if (wantsRelationIds(options.fieldType)) {
     return serializeEntityRelationIds([...new Set(nestedParts)]);
+  }
+  // Groups JSON must not be joined with commas — merge trees instead.
+  if (wantsRelationGroupsValue(options.fieldType)) {
+    const trees = nestedParts
+      .map((part) => parseEntityRelationGroups(part))
+      .filter((nodes) => nodes.length > 0);
+    if (trees.length === 0) return "";
+    return serializeEntityRelationGroups(mergeRelationGroupsTrees(trees));
   }
   return [...new Set(nestedParts)].join(", ");
 }

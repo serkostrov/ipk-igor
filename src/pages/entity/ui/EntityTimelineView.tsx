@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChartGantt, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
@@ -17,8 +17,13 @@ import {
   useEntityConfig,
   useEntityValueContext,
   type Entity,
+  type EntityCashFlowPeriod,
   type EntityRecord,
 } from "@/entities/entity";
+import {
+  HardcodeTimelineSlot,
+  resolveDdsWalletSummarySetup,
+} from "@/features/hardcode";
 import {
   buildTimelineGroups,
   getTimelineColumns,
@@ -41,6 +46,25 @@ import {
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 import { TimelineGroupRecordsDialog } from "./TimelineGroupRecordsDialog";
+
+function cashFlowPeriodFromFilters(
+  filters: EntityFiltersState,
+  dateFieldId: string,
+): EntityCashFlowPeriod {
+  const filter = filters[dateFieldId];
+  if (filter?.kind !== "datetime") return { from: "", to: "" };
+  return { from: filter.from.trim(), to: filter.to.trim() };
+}
+
+function filtersWithoutField(
+  filters: EntityFiltersState,
+  fieldId: string,
+): EntityFiltersState {
+  if (!(fieldId in filters)) return filters;
+  const next = { ...filters };
+  delete next[fieldId];
+  return next;
+}
 
 const ROW_HEIGHT = 28;
 const HEADER_ROW = 24;
@@ -156,6 +180,7 @@ export function EntityTimelineView({
   scale,
   onOpenRecord,
   onConfigure,
+  headerSlot,
   className,
 }: {
   entity: Entity;
@@ -164,6 +189,8 @@ export function EntityTimelineView({
   onOpenRecord?: (record: EntityRecord) => void;
   /** Opens timeline settings from the empty state. */
   onConfigure?: () => void;
+  /** Optional chrome above the grid (below filters). */
+  headerSlot?: ReactNode;
   className?: string;
 }) {
   const { entities } = useEntityConfig();
@@ -205,6 +232,46 @@ export function EntityTimelineView({
       ),
     [entity, filterFields, filters, records, search, valueContext],
   );
+
+  const ddsWalletSetup = useMemo(
+    () => resolveDdsWalletSummarySetup(entity, entities),
+    [entity, entities],
+  );
+
+  const ddsWalletHistoryRecords = useMemo(() => {
+    if (!ddsWalletSetup) return [];
+    const historyFilters = filtersWithoutField(
+      filters,
+      ddsWalletSetup.cashFlow.dateFieldId,
+    );
+    return records.filter(
+      (record) =>
+        recordMatchesSearch(valueContext, entity, record, search) &&
+        recordMatchesFilters(
+          valueContext,
+          entity,
+          record,
+          filterFields,
+          historyFilters,
+        ),
+    );
+  }, [
+    ddsWalletSetup,
+    entity,
+    filterFields,
+    filters,
+    records,
+    search,
+    valueContext,
+  ]);
+
+  const ddsWalletPeriod = useMemo((): EntityCashFlowPeriod => {
+    if (!ddsWalletSetup) return { from: "", to: "" };
+    return cashFlowPeriodFromFilters(
+      filters,
+      ddsWalletSetup.cashFlow.dateFieldId,
+    );
+  }, [ddsWalletSetup, filters]);
 
   const groups = useMemo(
     () =>
@@ -419,6 +486,14 @@ export function EntityTimelineView({
           onFiltersChange={setFilters}
         />
       </div>
+      {headerSlot}
+      {ddsWalletSetup ? (
+        <HardcodeTimelineSlot
+          entity={entity}
+          historyRecords={ddsWalletHistoryRecords}
+          period={ddsWalletPeriod}
+        />
+      ) : null}
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs"
