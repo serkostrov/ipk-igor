@@ -404,12 +404,22 @@ export function getOutcomeCreateAskSlots(
             .filter(
               (item): item is AutomationCreateAskNestedSlot => item != null,
             );
+    const hasMappingTargets = (action.mappings ?? []).some(
+      (mapping) => mapping.targetFieldId.trim().length > 0,
+    );
+    // Mappings → silent create in execute-actions. Do not show «Добавить» lists.
+    if (!useEntityCreateForm && hasMappingTargets) continue;
+    // Related without ask / entity create form → nothing to fill on the task.
+    if (hasRelatedParents && !useEntityCreateForm && askFieldIds.length === 0) {
+      continue;
+    }
+    const explicitMultiple =
+      action.multiple === true && !hasRelatedParents && !useEntityCreateForm;
     if (
-      !multiple &&
-      !hasRelatedParents &&
       !useEntityCreateForm &&
       askFieldIds.length === 0 &&
-      nested.length === 0
+      nested.length === 0 &&
+      !explicitMultiple
     ) {
       continue;
     }
@@ -520,13 +530,16 @@ export function getOutcomeCreateAskSlots(
 export function outcomeHasCreateAsk(outcome: AutomationOutcome) {
   return outcome.actions.some((action) => {
     if (action.kind !== "createRecord") return false;
-    return (
-      action.multiple === true ||
-      getCreateParentFromRelatedList(action).length > 0 ||
-      action.useEntityCreateForm === true ||
-      (action.askFieldIds?.length ?? 0) > 0 ||
-      (action.nestedCreates?.length ?? 0) > 0
+    if (action.useEntityCreateForm === true) return true;
+    if ((action.nestedCreates?.length ?? 0) > 0) return true;
+    const hasMappingTargets = (action.mappings ?? []).some(
+      (mapping) => mapping.targetFieldId.trim().length > 0,
     );
+    // Mapped create runs silently — no task-form drafts.
+    if (hasMappingTargets) return false;
+    if ((action.askFieldIds?.length ?? 0) > 0) return true;
+    if (getCreateParentFromRelatedList(action).length > 0) return false;
+    return action.multiple === true;
   });
 }
 

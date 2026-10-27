@@ -548,31 +548,26 @@ function ActionFields({
         relatedParentOptions,
         parentLinked,
       );
-      const askHost =
-        parsed.parentFromRelated?.[0] != null
-          ? (relatedParentOptions.find((option) =>
-              sameParentFromRelated(
-                option.parentFrom,
-                parsed.parentFromRelated![0]!,
-              ),
-            )?.parentEntity ?? sourceEntity)
-          : sourceEntity;
-      const askFieldIds = target
-        ? defaultCreateAskFieldIds(target, askHost)
-        : [];
       const linksRelated = (parsed.parentFromRelated?.length ?? 0) > 0;
       const keepTriggerMultiple =
         !linksRelated &&
         parentLinked &&
         selected.includes(BIND_TRIGGER_ID) &&
         multiple;
+      // Related / multi-link creates are silent when mappings are set — do not
+      // inject askFieldIds (that would show an empty «Добавить» list on the task).
       onChange({
         ...createRecord,
         parentFromRelated: parsed.parentFromRelated,
         alsoLinkTrigger: parsed.alsoLinkTrigger,
         nestedCreates: undefined,
-        askFieldIds:
-          askFieldIds.length > 0 ? askFieldIds : createRecord.askFieldIds,
+        ...(linksRelated
+          ? {
+              askFieldIds: undefined,
+              askRequiredFieldIds: undefined,
+              fieldAskOptions: undefined,
+            }
+          : {}),
         multiple:
           linksRelated || parsed.alsoLinkTrigger || keepTriggerMultiple
             ? true
@@ -717,9 +712,11 @@ function ActionFields({
                   ? nextRelated[0]!
                   : null;
               const askHost = autoRelated?.parentEntity ?? sourceEntity;
-              const askFieldIds = nextTarget
-                ? defaultCreateAskFieldIds(nextTarget, askHost)
-                : [];
+              // Related-only target → silent create; ask fields are opt-in («Спросить»).
+              const askFieldIds =
+                autoRelated == null && nextTarget
+                  ? defaultCreateAskFieldIds(nextTarget, askHost)
+                  : [];
               onChange({
                 ...action,
                 entityId,
