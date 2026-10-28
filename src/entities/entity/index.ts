@@ -496,6 +496,7 @@ export {
 export { notifyRecordMentions } from "./lib/notify-record-mentions";
 export {
   applyTkpGipDepartmentUsers,
+  buildTkpGipSoftFillParentRecord,
   childValuesSelectGipDepartment,
   collectTkpStageDepartmentPairs,
   deptCalculationValuesMatchStagePair,

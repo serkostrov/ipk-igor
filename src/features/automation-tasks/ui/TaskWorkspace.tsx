@@ -18,6 +18,7 @@ import { automationUploadTargetBlocksComplete } from "../lib/upload-to-files-tab
 import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
   applyEntityFieldValue,
+  buildTkpGipSoftFillParentRecord,
   createEntityDraftRecord,
   getCurrentUserRecordId,
   getEntityFieldDisplayName,
@@ -994,17 +995,10 @@ function TaskWorkspaceBody({
                       entity && record
                         ? {
                             entity,
-                            record: {
-                              ...record,
-                              values: {
-                                ...record.values,
-                                ...Object.fromEntries(
-                                  Object.entries(values).filter(
-                                    ([key]) => !key.includes(":"),
-                                  ),
-                                ),
-                              },
-                            },
+                            record: buildTkpGipSoftFillParentRecord(
+                              record,
+                              values,
+                            ),
                           }
                         : null
                     }
@@ -1022,17 +1016,10 @@ function TaskWorkspaceBody({
                       entity && record
                         ? {
                             entity,
-                            record: {
-                              ...record,
-                              values: {
-                                ...record.values,
-                                ...Object.fromEntries(
-                                  Object.entries(values).filter(
-                                    ([key]) => !key.includes(":"),
-                                  ),
-                                ),
-                              },
-                            },
+                            record: buildTkpGipSoftFillParentRecord(
+                              record,
+                              values,
+                            ),
                           }
                         : null
                     }

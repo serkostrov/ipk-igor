@@ -24,6 +24,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 import {
   applyEntityFieldValue,
+  buildTkpGipSoftFillParentRecord,
   getCurrentUserRecordId,
   getEntityConfig,
   getEntityFieldDisplayName,
@@ -840,17 +841,10 @@ function TaskFillFieldsDialogBody({
                           entity && record
                             ? {
                                 entity,
-                                record: {
-                                  ...record,
-                                  values: {
-                                    ...record.values,
-                                    ...Object.fromEntries(
-                                      Object.entries(values).filter(
-                                        ([key]) => !key.includes(":"),
-                                      ),
-                                    ),
-                                  },
-                                },
+                                record: buildTkpGipSoftFillParentRecord(
+                                  record,
+                                  values,
+                                ),
                               }
                             : null
                         }
@@ -868,17 +862,10 @@ function TaskFillFieldsDialogBody({
                           entity && record
                             ? {
                                 entity,
-                                record: {
-                                  ...record,
-                                  values: {
-                                    ...record.values,
-                                    ...Object.fromEntries(
-                                      Object.entries(values).filter(
-                                        ([key]) => !key.includes(":"),
-                                      ),
-                                    ),
-                                  },
-                                },
+                                record: buildTkpGipSoftFillParentRecord(
+                                  record,
+                                  values,
+                                ),
                               }
                             : null
                         }

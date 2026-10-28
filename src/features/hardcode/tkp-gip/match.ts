@@ -1,4 +1,5 @@
 export {
+  buildTkpGipSoftFillParentRecord,
   collectTkpStageDepartmentPairs,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,

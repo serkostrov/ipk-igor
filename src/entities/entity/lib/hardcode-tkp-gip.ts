@@ -19,7 +19,10 @@ import {
   parseEntityRelationGroups,
   serializeEntityRelationGroups,
 } from "../model/relation-groups";
-import { SYSTEM_USERS_ENTITY_ID } from "../model/system-entities";
+import {
+  getSystemUserName,
+  SYSTEM_USERS_ENTITY_ID,
+} from "../model/system-entities";
 import {
   isEntityNameField,
   resolveRelationRecordLabel,
@@ -29,8 +32,40 @@ import {
 } from "../model/types";
 import {
   formatRecordFieldValue,
+  getRecordFieldIds,
+  resolveEntityFieldSource,
   type EntityValueContext,
 } from "../model/field-value";
+
+/** Merge draft over live without blanking filled lead fields with "". */
+function mergeLeadFieldValues(
+  live: Record<string, string> | undefined,
+  draft: Record<string, string> | undefined,
+): Record<string, string> {
+  const next: Record<string, string> = { ...(live ?? {}) };
+  for (const [key, value] of Object.entries(draft ?? {})) {
+    if (value.trim() === "") continue;
+    next[key] = value;
+  }
+  return next;
+}
+
+/**
+ * Parent record for soft-fill / GIP chip labels: form edits overlay the
+ * stored lead, but empty draft keys do not wipe «ГИП» / other filled fields.
+ */
+export function buildTkpGipSoftFillParentRecord(
+  record: EntityRecord,
+  formValues: Record<string, string>,
+): EntityRecord {
+  const localDraft = Object.fromEntries(
+    Object.entries(formValues).filter(([key]) => !key.includes(":")),
+  );
+  return {
+    ...record,
+    values: mergeLeadFieldValues(record.values, localDraft),
+  };
+}
 
 function normalizeName(value: string): string {
   return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
@@ -151,18 +186,50 @@ function isUsersRelationField(field: EntityField): boolean {
   );
 }
 
-export function findTkpGipUserField(entity: Entity): EntityField | null {
+/** Department chip extras that should yield to the lead’s «ГИП». */
+function isManagerLikeDisplayField(field: EntityField): boolean {
+  if (isUsersRelationField(field)) return true;
+  if (field.type !== "relation" && field.type !== "belonging") return false;
+  return (
+    fieldNameMatches(field, MANAGER_KEYS) || fieldNameMatches(field, GIP_KEYS)
+  );
+}
+
+function entityHasGipUserField(
+  entity: Entity,
+  entities: readonly Entity[] = [],
+): boolean {
+  return findTkpGipUserField(entity, entities) != null;
+}
+
+export function findTkpGipUserField(
+  entity: Entity,
+  entities: readonly Entity[] = [],
+): EntityField | null {
   const usersMatch = entity.fields.find(
     (field) => isUsersRelationField(field) && fieldNameMatches(field, GIP_KEYS),
   );
   if (usersMatch) return usersMatch;
   // Custom people catalog still named «ГИП».
+  const namedRelation = entity.fields.find(
+    (field) =>
+      (field.type === "relation" || field.type === "belonging") &&
+      fieldNameMatches(field, GIP_KEYS),
+  );
+  if (namedRelation) return namedRelation;
+
+  // Lookup «ГИП» that resolves to a relation (users / people).
+  if (entities.length === 0) return null;
   return (
-    entity.fields.find(
-      (field) =>
-        (field.type === "relation" || field.type === "belonging") &&
-        fieldNameMatches(field, GIP_KEYS),
-    ) ?? null
+    entity.fields.find((field) => {
+      if (field.type !== "lookup" || !fieldNameMatches(field, GIP_KEYS)) {
+        return false;
+      }
+      const source = resolveEntityFieldSource(entity, field, entities);
+      return (
+        source?.field.type === "relation" || source?.field.type === "belonging"
+      );
+    }) ?? null
   );
 }
 
@@ -184,21 +251,39 @@ export function resolveTkpGipLeadContext(options: {
     record: EntityRecord,
   ): { entity: Entity; record: EntityRecord } {
     const live = entity.records.find((item) => item.id === record.id);
-    if (!live) return { entity, record };
+    if (!live) {
+      return {
+        entity,
+        record: {
+          ...record,
+          values: mergeLeadFieldValues(undefined, record.values),
+        },
+      };
+    }
     return {
       entity,
       record: {
         ...live,
-        values: { ...live.values, ...record.values },
+        values: mergeLeadFieldValues(live.values, record.values),
       },
     };
   }
 
-  if (softFillParent && isTkpAnalysisEntity(softFillParent.entity)) {
+  // Explicit form parent (related ask / linked child): prefer whenever it
+  // looks like the lead — by name or by having a «ГИП» people field.
+  if (
+    softFillParent &&
+    (isTkpAnalysisEntity(softFillParent.entity) ||
+      (isDeptCalculationsEntity(hostEntity) &&
+        entityHasGipUserField(softFillParent.entity, entities)))
+  ) {
     return withLiveValues(softFillParent.entity, softFillParent.record);
   }
 
-  if (isTkpAnalysisEntity(hostEntity)) {
+  if (
+    isTkpAnalysisEntity(hostEntity) ||
+    entityHasGipUserField(hostEntity, entities)
+  ) {
     return withLiveValues(hostEntity, hostRecord);
   }
 
@@ -209,7 +294,12 @@ export function resolveTkpGipLeadContext(options: {
     const targetId = getEntityRelationTargetId(field);
     if (!targetId) continue;
     const target = entities.find((item) => item.id === targetId);
-    if (!target || !isTkpAnalysisEntity(target)) continue;
+    if (
+      !target ||
+      (!isTkpAnalysisEntity(target) && !entityHasGipUserField(target, entities))
+    ) {
+      continue;
+    }
     const parentId = parseEntityRelationIds(hostRecord.values[field.id])[0];
     if (!parentId) continue;
     const parentRecord = target.records.find((item) => item.id === parentId);
@@ -425,7 +515,12 @@ export function applyTkpGipDepartmentUsers(options: {
     applied: false,
   };
 
-  if (!isTkpAnalysisEntity(parentEntity)) return empty;
+  if (
+    !isTkpAnalysisEntity(parentEntity) &&
+    !entityHasGipUserField(parentEntity, entities)
+  ) {
+    return empty;
+  }
   if (!isDeptCalculationsEntity(childEntity)) return empty;
 
   const groupsField = findDeptCalculationsGroupsField(childEntity);
@@ -437,11 +532,17 @@ export function applyTkpGipDepartmentUsers(options: {
   const { manager, performer } = findDeptCalculationUserFields(childEntity);
   if (!manager && !performer) return empty;
 
-  const gipField = findTkpGipUserField(parentEntity);
+  const gipField = findTkpGipUserField(parentEntity, entities);
   if (!gipField) return empty;
 
-  const gipUserIds = parseEntityRelationIds(parentRecord.values[gipField.id]);
-  if (gipUserIds.length === 0) return empty;
+  const liveParent =
+    parentEntity.records.find((item) => item.id === parentRecord.id) ?? null;
+  const parentValues = mergeLeadFieldValues(
+    liveParent?.values,
+    parentRecord.values,
+  );
+  const resolvedGipIds = parseEntityRelationIds(parentValues[gipField.id]);
+  if (resolvedGipIds.length === 0) return empty;
 
   if (
     !childValuesSelectGipDepartment({
@@ -458,8 +559,8 @@ export function applyTkpGipDepartmentUsers(options: {
 
   function assign(fieldId: string, multiple: boolean) {
     const value = multiple
-      ? serializeEntityRelationIds(gipUserIds)
-      : serializeEntityRelationIds(gipUserIds.slice(0, 1));
+      ? serializeEntityRelationIds(resolvedGipIds)
+      : serializeEntityRelationIds(resolvedGipIds.slice(0, 1));
     if ((next[fieldId] ?? "") === value) {
       overriddenFieldIds.push(fieldId);
       return;
@@ -505,51 +606,60 @@ export function formatTkpGipDepartmentExtras(options: {
     departmentRecordId,
     displayFieldIds,
   } = options;
-
-  // Lead = softFill parent when child form, or the host itself when
-  // «Стадия/отделы» lives on «Разбор ТКП».
-  const leadEntity = isTkpAnalysisEntity(parentEntity)
-    ? parentEntity
-    : isTkpAnalysisEntity(hostEntity)
-      ? hostEntity
-      : null;
-  if (!leadEntity) return null;
+  const entities = ctx.entities ?? [];
 
   const record = departmentEntity.records.find(
     (item) => item.id === departmentRecordId,
   );
   if (!record) return null;
-  if (!isGipDepartmentRecord(departmentEntity, record, ctx.entities)) {
+  if (!isGipDepartmentRecord(departmentEntity, record, entities)) {
     return null;
   }
 
-  const gipField = findTkpGipUserField(leadEntity);
-  if (!gipField) return null;
+  // Lead = softFill parent when child form, or the host itself when
+  // «Стадия/отделы» lives on «Разбор ТКП». Prefer an entity that has «ГИП».
+  const leadEntity = entityHasGipUserField(parentEntity, entities)
+    ? parentEntity
+    : entityHasGipUserField(hostEntity, entities)
+      ? hostEntity
+      : isTkpAnalysisEntity(parentEntity)
+        ? parentEntity
+        : isTkpAnalysisEntity(hostEntity)
+          ? hostEntity
+          : null;
+  if (!leadEntity) return null;
 
-  // Prefer draft/parent values, fall back to the live lead record in the store.
+  const gipField = findTkpGipUserField(leadEntity, entities);
+  // Known «ГИП» department under a lead — never fall back to catalog head.
+  if (!gipField) return "";
+
   const liveLead =
     leadEntity.records.find((item) => item.id === parentRecord.id) ?? null;
   const leadForFormat: EntityRecord = {
     ...parentRecord,
-    values: {
-      ...(liveLead?.values ?? {}),
-      ...parentRecord.values,
-    },
+    values: mergeLeadFieldValues(liveLead?.values, parentRecord.values),
   };
 
-  const text = formatRecordFieldValue(
+  let text = formatRecordFieldValue(
     ctx,
     leadEntity,
     leadForFormat,
     gipField,
   ).trim();
   if (!text || text === "—") {
-    // Lead GIP empty — do not fall back to catalog head for «ГИП» chips.
+    // Fallback: resolve stored relation ids → user names directly.
+    const ids = getRecordFieldIds(ctx, leadEntity, leadForFormat, gipField);
+    text = ids
+      .map((id) => getSystemUserName(entities, id)?.trim())
+      .filter((name): name is string => Boolean(name))
+      .join(", ");
+  }
+  if (!text || text === "—") {
     return "";
   }
 
-  // Replace any Users display field (руководитель / руководители / …)
-  // with the lead’s «ГИП»; keep non-user extras as-is.
+  // Replace руководитель / ГИП display fields with the lead’s «ГИП»;
+  // keep unrelated extras as-is.
   if (displayFieldIds.length === 0) return text;
 
   const parts: string[] = [];
@@ -559,7 +669,7 @@ export function formatTkpGipDepartmentExtras(options: {
       (item) => item.id === fieldId,
     );
     if (!extraField) continue;
-    if (isUsersRelationField(extraField)) {
+    if (isManagerLikeDisplayField(extraField)) {
       if (!replacedUserExtra) {
         parts.push(text);
         replacedUserExtra = true;
@@ -597,7 +707,12 @@ export function resolveTkpGipAssigneeUserIds(options: {
     departmentRecord,
     fallbackUserIds,
   } = options;
-  if (!isTkpAnalysisEntity(triggerEntity)) return null;
+  if (
+    !isTkpAnalysisEntity(triggerEntity) &&
+    !entityHasGipUserField(triggerEntity)
+  ) {
+    return null;
+  }
   if (!isGipDepartmentRecord(departmentEntity, departmentRecord)) return null;
   const gipField = findTkpGipUserField(triggerEntity);
   if (!gipField) return null;

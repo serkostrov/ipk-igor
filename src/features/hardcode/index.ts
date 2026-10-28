@@ -6,6 +6,7 @@ export {
 } from "./tkp-gip/apply-gip-department-users";
 export { persistDeptCalculationRelatedUpdate } from "./tkp-gip/fan-out-related-persist";
 export {
+  buildTkpGipSoftFillParentRecord,
   collectTkpStageDepartmentPairs,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
