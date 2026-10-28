@@ -1,20 +1,27 @@
 import {
   addEntityRecord,
+  applyTkpGipDepartmentUsers,
+  deptCalculationValuesMatchStagePair,
+  encodeEntityTableParentValue,
   entityNameValueHasTemplate,
+  findDeptCalculationsGroupsField,
   getEntityConfig,
   getEntityParentLinkField,
   getEntityRelationTargetId,
+  isDeptCalculationsEntity,
   isEntityComputedFieldType,
   isEntityNameField,
   isEntityParentLinkField,
   parseEntityListValueIds,
   parseEntityRelationIds,
+  resolveDeptCalculationsCreateFanOut,
   resolveEntityFieldLabel,
   serializeEntityRelationIds,
   updateEntityRecord,
   waitForEntityRecordInsert,
   type Entity,
   type EntityFieldType,
+  type TkpStageDepartmentPair,
 } from "@/entities/entity";
 import { createNotification } from "@/entities/notification/api/notifications-api";
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
@@ -356,6 +363,13 @@ function createValuesAreMeaningful(
     if (templateFed) return true;
   }
 
+  // «Расчёты отделов»: a filled stage×department groups value is enough —
+  // the hardcoded view titles rows from nested department, not the name field.
+  if (isDeptCalculationsEntity(target)) {
+    const groupsField = findDeptCalculationsGroupsField(target);
+    if (groupsField && (values[groupsField.id] ?? "").trim()) return true;
+  }
+
   // Named catalogs (stages, departments, …): without a usable title do not
   // create a row — list/number alone becomes a ghost «Без названия» chip.
   if (nameField) return false;
@@ -403,22 +417,29 @@ function resolveCreateParentLinkFieldId(
   );
 }
 
+type CreateMappedRecordOptions = {
+  extra?: Record<string, string>;
+  /** Ask-form values — win over mappings. */
+  askOverrides?: Record<string, string>;
+  /**
+   * Hardcode overrides that win over mappings and ask (e.g. one stage×dept
+   * relationGroups value when fanning out «Расчёты отделов»).
+   */
+  forceValues?: Record<string, string>;
+  /** Link to this parent instead of the trigger (nested creates). */
+  parentLink?: CreateParentLink;
+  /** Link to several parents (trigger + related) on one created row. */
+  parentLinks?: readonly CreateParentLink[];
+  /** Also append child id onto each parent's forward relation to child. */
+  writeBackToParents?: boolean;
+};
+
 async function createMappedRecord(
   entityId: string,
   mappings: AutomationFieldMapping[],
   ctx: AutomationExecutionContext,
   createdRecordIds: string[],
-  options?: {
-    extra?: Record<string, string>;
-    /** Ask-form values — win over mappings. */
-    askOverrides?: Record<string, string>;
-    /** Link to this parent instead of the trigger (nested creates). */
-    parentLink?: CreateParentLink;
-    /** Link to several parents (trigger + related) on one created row. */
-    parentLinks?: readonly CreateParentLink[];
-    /** Also append child id onto each parent's forward relation to child. */
-    writeBackToParents?: boolean;
-  },
+  options?: CreateMappedRecordOptions,
 ): Promise<{ id: string } | null> {
   const target = ctx.entities.find((entity) => entity.id === entityId) ?? null;
   let values = applyMappings(
@@ -431,6 +452,9 @@ async function createMappedRecord(
   if (options?.askOverrides) {
     values = { ...values, ...options.askOverrides };
   }
+  if (options?.forceValues) {
+    values = { ...values, ...options.forceValues };
+  }
   const parentLinks: CreateParentLink[] = options?.parentLinks?.length
     ? [...options.parentLinks]
     : options?.parentLink
@@ -441,6 +465,23 @@ async function createMappedRecord(
   } else {
     values = withParentLink(values, target, ctx);
   }
+
+  // «Разбор ТКП» → «Расчёты отделов»: ГИП manager/performer from lead.
+  const triggerEntity =
+    ctx.entities.find((entity) => entity.id === ctx.triggerEntityId) ?? null;
+  const triggerRecord =
+    triggerEntity?.records.find((item) => item.id === ctx.triggerRecordId) ??
+    null;
+  if (target && triggerEntity && triggerRecord) {
+    values = applyTkpGipDepartmentUsers({
+      childEntity: target,
+      childValues: values,
+      entities: ctx.entities,
+      parentEntity: triggerEntity,
+      parentRecord: { ...triggerRecord, values: ctx.values },
+    }).values;
+  }
+
   const parentLinkFieldIds =
     parentLinks.length > 0
       ? parentLinks
@@ -477,6 +518,128 @@ async function createMappedRecord(
     );
   }
   return record;
+}
+
+function findExistingLinkedChildForDeptPair(
+  ctx: AutomationExecutionContext,
+  childEntity: Entity,
+  parentEntityId: string,
+  parentRecordId: string,
+  groupsFieldId: string,
+  pair: TkpStageDepartmentPair,
+): { id: string } | null {
+  if (!ctx.reuseExistingLinkedCreates) return null;
+  const host =
+    ctx.entities.find((entity) => entity.id === parentEntityId) ?? null;
+  const linkedIds = collectRecordsLinkedToParent({
+    childEntity,
+    parentEntityId,
+    parentRecordId,
+    host,
+  });
+  // Prefer live store (ctx.entities may be stale after prior inserts).
+  const liveChild =
+    getEntityConfig().entities.find((entity) => entity.id === childEntity.id) ??
+    childEntity;
+  for (const id of linkedIds) {
+    const record = liveChild.records.find((item) => item.id === id);
+    if (!record) continue;
+    if (
+      deptCalculationValuesMatchStagePair(record.values[groupsFieldId], pair)
+    ) {
+      return { id };
+    }
+  }
+  return null;
+}
+
+/**
+ * TKP → «Расчёты отделов»: one create per stage×department pair.
+ * Returns created/reused ids, or `null` when fan-out does not apply.
+ */
+async function tryCreateDeptCalculationsFanOut(
+  entityId: string,
+  mappings: AutomationFieldMapping[],
+  ctx: AutomationExecutionContext,
+  createdRecordIds: string[],
+  options?: CreateMappedRecordOptions,
+): Promise<string[] | null> {
+  const target = ctx.entities.find((entity) => entity.id === entityId) ?? null;
+  const trigger =
+    ctx.entities.find((entity) => entity.id === ctx.triggerEntityId) ?? null;
+  if (!target || !trigger) return null;
+
+  let preview = applyMappings(
+    mappings,
+    ctx,
+    createdRecordIds,
+    options?.extra,
+    target,
+  );
+  if (options?.askOverrides) {
+    preview = { ...preview, ...options.askOverrides };
+  }
+
+  const fanOut = resolveDeptCalculationsCreateFanOut({
+    triggerEntity: trigger,
+    targetEntity: target,
+    triggerValues: ctx.values,
+    createValues: preview,
+  });
+  if (!fanOut) return null;
+
+  const parentLinks: CreateParentLink[] = options?.parentLinks?.length
+    ? [...options.parentLinks]
+    : options?.parentLink
+      ? [options.parentLink]
+      : [
+          {
+            parentEntityId: ctx.triggerEntityId,
+            parentRecordId: ctx.triggerRecordId,
+          },
+        ];
+  const primaryParent = parentLinks[0]!;
+
+  const ids: string[] = [];
+  for (const pair of fanOut.pairs) {
+    const encoded = encodeEntityTableParentValue(
+      fanOut.groupsField,
+      pair.stageId,
+      pair.departmentId,
+    );
+    const reused = findExistingLinkedChildForDeptPair(
+      ctx,
+      target,
+      primaryParent.parentEntityId,
+      primaryParent.parentRecordId,
+      fanOut.groupsField.id,
+      pair,
+    );
+    if (reused) {
+      ids.push(reused.id);
+      if (!createdRecordIds.includes(reused.id)) {
+        createdRecordIds.push(reused.id);
+      }
+      continue;
+    }
+    const child = await createMappedRecord(
+      entityId,
+      mappings,
+      ctx,
+      createdRecordIds,
+      {
+        ...options,
+        forceValues: {
+          ...(options?.forceValues ?? {}),
+          [fanOut.groupsField.id]: encoded,
+        },
+      },
+    );
+    if (!child) continue;
+    createdRecordIds.push(child.id);
+    ids.push(child.id);
+  }
+  return ids;
 }
 
 /** Optional createRecord flag: copy comments / files from the trigger record. */
@@ -764,6 +927,54 @@ export async function executeAutomationActions(
           if (action.multiple) {
             const multiMappings =
               action.useEntityCreateForm === true ? [] : action.mappings;
+            const multiParentId = createParentHost?.id ?? ctx.triggerEntityId;
+            const sharedMultiAsk = readAskDraftValues(
+              ctx.formValues,
+              createAskFieldIds,
+              (fieldId) =>
+                createRecordNestedAskDraftKey(
+                  action.id,
+                  CREATE_RECORD_MULTI_NESTED_ID,
+                  0,
+                  fieldId,
+                ),
+            );
+            const fannedMulti = await tryCreateDeptCalculationsFanOut(
+              action.entityId,
+              multiMappings,
+              ctx,
+              createdRecordIds,
+              {
+                askOverrides: sharedMultiAsk,
+                parentLink: {
+                  parentEntityId: multiParentId,
+                  parentRecordId: ctx.triggerRecordId,
+                },
+                writeBackToParents: true,
+              },
+            );
+            if (fannedMulti) {
+              for (const id of fannedMulti) {
+                await maybeCopyTriggerTabsToCreated(action, id, ctx);
+              }
+              if (action.linkBackFieldId && fannedMulti.length > 0) {
+                const linked = serializeEntityRelationIds(fannedMulti);
+                await updateEntityRecord(
+                  ctx.triggerEntityId,
+                  ctx.triggerRecordId,
+                  { [action.linkBackFieldId]: linked },
+                );
+                ctx.values[action.linkBackFieldId] = linked;
+              }
+              logs.push({
+                kind: "createRecord",
+                entityId: action.entityId,
+                multiple: true,
+                fanOutStageDepartments: true,
+                recordIds: fannedMulti,
+              });
+              break;
+            }
             let count = readNestedDraftCount(
               ctx.formValues,
               action.id,
@@ -788,7 +999,6 @@ export async function executeAutomationActions(
               break;
             }
             const multiIds: string[] = [];
-            const multiParentId = createParentHost?.id ?? ctx.triggerEntityId;
             for (let index = 0; index < count; index++) {
               const multiAsk = readAskDraftValues(
                 ctx.formValues,
@@ -850,6 +1060,83 @@ export async function executeAutomationActions(
               ? []
               : action.mappings;
           const singleParentId = createParentHost?.id ?? ctx.triggerEntityId;
+          const fannedSingle = await tryCreateDeptCalculationsFanOut(
+            action.entityId,
+            singleMappings,
+            ctx,
+            createdRecordIds,
+            {
+              askOverrides: parentAsk,
+              parentLink: {
+                parentEntityId: singleParentId,
+                parentRecordId: ctx.triggerRecordId,
+              },
+              writeBackToParents: true,
+            },
+          );
+          if (fannedSingle) {
+            for (const id of fannedSingle) {
+              await maybeCopyTriggerTabsToCreated(action, id, ctx);
+            }
+            if (action.linkBackFieldId && fannedSingle.length > 0) {
+              const linked = serializeEntityRelationIds(fannedSingle);
+              await updateEntityRecord(
+                ctx.triggerEntityId,
+                ctx.triggerRecordId,
+                { [action.linkBackFieldId]: linked },
+              );
+              ctx.values[action.linkBackFieldId] = linked;
+            }
+            const fanOutParentId = fannedSingle[0] ?? "";
+            const nestedCreatedIds: string[] = [];
+            if (fanOutParentId) {
+              for (const nested of action.nestedCreates ?? []) {
+                if (!nested.entityId.trim()) continue;
+                const count = readNestedDraftCount(
+                  ctx.formValues,
+                  action.id,
+                  nested.id,
+                );
+                for (let index = 0; index < count; index++) {
+                  const nestedAsk = readAskDraftValues(
+                    ctx.formValues,
+                    nested.askFieldIds,
+                    (fieldId) =>
+                      createRecordNestedAskDraftKey(
+                        action.id,
+                        nested.id,
+                        index,
+                        fieldId,
+                      ),
+                  );
+                  const child = await createMappedRecord(
+                    nested.entityId,
+                    nested.mappings ?? [],
+                    ctx,
+                    createdRecordIds,
+                    {
+                      askOverrides: nestedAsk,
+                      parentLink: {
+                        parentEntityId: action.entityId,
+                        parentRecordId: fanOutParentId,
+                      },
+                    },
+                  );
+                  if (!child) continue;
+                  nestedCreatedIds.push(child.id);
+                }
+              }
+            }
+            logs.push({
+              kind: "createRecord",
+              entityId: action.entityId,
+              fanOutStageDepartments: true,
+              recordIds: fannedSingle,
+              recordId: fanOutParentId || undefined,
+              nestedRecordIds: nestedCreatedIds,
+            });
+            break;
+          }
           // Silent retry: do not insert another linked child when one exists.
           const reused =
             Object.keys(parentAsk).length === 0

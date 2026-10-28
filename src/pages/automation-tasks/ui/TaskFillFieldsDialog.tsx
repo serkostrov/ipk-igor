@@ -49,6 +49,7 @@ import {
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
+  filterCreateAskSlotsForDeptCalculationsView,
   getOutcomeCreateAskSlots,
   resumePendingRecordListChange,
   TaskCreateRecordAsk,
@@ -253,7 +254,7 @@ function TaskFillFieldsDialogBody({
   const ask: AutomationAskFields | null = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
-  const createAskSlots = selectedOutcome
+  const createAskSlotsRaw = selectedOutcome
     ? getOutcomeCreateAskSlots(selectedOutcome, entities, {
         sourceEntity: entity,
         triggerRecordId: record?.id ?? task?.recordId,
@@ -299,6 +300,10 @@ function TaskFillFieldsDialogBody({
           ctx: previewContext,
         })
       : { groups: [], emptyRelations: [] };
+  const createAskSlots = filterCreateAskSlotsForDeptCalculationsView(
+    createAskSlotsRaw,
+    relatedLayout.groups,
+  );
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
 

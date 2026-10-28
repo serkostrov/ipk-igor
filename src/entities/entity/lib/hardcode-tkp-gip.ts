@@ -32,10 +32,7 @@ import {
 } from "../model/field-value";
 
 function normalizeName(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase("ru")
-    .replaceAll("ё", "е");
+  return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
 }
 
 function entityMatches(
@@ -95,7 +92,9 @@ const PERFORMER_KEYS = ["Исполнитель"] as const;
 export function isTkpAnalysisEntity(
   entity: Pick<Entity, "id" | "name" | "namePlural">,
 ): boolean {
-  return entityMatches(entity, TKP_ANALYSIS_KEYS);
+  if (entityMatchesLoose(entity, TKP_ANALYSIS_KEYS)) return true;
+  const text = normalizeName(`${entity.name} ${entity.namePlural}`);
+  return text.includes("разбор") && text.includes("ткп");
 }
 
 export function isDeptCalculationsEntity(
@@ -178,6 +177,98 @@ export function findDeptCalculationsGroupsField(
         Boolean(field.relationGroups?.levels.length),
     ) ?? null
   );
+}
+
+/** One «Расчёты отделов» row = one stage root × one nested department. */
+export type TkpStageDepartmentPair = {
+  stageId: string;
+  departmentId: string;
+};
+
+/**
+ * Expand a 2-level relationGroups value into stage×department pairs.
+ * Stages without nested departments are skipped.
+ */
+export function collectTkpStageDepartmentPairs(
+  groupsValue: string | undefined,
+): TkpStageDepartmentPair[] {
+  const roots = parseEntityRelationGroups(groupsValue);
+  const pairs: TkpStageDepartmentPair[] = [];
+  const seen = new Set<string>();
+  for (const root of roots) {
+    const stageId = root.id.trim();
+    if (!stageId) continue;
+    for (const child of root.children) {
+      const departmentId = child.id.trim();
+      if (!departmentId) continue;
+      const key = `${stageId}\0${departmentId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pairs.push({ stageId, departmentId });
+    }
+  }
+  return pairs;
+}
+
+/**
+ * When creating «Расчёты отделов» from «Разбор ТКП», fan out to one child
+ * per selected nested department under each stage — not one row with the
+ * whole tree (UI would only show the first nested chip, often «ГИП»).
+ */
+export function resolveDeptCalculationsCreateFanOut(options: {
+  triggerEntity: Entity;
+  targetEntity: Entity;
+  triggerValues: Record<string, string | undefined>;
+  /** Mapped / ask values for the child (may already copy the full tree). */
+  createValues?: Record<string, string | undefined>;
+}): {
+  groupsField: EntityField;
+  pairs: TkpStageDepartmentPair[];
+} | null {
+  const { triggerEntity, targetEntity, triggerValues, createValues } = options;
+  if (!isTkpAnalysisEntity(triggerEntity)) return null;
+  if (!isDeptCalculationsEntity(targetEntity)) return null;
+
+  const groupsField = findDeptCalculationsGroupsField(targetEntity);
+  if (!groupsField) return null;
+
+  const triggerGroupsField =
+    findDeptCalculationsGroupsField(triggerEntity) ??
+    triggerEntity.fields.find(
+      (field) =>
+        field.type === "relationGroups" &&
+        Boolean(field.relationGroups?.levels.length),
+    ) ??
+    null;
+
+  const sources = [
+    createValues?.[groupsField.id],
+    triggerGroupsField ? triggerValues[triggerGroupsField.id] : undefined,
+  ];
+
+  let pairs: TkpStageDepartmentPair[] = [];
+  for (const source of sources) {
+    const next = collectTkpStageDepartmentPairs(source);
+    if (next.length > 0) {
+      pairs = next;
+      break;
+    }
+  }
+  if (pairs.length === 0) return null;
+  return { groupsField, pairs };
+}
+
+/** True when a child row is exactly one stage + one nested department. */
+export function deptCalculationValuesMatchStagePair(
+  groupsValue: string | undefined,
+  pair: TkpStageDepartmentPair,
+): boolean {
+  const roots = parseEntityRelationGroups(groupsValue);
+  if (roots.length !== 1) return false;
+  const root = roots[0]!;
+  if (root.id.trim() !== pair.stageId) return false;
+  if (root.children.length !== 1) return false;
+  return root.children[0]!.id.trim() === pair.departmentId;
 }
 
 function resolveDepartmentEntity(
@@ -306,7 +397,10 @@ export function applyTkpGipDepartmentUsers(options: {
 
 /**
  * Label extras for a nested department chip: for «ГИП» under «Разбор ТКП»
- * show the parent’s GIP user(s) instead of the catalog head.
+ * always show the lead’s «ГИП» user(s), not the catalog department head.
+ *
+ * Works both when the relationGroups field lives on «Разбор ТКП» itself and
+ * when it lives on a child «Расчёты отделов» with softFillParent = lead.
  */
 export function formatTkpGipDepartmentExtras(options: {
   ctx: EntityValueContext;
@@ -329,8 +423,14 @@ export function formatTkpGipDepartmentExtras(options: {
     defaultExtras,
   } = options;
 
-  if (!isTkpAnalysisEntity(parentEntity)) return null;
-  if (!isDeptCalculationsEntity(hostEntity)) return null;
+  // Lead = softFill parent when child form, or the host itself when
+  // «Стадия/отделы» lives on «Разбор ТКП».
+  const leadEntity = isTkpAnalysisEntity(parentEntity)
+    ? parentEntity
+    : isTkpAnalysisEntity(hostEntity)
+      ? hostEntity
+      : null;
+  if (!leadEntity) return null;
 
   const record = departmentEntity.records.find(
     (item) => item.id === departmentRecordId,
@@ -340,18 +440,21 @@ export function formatTkpGipDepartmentExtras(options: {
     return null;
   }
 
-  const gipField = findTkpGipUserField(parentEntity);
+  const gipField = findTkpGipUserField(leadEntity);
   if (!gipField) return null;
 
   const text = formatRecordFieldValue(
     ctx,
-    parentEntity,
+    leadEntity,
     parentRecord,
     gipField,
   ).trim();
-  if (!text || text === "—") return defaultExtras || null;
+  if (!text || text === "—") {
+    // Lead GIP empty — do not fall back to catalog head for «ГИП» chips.
+    return "";
+  }
 
-  // Replace manager-like display fields with the parent GIP; keep other extras.
+  // Replace manager-like display fields with the lead GIP; keep other extras.
   if (displayFieldIds.length === 0) return text;
 
   const parts: string[] = [];
@@ -385,7 +488,7 @@ export function formatTkpGipDepartmentExtras(options: {
     parts.push(other);
   }
   if (!replacedManager) parts.unshift(text);
-  return parts.join(" · ");
+  return parts.join(" · ") || defaultExtras || null;
 }
 
 /**

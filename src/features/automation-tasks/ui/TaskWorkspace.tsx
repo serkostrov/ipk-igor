@@ -3,9 +3,12 @@ import { Button } from "@/shared/ui/button";
 import {
   automationOutcomeButtonStyle,
   automationRequiresTimeTracking,
+  fetchAutomationTaskTimeSessions,
+  fetchOpenAutomationTaskTimeSession,
   getAutomationUploadTarget,
   resolveAutomationGateError,
   resolveViewEntityFieldsLayout,
+  stopAutomationTaskTimeSession,
   type AutomationTask,
 } from "@/entities/automation";
 import { cn } from "@/shared/lib/cn";
@@ -80,6 +83,7 @@ import {
   resolveTaskLeadManagerName,
 } from "../lib/task-people";
 import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
+import { filterCreateAskSlotsForDeptCalculationsView } from "../lib/task-ask-fields";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewContextFields } from "./TaskViewContextFields";
@@ -240,7 +244,7 @@ function TaskWorkspaceBody({
   const ask = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
-  const createAskSlots = selectedOutcome
+  const createAskSlotsRaw = selectedOutcome
     ? getOutcomeCreateAskSlots(selectedOutcome, entities, {
         sourceEntity: entity,
         triggerRecordId: record?.id ?? task.recordId,
@@ -319,6 +323,15 @@ function TaskWorkspaceBody({
           ctx: previewContext,
         })
       : { groups: [], emptyRelations: [] };
+
+  const createAskSlots = useMemo(
+    () =>
+      filterCreateAskSlotsForDeptCalculationsView(
+        createAskSlotsRaw,
+        relatedLayout.groups,
+      ),
+    [createAskSlotsRaw, relatedLayout.groups],
+  );
 
   const viewRelatedFieldsForForm = ask?.viewRelatedFields ?? [];
   const viewEntityFieldsForForm = ask?.viewEntityFields ?? [];
@@ -664,12 +677,6 @@ function TaskWorkspaceBody({
       setError(validationError);
       return;
     }
-    if (requireTime && loggedSeconds <= 0) {
-      setError(
-        "Чтобы завершить задание, добавьте время вручную или запустите и остановите таймер.",
-      );
-      return;
-    }
     if (uploadBlocksComplete) {
       setError("Прикрепите файлы в папку задания, чтобы завершить его.");
       return;
@@ -677,6 +684,35 @@ function TaskWorkspaceBody({
     setBusy(true);
     setError(null);
     try {
+      // Close a running timer so its duration is saved before complete.
+      const timerUserId = sessionUser?.id ?? null;
+      if (timerUserId) {
+        const openSessionId = await fetchOpenAutomationTaskTimeSession(
+          task.id,
+          timerUserId,
+        );
+        if (openSessionId) {
+          await stopAutomationTaskTimeSession(openSessionId);
+        }
+      }
+      if (requireTime) {
+        const sessions = await fetchAutomationTaskTimeSessions(task.id);
+        const totalSeconds = sessions.reduce((sum, session) => {
+          if (session.seconds > 0) return sum + session.seconds;
+          if (!session.endedAt) return sum;
+          const start = new Date(session.startedAt).getTime();
+          const end = new Date(session.endedAt).getTime();
+          if (!Number.isFinite(start) || !Number.isFinite(end)) return sum;
+          return sum + Math.max(0, Math.floor((end - start) / 1000));
+        }, 0);
+        setLoggedSeconds(totalSeconds);
+        if (totalSeconds <= 0) {
+          setError(
+            "Чтобы завершить задание, добавьте время вручную или запустите и остановите таймер.",
+          );
+          return;
+        }
+      }
       await autosave.flush();
       await persistValues(outcomeId);
       await onComplete(outcomeId, values);
@@ -789,11 +825,8 @@ function TaskWorkspaceBody({
               <span className="text-muted-foreground/40" aria-hidden>
                 ·
               </span>
-              <span
-                className="truncate"
-                title={`Менеджер лида: ${leadManagerName}`}
-              >
-                Менеджер лида:{" "}
+              <span className="truncate" title={`Менеджер: ${leadManagerName}`}>
+                Менеджер:{" "}
                 <span className="font-medium text-foreground">
                   {leadManagerName}
                 </span>

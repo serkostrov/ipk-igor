@@ -497,6 +497,8 @@ export { notifyRecordMentions } from "./lib/notify-record-mentions";
 export {
   applyTkpGipDepartmentUsers,
   childValuesSelectGipDepartment,
+  collectTkpStageDepartmentPairs,
+  deptCalculationValuesMatchStagePair,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
   findTkpGipUserField,
@@ -504,8 +506,10 @@ export {
   isDeptCalculationsEntity,
   isGipDepartmentRecord,
   isTkpAnalysisEntity,
+  resolveDeptCalculationsCreateFanOut,
   resolveTkpGipAssigneeUserIds,
   type TkpGipDepartmentUsersResult,
+  type TkpStageDepartmentPair,
 } from "./lib/hardcode-tkp-gip";
 export {
   getEntityRecordDependencies,

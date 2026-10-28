@@ -769,7 +769,7 @@ export function TaskTableView({
                     <TableHead className={headClass}>Запись</TableHead>
                     <TableHead className={headClass}>Сущность</TableHead>
                     <TableHead className={headClass}>Исполнитель</TableHead>
-                    <TableHead className={headClass}>Менеджер лида</TableHead>
+                    <TableHead className={headClass}>Менеджер</TableHead>
                     <TableHead className={headClass}>Шаг</TableHead>
                     <TableHead className={headClass}>Статус</TableHead>
                     <TableHead className={headClass}>Срок</TableHead>

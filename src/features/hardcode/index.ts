@@ -5,6 +5,7 @@ export {
   type TkpGipDepartmentUsersResult,
 } from "./tkp-gip/apply-gip-department-users";
 export {
+  collectTkpStageDepartmentPairs,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
   findTkpGipUserField,
@@ -12,6 +13,8 @@ export {
   isDeptCalculationsEntity,
   isGipDepartmentRecord,
   isTkpAnalysisEntity,
+  resolveDeptCalculationsCreateFanOut,
+  type TkpStageDepartmentPair,
 } from "./tkp-gip/match";
 
 export {

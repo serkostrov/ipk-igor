@@ -1,4 +1,5 @@
 export {
+  collectTkpStageDepartmentPairs,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
   findTkpGipUserField,
@@ -6,4 +7,6 @@ export {
   isDeptCalculationsEntity,
   isGipDepartmentRecord,
   isTkpAnalysisEntity,
+  resolveDeptCalculationsCreateFanOut,
+  type TkpStageDepartmentPair,
 } from "@/entities/entity";

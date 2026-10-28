@@ -62,6 +62,8 @@ type EntityTabDialogProps = {
   onOpenChange: (open: boolean) => void;
   initialName?: string;
   initialKind?: EntityTabKind;
+  initialSourceRelationFieldId?: string;
+  initialSourceTabId?: string;
   mode?: "create" | "edit";
   /** Host entity — needed for mirror relation fields. */
   hostEntity?: Entity | null;
@@ -93,6 +95,8 @@ function EntityTabForm({
   mode,
   initialName,
   initialKind = "fields",
+  initialSourceRelationFieldId = "",
+  initialSourceTabId = "",
   hostEntity = null,
   entityOptions = [],
   entities = [],
@@ -102,6 +106,8 @@ function EntityTabForm({
   mode: "create" | "edit";
   initialName: string;
   initialKind: EntityTabKind;
+  initialSourceRelationFieldId: string;
+  initialSourceTabId: string;
   hostEntity: Entity | null;
   entityOptions: EntityTabEntityOption[];
   entities: Entity[];
@@ -122,10 +128,16 @@ function EntityTabForm({
   const [linkedEntityId, setLinkedEntityId] = useState(
     entityOptions[0]?.id ?? "",
   );
-  const [sourceRelationFieldId, setSourceRelationFieldId] = useState(
-    relationFields[0]?.id ?? "",
-  );
-  const [sourceTabId, setSourceTabId] = useState("");
+  const [sourceRelationFieldId, setSourceRelationFieldId] = useState(() => {
+    if (
+      initialSourceRelationFieldId &&
+      relationFields.some((field) => field.id === initialSourceRelationFieldId)
+    ) {
+      return initialSourceRelationFieldId;
+    }
+    return relationFields[0]?.id ?? "";
+  });
+  const [sourceTabId, setSourceTabId] = useState(initialSourceTabId);
   const [recordsDisplay, setRecordsDisplay] = useState<EntityRecordsDisplay>(
     DEFAULT_RECORDS_DISPLAY,
   );
@@ -136,6 +148,8 @@ function EntityTabForm({
   const isEntityTab = kind === "entity";
   const isMirrorTab = kind === "mirror";
   const isExisting = isEntityTab && entitySource === "existing";
+  const canEditMirrorSource =
+    isMirrorTab && (!isEdit || initialKind === "mirror");
 
   const selectedEntity = useMemo(
     () => entityOptions.find((item) => item.id === linkedEntityId) ?? null,
@@ -226,6 +240,17 @@ function EntityTabForm({
   function submit() {
     if (!canSubmit) return;
     if (isEdit) {
+      if (initialKind === "mirror") {
+        if (!sourceRelationFieldId || !sourceTabId) return;
+        onSubmit({
+          name: name.trim() || selectedSourceTab?.name || "Вкладка",
+          kind: "mirror",
+          sourceRelationFieldId,
+          sourceTabId,
+        });
+        onCancel();
+        return;
+      }
       onSubmit({
         name: name.trim(),
         kind: initialKind,
@@ -277,7 +302,9 @@ function EntityTabForm({
         </DialogTitle>
         <DialogDescription>
           {isEdit
-            ? "Измените название вкладки."
+            ? initialKind === "mirror"
+              ? "Название и источник данных из связанной записи."
+              : "Измените название вкладки."
             : "Поля, записи, файлы, связанная сущность или вкладка из связи."}
         </DialogDescription>
       </DialogHeader>
@@ -324,7 +351,7 @@ function EntityTabForm({
             </div>
           ) : null}
 
-          {!isEdit && isMirrorTab ? (
+          {canEditMirrorSource ? (
             <>
               <div className="flex flex-col gap-2">
                 <Label>Поле связи</Label>
@@ -503,10 +530,11 @@ function EntityTabForm({
                 submit();
               }}
             />
-            {!isEdit && isMirrorTab ? (
+            {canEditMirrorSource ? (
               <p className="text-xs text-muted-foreground">
                 На странице записи здесь покажется выбранная вкладка записи из
-                поля связи — с её данными, а не копией схемы.
+                поля связи — с её данными, а не копией схемы. Комментарии и
+                файлы общие: правки видны с обеих сущностей.
               </p>
             ) : null}
             {!isEdit && isEntityTab ? (
@@ -567,27 +595,31 @@ export function EntityTabDialog({
   onOpenChange,
   initialName = "",
   initialKind = "fields",
+  initialSourceRelationFieldId = "",
+  initialSourceTabId = "",
   mode = "create",
   hostEntity = null,
   entityOptions = [],
   entities = [],
   onSubmit,
 }: EntityTabDialogProps) {
+  const wide =
+    mode === "create" || (mode === "edit" && initialKind === "mirror");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={
-          mode === "create"
-            ? "max-h-[90vh] overflow-y-auto sm:max-w-lg"
-            : "sm:max-w-md"
+          wide ? "max-h-[90vh] overflow-y-auto sm:max-w-lg" : "sm:max-w-md"
         }
       >
         {open ? (
           <EntityTabForm
-            key={`${mode}-${initialName}-${initialKind}-${hostEntity?.id ?? ""}-${entityOptions.length}`}
+            key={`${mode}-${initialName}-${initialKind}-${initialSourceRelationFieldId}-${initialSourceTabId}-${hostEntity?.id ?? ""}-${entityOptions.length}`}
             mode={mode}
             initialName={initialName}
             initialKind={initialKind}
+            initialSourceRelationFieldId={initialSourceRelationFieldId}
+            initialSourceTabId={initialSourceTabId}
             hostEntity={hostEntity}
             entityOptions={entityOptions}
             entities={entities}

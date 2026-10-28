@@ -91,6 +91,7 @@ import {
   isEntityKanbanGroupField,
   isEntityNameField,
   isEntityOverviewTab,
+  isEntityMirrorTab,
   isEntitySubEntity,
   isEntityTabWithLinkedEntity,
   isSystemEntity,
@@ -2207,7 +2208,16 @@ export function addEntityTabWithExistingEntity(
 export function updateEntityTab(
   entityId: string,
   tabId: string,
-  patch: Partial<Pick<EntityTab, "name" | "defaultFolders" | "singleRecord">>,
+  patch: Partial<
+    Pick<
+      EntityTab,
+      | "name"
+      | "defaultFolders"
+      | "singleRecord"
+      | "sourceRelationFieldId"
+      | "sourceTabId"
+    >
+  >,
 ) {
   const parent = config.entities.find((item) => item.id === entityId);
   if (!parent) return;
@@ -2262,6 +2272,36 @@ export function updateEntityTab(
     if (!tabTarget) return entity;
 
     const isOverview = isEntityOverviewTab(tabTarget);
+    const isMirror = isEntityMirrorTab(tabTarget);
+    let sourceRelationFieldId = tabTarget.sourceRelationFieldId;
+    let sourceTabId = tabTarget.sourceTabId;
+    if (isMirror) {
+      if (patch.sourceRelationFieldId !== undefined) {
+        const nextRelation = entity.fields.find(
+          (field) =>
+            field.id === patch.sourceRelationFieldId &&
+            field.type === "relation",
+        );
+        if (nextRelation) sourceRelationFieldId = nextRelation.id;
+      }
+      if (patch.sourceTabId !== undefined) {
+        const targetId = sourceRelationFieldId
+          ? getEntityRelationTargetId(
+              entity.fields.find(
+                (field) => field.id === sourceRelationFieldId,
+              ) ?? { type: "text" as const },
+            )
+          : null;
+        const sourceEntity = targetId
+          ? config.entities.find((item) => item.id === targetId)
+          : null;
+        const nextSourceTab = sourceEntity?.tabs.find(
+          (item) => item.id === patch.sourceTabId && !isEntityMirrorTab(item),
+        );
+        if (nextSourceTab) sourceTabId = nextSourceTab.id;
+      }
+    }
+
     return {
       ...entity,
       tabs: entity.tabs.map((tab) =>
@@ -2277,6 +2317,7 @@ export function updateEntityTab(
                 patch.singleRecord !== undefined
                   ? patch.singleRecord
                   : tab.singleRecord,
+              ...(isMirror ? { sourceRelationFieldId, sourceTabId } : null),
               locked: isOverview,
             })
           : tab,

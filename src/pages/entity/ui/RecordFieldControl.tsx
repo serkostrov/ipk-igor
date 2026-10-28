@@ -21,6 +21,7 @@ import {
   getRelationRecordOptions,
   isEntityComputedFieldType,
   isEntityNameField,
+  isTkpAnalysisEntity,
   isValidEntityEmail,
   normalizeEntityDecimalInput,
   normalizeEntityPhoneValue,
@@ -260,6 +261,18 @@ export function RecordFieldControl({
   }
 
   if (field.type === "relationGroups") {
+    const hostIsLead = isTkpAnalysisEntity(entity);
+    const softIsLead =
+      softFillParent != null && isTkpAnalysisEntity(softFillParent.entity);
+    const leadParent = hostIsLead
+      ? {
+          entity,
+          // Prefer unsaved form values (incl. «ГИП») over the store snapshot.
+          record: createEntityDraftRecord(values, recordId),
+        }
+      : softIsLead
+        ? softFillParent
+        : null;
     return (
       <div className="flex flex-col gap-2">
         {labelNode}
@@ -274,20 +287,20 @@ export function RecordFieldControl({
           onChange={onChange}
           mode={relationGroupsMode}
           resolveRecordExtras={
-            softFillParent
+            leadParent
               ? ({
                   entity: departmentEntity,
-                  recordId,
+                  recordId: departmentRecordId,
                   fieldIds,
                   defaultExtras,
                 }) =>
                   formatTkpGipDepartmentExtras({
                     ctx,
                     hostEntity: entity,
-                    parentEntity: softFillParent.entity,
-                    parentRecord: softFillParent.record,
+                    parentEntity: leadParent.entity,
+                    parentRecord: leadParent.record,
                     departmentEntity,
-                    departmentRecordId: recordId,
+                    departmentRecordId,
                     displayFieldIds: fieldIds,
                     defaultExtras,
                   })

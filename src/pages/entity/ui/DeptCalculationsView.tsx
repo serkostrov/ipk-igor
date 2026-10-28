@@ -15,6 +15,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { Textarea } from "@/shared/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -134,6 +135,9 @@ export function DeptCalculationsView({
   const [deadlineDrafts, setDeadlineDrafts] = useState<Record<string, string>>(
     {},
   );
+  const [descriptionDrafts, setDescriptionDrafts] = useState<
+    Record<string, string>
+  >({});
   const [lineDialog, setLineDialog] = useState<
     | { mode: "create"; hostId: string }
     | { mode: "edit"; hostId: string; record: EntityRecord }
@@ -149,14 +153,22 @@ export function DeptCalculationsView({
     Boolean(hostFields.fixedExpenses) || Boolean(lineFields?.sum);
   const columnCount = showFixed ? 9 : 8;
 
-  async function saveDeadline(record: EntityRecord) {
-    if (!hostFields.deadline) return;
-    const raw =
-      deadlineDrafts[record.id] ?? record.values[hostFields.deadline.id] ?? "";
-    await updateEntityRecord(entity.id, record.id, {
-      ...record.values,
-      [hostFields.deadline.id]: raw,
-    });
+  async function saveDepartmentContext(record: EntityRecord) {
+    if (!hostFields.deadline && !hostFields.description) return;
+    const next = { ...record.values };
+    if (hostFields.deadline) {
+      next[hostFields.deadline.id] =
+        deadlineDrafts[record.id] ??
+        record.values[hostFields.deadline.id] ??
+        "";
+    }
+    if (hostFields.description) {
+      next[hostFields.description.id] =
+        descriptionDrafts[record.id] ??
+        record.values[hostFields.description.id] ??
+        "";
+    }
+    await updateEntityRecord(entity.id, record.id, next);
   }
 
   return (
@@ -283,6 +295,11 @@ export function DeptCalculationsView({
                       (hostFields.deadline
                         ? (record.values[hostFields.deadline.id] ?? "")
                         : "");
+                    const descriptionInput =
+                      descriptionDrafts[record.id] ??
+                      (hostFields.description
+                        ? (record.values[hostFields.description.id] ?? "")
+                        : "");
                     const lines = getDeptNestedLines(record, nested);
                     const preview = breakdown.lineTitles.slice(0, 2).join(", ");
 
@@ -321,9 +338,16 @@ export function DeptCalculationsView({
                             [record.id]: value,
                           }))
                         }
-                        onSaveDeadline={() => void saveDeadline(record)}
+                        descriptionField={Boolean(hostFields.description)}
+                        descriptionInput={descriptionInput}
+                        onDescriptionChange={(value) =>
+                          setDescriptionDrafts((prev) => ({
+                            ...prev,
+                            [record.id]: value,
+                          }))
+                        }
+                        onSaveContext={() => void saveDepartmentContext(record)}
                         comment={comment}
-                        description={description}
                         laborCost={breakdown.laborCost}
                         lines={lines}
                         nested={nested}
@@ -487,9 +511,11 @@ function DepartmentBlock({
   deadlineField,
   deadlineInput,
   onDeadlineChange,
-  onSaveDeadline,
+  descriptionField,
+  descriptionInput,
+  onDescriptionChange,
+  onSaveContext,
   comment,
-  description,
   laborCost,
   lines,
   nested,
@@ -519,9 +545,11 @@ function DepartmentBlock({
   deadlineField: boolean;
   deadlineInput: string;
   onDeadlineChange: (value: string) => void;
-  onSaveDeadline: () => void;
+  descriptionField: boolean;
+  descriptionInput: string;
+  onDescriptionChange: (value: string) => void;
+  onSaveContext: () => void;
   comment: string;
-  description: string;
   laborCost: number;
   lines: EntityRecord[];
   nested: EntityTableNestedTarget | null;
@@ -531,6 +559,7 @@ function DepartmentBlock({
   onEditLine: (line: EntityRecord) => void;
   onDeleteLine: (line: EntityRecord) => void;
 }) {
+  const showContextPanel = deadlineField || descriptionField;
   return (
     <>
       <TableRow className="border-border/70 align-top">
@@ -635,28 +664,59 @@ function DepartmentBlock({
                 </div>
               </div>
 
-              {deadlineField ? (
-                <div className="rounded-md border border-border bg-background p-4">
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,20rem)_auto] md:items-end">
+              {showContextPanel ? (
+                <div className="space-y-4 rounded-md border border-border bg-background p-4">
+                  {deadlineField ? (
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,20rem)_auto] md:items-end">
+                      <div className="grid gap-1.5">
+                        <Label htmlFor={`deadline-${deptLabel}`}>
+                          Срок выполнения работы, раб. дни
+                        </Label>
+                        <Input
+                          id={`deadline-${deptLabel}`}
+                          type="number"
+                          min="0.5"
+                          step="0.5"
+                          value={deadlineInput}
+                          onChange={(event) =>
+                            onDeadlineChange(event.target.value)
+                          }
+                        />
+                      </div>
+                      {!descriptionField ? (
+                        <Button type="button" onClick={onSaveContext}>
+                          Сохранить срок
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {descriptionField ? (
                     <div className="grid gap-1.5">
-                      <Label htmlFor={`deadline-${deptLabel}`}>
-                        Срок выполнения работы, раб. дни
+                      <Label htmlFor={`description-${deptLabel}`}>
+                        Описание работ
                       </Label>
-                      <Input
-                        id={`deadline-${deptLabel}`}
-                        type="number"
-                        min="0.5"
-                        step="0.5"
-                        value={deadlineInput}
+                      <Textarea
+                        id={`description-${deptLabel}`}
+                        rows={3}
+                        value={descriptionInput}
+                        placeholder="Общее описание объёма работ для отдела"
                         onChange={(event) =>
-                          onDeadlineChange(event.target.value)
+                          onDescriptionChange(event.target.value)
                         }
                       />
                     </div>
-                    <Button type="button" onClick={onSaveDeadline}>
-                      Сохранить срок
-                    </Button>
-                  </div>
+                  ) : null}
+
+                  {descriptionField ? (
+                    <div className="flex justify-end">
+                      <Button type="button" onClick={onSaveContext}>
+                        {deadlineField
+                          ? "Сохранить срок и описание"
+                          : "Сохранить описание"}
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -694,17 +754,6 @@ function DepartmentBlock({
                   </div>
                   <div className="whitespace-pre-wrap break-words">
                     {comment}
-                  </div>
-                </div>
-              ) : null}
-
-              {description ? (
-                <div className="rounded-md border border-border bg-background px-3 py-2 text-sm">
-                  <div className="mb-1 text-[11px] tracking-wide text-muted-foreground uppercase">
-                    Описание объёма работ
-                  </div>
-                  <div className="whitespace-pre-wrap break-words">
-                    {description}
                   </div>
                 </div>
               ) : null}

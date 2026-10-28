@@ -25,6 +25,7 @@ import {
   useDragControls,
   useMotionValue,
 } from "motion/react";
+import { toast } from "sonner";
 import {
   addEntityField,
   addEntityTab,
@@ -5165,6 +5166,14 @@ export function EntityFieldsEditor({
         mode={tabDialog.mode === "edit" ? "edit" : "create"}
         initialName={tabDialog.mode === "edit" ? tabDialog.tab.name : ""}
         initialKind={tabDialog.mode === "edit" ? tabDialog.tab.kind : "fields"}
+        initialSourceRelationFieldId={
+          tabDialog.mode === "edit"
+            ? (tabDialog.tab.sourceRelationFieldId ?? "")
+            : ""
+        }
+        initialSourceTabId={
+          tabDialog.mode === "edit" ? (tabDialog.tab.sourceTabId ?? "") : ""
+        }
         hostEntity={entity}
         entities={entities}
         entityOptions={entities
@@ -5195,6 +5204,18 @@ export function EntityFieldsEditor({
         }}
         onSubmit={(data) => {
           if (tabDialog.mode === "edit") {
+            if (
+              tabDialog.tab.kind === "mirror" &&
+              data.sourceRelationFieldId &&
+              data.sourceTabId
+            ) {
+              updateEntityTab(entity.id, tabDialog.tab.id, {
+                name: data.name,
+                sourceRelationFieldId: data.sourceRelationFieldId,
+                sourceTabId: data.sourceTabId,
+              });
+              return;
+            }
             updateEntityTab(entity.id, tabDialog.tab.id, {
               name: data.name,
             });
@@ -5210,7 +5231,13 @@ export function EntityFieldsEditor({
               sourceTabId: data.sourceTabId,
               name: data.name,
             });
-            if (tab) setActiveTabId(tab.id);
+            if (tab) {
+              setActiveTabId(tab.id);
+              return;
+            }
+            toast.error(
+              "Не удалось создать вкладку «Из записи». Проверьте поле связи и вкладку источника.",
+            );
             return;
           }
           if (data.kind === "entity") {
