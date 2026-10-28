@@ -21,6 +21,7 @@ import {
   isEntityInternal,
   hasEntityPageLayout,
   encodeEntityTableParentValue,
+  isEntityTableRelationGroupsNestedSubgroup,
   resolveEntityDefaultView,
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
@@ -514,12 +515,22 @@ export function EntityPage({
                   [tableParentField.id]: encodeEntityTableParentValue(
                     tableParentField,
                     createHierarchyGroupId,
+                    isEntityTableRelationGroupsNestedSubgroup(
+                      tableParentField,
+                      tableSubgroupField,
+                    )
+                      ? createHierarchySubgroupId
+                      : null,
                   ),
                 }
               : {}),
             ...(createHierarchySubgroupId != null &&
             createHierarchySubgroupId !== "" &&
-            tableSubgroupField
+            tableSubgroupField &&
+            !isEntityTableRelationGroupsNestedSubgroup(
+              tableParentField,
+              tableSubgroupField,
+            )
               ? {
                   [tableSubgroupField.id]: encodeEntityTableParentValue(
                     tableSubgroupField,

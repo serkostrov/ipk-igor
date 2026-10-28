@@ -9,6 +9,7 @@ import { purgeFieldFromNotificationRules } from "@/entities/notification/store/n
 import {
   fetchEntityConfig,
   saveEntityConfig,
+  saveEntityStructure,
   subscribeEntityStructureChanges,
 } from "../api/entity-config-api";
 import {
@@ -19,14 +20,24 @@ import {
   subscribeEntityRecordChanges,
   updateEntityRecordValues,
 } from "../api/entity-records-api";
+import { buildClonedEntityPlan } from "../lib/clone-entity";
 import {
   cloneDefaultEntityConfig,
   normalizeEntity,
   normalizeEntityField,
   normalizeEntityListOption,
   normalizeEntityRecord,
+  normalizeEntitySchemaVersion,
   toEntityStructure,
 } from "../lib/parse-entity-config";
+import {
+  fetchEntitySchemaVersion,
+  fetchEntitySchemaVersions,
+  insertEntitySchemaVersion,
+  type EntitySchemaVersion,
+} from "../api/entity-schema-versions-api";
+import { entitySchemasEqual } from "../model/schema-changes";
+import { resolveEntityForRecord } from "../model/schema-version";
 import {
   parseEntityListValueIds,
   serializeEntityDecimal,
@@ -131,6 +142,10 @@ let schemaEditSession: {
   snapshot: EntityConfig;
   dirty: boolean;
 } | null = null;
+
+/** Cached published schema snapshots: entityId → version → definition. */
+const schemaVersionCache = new Map<string, Map<number, Entity>>();
+const schemaVersionListCache = new Map<string, EntitySchemaVersion[]>();
 
 const listeners = new Set<Listener>();
 
@@ -751,6 +766,56 @@ export function syncUsersRoleOptions(
   });
 }
 
+function rememberSchemaVersion(entityId: string, version: EntitySchemaVersion) {
+  let byVersion = schemaVersionCache.get(entityId);
+  if (!byVersion) {
+    byVersion = new Map();
+    schemaVersionCache.set(entityId, byVersion);
+  }
+  byVersion.set(version.version, version.definition);
+  const list = schemaVersionListCache.get(entityId);
+  if (list) {
+    const next = [
+      version,
+      ...list.filter((item) => item.version !== version.version),
+    ].sort((a, b) => b.version - a.version);
+    schemaVersionListCache.set(entityId, next);
+  }
+}
+
+function seedInitialSchemaVersion(entity: Entity) {
+  if (!isSupabaseConfigured) {
+    rememberSchemaVersion(entity.id, {
+      id: 0,
+      entityId: entity.id,
+      version: 1,
+      definition: normalizeEntity({
+        ...entity,
+        records: [],
+        publishedVersion: 1,
+      }),
+      message: "Начальная версия",
+      actorId: null,
+      createdAt: new Date().toISOString(),
+    });
+    return;
+  }
+  void insertEntitySchemaVersion({
+    entityId: entity.id,
+    version: 1,
+    definition: toEntityStructure(entity),
+    message: "Начальная версия",
+    actorId: currentAuthUserId,
+  })
+    .then((version) => {
+      rememberSchemaVersion(entity.id, version);
+      notify();
+    })
+    .catch((error: unknown) => {
+      console.error("[entity] failed to seed schema version", error);
+    });
+}
+
 export function addEntity(data: {
   name: string;
   namePlural: string;
@@ -784,14 +849,237 @@ export function addEntity(data: {
     timeTracking: null,
     timeline: null,
     pageLayout: null,
+    publishedVersion: 1,
     records: [],
   });
 
   persistStructure({
     entities: [...config.entities, entity],
   });
+  seedInitialSchemaVersion(entity);
 
   return entity;
+}
+
+/** Create a new top-level entity by deep-cloning another entity's schema (no records). */
+export function cloneEntity(
+  sourceId: string,
+  data: {
+    name: string;
+    namePlural: string;
+    description: string;
+    views?: Entity["views"];
+    defaultView?: Entity["defaultView"];
+  },
+) {
+  const plan = buildClonedEntityPlan(sourceId, config.entities, data);
+  if (!plan) return null;
+
+  const linkedById = new Map(
+    plan.linkedEntityUpdates.map((item) => [item.id, item.entity]),
+  );
+
+  persistStructure({
+    entities: [
+      ...config.entities.map((entity) => linkedById.get(entity.id) ?? entity),
+      ...plan.entities,
+    ],
+  });
+
+  for (const entity of plan.entities) {
+    seedInitialSchemaVersion(entity);
+  }
+
+  return plan.entities[0] ?? null;
+}
+
+export function getCachedEntitySchemaVersion(
+  entityId: string,
+  version: number,
+): Entity | null {
+  return schemaVersionCache.get(entityId)?.get(version) ?? null;
+}
+
+export function getCachedEntitySchemaVersions(entityId: string) {
+  return schemaVersionListCache.get(entityId) ?? null;
+}
+
+/** Load version history for an entity (cached). */
+export async function loadEntitySchemaVersions(entityId: string) {
+  if (!isSupabaseConfigured) {
+    const entity = config.entities.find((item) => item.id === entityId);
+    if (!entity) return [];
+    const local: EntitySchemaVersion = {
+      id: 0,
+      entityId,
+      version: normalizeEntitySchemaVersion(entity.publishedVersion),
+      definition: normalizeEntity({
+        ...entity,
+        records: [],
+      }),
+      message: "Текущая версия",
+      actorId: null,
+      createdAt: new Date().toISOString(),
+    };
+    schemaVersionListCache.set(entityId, [local]);
+    rememberSchemaVersion(entityId, local);
+    notify();
+    return [local];
+  }
+
+  const versions = await fetchEntitySchemaVersions(entityId);
+  schemaVersionListCache.set(entityId, versions);
+  for (const version of versions) {
+    rememberSchemaVersion(entityId, version);
+  }
+  notify();
+  return versions;
+}
+
+/** Ensure a specific version definition is in the cache. */
+export async function ensureEntitySchemaVersion(
+  entityId: string,
+  version: number,
+): Promise<Entity | null> {
+  const cached = getCachedEntitySchemaVersion(entityId, version);
+  if (cached) return cached;
+
+  if (!isSupabaseConfigured) {
+    const entity = config.entities.find((item) => item.id === entityId);
+    return entity ? normalizeEntity({ ...entity, records: [] }) : null;
+  }
+
+  const row = await fetchEntitySchemaVersion(entityId, version);
+  if (!row) return null;
+  rememberSchemaVersion(entityId, row);
+  notify();
+  return row.definition;
+}
+
+/**
+ * Entity structure for reading/editing a record (pinned schema version).
+ * Falls back to the live entity while the version snapshot loads.
+ */
+export function getEntityForRecord(
+  entityId: string,
+  record: Pick<EntityRecord, "schemaVersion">,
+): Entity | null {
+  const live = config.entities.find((item) => item.id === entityId);
+  if (!live) return null;
+  const versionDef = getCachedEntitySchemaVersion(
+    entityId,
+    record.schemaVersion,
+  );
+  return resolveEntityForRecord(live, record, versionDef);
+}
+
+/**
+ * Publish the current draft as a new schema version.
+ * Existing records keep their schemaVersion; new records get the new version.
+ */
+export async function publishEntitySchemaVersion(
+  entityId: string,
+  message: string,
+): Promise<
+  | { ok: true; version: EntitySchemaVersion }
+  | {
+      ok: false;
+      reason: "not_found" | "empty_message" | "unchanged" | "error";
+      error?: unknown;
+    }
+> {
+  const trimmed = message.trim();
+  if (!trimmed) return { ok: false, reason: "empty_message" };
+
+  const entity = config.entities.find((item) => item.id === entityId);
+  if (!entity) return { ok: false, reason: "not_found" };
+
+  const snapshot = toEntityStructure(entity);
+  const currentVersion = normalizeEntitySchemaVersion(entity.publishedVersion);
+
+  let previous = getCachedEntitySchemaVersion(entityId, currentVersion);
+  if (!previous && isSupabaseConfigured) {
+    previous =
+      (await ensureEntitySchemaVersion(entityId, currentVersion)) ?? null;
+  }
+  if (previous && entitySchemasEqual(snapshot, previous)) {
+    return { ok: false, reason: "unchanged" };
+  }
+
+  const nextVersion = currentVersion + 1;
+
+  try {
+    let published: EntitySchemaVersion;
+    if (isSupabaseConfigured) {
+      published = await insertEntitySchemaVersion({
+        entityId,
+        version: nextVersion,
+        definition: snapshot,
+        message: trimmed,
+        actorId: currentAuthUserId,
+      });
+    } else {
+      published = {
+        id: nextVersion,
+        entityId,
+        version: nextVersion,
+        definition: normalizeEntity({
+          ...entity,
+          records: [],
+          publishedVersion: nextVersion,
+        }),
+        message: trimmed,
+        actorId: currentAuthUserId,
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    rememberSchemaVersion(entityId, published);
+    mapEntity(entityId, (current) =>
+      normalizeEntity({
+        ...current,
+        publishedVersion: nextVersion,
+      }),
+    );
+    // mapEntity may defer remote save inside schema edit — force publish meta.
+    if (schemaEditSession?.entityId === entityId) {
+      schemaEditSession = { ...schemaEditSession, dirty: true };
+      notify();
+    } else {
+      flushStructureToRemote(true);
+    }
+
+    return { ok: true, version: published };
+  } catch (error) {
+    return { ok: false, reason: "error", error };
+  }
+}
+
+/**
+ * Copy a published version into the live draft and enter schema edit mode.
+ * Does not rewrite history — publish again to make it current for new records.
+ */
+export function restoreEntitySchemaVersionToDraft(
+  entityId: string,
+  version: number,
+): boolean {
+  const definition = getCachedEntitySchemaVersion(entityId, version);
+  const live = config.entities.find((item) => item.id === entityId);
+  if (!definition || !live) return false;
+
+  beginEntitySchemaEdit(entityId);
+  mapEntity(entityId, (current) =>
+    normalizeEntity({
+      ...definition,
+      id: current.id,
+      records: current.records,
+      publishedVersion: current.publishedVersion,
+      systemKey: current.systemKey,
+      locked: current.locked,
+      parentEntityId: current.parentEntityId,
+    }),
+  );
+  return true;
 }
 
 export function updateEntity(
@@ -837,7 +1125,8 @@ export function updateEntity(
         next.tableSubgroupFieldId = null;
       }
     }
-    // Subgroup requires a parent field and must not equal it.
+    // Re-validate subgroup against the resolved parent (nested relationGroups
+    // may reuse the parent field id).
     next.tableSubgroupFieldId = resolveTableSubgroupFieldIdForStore(
       next,
       next.tableSubgroupFieldId,
@@ -1298,7 +1587,10 @@ function resolveTableParentFieldIdForStore(
   return null;
 }
 
-/** Subgroup only when a parent group field is set and the ids differ. */
+/**
+ * Subgroup when a parent group field is set.
+ * Same id as parent is allowed only for `relationGroups` (nested level).
+ */
 function resolveTableSubgroupFieldIdForStore(
   entity: Pick<Entity, "fields" | "tableParentFieldId">,
   fieldId: string | null,
@@ -1306,7 +1598,12 @@ function resolveTableSubgroupFieldIdForStore(
   const parentId = entity.tableParentFieldId?.trim() || null;
   if (!parentId) return null;
   const requested = fieldId?.trim() || null;
-  if (!requested || requested === parentId) return null;
+  if (!requested) return null;
+  const parentField = entity.fields.find((item) => item.id === parentId);
+  if (!parentField || !isEntityTableParentField(parentField)) return null;
+  if (requested === parentId) {
+    return parentField.type === "relationGroups" ? parentId : null;
+  }
   const field = entity.fields.find((item) => item.id === requested);
   if (!field) return null;
   if (isEntityTableParentField(field)) return requested;
@@ -1333,6 +1630,53 @@ export function setEntityTableParentField(
         : null,
     };
   });
+}
+
+/**
+ * Fold the current in-memory entity into the schema-edit snapshot so
+ * «Отменить» after an explicit display/table Save does not revert it.
+ */
+function adoptEntityIntoSchemaEditSnapshot(entityId: string) {
+  if (!schemaEditSession) return;
+  const current = config.entities.find((item) => item.id === entityId);
+  if (!current) return;
+  const previous = schemaEditSession.snapshot.entities.find(
+    (item) => item.id === entityId,
+  );
+  const nextEntity = normalizeEntity({
+    ...current,
+    records: previous?.records ?? current.records,
+  });
+  schemaEditSession = {
+    ...schemaEditSession,
+    snapshot: {
+      entities: schemaEditSession.snapshot.entities.map((item) =>
+        item.id === entityId ? nextEntity : item,
+      ),
+    },
+  };
+}
+
+/**
+ * Persist one entity's structure now (and keep it across schema-edit cancel).
+ * Used after explicit «Сохранить» on table / tab display settings.
+ */
+export function persistEntityDisplaySettingsNow(entityId: string) {
+  const entity = config.entities.find((item) => item.id === entityId);
+  if (!entity) return;
+
+  adoptEntityIntoSchemaEditSnapshot(entityId);
+
+  if (!isSupabaseConfigured) return;
+  markLocalStructureWrite(entityId);
+  const snapshot = normalizeEntity({ ...entity, records: [] });
+  void saveEntityStructure(snapshot)
+    .then(() => {
+      markLocalStructureWrite(entityId);
+    })
+    .catch((error: unknown) => {
+      handlePersistError(error, "Не удалось сохранить настройки отображения");
+    });
 }
 
 /** Save both table settings in one write and flush to remote immediately. */
@@ -1366,7 +1710,10 @@ export function setEntityTableSettings(
   });
   if (!schemaEditSession) {
     flushStructureToRemote(true);
+    return;
   }
+  // Explicit table Save must stick even if the schema edit is later cancelled.
+  persistEntityDisplaySettingsNow(entityId);
 }
 
 export function addEntityTab(
@@ -1530,6 +1877,7 @@ export function addEntityTabWithLinkedEntity(
     parentEntityId,
     recordColumns,
     recordsDisplay,
+    publishedVersion: 1,
     timeTracking: null,
     timeline: null,
     pageLayout: null,
@@ -1555,6 +1903,7 @@ export function addEntityTabWithLinkedEntity(
       childEntity,
     ],
   });
+  seedInitialSchemaVersion(childEntity);
 
   return tab;
 }
@@ -2749,6 +3098,7 @@ function insertRecord(entityId: string, values: Record<string, string>) {
     values: withDefaults,
     authUserId: null,
     createdBy: currentAuthUserId,
+    schemaVersion: normalizeEntitySchemaVersion(entity?.publishedVersion),
   });
 
   mapEntityLocal(entityId, (current) => ({

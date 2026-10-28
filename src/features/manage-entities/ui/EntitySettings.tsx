@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
   Check,
   EyeOff,
+  History,
   ListTree,
   Plus,
   Settings,
@@ -18,7 +19,9 @@ import {
   addEntity,
   beginEntitySchemaEdit,
   cancelEntitySchemaEdit,
+  cloneEntity,
   commitEntitySchemaEdit,
+  ensureEntitySchemaVersion,
   getEntitySchemaEditSession,
   getVisibleEntities,
   isEntityInternal,
@@ -36,6 +39,10 @@ import { getEntityLinkedMenuItemIds, useMenuConfig } from "@/entities/menu";
 import { EntityDialog } from "./EntityDialog";
 import { EntityFieldsEditor } from "./EntityFieldsEditor";
 import { EntityMenuSelect } from "./EntityMenuSelect";
+import {
+  EntityPublishedVersionBadge,
+  EntitySchemaHistoryDialog,
+} from "./EntitySchemaHistoryDialog";
 import { EntitySettingsSkeleton } from "./EntitySettingsSkeleton";
 
 type DialogState =
@@ -125,6 +132,7 @@ function EntityPage({
   editing,
   onEdit,
   onDelete,
+  onOpenVersions,
   activeTabId,
   onActiveTabIdChange,
 }: {
@@ -132,6 +140,7 @@ function EntityPage({
   editing: boolean;
   onEdit: () => void;
   onDelete?: () => void;
+  onOpenVersions?: () => void;
   activeTabId?: string | null;
   onActiveTabIdChange?: (tabId: string) => void;
 }) {
@@ -139,6 +148,10 @@ function EntityPage({
   const internal = isEntityInternal(entity);
   const [fieldsOverviewOpen, setFieldsOverviewOpen] = useState(false);
   const [createFieldRequestId, setCreateFieldRequestId] = useState(0);
+
+  useEffect(() => {
+    void ensureEntitySchemaVersion(entity.id, entity.publishedVersion);
+  }, [entity.id, entity.publishedVersion]);
 
   return (
     <div className="min-w-0 rounded-xl border border-border bg-card">
@@ -154,6 +167,10 @@ function EntityPage({
                 </span>
               ) : null}
             </h3>
+            <EntityPublishedVersionBadge
+              entity={entity}
+              onClick={onOpenVersions}
+            />
             {system ? <SystemEntityBadge /> : null}
             {internal ? <InternalEntityBadge /> : null}
             <div
@@ -266,6 +283,7 @@ export function EntitySettings({
   const status = useEntityStatus();
   const schemaEdit = useSchemaEditSession();
   const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Entity | null>(null);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [pendingSwitchEntityId, setPendingSwitchEntityId] = useState<
@@ -375,6 +393,18 @@ export function EntitySettings({
         type="button"
         size="icon"
         variant="outline"
+        aria-label="История версий схемы"
+        title="Версии схемы"
+        disabled={!selected}
+        onClick={() => setVersionsOpen(true)}
+      >
+        <History className="size-4" aria-hidden />
+      </Button>
+
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
         aria-label={editing ? "Отменить редактирование" : "Редактировать схему"}
         aria-pressed={editing}
         title={editing ? "Отменить" : "Параметры — режим редактирования схемы"}
@@ -427,6 +457,7 @@ export function EntitySettings({
           editing={editing}
           onEdit={() => setDialog({ mode: "edit", entity: selected })}
           onDelete={() => setPendingDelete(selected)}
+          onOpenVersions={() => setVersionsOpen(true)}
           activeTabId={selectedEntityTabId}
           onActiveTabIdChange={(tabId) => {
             onSelectedEntityTabIdChange?.(selected.id, tabId);
@@ -493,15 +524,35 @@ export function EntitySettings({
         entity={dialog.mode === "edit" ? dialog.entity : null}
         onSubmit={(data) => {
           if (dialog.mode === "create") {
-            const created = addEntity(data);
-            onSelectedEntityIdChange?.(created.id);
+            const { sourceEntityId, ...payload } = data;
+            const created = sourceEntityId
+              ? cloneEntity(sourceEntityId, payload)
+              : addEntity(payload);
+            if (created) onSelectedEntityIdChange?.(created.id);
             return;
           }
           if (dialog.mode === "edit") {
-            updateEntity(dialog.entity.id, data);
+            updateEntity(dialog.entity.id, {
+              name: data.name,
+              namePlural: data.namePlural,
+              description: data.description,
+              views: data.views,
+              defaultView: data.defaultView,
+            });
           }
         }}
       />
+
+      {selected ? (
+        <EntitySchemaHistoryDialog
+          open={versionsOpen}
+          onOpenChange={setVersionsOpen}
+          entity={selected}
+          onRestoredToDraft={() => {
+            if (!editing) beginEntitySchemaEdit(selected.id);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

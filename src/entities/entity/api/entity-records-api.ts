@@ -2,12 +2,18 @@ import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
 import { withTimeout } from "@/shared/lib/with-timeout";
 import type { EntityRecord } from "../model/types";
 import { normalizeEntityRecord } from "../lib/parse-entity-config";
+import { normalizeEntitySchemaVersion } from "../lib/parse-entity-config";
 import {
   ENTITY_RECORD_SELECT,
   ENTITY_RECORD_SELECT_LEGACY,
+  ENTITY_RECORD_SELECT_NO_SCHEMA_VERSION,
+  entityRecordsSelect,
   entityRecordsSupportsCreatedBy,
+  entityRecordsSupportsSchemaVersion,
   isMissingCreatedByColumn,
+  isMissingSchemaVersionColumn,
   markEntityRecordsCreatedByUnsupported,
+  markEntityRecordsSchemaVersionUnsupported,
 } from "./entity-record-columns";
 
 type EntityRecordRow = {
@@ -16,6 +22,7 @@ type EntityRecordRow = {
   field_values: unknown;
   auth_user_id?: string | null;
   created_by?: string | null;
+  schema_version?: number | null;
 };
 
 function parseFieldValues(value: unknown): Record<string, string> {
@@ -43,6 +50,7 @@ function rowToRecord(row: EntityRecordRow): EntityRecord {
       typeof row.created_by === "string" && row.created_by.trim().length > 0
         ? row.created_by.trim()
         : null,
+    schemaVersion: normalizeEntitySchemaVersion(row.schema_version),
   });
 }
 
@@ -149,9 +157,27 @@ export async function fetchEntityRecords(
 ): Promise<EntityRecordRow[]> {
   if (!isSupabaseConfigured || !supabase) return [];
 
-  if (entityRecordsSupportsCreatedBy()) {
+  if (
+    entityRecordsSupportsCreatedBy() &&
+    entityRecordsSupportsSchemaVersion()
+  ) {
     const result = await fetchEntityRecordsPages(
       ENTITY_RECORD_SELECT,
+      entityId,
+    );
+    if (!result.error) return result.rows;
+    if (isMissingSchemaVersionColumn(result.error)) {
+      markEntityRecordsSchemaVersionUnsupported();
+    } else if (isMissingCreatedByColumn(result.error)) {
+      markEntityRecordsCreatedByUnsupported();
+    } else {
+      throw result.error;
+    }
+  }
+
+  if (entityRecordsSupportsCreatedBy()) {
+    const result = await fetchEntityRecordsPages(
+      ENTITY_RECORD_SELECT_NO_SCHEMA_VERSION,
       entityId,
     );
     if (!result.error) return result.rows;
@@ -192,6 +218,7 @@ export async function insertEntityRecord(
 
   const normalized = normalizeEntityRecord(record);
   const withOwner = entityRecordsSupportsCreatedBy();
+  const withSchemaVersion = entityRecordsSupportsSchemaVersion();
   const row: Record<string, unknown> = {
     id: normalized.id,
     entity_id: entityId,
@@ -202,8 +229,11 @@ export async function insertEntityRecord(
   if (withOwner && normalized.createdBy) {
     row.created_by = normalized.createdBy;
   }
+  if (withSchemaVersion) {
+    row.schema_version = normalized.schemaVersion;
+  }
 
-  const select = withOwner ? ENTITY_RECORD_SELECT : ENTITY_RECORD_SELECT_LEGACY;
+  let select = entityRecordsSelect();
 
   let { data, error } = await supabase
     .from("entity_records")
@@ -211,9 +241,23 @@ export async function insertEntityRecord(
     .select(select)
     .single();
 
+  if (isMissingSchemaVersionColumn(error)) {
+    markEntityRecordsSchemaVersionUnsupported();
+    delete row.schema_version;
+    select = withOwner
+      ? ENTITY_RECORD_SELECT_NO_SCHEMA_VERSION
+      : ENTITY_RECORD_SELECT_LEGACY;
+    ({ data, error } = await supabase
+      .from("entity_records")
+      .insert(row)
+      .select(select)
+      .single());
+  }
+
   if (isMissingCreatedByColumn(error)) {
     markEntityRecordsCreatedByUnsupported();
     delete row.created_by;
+    delete row.schema_version;
     ({ data, error } = await supabase
       .from("entity_records")
       .insert(row)
@@ -270,6 +314,7 @@ export async function updateEntityRecordValues(
     values,
     authUserId: null,
     createdBy: null,
+    schemaVersion: 1,
   });
 
   if (!isSupabaseConfigured || !supabase) {

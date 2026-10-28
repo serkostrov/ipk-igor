@@ -46,6 +46,7 @@ import {
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
   formatRecordFieldValue,
+  getEntityForRecord,
   getRecordFieldNumber,
   isEntityNameField,
   isEntityNumericFieldType,
@@ -54,6 +55,7 @@ import {
   ListValueDisplay,
   RecordValue,
   useEntityValueContext,
+  usePrefetchEntitySchemaVersions,
   type EntityValueContext,
   formatEntityFieldFilesSummary,
   parseEntityFieldFileValue,
@@ -365,9 +367,12 @@ function getRecordTitle(
   entity: Entity,
   record: EntityRecord,
 ) {
-  const nameField = entity.fields.find((field) => isEntityNameField(field));
+  const schemaEntity = getEntityForRecord(entity.id, record) ?? entity;
+  const nameField = schemaEntity.fields.find((field) =>
+    isEntityNameField(field),
+  );
   if (!nameField) return "эту запись";
-  const label = formatRecordFieldValue(ctx, entity, record, nameField);
+  const label = formatRecordFieldValue(ctx, schemaEntity, record, nameField);
   if (!label.trim() || label === "—") return "эту запись";
   return `«${label}»`;
 }
@@ -401,6 +406,7 @@ export function EntityTableView({
 }: EntityTableViewProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
+  usePrefetchEntitySchemaVersions(entity.id, records);
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<EntityFiltersState>({});
@@ -954,7 +960,7 @@ export function EntityTableView({
                           key={`group:${row.id}`}
                           className={cn(
                             "border-border/70",
-                            isSubgroup ? "bg-muted/30" : "bg-muted/55",
+                            isSubgroup ? "bg-background" : "bg-muted/70",
                             expanded
                               ? "border-b-transparent"
                               : "border-b-border/70",
@@ -966,8 +972,10 @@ export function EntityTableView({
                           <TableCell
                             colSpan={Math.max(tableFields.length, 1)}
                             className={cn(
-                              "relative min-w-0 px-3 py-2 text-foreground",
-                              isSubgroup ? "font-medium" : "font-semibold",
+                              "relative min-w-0 px-3 py-2",
+                              isSubgroup
+                                ? "py-1.5 font-medium text-muted-foreground"
+                                : "font-semibold text-foreground",
                             )}
                           >
                             {isSubgroup ? (
@@ -988,6 +996,7 @@ export function EntityTableView({
                                   "relative z-[1] inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border/80 bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground",
                                   expanded &&
                                     "border-transparent bg-foreground/5",
+                                  isSubgroup && "size-5 border-border/60",
                                 )}
                                 aria-label={
                                   expanded ? "Свернуть" : "Развернуть"
@@ -1008,7 +1017,12 @@ export function EntityTableView({
                                   <ChevronRight className="size-3.5" />
                                 )}
                               </button>
-                              <span className="min-w-0 flex-1 truncate">
+                              <span
+                                className={cn(
+                                  "min-w-0 flex-1 truncate",
+                                  isSubgroup ? "text-[12.5px]" : "text-sm",
+                                )}
+                              >
                                 {row.label}
                               </span>
                             </div>
@@ -1018,7 +1032,14 @@ export function EntityTableView({
                               className="inline-flex items-center justify-end gap-1"
                               onClick={(event) => event.stopPropagation()}
                             >
-                              <span className="px-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+                              <span
+                                className={cn(
+                                  "px-0.5 text-[11px] font-medium tabular-nums",
+                                  isSubgroup
+                                    ? "text-muted-foreground/80"
+                                    : "text-muted-foreground",
+                                )}
+                              >
                                 {row.childCount}
                               </span>
                               {onCreateChildRecord && parentField ? (
@@ -1099,12 +1120,18 @@ export function EntityTableView({
                           </TableCell>
                         ) : null}
                         {tableFields.map((field, index) => {
+                          const schemaEntity =
+                            getEntityForRecord(entity.id, record) ?? entity;
+                          const schemaField =
+                            schemaEntity.fields.find(
+                              (item) => item.id === field.id,
+                            ) ?? field;
                           const raw = record.values[field.id];
                           const cellTitle = formatRecordFieldValue(
                             valueContext,
-                            entity,
+                            schemaEntity,
                             record,
-                            field,
+                            schemaField,
                           );
                           const contactHref =
                             field.type === "phone" || field.type === "email"

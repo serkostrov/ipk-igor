@@ -392,8 +392,10 @@ export {
   useCurrentUserRecordId,
   useEntityConfig,
   useEntityError,
+  useEntityForRecord,
   useEntityStatus,
   useEntityValueContext,
+  usePrefetchEntitySchemaVersions,
   useRunningTimer,
 } from "./hooks/use-entity";
 export {
@@ -424,8 +426,11 @@ export {
   getEntityTableParentFieldOptions,
   getEntityTableSubgroupFieldOptions,
   isEntityTableParentField,
+  isEntityTableRelationGroupsNestedSubgroup,
+  retainEntityTableSubgroupFieldId,
   parseEntityTableParentId,
   parseEntityTableParentGroupIds,
+  parseEntityTableRelationGroupsNestedIds,
   parseEntityTableSubgroupRowId,
   encodeEntityTableParentValue,
   resolveEntityTableNestedTarget,
@@ -456,6 +461,7 @@ export { RecordValue } from "./ui/RecordValue";
 export { RelationGroupsRecordValue } from "./ui/RelationGroupsRecordValue";
 export { ConditionBuilder } from "./ui/ConditionBuilder";
 export { RecordChangeList } from "./ui/RecordChangeList";
+export { SchemaChangeList } from "./ui/SchemaChangeList";
 export { RecordMentionText } from "./ui/RecordMentionText";
 export { RecordMentionTextarea } from "./ui/RecordMentionTextarea";
 export { RecordNotesEditor } from "./ui/RecordNotesEditor";
@@ -495,6 +501,7 @@ export {
 } from "./model/record-scope";
 export {
   addEntity,
+  cloneEntity,
   addEntityField,
   addEntityListOption,
   addEntityRecord,
@@ -511,6 +518,13 @@ export {
   getEntityConfig,
   getEntityError,
   getEntityStatus,
+  getCachedEntitySchemaVersion,
+  getCachedEntitySchemaVersions,
+  getEntityForRecord,
+  ensureEntitySchemaVersion,
+  loadEntitySchemaVersions,
+  publishEntitySchemaVersion,
+  restoreEntitySchemaVersionToDraft,
   initEntityConfig,
   moveEntityFieldToGroup,
   moveEntityFieldToTab,
@@ -536,6 +550,7 @@ export {
   setEntityTableMassSelection,
   setEntityTableParentField,
   setEntityTableSettings,
+  persistEntityDisplaySettingsNow,
   beginEntitySchemaEdit,
   cancelEntitySchemaEdit,
   commitEntitySchemaEdit,
@@ -557,3 +572,13 @@ export {
   updateEntityRecord,
   updateEntityTab,
 } from "./store/entity-store";
+export type { EntitySchemaVersion } from "./api/entity-schema-versions-api";
+export {
+  describeEntitySchemaChanges,
+  entitySchemasEqual,
+  type EntitySchemaChangeItem,
+} from "./model/schema-changes";
+export {
+  entityHasUnpublishedSchemaChanges,
+  resolveEntityForRecord,
+} from "./model/schema-version";

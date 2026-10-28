@@ -57,13 +57,39 @@ export function resolveEntityTableParentField(
   );
 }
 
+/**
+ * Same `relationGroups` field as parent → subgroup by nested level
+ * («Вложенные») under each root group.
+ */
+export function isEntityTableRelationGroupsNestedSubgroup(
+  parentField: EntityField | null | undefined,
+  subgroupField: EntityField | null | undefined,
+): boolean {
+  if (!parentField || !subgroupField) return false;
+  if (parentField.id !== subgroupField.id) return false;
+  return (
+    parentField.type === "relationGroups" &&
+    isEntityRelationGroupsConfigReady(parentField.relationGroups)
+  );
+}
+
 /** Resolved subgroup field inside each parent group, if valid. */
 export function resolveEntityTableSubgroupField(
   entity: Entity,
 ): EntityField | null {
   const parentId = entity.tableParentFieldId?.trim() ?? "";
   const id = entity.tableSubgroupFieldId?.trim() ?? "";
-  if (!parentId || !id || id === parentId) return null;
+  if (!parentId || !id) return null;
+  const parentField =
+    getEntityTableParentFieldCandidates(entity).find(
+      (field) => field.id === parentId,
+    ) ?? null;
+  if (!parentField) return null;
+  if (id === parentId) {
+    return isEntityTableRelationGroupsNestedSubgroup(parentField, parentField)
+      ? parentField
+      : null;
+  }
   return (
     getEntityTableParentFieldCandidates(entity).find(
       (field) => field.id === id,
@@ -121,37 +147,85 @@ export function parseEntityTableParentGroupIds(
   return [parseEntityTableParentId(value)];
 }
 
-/** Value to prefill when creating a record under a hierarchy group. */
+/**
+ * Value to prefill when creating a record under a hierarchy group.
+ * For `relationGroups`, optional `nestedGroupId` fills the nested level
+ * under the root (`groupId`).
+ */
 export function encodeEntityTableParentValue(
   field: EntityField,
   groupId: string,
+  nestedGroupId?: string | null,
 ): string {
   const id = groupId.trim();
   if (!id) return "";
   if (field.type === "relationGroups") {
-    return serializeEntityRelationGroups([{ id, children: [] }]);
+    const nestedId = nestedGroupId?.trim() || "";
+    return serializeEntityRelationGroups([
+      {
+        id,
+        children: nestedId ? [{ id: nestedId, children: [] }] : [],
+      },
+    ]);
   }
   return id;
 }
 
-function resolveRelationGroupsRootEntity(
-  field: EntityField,
+function resolveRelationGroupsFieldTarget(
   entities: readonly Entity[],
-): Entity | null {
-  const level = field.relationGroups?.levels[0];
-  if (!level) return null;
-  const resolveFieldTarget = (entityId: string, fieldId: string) => {
+): (entityId: string, fieldId: string) => string | null {
+  return (entityId, fieldId) => {
     const entity = entities.find((item) => item.id === entityId);
     const bridge = entity?.fields.find((item) => item.id === fieldId);
     return bridge ? getEntityRelationTargetId(bridge) : null;
   };
-  const rootId = getRelationGroupsLevelEntityId(
-    level,
-    null,
-    resolveFieldTarget,
+}
+
+function resolveRelationGroupsEntityAtDepth(
+  field: EntityField,
+  entities: readonly Entity[],
+  depth: number,
+): Entity | null {
+  const levels = field.relationGroups?.levels;
+  if (!levels || depth < 0 || depth >= levels.length) return null;
+  const resolveFieldTarget = resolveRelationGroupsFieldTarget(entities);
+  let previous: string | null = null;
+  let entityId: string | null = null;
+  for (let i = 0; i <= depth; i += 1) {
+    const level = levels[i];
+    if (!level) return null;
+    entityId = getRelationGroupsLevelEntityId(
+      level,
+      previous,
+      resolveFieldTarget,
+    );
+    if (!entityId) return null;
+    previous = entityId;
+  }
+  return entityId
+    ? (entities.find((item) => item.id === entityId) ?? null)
+    : null;
+}
+
+/**
+ * Nested ids under a specific root in a relationGroups value.
+ * Empty children → one empty subgroup (same as missing list value).
+ */
+export function parseEntityTableRelationGroupsNestedIds(
+  value: string | undefined,
+  rootGroupId: string,
+): string[] {
+  const rootId = rootGroupId.trim();
+  if (!rootId || rootId === ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID) {
+    return [ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID];
+  }
+  const root = parseEntityRelationGroups(value).find(
+    (node) => node.id === rootId,
   );
-  if (!rootId) return null;
-  return entities.find((item) => item.id === rootId) ?? null;
+  const nested = (root?.children ?? [])
+    .map((child) => child.id.trim())
+    .filter((id) => id.length > 0);
+  return nested.length > 0 ? nested : [ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID];
 }
 
 function relationTargetLabels(target: Entity | null): Map<string, string> {
@@ -204,6 +278,8 @@ export type EntityTableHierarchyRow =
 function resolveHierarchyGroupLabels(
   parentField: EntityField,
   entities: readonly Entity[],
+  /** For `relationGroups`: 0 = roots («Строки»), 1 = nested («Вложенные»). */
+  relationGroupsDepth: 0 | 1 = 0,
 ): Map<string, string> {
   if (parentField.type === "list") {
     return new Map(
@@ -222,7 +298,11 @@ function resolveHierarchyGroupLabels(
   }
   if (parentField.type === "relationGroups") {
     return relationTargetLabels(
-      resolveRelationGroupsRootEntity(parentField, entities),
+      resolveRelationGroupsEntityAtDepth(
+        parentField,
+        entities,
+        relationGroupsDepth,
+      ),
     );
   }
   return new Map();
@@ -254,6 +334,27 @@ function groupRecordsByHierarchyField(
     const groupIds = parseEntityTableParentGroupIds(
       field,
       record.values[field.id],
+    );
+    for (const groupId of groupIds) {
+      const list = byGroup.get(groupId) ?? [];
+      list.push(record);
+      byGroup.set(groupId, list);
+    }
+  }
+  return byGroup;
+}
+
+/** Group records already under a root by nested relationGroups children. */
+function groupRecordsByRelationGroupsNested(
+  records: readonly EntityRecord[],
+  field: EntityField,
+  rootGroupId: string,
+): Map<string, EntityRecord[]> {
+  const byGroup = new Map<string, EntityRecord[]>();
+  for (const record of records) {
+    const groupIds = parseEntityTableRelationGroupsNestedIds(
+      record.values[field.id],
+      rootGroupId,
     );
     for (const groupId of groupIds) {
       const list = byGroup.get(groupId) ?? [];
@@ -325,8 +426,16 @@ export function flattenEntityTableHierarchyRows(
   const byGroup = groupRecordsByHierarchyField(records, parentField);
   omitSelfParentsFromEmptyGroup(byGroup, records);
 
+  const nestedSubgroup = isEntityTableRelationGroupsNestedSubgroup(
+    parentField,
+    subgroupField,
+  );
   const subgroupLabels = subgroupField
-    ? resolveHierarchyGroupLabels(subgroupField, entities)
+    ? resolveHierarchyGroupLabels(
+        subgroupField,
+        entities,
+        nestedSubgroup ? 1 : 0,
+      )
     : null;
 
   const rows: EntityTableHierarchyRow[] = [];
@@ -356,7 +465,9 @@ export function flattenEntityTableHierarchyRows(
       continue;
     }
 
-    const bySubgroup = groupRecordsByHierarchyField(children, subgroupField);
+    const bySubgroup = nestedSubgroup
+      ? groupRecordsByRelationGroupsNested(children, subgroupField, id)
+      : groupRecordsByHierarchyField(children, subgroupField);
     for (const subValueId of orderHierarchyGroupIds(
       bySubgroup,
       subgroupLabels,
@@ -395,18 +506,52 @@ export function getEntityTableParentFieldOptions(entity: Entity) {
   }));
 }
 
-/** Subgroup options exclude the current parent grouping field. */
+/**
+ * Subgroup options: other grouping fields, plus nested level of the parent
+ * when it is a ready `relationGroups` field («Вложенные»).
+ */
 export function getEntityTableSubgroupFieldOptions(
   entity: Entity,
   parentFieldId: string | null = entity.tableParentFieldId,
 ) {
   const exclude = parentFieldId?.trim() || null;
-  return getEntityTableParentFieldCandidates(entity)
+  const parentField = exclude
+    ? (getEntityTableParentFieldCandidates(entity).find(
+        (field) => field.id === exclude,
+      ) ?? null)
+    : null;
+  const options = getEntityTableParentFieldCandidates(entity)
     .filter((field) => field.id !== exclude)
     .map((field) => ({
       value: field.id,
       label: getEntityFieldDisplayName(field),
     }));
+  if (
+    parentField &&
+    isEntityTableRelationGroupsNestedSubgroup(parentField, parentField)
+  ) {
+    options.unshift({
+      value: parentField.id,
+      label: `Вложенные · ${getEntityFieldDisplayName(parentField)}`,
+    });
+  }
+  return options;
+}
+
+/** Keep subgroup id after parent change when it is still a valid option. */
+export function retainEntityTableSubgroupFieldId(
+  entity: Entity,
+  nextParentFieldId: string | null,
+  currentSubgroupFieldId: string | null,
+): string | null {
+  if (!nextParentFieldId?.trim() || !currentSubgroupFieldId?.trim()) {
+    return null;
+  }
+  return getEntityTableSubgroupFieldOptions(entity, nextParentFieldId).some(
+    (option) => option.value === currentSubgroupFieldId,
+  )
+    ? currentSubgroupFieldId
+    : null;
 }
 
 /** Child entity linked from a host entity tab — can nest under each host row. */

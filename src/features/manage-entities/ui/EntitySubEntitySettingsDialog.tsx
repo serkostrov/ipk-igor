@@ -14,6 +14,8 @@ import { SettingSwitch } from "@/shared/ui/setting-controls";
 import {
   normalizeEntityRecordColumns,
   normalizeEntityRecordsDisplay,
+  persistEntityDisplaySettingsNow,
+  resolveEntityTableSubgroupField,
   updateEntity,
   updateEntityTab,
   type Entity,
@@ -61,7 +63,7 @@ function EntitySubEntitySettingsForm({
   );
   const [tableSubgroupFieldId, setTableSubgroupFieldId] = useState<
     string | null
-  >(entity.tableSubgroupFieldId);
+  >(() => resolveEntityTableSubgroupField(entity)?.id ?? null);
   const [tableNestedEntityId, setTableNestedEntityId] = useState<string | null>(
     entity.tableNestedEntityId,
   );
@@ -80,6 +82,9 @@ function EntitySubEntitySettingsForm({
       tableSubgroupFieldId,
       tableNestedEntityId,
     });
+    // Linked-entity display/hierarchy must hit remote even while the parent
+    // schema edit is open — and survive «Отменить» on that session.
+    persistEntityDisplaySettingsNow(entity.id);
     onCancel();
   }
 
@@ -165,7 +170,7 @@ export function EntitySubEntitySettingsDialog({
       <DialogContent className="sm:max-w-md">
         {open ? (
           <EntitySubEntitySettingsForm
-            key={`${tabId}-${tabName}-${singleRecord}-${entity.id}-${entity.recordColumns}-${entity.recordsDisplay}-${entity.tableParentFieldId ?? ""}-${entity.tableSubgroupFieldId ?? ""}-${entity.tableNestedEntityId ?? ""}`}
+            key={`${tabId}-${entity.id}`}
             parentEntityId={parentEntityId}
             tabId={tabId}
             tabName={tabName}

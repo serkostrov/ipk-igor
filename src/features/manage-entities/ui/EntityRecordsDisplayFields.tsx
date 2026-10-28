@@ -16,6 +16,7 @@ import {
   getEntityTableParentFieldOptions,
   getEntityTableSubgroupFieldOptions,
   normalizeEntityRecordColumns,
+  retainEntityTableSubgroupFieldId,
   useEntityConfig,
   type Entity,
   type EntityRecordColumns,
@@ -262,12 +263,11 @@ function TableSettingsPanel({
             const decoded = decodeHierarchyValue(next);
             onTableHierarchyChange({
               ...decoded,
-              tableSubgroupFieldId: decoded.tableParentFieldId
-                ? tableSubgroupFieldId &&
-                  tableSubgroupFieldId !== decoded.tableParentFieldId
-                  ? tableSubgroupFieldId
-                  : null
-                : null,
+              tableSubgroupFieldId: retainEntityTableSubgroupFieldId(
+                entity,
+                decoded.tableParentFieldId,
+                tableSubgroupFieldId,
+              ),
             });
           }}
         />
@@ -277,11 +277,11 @@ function TableSettingsPanel({
             <SettingSelect
               id="entity-records-table-subgroup"
               title="Затем по"
-              description="Подгруппы внутри каждой группы — ещё одно поле списка, связи или стадий."
+              description="Подгруппы внутри группы: другое поле или вложенный уровень «Набора связей»."
               value={tableSubgroupFieldId}
               options={subgroupOptions}
               emptyLabel="Без подгрупп"
-              noOptionsLabel="Нужно ещё одно поле списка, связи или групп"
+              noOptionsLabel="Нужно ещё одно поле списка, связи, групп или вложенность набора связей"
               onChange={(next) =>
                 onTableHierarchyChange({
                   tableParentFieldId,

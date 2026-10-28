@@ -1343,6 +1343,7 @@ export function createEntityDraftRecord(
     values: clean,
     authUserId: null,
     createdBy: null,
+    schemaVersion: 1,
   };
 }
 

@@ -75,6 +75,7 @@ import {
   resolveEntityListFieldPresentation,
   SYSTEM_ENTITY_KEY_USERS,
   useEntityConfig,
+  useEntityForRecord,
   useEntityValueContext,
   type Entity,
   type EntityField,
@@ -1066,7 +1067,7 @@ function RecordTabFields({
 }
 
 export function EntityRecordPage({
-  entity,
+  entity: liveEntity,
   record,
   onBack,
   onDeleted,
@@ -1076,6 +1077,7 @@ export function EntityRecordPage({
   const { go } = useAppNavigate();
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
+  const entity = useEntityForRecord(liveEntity.id, record) ?? liveEntity;
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
   const timers = useRecordTimers(entity);
   const canUpdate = useCanEntity(entity.id, "update");

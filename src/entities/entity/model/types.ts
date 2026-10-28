@@ -546,6 +546,11 @@ export type EntityRecord = {
   authUserId: string | null;
   /** Auth user who created the record (`entity_records.created_by`). */
   createdBy: string | null;
+  /**
+   * Published schema version this record was created on.
+   * Never changes when newer versions are published.
+   */
+  schemaVersion: number;
 };
 
 export const ENTITY_FIELD_GROUP_AREA_OPTIONS = ["primary", "tab"] as const;
@@ -646,7 +651,8 @@ export type Entity = {
   tableParentFieldId: string | null;
   /**
    * Table view: second grouping field inside each `tableParentFieldId` group.
-   * Same candidate types as the parent field; must differ from it.
+   * Same candidate types as the parent field. Same id as parent is allowed
+   * only for `relationGroups` (nested level «Вложенные»).
    * `null` — one level only. Cleared when parent / nested hierarchy is off.
    */
   tableSubgroupFieldId: string | null;
@@ -682,6 +688,11 @@ export type Entity = {
    * `null` or empty — classic single table view.
    */
   pageLayout: EntityPageLayout | null;
+  /**
+   * Latest published schema version number.
+   * New records receive this value as `schemaVersion`.
+   */
+  publishedVersion: number;
   records: EntityRecord[];
 };
 

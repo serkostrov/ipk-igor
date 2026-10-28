@@ -79,6 +79,7 @@ export async function inviteSystemUser(
       typeof data.created_by === "string" && data.created_by.trim().length > 0
         ? data.created_by.trim()
         : null,
+    schemaVersion: 1,
   });
 }
 

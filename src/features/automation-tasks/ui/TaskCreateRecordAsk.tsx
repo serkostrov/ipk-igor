@@ -364,15 +364,17 @@ function CreateAskDraftsTable({
                   key={`group:${groupId}`}
                   className={cn(
                     "border-border/70",
-                    isSubgroup ? "bg-muted/30" : "bg-muted/55",
+                    isSubgroup ? "bg-background" : "bg-muted/70",
                     expanded ? "border-b-transparent" : "border-b-border/70",
                   )}
                 >
                   <TableCell
                     colSpan={Math.max(columns.length, 1)}
                     className={cn(
-                      "relative min-w-0 px-3 py-2 text-foreground",
-                      isSubgroup ? "font-medium" : "font-semibold",
+                      "relative min-w-0 px-3 py-2",
+                      isSubgroup
+                        ? "py-1.5 font-medium text-muted-foreground"
+                        : "font-semibold text-foreground",
                     )}
                   >
                     {isSubgroup ? (
@@ -395,6 +397,7 @@ function CreateAskDraftsTable({
                         className={cn(
                           "relative z-[1] inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
                           expanded && "bg-muted text-foreground",
+                          isSubgroup && "size-5",
                         )}
                         aria-label={expanded ? "Свернуть" : "Развернуть"}
                         aria-expanded={expanded}
@@ -413,13 +416,25 @@ function CreateAskDraftsTable({
                           <ChevronRight className="size-3.5" />
                         )}
                       </button>
-                      <span className="min-w-0 flex-1 truncate">
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate",
+                          isSubgroup ? "text-[12.5px]" : "text-sm",
+                        )}
+                      >
                         {row.label}
                       </span>
                     </div>
                   </TableCell>
                   <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
-                    <span className="px-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+                    <span
+                      className={cn(
+                        "px-0.5 text-[11px] font-medium tabular-nums",
+                        isSubgroup
+                          ? "text-muted-foreground/80"
+                          : "text-muted-foreground",
+                      )}
+                    >
                       {row.childCount}
                     </span>
                   </TableCell>

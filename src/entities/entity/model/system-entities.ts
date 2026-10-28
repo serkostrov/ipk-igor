@@ -275,6 +275,7 @@ export function createSystemUsersEntity(): Entity {
     timeTracking: null,
     timeline: null,
     pageLayout: null,
+    publishedVersion: 1,
     records: [],
   };
 }

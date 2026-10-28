@@ -19,11 +19,19 @@ import {
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
 import { cn } from "@/shared/lib/cn";
 import {
   ENTITY_VIEW_OPTIONS,
   getEntityBrowseViews,
+  getVisibleEntities,
   isEntityBrowseView,
   resolveEntityDefaultView,
   useEntityConfig,
@@ -41,6 +49,8 @@ type EntityFormData = {
   description: string;
   views: EntityView[];
   defaultView: EntityBrowseView | null;
+  /** When set on create — clone schema from this entity. */
+  sourceEntityId: string | null;
 };
 
 type EntityDialogProps = {
@@ -49,6 +59,15 @@ type EntityDialogProps = {
   entity?: Entity | null;
   onSubmit: (data: EntityFormData) => void;
 };
+
+const CREATE_SOURCE_NEW = "new";
+
+function copyEntityLabel(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return "Копия";
+  if (trimmed.endsWith("(копия)")) return trimmed;
+  return `${trimmed} (копия)`;
+}
 
 const viewIcons: Record<EntityView, typeof Table2> = {
   table: Table2,
@@ -64,18 +83,21 @@ type ViewSettingsKind = Extract<
 
 function EntityForm({
   entity,
+  sourceEntities,
   canConfigureViews,
   onCancel,
   onSubmit,
   onOpenViewSettings,
 }: {
   entity?: Entity | null;
+  sourceEntities: Entity[];
   canConfigureViews: boolean;
   onCancel: () => void;
   onSubmit: (data: EntityFormData) => void;
   onOpenViewSettings: (view: ViewSettingsKind) => void;
 }) {
   const isEdit = Boolean(entity);
+  const [sourceEntityId, setSourceEntityId] = useState<string | null>(null);
   const [name, setName] = useState(entity?.name ?? "");
   const [namePlural, setNamePlural] = useState(entity?.namePlural ?? "");
   const [description, setDescription] = useState(entity?.description ?? "");
@@ -92,6 +114,34 @@ function EntityForm({
   const canSubmit =
     name.trim().length > 0 && namePlural.trim().length > 0 && views.length > 0;
   const activeDefault = resolveEntityDefaultView({ views, defaultView });
+  const selectedSource =
+    sourceEntityId != null
+      ? (sourceEntities.find((item) => item.id === sourceEntityId) ?? null)
+      : null;
+
+  function applySource(nextSourceId: string | null) {
+    setSourceEntityId(nextSourceId);
+    if (!nextSourceId) {
+      setName("");
+      setNamePlural("");
+      setDescription("");
+      setViews(["table"]);
+      setDefaultView("table");
+      return;
+    }
+    const source = sourceEntities.find((item) => item.id === nextSourceId);
+    if (!source) return;
+    setName(copyEntityLabel(source.name));
+    setNamePlural(copyEntityLabel(source.namePlural || source.name));
+    setDescription(source.description);
+    const nextViews: EntityView[] = source.views.length
+      ? source.views
+      : ["table"];
+    setViews(nextViews);
+    setDefaultView(
+      nextViews.includes("internal") ? null : resolveEntityDefaultView(source),
+    );
+  }
 
   function toggleView(view: EntityView) {
     if (view === "internal") {
@@ -130,11 +180,45 @@ function EntityForm({
           {isEdit ? "Редактировать сущность" : "Новая сущность"}
         </DialogTitle>
         <DialogDescription>
-          Название, описание и способы отображения записей.
+          {isEdit
+            ? "Название, описание и способы отображения записей."
+            : "Создайте пустую сущность или скопируйте поля и настройки из существующей."}
         </DialogDescription>
       </DialogHeader>
 
       <div className="flex flex-col gap-4">
+        {!isEdit && sourceEntities.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="entity-source">Источник</Label>
+            <Select
+              value={sourceEntityId ?? CREATE_SOURCE_NEW}
+              onValueChange={(next) => {
+                if (next == null) return;
+                const value = String(next);
+                applySource(value === CREATE_SOURCE_NEW ? null : value);
+              }}
+            >
+              <SelectTrigger id="entity-source" className="w-full">
+                <SelectValue>
+                  {selectedSource
+                    ? `Скопировать «${selectedSource.name}»`
+                    : "Создать новую (пустая)"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={CREATE_SOURCE_NEW}>
+                  Создать новую (пустая)
+                </SelectItem>
+                {sourceEntities.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    Скопировать «{item.name || "Без названия"}»
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-2">
           <Label htmlFor="entity-name">Название</Label>
           <Input
@@ -321,11 +405,12 @@ function EntityForm({
               description: description.trim(),
               views,
               defaultView: views.includes("internal") ? null : activeDefault,
+              sourceEntityId: isEdit ? null : sourceEntityId,
             });
             onCancel();
           }}
         >
-          {isEdit ? "Сохранить" : "Добавить"}
+          {isEdit ? "Сохранить" : sourceEntityId ? "Создать копию" : "Добавить"}
         </Button>
       </DialogFooter>
     </>
@@ -343,6 +428,7 @@ export function EntityDialog({
   const liveEntity = entity
     ? (entities.find((item) => item.id === entity.id) ?? entity)
     : null;
+  const sourceEntities = getVisibleEntities(entities);
   const [viewSettings, setViewSettings] = useState<ViewSettingsKind | null>(
     null,
   );
@@ -361,6 +447,7 @@ export function EntityDialog({
             <EntityForm
               key={formKey}
               entity={entity}
+              sourceEntities={sourceEntities}
               canConfigureViews={liveEntity != null}
               onCancel={() => onOpenChange(false)}
               onSubmit={onSubmit}

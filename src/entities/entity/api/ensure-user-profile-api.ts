@@ -48,6 +48,7 @@ function rowToRecord(row: EntityRecordRow): EntityRecord {
       typeof row.created_by === "string" && row.created_by.trim().length > 0
         ? row.created_by.trim()
         : null,
+    schemaVersion: 1,
   });
 }
 

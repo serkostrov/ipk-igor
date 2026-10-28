@@ -566,6 +566,17 @@ function clampSpan(value: unknown, min: number, max: number, fallback: number) {
   return Math.min(max, Math.max(min, Math.round(numeric)));
 }
 
+export function normalizeEntitySchemaVersion(value: unknown): number {
+  const n =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.floor(n);
+}
+
 export function normalizeEntityRecord(record: EntityRecord): EntityRecord {
   const values: Record<string, string> = {};
   for (const [key, value] of Object.entries(record.values ?? {})) {
@@ -579,7 +590,15 @@ export function normalizeEntityRecord(record: EntityRecord): EntityRecord {
     typeof record.createdBy === "string" && record.createdBy.trim().length > 0
       ? record.createdBy.trim()
       : null;
-  return { id: record.id, values, authUserId, createdBy };
+  return {
+    id: record.id,
+    values,
+    authUserId,
+    createdBy,
+    schemaVersion: normalizeEntitySchemaVersion(
+      (record as { schemaVersion?: unknown }).schemaVersion,
+    ),
+  };
 }
 
 function parseField(value: unknown): EntityField | null {
@@ -746,7 +765,10 @@ function resolveTableParentFieldId(
   return null;
 }
 
-/** Second grouping field inside each parent group (must differ from parent). */
+/**
+ * Second grouping field inside each parent group.
+ * Same id as parent is allowed only for `relationGroups` (nested level).
+ */
 function resolveTableSubgroupFieldId(
   fields: Entity["fields"],
   tableParentFieldId: string | null,
@@ -755,7 +777,12 @@ function resolveTableSubgroupFieldId(
   if (!tableParentFieldId) return null;
   const requested =
     typeof tableSubgroupFieldId === "string" ? tableSubgroupFieldId.trim() : "";
-  if (!requested || requested === tableParentFieldId) return null;
+  if (!requested) return null;
+  const parentField = fields.find((item) => item.id === tableParentFieldId);
+  if (!parentField || !isEntityTableParentField(parentField)) return null;
+  if (requested === tableParentFieldId) {
+    return parentField.type === "relationGroups" ? parentField.id : null;
+  }
   const field = fields.find((item) => item.id === requested);
   if (!field) return null;
   if (isEntityTableParentField(field)) return field.id;
@@ -800,8 +827,9 @@ function migrateLegacyListOptionsToFields(
 }
 
 export function normalizeEntity(
-  entity: Omit<Entity, "nameTemplate"> & {
+  entity: Omit<Entity, "nameTemplate" | "publishedVersion"> & {
     nameTemplate?: string;
+    publishedVersion?: number;
     listOptions?: EntityListOption[];
     statuses?: EntityListOption[];
     listFixed?: boolean;
@@ -902,6 +930,9 @@ export function normalizeEntity(
     timeline: normalizeEntityTimeline(entity.timeline),
     pageLayout: normalizeEntityPageLayout(
       (entity as { pageLayout?: unknown }).pageLayout,
+    ),
+    publishedVersion: normalizeEntitySchemaVersion(
+      (entity as { publishedVersion?: unknown }).publishedVersion,
     ),
     records: (entity.records ?? []).map((record) =>
       normalizeEntityRecord(record),
@@ -1054,6 +1085,7 @@ export function parseEntityConfig(value: unknown): EntityConfig {
         timeTracking: normalizeEntityTimeTracking(item.timeTracking),
         timeline: normalizeEntityTimeline(item.timeline),
         pageLayout: normalizeEntityPageLayout(item.pageLayout),
+        publishedVersion: normalizeEntitySchemaVersion(item.publishedVersion),
         records: [],
       }),
     );

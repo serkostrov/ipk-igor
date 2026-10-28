@@ -19,6 +19,7 @@ import {
   getEntityTableSubgroupFieldOptions,
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
+  retainEntityTableSubgroupFieldId,
   setEntityTableSettings,
   type Entity,
 } from "@/entities/entity";
@@ -79,7 +80,9 @@ function TableSettingsForm({
             noOptionsLabel="Нужен список, связь, принадлежность или группы связей"
             onChange={(next) => {
               setParentFieldId(next);
-              if (!next || next === subgroupFieldId) setSubgroupFieldId(null);
+              setSubgroupFieldId(
+                retainEntityTableSubgroupFieldId(entity, next, subgroupFieldId),
+              );
             }}
           />
           {parentFieldId ? (
@@ -87,11 +90,11 @@ function TableSettingsForm({
               <SettingSelect
                 id="entity-table-subgroup-field"
                 title="Затем по"
-                description="Подгруппы внутри каждой группы — ещё одно поле списка, связи или стадий."
+                description="Подгруппы внутри группы: другое поле или вложенный уровень «Набора связей»."
                 value={subgroupFieldId}
                 options={subgroupOptions}
                 emptyLabel="Без подгрупп"
-                noOptionsLabel="Нужно ещё одно поле списка, связи или групп"
+                noOptionsLabel="Нужно ещё одно поле списка, связи, групп или вложенность набора связей"
                 onChange={setSubgroupFieldId}
               />
             </div>

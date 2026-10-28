@@ -47,6 +47,7 @@ import {
   addEntityRecord,
   updateEntityRecord,
   waitForEntityRecordInsert,
+  encodeEntityTableParentValue,
   entityRelationIncludesId,
   flattenEntityTableHierarchyRows,
   flattenEntityTableNestedRows,
@@ -60,6 +61,7 @@ import {
   isEntityFieldVisibleByConditions,
   isEntityFieldVisibleOnRecord,
   isEntityInternal,
+  isEntityTableRelationGroupsNestedSubgroup,
   getRecordFieldNumber,
   getRelationRecordOptions,
   groupEntityFields,
@@ -389,6 +391,7 @@ function RecordsTable({
   onDelete,
   onOpenNested,
   onCreateNestedChild,
+  onCreateInHierarchy,
 }: {
   entity: Entity;
   records: EntityRecord[];
@@ -398,6 +401,8 @@ function RecordsTable({
   onOpenNested?: (entityId: string, recordId: string) => void;
   /** Create a nested-entity record under this host row (nested hierarchy). */
   onCreateNestedChild?: (parentRecordId: string) => void;
+  /** Create a record under a hierarchy group / subgroup (field grouping). */
+  onCreateInHierarchy?: (groupValue: string, subgroupValue?: string) => void;
 }) {
   const canMutate = onEdit != null || onDelete != null;
   const { entities } = useEntityConfig();
@@ -779,20 +784,25 @@ function RecordsTable({
 
               // List-field hierarchy: option label only (root or subgroup).
               const isSubgroup = row.depth === 1;
+              const rootGroupId = isSubgroup
+                ? (row.parentGroupId ?? "")
+                : row.id;
               return (
                 <TableRow
                   key={`group:${groupId}`}
                   className={cn(
                     "border-border/70",
-                    isSubgroup ? "bg-muted/30" : "bg-muted/55",
+                    isSubgroup ? "bg-background" : "bg-muted/70",
                     expanded ? "border-b-transparent" : "border-b-border/70",
                   )}
                 >
                   <TableCell
                     colSpan={Math.max(columns.length, 1)}
                     className={cn(
-                      "relative min-w-0 px-3 py-2 text-foreground",
-                      isSubgroup ? "font-medium" : "font-semibold",
+                      "relative min-w-0 px-3 py-2",
+                      isSubgroup
+                        ? "py-1.5 font-medium text-muted-foreground"
+                        : "font-semibold text-foreground",
                     )}
                   >
                     {isSubgroup ? (
@@ -811,15 +821,61 @@ function RecordsTable({
                       )}
                     >
                       {expandButton}
-                      <span className="min-w-0 flex-1 truncate">
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate",
+                          isSubgroup ? "text-[12.5px]" : "text-sm",
+                        )}
+                      >
                         {row.label}
                       </span>
                     </div>
                   </TableCell>
                   <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">
-                    <span className="px-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
-                      {row.childCount}
-                    </span>
+                    <div
+                      className="inline-flex items-center justify-end gap-0.5"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <span
+                        className={cn(
+                          "px-0.5 text-[11px] font-medium tabular-nums",
+                          isSubgroup
+                            ? "text-muted-foreground/80"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {row.childCount}
+                      </span>
+                      {onCreateInHierarchy && parentField ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className={cn(
+                            "text-foreground",
+                            isSubgroup ? "size-6" : "size-7",
+                          )}
+                          aria-label="Добавить запись в группу"
+                          title="Добавить запись в группу"
+                          onClick={() => {
+                            setExpandedIds((prev) => {
+                              const next = new Set(
+                                prev ?? effectiveExpandedIds,
+                              );
+                              next.add(groupId);
+                              if (rootGroupId) next.add(rootGroupId);
+                              return next;
+                            });
+                            onCreateInHierarchy(
+                              rootGroupId,
+                              isSubgroup ? row.valueId : undefined,
+                            );
+                          }}
+                        >
+                          <Plus className="size-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
                   </TableCell>
                 </TableRow>
               );
@@ -1532,6 +1588,11 @@ export function RecordEntityTabPanel({
   const [nestedCreateParentId, setNestedCreateParentId] = useState<
     string | null
   >(null);
+  /** Prefill hierarchy group / subgroup when creating from a table group row. */
+  const [createHierarchy, setCreateHierarchy] = useState<{
+    groupId: string;
+    subgroupId?: string;
+  } | null>(null);
 
   const nestedTarget = useMemo(
     () => resolveEntityTableNestedTarget(linkedEntity, entities),
@@ -1620,9 +1681,40 @@ export function RecordEntityTabPanel({
         ? "Редактировать запись"
         : "";
 
+  const tableParentField = resolveEntityTableParentField(linkedEntity);
+  const tableSubgroupField = resolveEntityTableSubgroupField(linkedEntity);
+  const nestedRelationGroupsSubgroup =
+    isEntityTableRelationGroupsNestedSubgroup(
+      tableParentField,
+      tableSubgroupField,
+    );
+
   const presetValues =
-    dialogRecord === "new" && parentLinkFieldId
-      ? { [parentLinkFieldId]: parentRecordId }
+    dialogRecord === "new"
+      ? {
+          ...(parentLinkFieldId ? { [parentLinkFieldId]: parentRecordId } : {}),
+          ...(createHierarchy && tableParentField
+            ? {
+                [tableParentField.id]: encodeEntityTableParentValue(
+                  tableParentField,
+                  createHierarchy.groupId,
+                  nestedRelationGroupsSubgroup
+                    ? (createHierarchy.subgroupId ?? null)
+                    : null,
+                ),
+              }
+            : {}),
+          ...(createHierarchy?.subgroupId &&
+          tableSubgroupField &&
+          !nestedRelationGroupsSubgroup
+            ? {
+                [tableSubgroupField.id]: encodeEntityTableParentValue(
+                  tableSubgroupField,
+                  createHierarchy.subgroupId,
+                ),
+              }
+            : {}),
+        }
       : undefined;
 
   const ownsLinkedRecords =
@@ -1631,11 +1723,21 @@ export function RecordEntityTabPanel({
 
   function openAdd() {
     if (atSingleRecordLimit) return;
+    setCreateHierarchy(null);
     if (ownsLinkedRecords) {
       setDialogRecord("new");
       return;
     }
     setAddFlow("choice");
+  }
+
+  function openAddInHierarchy(groupId: string, subgroupId?: string) {
+    if (atSingleRecordLimit) return;
+    setCreateHierarchy({
+      groupId,
+      ...(subgroupId != null && subgroupId !== "" ? { subgroupId } : {}),
+    });
+    setDialogRecord("new");
   }
 
   return (
@@ -1698,6 +1800,9 @@ export function RecordEntityTabPanel({
               ? (hostRecordId) => setNestedCreateParentId(hostRecordId)
               : undefined
           }
+          onCreateInHierarchy={
+            !readOnly && tableParentField ? openAddInHierarchy : undefined
+          }
         />
       ) : (
         <div className={cn("grid gap-3 p-4", columnsClass)}>
@@ -1729,6 +1834,7 @@ export function RecordEntityTabPanel({
                 return;
               }
               setAddFlow("closed");
+              setCreateHierarchy(null);
               setDialogRecord("new");
             }}
             onPickExisting={() => {
@@ -1767,7 +1873,10 @@ export function RecordEntityTabPanel({
           <EntityRecordDialog
             open={dialogRecord !== null}
             onOpenChange={(open) => {
-              if (!open) setDialogRecord(null);
+              if (!open) {
+                setDialogRecord(null);
+                setCreateHierarchy(null);
+              }
             }}
             entity={linkedEntity}
             record={dialogRecord === "new" ? null : dialogRecord}

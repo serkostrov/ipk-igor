@@ -99,6 +99,7 @@ export function resolveEntityNameAutofill(
     values,
     authUserId: null,
     createdBy: null,
+    schemaVersion: 1,
   };
   return entityNameValueHasTemplate(template)
     ? renderEntityNameTemplate(ctx, entity, record, template)
