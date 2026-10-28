@@ -94,6 +94,7 @@ import {
   type EntityRecordSortDirection,
   type EntityTablePageSize,
 } from "@/entities/entity";
+import { isDeptCalculationsEntity } from "@/features/hardcode";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { pluralRu } from "@/shared/lib/plural";
 import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
@@ -102,6 +103,7 @@ import {
   ENTITY_TABLE_SELECT_WIDTH,
   getEntityTableHeaderMinWidth,
 } from "../lib/table-column-width";
+import { DeptCalculationsView } from "./DeptCalculationsView";
 import { useRecordListChange } from "./use-record-list-change";
 import {
   EntityBrowseFilters,
@@ -404,7 +406,20 @@ function FieldEmptyState({ title }: { title: string }) {
   );
 }
 
-export function EntityTableView({
+export function EntityTableView(props: EntityTableViewProps) {
+  if (isDeptCalculationsEntity(props.entity)) {
+    return (
+      <DeptCalculationsView
+        entity={props.entity}
+        records={props.records}
+        onEditRecord={props.onEditRecord}
+      />
+    );
+  }
+  return <EntityTableViewInner {...props} />;
+}
+
+function EntityTableViewInner({
   entity,
   records,
   title,

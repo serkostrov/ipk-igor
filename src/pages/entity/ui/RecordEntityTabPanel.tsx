@@ -100,11 +100,13 @@ import {
   collectRecordsLinkedToParent,
   resolveLinkedTabParentLinkFieldId,
 } from "@/entities/automation";
+import { isDeptCalculationsEntity } from "@/features/hardcode";
 import { cn } from "@/shared/lib/cn";
 import {
   ENTITY_TABLE_ACTIONS_WIDTH,
   getEntityTableHeaderMinWidth,
 } from "../lib/table-column-width";
+import { DeptCalculationsView } from "./DeptCalculationsView";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 
 const dataTableHeadClass =
@@ -1815,22 +1817,36 @@ export function RecordEntityTabPanel({
           </p>
         </div>
       ) : recordsDisplay === "table" && !singleRecord ? (
-        <RecordsTable
-          entity={linkedEntity}
-          records={records}
-          parentLinkFieldId={parentLinkFieldId}
-          onEdit={readOnly ? undefined : (record) => setDialogRecord(record)}
-          onDelete={readOnly ? undefined : (record) => setPendingDelete(record)}
-          onOpenNested={onOpenRelation}
-          onCreateNestedChild={
-            !readOnly && nestedTarget
-              ? (hostRecordId) => setNestedCreateParentId(hostRecordId)
-              : undefined
-          }
-          onCreateInHierarchy={
-            !readOnly && tableParentField ? openAddInHierarchy : undefined
-          }
-        />
+        isDeptCalculationsEntity(linkedEntity) ? (
+          <div className="min-h-0 flex-1 p-3 pt-0">
+            <DeptCalculationsView
+              entity={linkedEntity}
+              records={records}
+              onEditRecord={
+                readOnly ? undefined : (record) => setDialogRecord(record)
+              }
+            />
+          </div>
+        ) : (
+          <RecordsTable
+            entity={linkedEntity}
+            records={records}
+            parentLinkFieldId={parentLinkFieldId}
+            onEdit={readOnly ? undefined : (record) => setDialogRecord(record)}
+            onDelete={
+              readOnly ? undefined : (record) => setPendingDelete(record)
+            }
+            onOpenNested={onOpenRelation}
+            onCreateNestedChild={
+              !readOnly && nestedTarget
+                ? (hostRecordId) => setNestedCreateParentId(hostRecordId)
+                : undefined
+            }
+            onCreateInHierarchy={
+              !readOnly && tableParentField ? openAddInHierarchy : undefined
+            }
+          />
+        )
       ) : (
         <div className={cn("grid gap-3 p-4", columnsClass)}>
           {records.map((record) => (

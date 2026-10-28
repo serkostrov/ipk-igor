@@ -32,7 +32,10 @@ import {
 } from "../model/field-value";
 
 function normalizeName(value: string): string {
-  return value.trim().toLocaleLowerCase("ru");
+  return value
+    .trim()
+    .toLocaleLowerCase("ru")
+    .replaceAll("ё", "е");
 }
 
 function entityMatches(
@@ -45,6 +48,21 @@ function entityMatches(
   return keys.some((key) =>
     candidates.some((value) => normalizeName(value) === normalizeName(key)),
   );
+}
+
+/** Exact match or name contains the key (e.g. «Расчёты отделов ТКП»). */
+function entityMatchesLoose(
+  entity: Pick<Entity, "id" | "name" | "namePlural">,
+  keys: readonly string[],
+): boolean {
+  if (entityMatches(entity, keys)) return true;
+  const candidates = [entity.name, entity.namePlural]
+    .map((value) => normalizeName(value))
+    .filter(Boolean);
+  return keys.some((key) => {
+    const needle = normalizeName(key);
+    return candidates.some((value) => value.includes(needle));
+  });
 }
 
 /** Exact or «starts with key» (e.g. «Руководитель отдела»). */
@@ -65,6 +83,10 @@ const DEPT_CALC_KEYS = [
   "Расчеты отделов",
   "Расчёт отделов",
   "Расчет отделов",
+  "Расчёт отдела",
+  "Расчет отдела",
+  "Расчёты отдела",
+  "Расчеты отдела",
 ] as const;
 const GIP_KEYS = ["ГИП", "Гип"] as const;
 const MANAGER_KEYS = ["Руководитель"] as const;
@@ -79,7 +101,9 @@ export function isTkpAnalysisEntity(
 export function isDeptCalculationsEntity(
   entity: Pick<Entity, "id" | "name" | "namePlural">,
 ): boolean {
-  return entityMatches(entity, DEPT_CALC_KEYS);
+  if (entityMatchesLoose(entity, DEPT_CALC_KEYS)) return true;
+  const text = normalizeName(`${entity.name} ${entity.namePlural}`);
+  return text.includes("отдел") && text.includes("расчет");
 }
 
 function departmentRecordLabel(
