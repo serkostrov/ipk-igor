@@ -1,4 +1,6 @@
 import {
+  collectTkpStageDepartmentPairs,
+  findDeptCalculationsGroupsField,
   formatRecordFieldValue,
   getCurrentUserRecordId,
   getEntityConfig,
@@ -6,6 +8,7 @@ import {
   resolveEntityFieldLabel,
   getEntityTabRecordsValueKey,
   getEntityValueContext,
+  isDeptCalculationsEntity,
   isEntityComputedFieldType,
   isEntityRecordsTab,
   isEntityRelationGroupsFilled,
@@ -246,6 +249,43 @@ function validateRelatedRequiredFields(
       continue;
     }
     if (isEntityComputedFieldType(field.type)) continue;
+
+    const groupsField = findDeptCalculationsGroupsField(
+      resolved!.relatedEntity,
+    );
+    if (
+      isDeptCalculationsEntity(resolved!.relatedEntity) &&
+      groupsField?.id === ask.fieldId &&
+      field.type === "relationGroups"
+    ) {
+      let best = "";
+      let bestPairs = -1;
+      for (const relatedRecordId of relatedIds) {
+        const key = relatedAskValueKey(
+          resolved!.scopeKey,
+          relatedRecordId,
+          ask.fieldId,
+        );
+        if (values[key] === undefined) continue;
+        const raw = values[key]!;
+        const pairs = collectTkpStageDepartmentPairs(raw).length;
+        if (pairs > bestPairs) {
+          bestPairs = pairs;
+          best = raw;
+        }
+      }
+      if (
+        !isEntityRelationGroupsFilled(
+          best,
+          ask.relationGroupsMode ?? "full",
+          field.relationGroups?.levels.length ?? 2,
+        )
+      ) {
+        missing.push(label);
+      }
+      continue;
+    }
+
     for (const relatedRecordId of relatedIds) {
       const key = relatedAskValueKey(
         resolved!.scopeKey,

@@ -256,6 +256,43 @@ export type RelatedAskPersistUpdate = {
   patch: Record<string, string>;
 };
 
+/**
+ * Related asks that must be written to linked records during fill/autosave.
+ * Mirrors local fields: explicit «запись» ∪ required.
+ */
+function relatedAskIdsToPersist(
+  access: AutomationOutcomeFieldAccess,
+): Set<string> {
+  return new Set([...access.relatedRecordIds, ...access.relatedRequiredIds]);
+}
+
+/**
+ * Richest «Стадия/отделы» draft among collapsed fan-out siblings
+ * (primary row holds the merged tree; siblings may be absent).
+ */
+function richestRelatedGroupsDraft(options: {
+  scopeKey: string;
+  fieldId: string;
+  relatedRecordIds: readonly string[];
+  values: Record<string, string>;
+}): { recordId: string; value: string } | null {
+  let best: { recordId: string; value: string; pairs: number } | null = null;
+  for (const relatedRecordId of options.relatedRecordIds) {
+    const key = relatedAskValueKey(
+      options.scopeKey,
+      relatedRecordId,
+      options.fieldId,
+    );
+    if (options.values[key] === undefined) continue;
+    const value = options.values[key]!;
+    const pairs = collectTkpStageDepartmentPairs(value).length;
+    if (!best || pairs > best.pairs) {
+      best = { recordId: relatedRecordId, value, pairs };
+    }
+  }
+  return best ? { recordId: best.recordId, value: best.value } : null;
+}
+
 /** Build per-related-record patches from form values. */
 export function buildRelatedAskPersistUpdates(options: {
   triggerEntity: Entity;
@@ -273,9 +310,9 @@ export function buildRelatedAskPersistUpdates(options: {
   const byTarget = new Map<string, Record<string, string>>();
 
   for (const access of accesses) {
-    const recordAskIds = new Set(access.relatedRecordIds);
+    const persistAskIds = relatedAskIdsToPersist(access);
     for (const ask of access.relatedVisibleFields) {
-      if (!recordAskIds.has(ask.id)) continue;
+      if (!persistAskIds.has(ask.id)) continue;
       const resolved = resolveAskRelatedTarget({
         triggerEntity: options.triggerEntity,
         entities: options.entities,
@@ -290,6 +327,47 @@ export function buildRelatedAskPersistUpdates(options: {
       ) {
         continue;
       }
+
+      const groupsField = findDeptCalculationsGroupsField(
+        resolved.relatedEntity,
+      );
+      const isCollapsedGroups =
+        isDeptCalculationsEntity(resolved.relatedEntity) &&
+        groupsField?.id === ask.fieldId;
+
+      if (isCollapsedGroups) {
+        const richest = richestRelatedGroupsDraft({
+          scopeKey: resolved.scopeKey,
+          fieldId: ask.fieldId,
+          relatedRecordIds: resolved.relatedRecordIds,
+          values: options.values,
+        });
+        if (!richest) continue;
+        if (options.skipUnchanged) {
+          const livePairs = resolved.relatedRecordIds.flatMap((recordId) => {
+            const record = resolved.relatedEntity.records.find(
+              (item) => item.id === recordId,
+            );
+            return collectTkpStageDepartmentPairs(record?.values[ask.fieldId]);
+          });
+          const nextPairs = collectTkpStageDepartmentPairs(richest.value);
+          const liveKeys = new Set(
+            livePairs.map((pair) => `${pair.stageId}\0${pair.departmentId}`),
+          );
+          const same =
+            nextPairs.length === livePairs.length &&
+            nextPairs.every((pair) =>
+              liveKeys.has(`${pair.stageId}\0${pair.departmentId}`),
+            );
+          if (same) continue;
+        }
+        const mapKey = `${resolved.relatedEntity.id}:${richest.recordId}`;
+        const patch = byTarget.get(mapKey) ?? {};
+        patch[ask.fieldId] = richest.value;
+        byTarget.set(mapKey, patch);
+        continue;
+      }
+
       for (const relatedRecordId of resolved.relatedRecordIds) {
         const key = relatedAskValueKey(
           resolved.scopeKey,
@@ -476,6 +554,32 @@ export function validateRelatedAskRequired(options: {
       missingLabels.push(`${relationLabel} · ${fieldLabel}`);
       continue;
     }
+
+    // Collapsed «Расчёты отделов» · «Стадия/отделы»: one merged tree on the
+    // primary draft — do not require every fan-out sibling key to be filled.
+    const groupsField = findDeptCalculationsGroupsField(resolved.relatedEntity);
+    if (
+      isDeptCalculationsEntity(resolved.relatedEntity) &&
+      groupsField?.id === ask.fieldId
+    ) {
+      const richest = richestRelatedGroupsDraft({
+        scopeKey: resolved.scopeKey,
+        fieldId: ask.fieldId,
+        relatedRecordIds: resolved.relatedRecordIds,
+        values,
+      });
+      if (
+        !isFieldFilled(
+          field,
+          richest?.value ?? "",
+          ask.relationGroupsMode ?? "full",
+        )
+      ) {
+        missingLabels.push(`${relationLabel} · ${fieldLabel}`);
+      }
+      continue;
+    }
+
     for (const relatedRecordId of resolved.relatedRecordIds) {
       const key = relatedAskValueKey(
         resolved.scopeKey,
