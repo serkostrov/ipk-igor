@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import {
   automationOutcomeButtonStyle,
@@ -281,7 +281,6 @@ function TaskWorkspaceBody({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loggedSeconds, setLoggedSeconds] = useState(0);
   const requireTime = automationRequiresTimeTracking(task.config.materials);
   const uploadTarget = getAutomationUploadTarget(task.config.materials);
   const uploadBlocksComplete = automationUploadTargetBlocksComplete(
@@ -289,9 +288,6 @@ function TaskWorkspaceBody({
     record,
     uploadTarget,
   );
-  const onTotalSecondsChange = useCallback((seconds: number) => {
-    setLoggedSeconds(seconds);
-  }, []);
 
   const autosave = useTaskFormAutosave({
     enabled: Boolean(entity && record),
@@ -705,7 +701,6 @@ function TaskWorkspaceBody({
           if (!Number.isFinite(start) || !Number.isFinite(end)) return sum;
           return sum + Math.max(0, Math.floor((end - start) / 1000));
         }, 0);
-        setLoggedSeconds(totalSeconds);
         if (totalSeconds <= 0) {
           setError(
             "Чтобы завершить задание, добавьте время вручную или запустите и остановите таймер.",
@@ -842,7 +837,6 @@ function TaskWorkspaceBody({
           userId={sessionUser?.id}
           required
           disabled={busy}
-          onTotalSecondsChange={onTotalSecondsChange}
           onError={(message) => setError(message)}
         />
       ) : null}
