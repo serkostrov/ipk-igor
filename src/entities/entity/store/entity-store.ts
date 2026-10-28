@@ -1542,6 +1542,12 @@ export function convertTabLinkRelationFieldToLookup(
       ...(patch.lookup.relationGroupsDepth != null
         ? { relationGroupsDepth: patch.lookup.relationGroupsDepth }
         : {}),
+      ...(patch.lookup.viaFieldId
+        ? { viaFieldId: patch.lookup.viaFieldId }
+        : {}),
+      ...(patch.lookup.viaFieldId && patch.lookup.viaRelationGroupsDepth != null
+        ? { viaRelationGroupsDepth: patch.lookup.viaRelationGroupsDepth }
+        : {}),
     },
     formula: undefined,
     rollup: undefined,

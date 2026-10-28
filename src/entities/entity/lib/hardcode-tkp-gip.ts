@@ -153,8 +153,7 @@ function isUsersRelationField(field: EntityField): boolean {
 
 export function findTkpGipUserField(entity: Entity): EntityField | null {
   const usersMatch = entity.fields.find(
-    (field) =>
-      isUsersRelationField(field) && fieldNameMatches(field, GIP_KEYS),
+    (field) => isUsersRelationField(field) && fieldNameMatches(field, GIP_KEYS),
   );
   if (usersMatch) return usersMatch;
   // Custom people catalog still named «ГИП».

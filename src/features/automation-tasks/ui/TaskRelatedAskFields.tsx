@@ -157,8 +157,7 @@ export function TaskRelatedAskFields({
               onEditRecord={
                 disabled
                   ? undefined
-                  : (record) =>
-                      setHostEdit({ entity: block.entity, record })
+                  : (record) => setHostEdit({ entity: block.entity, record })
               }
             />
           )}

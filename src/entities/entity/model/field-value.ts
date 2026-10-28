@@ -304,12 +304,63 @@ function resolveLookupChainLeaf<T extends Pick<Entity, "id" | "fields">>(
     if (!relatedId) return null;
     const related = entities.find((item) => item.id === relatedId);
     if (!related) return null;
-    const next = findField(related, currentField.lookup.targetFieldId);
+    const leafEntity = resolveLookupViaEntity(
+      related,
+      currentField.lookup,
+      entities,
+    );
+    if (!leafEntity) return null;
+    const next = findField(leafEntity, currentField.lookup.targetFieldId);
     if (!next) return null;
-    currentEntity = related;
+    currentEntity = leafEntity;
     currentField = next;
   }
   return null;
+}
+
+/**
+ * Entity reached by an optional via-hop (`relation` / `relationGroups`)
+ * on the bridge target. Without via — the bridge target itself.
+ */
+function resolveLookupViaEntity<T extends Pick<Entity, "id" | "fields">>(
+  bridgeTarget: T,
+  lookup: NonNullable<EntityField["lookup"]>,
+  entities: readonly T[],
+): T | null {
+  const viaFieldId = lookup.viaFieldId?.trim();
+  if (!viaFieldId) return bridgeTarget;
+  const viaField = findField(bridgeTarget, viaFieldId);
+  if (!viaField) return null;
+  if (viaField.type === "relation") {
+    const targetId = getEntityRelationTargetId(viaField);
+    return entities.find((item) => item.id === targetId) ?? null;
+  }
+  if (viaField.type === "relationGroups") {
+    const targetId = resolveRelationGroupsBridgeEntityId(
+      viaField,
+      entities,
+      lookup.viaRelationGroupsDepth,
+    );
+    return targetId
+      ? (entities.find((item) => item.id === targetId) ?? null)
+      : null;
+  }
+  return null;
+}
+
+function resolveLookupTargetOnBridgeEntity<
+  T extends Pick<Entity, "id" | "fields">,
+>(
+  bridge: EntityField,
+  bridgeTarget: T,
+  lookup: NonNullable<EntityField["lookup"]>,
+  entities: readonly T[],
+): { relationField: EntityField; entity: T; field: EntityField } | null {
+  const leafEntity = resolveLookupViaEntity(bridgeTarget, lookup, entities);
+  if (!leafEntity) return null;
+  const targetField = findField(leafEntity, lookup.targetFieldId);
+  if (!targetField) return null;
+  return { relationField: bridge, entity: leafEntity, field: targetField };
 }
 
 /** Target entity + field of a lookup (settings and runtime). */
@@ -323,14 +374,13 @@ export function resolveEntityLookupTarget<
   if (field.type !== "lookup" || !field.lookup) return null;
   const bridge = findField(entity, field.lookup.relationFieldId);
   if (!bridge) return null;
+  const lookup = field.lookup;
 
   if (bridge.type === "relation") {
     const targetId = getEntityRelationTargetId(bridge);
     const target = entities.find((item) => item.id === targetId);
     if (!target) return null;
-    const targetField = findField(target, field.lookup.targetFieldId);
-    if (!targetField) return null;
-    return { relationField: bridge, entity: target, field: targetField };
+    return resolveLookupTargetOnBridgeEntity(bridge, target, lookup, entities);
   }
 
   // Records from a relationGroups field (chosen level or deepest).
@@ -338,15 +388,13 @@ export function resolveEntityLookupTarget<
     const targetId = resolveRelationGroupsBridgeEntityId(
       bridge,
       entities,
-      field.lookup.relationGroupsDepth,
+      lookup.relationGroupsDepth,
     );
     const target = targetId
       ? entities.find((item) => item.id === targetId)
       : undefined;
     if (!target) return null;
-    const targetField = findField(target, field.lookup.targetFieldId);
-    if (!targetField) return null;
-    return { relationField: bridge, entity: target, field: targetField };
+    return resolveLookupTargetOnBridgeEntity(bridge, target, lookup, entities);
   }
 
   // Bridge is a lookup of relation ids (e.g. «Отдел» via «Руководитель»).
@@ -356,9 +404,7 @@ export function resolveEntityLookupTarget<
     const targetId = getEntityRelationTargetId(leaf.field);
     const target = entities.find((item) => item.id === targetId);
     if (!target) return null;
-    const targetField = findField(target, field.lookup.targetFieldId);
-    if (!targetField) return null;
-    return { relationField: bridge, entity: target, field: targetField };
+    return resolveLookupTargetOnBridgeEntity(bridge, target, lookup, entities);
   }
 
   return null;
@@ -468,6 +514,31 @@ function getLookupBridgeRelationIds(
   ];
 }
 
+/** Record ids from a via-hop field on a bridge-target record. */
+function getLookupViaRecordIds(
+  viaField: EntityField,
+  values: Record<string, string>,
+  viaRelationGroupsDepth?: number,
+): string[] {
+  if (viaField.type === "relation") {
+    return parseEntityRelationIds(values[viaField.id]);
+  }
+  if (viaField.type === "relationGroups") {
+    const nodes = parseEntityRelationGroups(values[viaField.id]);
+    if (
+      viaRelationGroupsDepth != null &&
+      Number.isFinite(viaRelationGroupsDepth)
+    ) {
+      return collectRelationGroupsIdsAtDepth(
+        nodes,
+        Math.max(0, Math.floor(viaRelationGroupsDepth)),
+      );
+    }
+    return collectRelationGroupsLeafIds(nodes);
+  }
+  return [];
+}
+
 /** Cells that hold the value of `field` for `record` (one for plain fields). */
 export function resolveRecordFieldCells(
   ctx: EntityValueContext,
@@ -480,23 +551,49 @@ export function resolveRecordFieldCells(
   if (depth >= LOOKUP_DEPTH_LIMIT) return [];
   const target = resolveEntityLookupTarget(entity, field, ctx.entities);
   if (!target) return [];
-  return getLookupBridgeRelationIds(
+  const bridgeRecords = getLookupBridgeRelationIds(
     ctx,
     entity,
     record,
     target.relationField,
     depth,
     field.lookup?.relationGroupsDepth,
-  ).flatMap((recordId) => {
-    const ref = ctx.recordById.get(recordId);
-    if (!ref || ref.entity.id !== target.entity.id) return [];
-    return resolveRecordFieldCells(
-      ctx,
-      ref.entity,
-      ref.record,
-      target.field,
-      depth + 1,
-    );
+  );
+  const viaFieldId = field.lookup?.viaFieldId?.trim();
+  if (!viaFieldId) {
+    return bridgeRecords.flatMap((recordId) => {
+      const ref = ctx.recordById.get(recordId);
+      if (!ref || ref.entity.id !== target.entity.id) return [];
+      return resolveRecordFieldCells(
+        ctx,
+        ref.entity,
+        ref.record,
+        target.field,
+        depth + 1,
+      );
+    });
+  }
+
+  return bridgeRecords.flatMap((recordId) => {
+    const bridgeRef = ctx.recordById.get(recordId);
+    if (!bridgeRef) return [];
+    const viaField = findField(bridgeRef.entity, viaFieldId);
+    if (!viaField) return [];
+    return getLookupViaRecordIds(
+      viaField,
+      bridgeRef.record.values,
+      field.lookup?.viaRelationGroupsDepth,
+    ).flatMap((viaId) => {
+      const viaRef = ctx.recordById.get(viaId);
+      if (!viaRef || viaRef.entity.id !== target.entity.id) return [];
+      return resolveRecordFieldCells(
+        ctx,
+        viaRef.entity,
+        viaRef.record,
+        target.field,
+        depth + 1,
+      );
+    });
   });
 }
 
@@ -1796,7 +1893,13 @@ export function collectLookupSoftFillPatchesFromRelated(
   for (const entity of entities) {
     for (const lookup of entity.fields) {
       if (lookup.type !== "lookup" || !lookup.lookup) continue;
-      if (!changed.has(lookup.lookup.targetFieldId)) continue;
+      const viaId = lookup.lookup.viaFieldId?.trim();
+      if (
+        !changed.has(lookup.lookup.targetFieldId) &&
+        !(viaId && changed.has(viaId))
+      ) {
+        continue;
+      }
       const target = resolveEntityLookupTarget(entity, lookup, entities);
       if (!target || target.entity.id !== sourceEntityId) continue;
       if (

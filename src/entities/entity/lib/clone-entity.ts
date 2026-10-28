@@ -152,10 +152,14 @@ function remapLookup(
     ...config,
     relationFieldId:
       mapId(fieldIdMap, config.relationFieldId) ?? config.relationFieldId,
-    // targetFieldId lives on the related entity — leave as-is unless remapped
-    // (owned child fields are remapped into fieldIdMap).
+    // target / via live on the related entity — remap when in fieldIdMap.
     targetFieldId:
       mapId(fieldIdMap, config.targetFieldId) ?? config.targetFieldId,
+    ...(config.viaFieldId
+      ? {
+          viaFieldId: mapId(fieldIdMap, config.viaFieldId) ?? config.viaFieldId,
+        }
+      : {}),
   };
 }
 

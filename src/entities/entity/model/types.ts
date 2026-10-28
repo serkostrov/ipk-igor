@@ -235,6 +235,16 @@ export type EntityLookupConfig = {
    * Default / omitted = deepest (вложенные).
    */
   relationGroupsDepth?: number;
+  /**
+   * Optional hop on the bridge target: `relation` or `relationGroups`.
+   * When set, `targetFieldId` is resolved on the entity reached via this hop.
+   */
+  viaFieldId?: string;
+  /**
+   * For a `relationGroups` via-hop: 0 = «Строки», 1 = «Вложенные».
+   * Default / omitted = deepest (вложенные).
+   */
+  viaRelationGroupsDepth?: number;
 };
 
 /** `dependencies` field: predecessors among records of the same entity. */

@@ -72,7 +72,9 @@ import { EntityRecordDialog } from "./EntityRecordDialog";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 
 const headClass =
-  "h-9 border-b border-border bg-foreground/[0.045] px-3 text-[11px] font-semibold tracking-wide whitespace-nowrap text-foreground/65 uppercase";
+  "h-9 border-b border-border/80 bg-muted/40 px-3 text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase";
+
+const cellClass = "px-3 py-2.5 align-middle";
 
 type DeptCalculationsViewProps = {
   entity: Entity;
@@ -82,18 +84,50 @@ type DeptCalculationsViewProps = {
 
 function StatusPill({ label }: { label: string }) {
   if (!label || label === "—") {
-    return <span className="text-muted-foreground/60">—</span>;
+    return <span className="text-muted-foreground/50">—</span>;
   }
   return (
-    <span className="inline-flex max-w-full truncate rounded-md border border-border/80 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-foreground/80">
+    <span className="inline-flex max-w-full truncate rounded-md border border-border/70 bg-muted/35 px-2 py-0.5 text-[11px] font-medium text-foreground/80">
       {label}
+    </span>
+  );
+}
+
+function ManagerCell({ name }: { name: string | null }) {
+  if (!name) {
+    return (
+      <span className="text-[13px] text-muted-foreground/55">Не назначен</span>
+    );
+  }
+  return (
+    <span className="truncate text-[13px] text-foreground" title={name}>
+      {name}
+    </span>
+  );
+}
+
+function MetricCell({
+  children,
+  muted = false,
+}: {
+  children: ReactNode;
+  muted?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "tabular-nums",
+        muted ? "text-muted-foreground/55" : "text-foreground",
+      )}
+    >
+      {children}
     </span>
   );
 }
 
 function StaticField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
+    <div className="min-w-0 rounded-lg border border-border/80 bg-background px-3 py-2.5">
       <div className="mb-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
         {label}
       </div>
@@ -180,7 +214,7 @@ export function DeptCalculationsView({
         >
           <TableHeader>
             <TableRow className="border-0 hover:bg-transparent">
-              <TableHead className={cn(headClass, "w-[18%]")}>Отдел</TableHead>
+              <TableHead className={cn(headClass, "w-[22%]")}>Отдел</TableHead>
               <TableHead className={cn(headClass, "w-[16%]")}>
                 Руководитель
               </TableHead>
@@ -202,7 +236,7 @@ export function DeptCalculationsView({
                 Итог
               </TableHead>
               <TableHead className={cn(headClass, "w-[10%]")}>Статус</TableHead>
-              <TableHead className={cn(headClass, "w-[12%] text-right")}>
+              <TableHead className={cn(headClass, "w-[14%] text-right")}>
                 Действия
               </TableHead>
             </TableRow>
@@ -262,12 +296,12 @@ export function DeptCalculationsView({
                       record,
                       entities,
                     );
-                    const managerName =
-                      resolveDeptCalculationManagerName(
-                        entity,
-                        record,
-                        entities,
-                      ) ?? "Не назначен";
+                    const managerName = resolveDeptCalculationManagerName(
+                      valueContext,
+                      entity,
+                      record,
+                      entities,
+                    );
                     const deadlineValue = hostFields.deadline
                       ? getRecordFieldNumber(
                           valueContext,
@@ -287,9 +321,6 @@ export function DeptCalculationsView({
                     const comment = hostFields.comment
                       ? (record.values[hostFields.comment.id] ?? "").trim()
                       : "";
-                    const description = hostFields.description
-                      ? (record.values[hostFields.description.id] ?? "").trim()
-                      : "";
                     const deadlineInput =
                       deadlineDrafts[record.id] ??
                       (hostFields.deadline
@@ -301,7 +332,6 @@ export function DeptCalculationsView({
                         ? (record.values[hostFields.description.id] ?? "")
                         : "");
                     const lines = getDeptNestedLines(record, nested);
-                    const preview = breakdown.lineTitles.slice(0, 2).join(", ");
 
                     return (
                       <DepartmentBlock
@@ -310,8 +340,6 @@ export function DeptCalculationsView({
                         showFixed={showFixed}
                         columnCount={columnCount}
                         deptLabel={deptLabel}
-                        preview={preview}
-                        fallbackHint={description || comment}
                         managerName={managerName}
                         lineCount={breakdown.lineCount || lines.length}
                         hours={breakdown.hours}
@@ -466,21 +494,26 @@ function StageBlock({
 }) {
   return (
     <>
-      <TableRow className="border-border/70 bg-primary/5 hover:bg-primary/5">
+      <TableRow className="border-border/60 bg-muted/35 hover:bg-muted/35">
         <TableCell colSpan={columnCount} className="px-3 py-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex rounded-md border border-border/80 bg-background px-2 py-0.5 text-xs font-semibold text-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="text-[13px] font-semibold tracking-wide text-foreground">
                 {groupLabel}
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-[11px] text-muted-foreground">
                 {departmentCount} отд.
               </span>
             </div>
-            <div className="flex gap-4 text-xs tabular-nums">
+            <div className="flex items-center gap-3 text-[12px] tabular-nums text-muted-foreground">
               <span>{formatDeptHours(stageHours)} ч</span>
-              <span className="text-muted-foreground">Итог отделов:</span>
-              <span className="font-medium">{formatDeptMoney(stageTotal)}</span>
+              <span className="text-border">·</span>
+              <span>
+                Итог{" "}
+                <span className="font-medium text-foreground">
+                  {formatDeptMoney(stageTotal)}
+                </span>
+              </span>
             </div>
           </div>
         </TableCell>
@@ -495,8 +528,6 @@ function DepartmentBlock({
   showFixed,
   columnCount,
   deptLabel,
-  preview,
-  fallbackHint,
   managerName,
   lineCount,
   hours,
@@ -529,9 +560,7 @@ function DepartmentBlock({
   showFixed: boolean;
   columnCount: number;
   deptLabel: string;
-  preview: string;
-  fallbackHint: string;
-  managerName: string;
+  managerName: string | null;
   lineCount: number;
   hours: number;
   deadline: number | null;
@@ -562,65 +591,64 @@ function DepartmentBlock({
   const showContextPanel = deadlineField || descriptionField;
   return (
     <>
-      <TableRow className="border-border/70 align-top">
-        <TableCell className="px-3 py-3">
+      <TableRow
+        className={cn(
+          "border-border/60 transition-colors",
+          expanded ? "bg-muted/15 hover:bg-muted/15" : "hover:bg-muted/25",
+        )}
+      >
+        <TableCell className={cellClass}>
           <button
             type="button"
-            className="flex w-full items-start gap-2.5 text-left"
+            className="flex w-full min-w-0 items-center gap-2 text-left"
             onClick={onToggle}
             aria-expanded={expanded}
           >
             {expanded ? (
-              <ChevronDown className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
             ) : (
-              <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             )}
-            <div className="min-w-0 space-y-0.5">
-              <div className="font-medium break-words text-foreground">
-                {deptLabel}
-              </div>
-              {preview ? (
-                <div className="text-xs break-words text-muted-foreground">
-                  {preview}
-                  {lineCount > 2 ? "…" : ""}
-                </div>
-              ) : fallbackHint ? (
-                <div className="line-clamp-2 text-xs break-words text-muted-foreground">
-                  {fallbackHint}
-                </div>
-              ) : null}
-            </div>
+            <span className="truncate text-[13px] font-medium text-foreground">
+              {deptLabel}
+            </span>
           </button>
         </TableCell>
-        <TableCell className="px-3 py-3 text-sm">{managerName}</TableCell>
-        <TableCell className="px-3 py-3 text-right tabular-nums">
-          {lineCount}
+        <TableCell className={cellClass}>
+          <ManagerCell name={managerName} />
         </TableCell>
-        <TableCell className="px-3 py-3 text-right tabular-nums">
-          {formatDeptHours(hours)}
+        <TableCell className={cn(cellClass, "text-right")}>
+          <MetricCell muted={lineCount === 0}>{lineCount}</MetricCell>
         </TableCell>
-        <TableCell className="px-3 py-3 text-right tabular-nums">
-          {formatDeptDeadlineDays(deadline)}
+        <TableCell className={cn(cellClass, "text-right")}>
+          <MetricCell muted={hours === 0}>{formatDeptHours(hours)}</MetricCell>
+        </TableCell>
+        <TableCell className={cn(cellClass, "text-right")}>
+          <MetricCell muted={deadline == null || deadline === 0}>
+            {formatDeptDeadlineDays(deadline)}
+          </MetricCell>
         </TableCell>
         {showFixed ? (
-          <TableCell className="px-3 py-3 text-right tabular-nums">
-            {formatDeptMoney(fixedExpenses)}
+          <TableCell className={cn(cellClass, "text-right")}>
+            <MetricCell muted={fixedExpenses === 0}>
+              {formatDeptMoney(fixedExpenses)}
+            </MetricCell>
           </TableCell>
         ) : null}
-        <TableCell className="px-3 py-3 text-right font-medium tabular-nums">
-          {formatDeptMoney(total)}
+        <TableCell className={cn(cellClass, "text-right font-medium")}>
+          <MetricCell muted={total === 0}>{formatDeptMoney(total)}</MetricCell>
         </TableCell>
-        <TableCell className="px-3 py-3">
+        <TableCell className={cellClass}>
           <StatusPill label={statusLabel} />
         </TableCell>
-        <TableCell className="px-3 py-3">
-          <div className="flex items-center justify-end gap-1">
+        <TableCell className={cellClass}>
+          <div className="flex items-center justify-end gap-0.5">
             {nested ? (
               <Button
                 type="button"
-                variant="default"
+                variant="outline"
                 size="sm"
-                className="h-8 px-2 text-xs"
+                className="h-7 gap-1 px-2 text-[11px]"
                 onClick={onAddLine}
               >
                 <Plus className="size-3.5" data-icon="inline-start" />
@@ -632,7 +660,7 @@ function DepartmentBlock({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="size-8"
+                className="size-7"
                 aria-label="Редактировать"
                 onClick={onEdit}
               >
@@ -643,7 +671,7 @@ function DepartmentBlock({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-8 hover:text-destructive"
+              className="size-7 hover:text-destructive"
               aria-label="Удалить"
               onClick={onDelete}
             >
@@ -654,13 +682,18 @@ function DepartmentBlock({
       </TableRow>
 
       {expanded ? (
-        <TableRow className="border-border/70 bg-muted/10 hover:bg-muted/10">
+        <TableRow className="border-border/60 bg-muted/10 hover:bg-muted/10">
           <TableCell colSpan={columnCount} className="p-0">
-            <div className="space-y-4 px-4 py-4">
-              <div className="flex flex-col gap-1 rounded-md border border-border bg-background p-3">
-                <div className="text-sm font-medium">Работы отдела</div>
-                <div className="text-xs text-muted-foreground">
-                  Подзадачи ведутся отдельно от общего контекста расчёта отдела.
+            <div className="space-y-3 border-t border-border/50 px-4 py-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-foreground">
+                    Работы отдела
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Подзадачи ведутся отдельно от общего контекста расчёта
+                    отдела.
+                  </div>
                 </div>
               </div>
 
@@ -726,7 +759,10 @@ function DepartmentBlock({
                   showFixed ? "md:grid-cols-5" : "md:grid-cols-4",
                 )}
               >
-                <StaticField label="Руководитель отдела" value={managerName} />
+                <StaticField
+                  label="Руководитель отдела"
+                  value={managerName ?? "Не назначен"}
+                />
                 <StaticField
                   label="Общие часы"
                   value={`${formatDeptHours(hours)} ч`}

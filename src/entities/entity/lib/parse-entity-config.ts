@@ -182,20 +182,30 @@ function normalizeRollupConfig(value: unknown): EntityRollupConfig | undefined {
   };
 }
 
+function normalizeLookupDepth(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : undefined;
+}
+
 function normalizeLookupConfig(value: unknown): EntityLookupConfig | undefined {
   if (!isRecord(value)) return undefined;
   const relationFieldId = normalizeId(value.relationFieldId);
   const targetFieldId = normalizeId(value.targetFieldId);
   if (!relationFieldId || !targetFieldId) return undefined;
-  const depthRaw = value.relationGroupsDepth;
-  const relationGroupsDepth =
-    typeof depthRaw === "number" && Number.isFinite(depthRaw) && depthRaw >= 0
-      ? Math.floor(depthRaw)
-      : undefined;
+  const relationGroupsDepth = normalizeLookupDepth(value.relationGroupsDepth);
+  const viaFieldId = normalizeId(value.viaFieldId);
+  const viaRelationGroupsDepth = normalizeLookupDepth(
+    value.viaRelationGroupsDepth,
+  );
   return {
     relationFieldId,
     targetFieldId,
     ...(relationGroupsDepth != null ? { relationGroupsDepth } : {}),
+    ...(viaFieldId ? { viaFieldId } : {}),
+    ...(viaFieldId && viaRelationGroupsDepth != null
+      ? { viaRelationGroupsDepth }
+      : {}),
   };
 }
 

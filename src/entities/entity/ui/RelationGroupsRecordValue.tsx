@@ -135,9 +135,7 @@ export function RelationGroupsRecordValue({
             key={node.id}
             type="button"
             className="inline-flex h-5 max-w-full shrink-0 items-center rounded-md bg-primary/10 px-1.5 text-xs font-medium leading-none text-primary transition-colors hover:bg-primary/15"
-            title={
-              node.extras ? `${node.title} · ${node.extras}` : node.title
-            }
+            title={node.extras ? `${node.title} · ${node.extras}` : node.title}
             onClick={() => setOpenId(node.id)}
           >
             <span className="truncate">{node.title}</span>

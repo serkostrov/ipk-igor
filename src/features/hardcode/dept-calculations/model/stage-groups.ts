@@ -4,6 +4,8 @@
 
 import {
   findEntityManagerUserField,
+  formatRecordFieldValue,
+  getEntityFieldDisplayName,
   getEntityRecordTitle,
   getEntityRelationTargetId,
   getSystemUserName,
@@ -22,6 +24,14 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 import { findDeptCalculationUserFields } from "../../tkp-gip/match";
+
+function looksLikeManagerField(field: EntityField): boolean {
+  const name = getEntityFieldDisplayName(field)
+    .trim()
+    .toLocaleLowerCase("ru")
+    .replaceAll("ё", "е");
+  return name.includes("руководитель") || name.includes("менеджер");
+}
 
 export type DeptCalculationsStageGroup = {
   id: string;
@@ -224,10 +234,11 @@ export function resolveDeptCalculationDepartmentLabel(
 }
 
 /**
- * Manager: field on the calculation record, else «Руководитель» on the
- * department entity linked as subgroup.
+ * Manager: field on the calculation record (relation or lookup), else
+ * «Руководитель» on the department entity linked as subgroup.
  */
 export function resolveDeptCalculationManagerName(
+  ctx: EntityValueContext,
   entity: Entity,
   record: EntityRecord,
   entities: readonly Entity[],
@@ -239,6 +250,19 @@ export function resolveDeptCalculationManagerName(
       const name = getSystemUserName(entities, userId)?.trim();
       if (name) return name;
     }
+  }
+
+  const managerLookup = entity.fields.find(
+    (field) => field.type === "lookup" && looksLikeManagerField(field),
+  );
+  if (managerLookup) {
+    const label = formatRecordFieldValue(
+      ctx,
+      entity,
+      record,
+      managerLookup,
+    ).trim();
+    if (label && label !== "—") return label;
   }
 
   const parentField = resolveEntityTableParentField(entity);

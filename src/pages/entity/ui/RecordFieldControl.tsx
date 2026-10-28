@@ -267,8 +267,7 @@ export function RecordFieldControl({
       { ...storeHostValues, ...values },
       recordId,
     );
-    const entityCatalog =
-      entities.length > 0 ? entities : (ctx.entities ?? []);
+    const entityCatalog = entities.length > 0 ? entities : (ctx.entities ?? []);
     const leadParent = resolveTkpGipLeadContext({
       hostEntity: entity,
       hostRecord,
