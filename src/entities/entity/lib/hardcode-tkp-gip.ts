@@ -152,12 +152,73 @@ function isUsersRelationField(field: EntityField): boolean {
 }
 
 export function findTkpGipUserField(entity: Entity): EntityField | null {
+  const usersMatch = entity.fields.find(
+    (field) =>
+      isUsersRelationField(field) && fieldNameMatches(field, GIP_KEYS),
+  );
+  if (usersMatch) return usersMatch;
+  // Custom people catalog still named «ГИП».
   return (
     entity.fields.find(
       (field) =>
-        isUsersRelationField(field) && fieldNameMatches(field, GIP_KEYS),
+        (field.type === "relation" || field.type === "belonging") &&
+        fieldNameMatches(field, GIP_KEYS),
     ) ?? null
   );
+}
+
+/**
+ * Lead («Разбор ТКП») whose «ГИП» users override department catalog heads.
+ * Prefer explicit softFill parent; else the host itself; else parent link
+ * from a «Расчёты отделов» row.
+ */
+export function resolveTkpGipLeadContext(options: {
+  hostEntity: Entity;
+  hostRecord: EntityRecord;
+  entities: readonly Entity[];
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
+}): { entity: Entity; record: EntityRecord } | null {
+  const { hostEntity, hostRecord, entities, softFillParent } = options;
+
+  function withLiveValues(
+    entity: Entity,
+    record: EntityRecord,
+  ): { entity: Entity; record: EntityRecord } {
+    const live = entity.records.find((item) => item.id === record.id);
+    if (!live) return { entity, record };
+    return {
+      entity,
+      record: {
+        ...live,
+        values: { ...live.values, ...record.values },
+      },
+    };
+  }
+
+  if (softFillParent && isTkpAnalysisEntity(softFillParent.entity)) {
+    return withLiveValues(softFillParent.entity, softFillParent.record);
+  }
+
+  if (isTkpAnalysisEntity(hostEntity)) {
+    return withLiveValues(hostEntity, hostRecord);
+  }
+
+  if (!isDeptCalculationsEntity(hostEntity)) return null;
+
+  for (const field of hostEntity.fields) {
+    if (field.type !== "relation" && field.type !== "belonging") continue;
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) continue;
+    const target = entities.find((item) => item.id === targetId);
+    if (!target || !isTkpAnalysisEntity(target)) continue;
+    const parentId = parseEntityRelationIds(hostRecord.values[field.id])[0];
+    if (!parentId) continue;
+    const parentRecord = target.records.find((item) => item.id === parentId);
+    if (!parentRecord) continue;
+    return withLiveValues(target, parentRecord);
+  }
+
+  return null;
 }
 
 export function findDeptCalculationUserFields(entity: Entity): {

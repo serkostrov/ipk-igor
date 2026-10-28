@@ -15,6 +15,7 @@ export {
   isGipDepartmentRecord,
   isTkpAnalysisEntity,
   resolveDeptCalculationsCreateFanOut,
+  resolveTkpGipLeadContext,
   type TkpStageDepartmentPair,
 } from "./tkp-gip/match";
 

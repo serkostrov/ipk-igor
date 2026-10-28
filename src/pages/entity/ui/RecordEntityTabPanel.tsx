@@ -1637,14 +1637,16 @@ export function RecordEntityTabPanel({
     [entities, parentEntityId],
   );
 
-  const parentRecord = useMemo(
-    () =>
-      isSelfRef
-        ? (linkedEntity.records.find((item) => item.id === parentRecordId) ??
-          null)
-        : null,
-    [isSelfRef, linkedEntity.records, parentRecordId],
-  );
+  const parentRecord = useMemo(() => {
+    if (isSelfRef) {
+      return (
+        linkedEntity.records.find((item) => item.id === parentRecordId) ?? null
+      );
+    }
+    return (
+      hostEntity?.records.find((item) => item.id === parentRecordId) ?? null
+    );
+  }, [hostEntity, isSelfRef, linkedEntity.records, parentRecordId]);
 
   const records = useMemo(() => {
     let ids = collectLinkedTabRecordIds({
@@ -1924,6 +1926,11 @@ export function RecordEntityTabPanel({
             entity={linkedEntity}
             record={dialogRecord === "new" ? null : dialogRecord}
             entities={entities}
+            softFillParent={
+              hostEntity && parentRecord
+                ? { entity: hostEntity, record: parentRecord }
+                : null
+            }
             presetValues={presetValues}
             hiddenFieldIds={
               parentLinkFieldId ? new Set([parentLinkFieldId]) : undefined

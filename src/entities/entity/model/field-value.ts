@@ -856,11 +856,20 @@ export type RelationGroupsDisplayNode = {
   children: RelationGroupsDisplayNode[];
 };
 
+export type RelationGroupsExtrasResolver = (args: {
+  entity: Entity;
+  recordId: string;
+  depth: number;
+  fieldIds: readonly string[];
+  defaultExtras: string;
+}) => string | null;
+
 /** Build a display tree for a relationGroups field value. */
 export function getRelationGroupsDisplayTree(
   ctx: EntityValueContext,
   field: EntityField,
   value: string,
+  resolveRecordExtras?: RelationGroupsExtrasResolver,
 ): RelationGroupsDisplayNode[] {
   const config = field.relationGroups;
   const levels = config?.levels ?? [];
@@ -889,6 +898,30 @@ export function getRelationGroupsDisplayTree(
       previous = entityId;
     }
     return undefined;
+  }
+
+  function extrasFor(
+    entity: Entity,
+    recordId: string,
+    depth: number,
+    fieldIds: readonly string[],
+  ): string {
+    const defaultExtras = formatRelationGroupsExtras(
+      ctx,
+      entity,
+      recordId,
+      fieldIds,
+    );
+    if (!resolveRecordExtras) return defaultExtras;
+    return (
+      resolveRecordExtras({
+        entity,
+        recordId,
+        depth,
+        fieldIds,
+        defaultExtras,
+      }) ?? defaultExtras
+    );
   }
 
   function buildNode(
@@ -923,12 +956,7 @@ export function getRelationGroupsDisplayTree(
     }
     const extras =
       entity && level && level.displayFieldIds.length > 0
-        ? formatRelationGroupsExtras(
-            ctx,
-            entity,
-            node.id,
-            level.displayFieldIds,
-          )
+        ? extrasFor(entity, node.id, depth, level.displayFieldIds)
         : "";
     const children =
       depth >= levels.length - 1

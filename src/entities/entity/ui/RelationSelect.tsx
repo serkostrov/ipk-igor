@@ -40,10 +40,12 @@ function RelationChip({
     <span
       className={cn(
         "inline-flex h-5 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-xs font-medium leading-none text-primary",
-        expand ? "min-w-0 max-w-full" : "max-w-[9.5rem] shrink-0",
+        expand ? "min-w-0 max-w-full" : "max-w-[16rem] shrink-0",
       )}
     >
-      <span className="truncate">{option.label}</span>
+      <span className="truncate" title={option.label}>
+        {option.label}
+      </span>
       {removable ? (
         <span
           role="button"

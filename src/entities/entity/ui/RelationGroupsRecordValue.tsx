@@ -8,6 +8,10 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import {
+  formatTkpGipDepartmentExtras,
+  resolveTkpGipLeadContext,
+} from "../lib/hardcode-tkp-gip";
+import {
   getRelationGroupsDisplayTree,
   type EntityValueContext,
   type RelationGroupsDisplayNode,
@@ -69,6 +73,7 @@ function DetailBranch({
 /** Read-only: chips in a row; click opens what belongs to that group. */
 export function RelationGroupsRecordValue({
   ctx,
+  entity,
   record,
   field,
   className,
@@ -80,10 +85,33 @@ export function RelationGroupsRecordValue({
   className?: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const leadParent = resolveTkpGipLeadContext({
+    hostEntity: entity,
+    hostRecord: record,
+    entities: ctx.entities,
+  });
   const tree = getRelationGroupsDisplayTree(
     ctx,
     field,
     record.values[field.id] ?? "",
+    leadParent
+      ? ({
+          entity: departmentEntity,
+          recordId: departmentRecordId,
+          fieldIds,
+          defaultExtras,
+        }) =>
+          formatTkpGipDepartmentExtras({
+            ctx,
+            hostEntity: entity,
+            parentEntity: leadParent.entity,
+            parentRecord: leadParent.record,
+            departmentEntity,
+            departmentRecordId,
+            displayFieldIds: fieldIds,
+            defaultExtras,
+          })
+      : undefined,
   );
   const openNode = openId
     ? (tree.find((node) => node.id === openId) ?? null)
@@ -107,7 +135,9 @@ export function RelationGroupsRecordValue({
             key={node.id}
             type="button"
             className="inline-flex h-5 max-w-full shrink-0 items-center rounded-md bg-primary/10 px-1.5 text-xs font-medium leading-none text-primary transition-colors hover:bg-primary/15"
-            title={node.extras ? `${node.title} · ${node.extras}` : node.title}
+            title={
+              node.extras ? `${node.title} · ${node.extras}` : node.title
+            }
             onClick={() => setOpenId(node.id)}
           >
             <span className="truncate">{node.title}</span>

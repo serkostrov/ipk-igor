@@ -509,6 +509,7 @@ export {
   isTkpAnalysisEntity,
   resolveDeptCalculationsCreateFanOut,
   resolveTkpGipAssigneeUserIds,
+  resolveTkpGipLeadContext,
   type TkpGipDepartmentUsersResult,
   type TkpStageDepartmentPair,
 } from "./lib/hardcode-tkp-gip";

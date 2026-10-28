@@ -21,8 +21,8 @@ import {
   getRelationRecordOptions,
   isEntityComputedFieldType,
   isEntityNameField,
-  isTkpAnalysisEntity,
   isValidEntityEmail,
+  resolveTkpGipLeadContext,
   normalizeEntityDecimalInput,
   normalizeEntityPhoneValue,
   parseEntityPeriod,
@@ -261,38 +261,20 @@ export function RecordFieldControl({
   }
 
   if (field.type === "relationGroups") {
-    const hostIsLead = isTkpAnalysisEntity(entity);
-    const softIsLead =
-      softFillParent != null && isTkpAnalysisEntity(softFillParent.entity);
     const storeHostValues =
       entity.records.find((item) => item.id === recordId)?.values ?? {};
-    const leadParent = hostIsLead
-      ? {
-          entity,
-          // Store + unsaved form: «ГИП» may not be among ask fields.
-          record: createEntityDraftRecord(
-            { ...storeHostValues, ...values },
-            recordId,
-          ),
-        }
-      : softIsLead && softFillParent
-        ? {
-            entity: softFillParent.entity,
-            record: (() => {
-              const live =
-                softFillParent.entity.records.find(
-                  (item) => item.id === softFillParent.record.id,
-                ) ?? softFillParent.record;
-              return {
-                ...live,
-                values: {
-                  ...live.values,
-                  ...softFillParent.record.values,
-                },
-              };
-            })(),
-          }
-        : null;
+    const hostRecord = createEntityDraftRecord(
+      { ...storeHostValues, ...values },
+      recordId,
+    );
+    const entityCatalog =
+      entities.length > 0 ? entities : (ctx.entities ?? []);
+    const leadParent = resolveTkpGipLeadContext({
+      hostEntity: entity,
+      hostRecord,
+      entities: entityCatalog,
+      softFillParent,
+    });
     return (
       <div className="flex flex-col gap-2">
         {labelNode}
