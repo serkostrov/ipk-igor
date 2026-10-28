@@ -8,14 +8,17 @@ import {
 import {
   createEntityDraftRecord,
   getEntityRecordTitle,
+  isDeptCalculationsEntity,
   isEntityFieldVisibleByConditions,
   normalizeEntityFieldInputValue,
   resolveEntityFieldLabel,
   updateEntityRecord,
   type Entity,
   type EntityField,
+  type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+import { persistDeptCalculationRelatedUpdate } from "@/features/hardcode";
 
 export type RelatedAskFieldRow = {
   askId: string;
@@ -322,8 +325,26 @@ export function buildRelatedAskPersistUpdates(options: {
 
 export async function persistRelatedAskUpdates(
   updates: RelatedAskPersistUpdate[],
+  options?: {
+    entities?: readonly Entity[];
+    parentEntity?: Entity | null;
+    parentRecord?: EntityRecord | null;
+  },
 ) {
+  const entities = options?.entities ?? [];
   for (const update of updates) {
+    const entity = entities.find((item) => item.id === update.entityId) ?? null;
+    if (entity && isDeptCalculationsEntity(entity)) {
+      await persistDeptCalculationRelatedUpdate({
+        entity,
+        recordId: update.recordId,
+        patch: update.patch,
+        entities,
+        parentEntity: options?.parentEntity ?? null,
+        parentRecord: options?.parentRecord ?? null,
+      });
+      continue;
+    }
     await updateEntityRecord(update.entityId, update.recordId, update.patch);
   }
 }

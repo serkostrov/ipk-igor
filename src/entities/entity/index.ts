@@ -499,6 +499,7 @@ export {
   childValuesSelectGipDepartment,
   collectTkpStageDepartmentPairs,
   deptCalculationValuesMatchStagePair,
+  encodeTkpStageDepartmentPair,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
   findTkpGipUserField,

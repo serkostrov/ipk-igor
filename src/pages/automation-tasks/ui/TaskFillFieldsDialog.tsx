@@ -46,6 +46,7 @@ import { useSessionUser } from "@/entities/session";
 import {
   automationOutcomeNeedsInput,
   automationTaskShowsFormUpfront,
+  filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
@@ -253,7 +254,7 @@ function TaskFillFieldsDialogBody({
   const ask: AutomationAskFields | null = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
-  const createAskSlots = selectedOutcome
+  const createAskSlotsRaw = selectedOutcome
     ? getOutcomeCreateAskSlots(selectedOutcome, entities, {
         sourceEntity: entity,
         triggerRecordId: record?.id ?? task?.recordId,
@@ -299,6 +300,10 @@ function TaskFillFieldsDialogBody({
           ctx: previewContext,
         })
       : { groups: [], emptyRelations: [] };
+  const createAskSlots = filterCreateAskSlotsForDeptCalculationsView(
+    createAskSlotsRaw,
+    relatedLayout.groups,
+  );
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
 
@@ -499,7 +504,19 @@ function TaskFillFieldsDialogBody({
       values,
       triggerRecordId: record.id,
     });
-    await persistRelatedAskUpdates(related);
+    await persistRelatedAskUpdates(related, {
+      entities,
+      parentEntity: entity,
+      parentRecord: {
+        ...record,
+        values: {
+          ...record.values,
+          ...Object.fromEntries(
+            Object.entries(values).filter(([key]) => !key.includes(":")),
+          ),
+        },
+      },
+    });
   }
 
   function validateForOutcome(outcomeId: string) {
@@ -820,7 +837,22 @@ function TaskFillFieldsDialogBody({
                         disabled={busy}
                         onChange={setRelatedValue}
                         softFillParent={
-                          entity && record ? { entity, record } : null
+                          entity && record
+                            ? {
+                                entity,
+                                record: {
+                                  ...record,
+                                  values: {
+                                    ...record.values,
+                                    ...Object.fromEntries(
+                                      Object.entries(values).filter(
+                                        ([key]) => !key.includes(":"),
+                                      ),
+                                    ),
+                                  },
+                                },
+                              }
+                            : null
                         }
                       />
                     ) : null}
@@ -833,7 +865,22 @@ function TaskFillFieldsDialogBody({
                         ctx={previewContext}
                         disabled={busy}
                         softFillParent={
-                          entity && record ? { entity, record } : null
+                          entity && record
+                            ? {
+                                entity,
+                                record: {
+                                  ...record,
+                                  values: {
+                                    ...record.values,
+                                    ...Object.fromEntries(
+                                      Object.entries(values).filter(
+                                        ([key]) => !key.includes(":"),
+                                      ),
+                                    ),
+                                  },
+                                },
+                              }
+                            : null
                         }
                         onChange={setCreateDraftValue}
                         onValuesChange={replaceCreateDraftValues}

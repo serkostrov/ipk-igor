@@ -2,7 +2,7 @@ import {
   addEntityRecord,
   applyTkpGipDepartmentUsers,
   deptCalculationValuesMatchStagePair,
-  encodeEntityTableParentValue,
+  encodeTkpStageDepartmentPair,
   entityNameValueHasTemplate,
   findDeptCalculationsGroupsField,
   getEntityConfig,
@@ -528,7 +528,7 @@ function findExistingLinkedChildForDeptPair(
   groupsFieldId: string,
   pair: TkpStageDepartmentPair,
 ): { id: string } | null {
-  if (!ctx.reuseExistingLinkedCreates) return null;
+  // Always reuse the same stage×department row — never two calcs for one pair.
   const host =
     ctx.entities.find((entity) => entity.id === parentEntityId) ?? null;
   const linkedIds = collectRecordsLinkedToParent({
@@ -602,11 +602,7 @@ async function tryCreateDeptCalculationsFanOut(
 
   const ids: string[] = [];
   for (const pair of fanOut.pairs) {
-    const encoded = encodeEntityTableParentValue(
-      fanOut.groupsField,
-      pair.stageId,
-      pair.departmentId,
-    );
+    const encoded = encodeTkpStageDepartmentPair(pair);
     const reused = findExistingLinkedChildForDeptPair(
       ctx,
       target,
@@ -928,53 +924,6 @@ export async function executeAutomationActions(
             const multiMappings =
               action.useEntityCreateForm === true ? [] : action.mappings;
             const multiParentId = createParentHost?.id ?? ctx.triggerEntityId;
-            const sharedMultiAsk = readAskDraftValues(
-              ctx.formValues,
-              createAskFieldIds,
-              (fieldId) =>
-                createRecordNestedAskDraftKey(
-                  action.id,
-                  CREATE_RECORD_MULTI_NESTED_ID,
-                  0,
-                  fieldId,
-                ),
-            );
-            const fannedMulti = await tryCreateDeptCalculationsFanOut(
-              action.entityId,
-              multiMappings,
-              ctx,
-              createdRecordIds,
-              {
-                askOverrides: sharedMultiAsk,
-                parentLink: {
-                  parentEntityId: multiParentId,
-                  parentRecordId: ctx.triggerRecordId,
-                },
-                writeBackToParents: true,
-              },
-            );
-            if (fannedMulti) {
-              for (const id of fannedMulti) {
-                await maybeCopyTriggerTabsToCreated(action, id, ctx);
-              }
-              if (action.linkBackFieldId && fannedMulti.length > 0) {
-                const linked = serializeEntityRelationIds(fannedMulti);
-                await updateEntityRecord(
-                  ctx.triggerEntityId,
-                  ctx.triggerRecordId,
-                  { [action.linkBackFieldId]: linked },
-                );
-                ctx.values[action.linkBackFieldId] = linked;
-              }
-              logs.push({
-                kind: "createRecord",
-                entityId: action.entityId,
-                multiple: true,
-                fanOutStageDepartments: true,
-                recordIds: fannedMulti,
-              });
-              break;
-            }
             let count = readNestedDraftCount(
               ctx.formValues,
               action.id,
@@ -995,6 +944,64 @@ export async function executeAutomationActions(
                 entityId: action.entityId,
                 multiple: true,
                 recordIds: [],
+              });
+              break;
+            }
+            const fannedMultiIds: string[] = [];
+            let fanOutApplied = false;
+            for (let index = 0; index < count; index++) {
+              const multiAsk = readAskDraftValues(
+                ctx.formValues,
+                createAskFieldIds,
+                (fieldId) =>
+                  createRecordNestedAskDraftKey(
+                    action.id,
+                    CREATE_RECORD_MULTI_NESTED_ID,
+                    index,
+                    fieldId,
+                  ),
+              );
+              // Later drafts: only fan out when this draft itself has values —
+              // otherwise trigger fallback would re-create the same pairs.
+              if (index > 0 && Object.keys(multiAsk).length === 0) continue;
+              const fanned = await tryCreateDeptCalculationsFanOut(
+                action.entityId,
+                multiMappings,
+                ctx,
+                createdRecordIds,
+                {
+                  askOverrides: multiAsk,
+                  parentLink: {
+                    parentEntityId: multiParentId,
+                    parentRecordId: ctx.triggerRecordId,
+                  },
+                  writeBackToParents: true,
+                },
+              );
+              if (!fanned) continue;
+              fanOutApplied = true;
+              for (const id of fanned) {
+                if (fannedMultiIds.includes(id)) continue;
+                fannedMultiIds.push(id);
+                await maybeCopyTriggerTabsToCreated(action, id, ctx);
+              }
+            }
+            if (fanOutApplied) {
+              if (action.linkBackFieldId && fannedMultiIds.length > 0) {
+                const linked = serializeEntityRelationIds(fannedMultiIds);
+                await updateEntityRecord(
+                  ctx.triggerEntityId,
+                  ctx.triggerRecordId,
+                  { [action.linkBackFieldId]: linked },
+                );
+                ctx.values[action.linkBackFieldId] = linked;
+              }
+              logs.push({
+                kind: "createRecord",
+                entityId: action.entityId,
+                multiple: true,
+                fanOutStageDepartments: true,
+                recordIds: fannedMultiIds,
               });
               break;
             }

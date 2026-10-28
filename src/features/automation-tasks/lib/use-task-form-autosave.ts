@@ -124,7 +124,31 @@ export function useTaskFormAutosave({
       if (patch) {
         await updateEntityRecord(args.entityId, args.recordId, patch);
       }
-      await persistRelatedAskUpdates(related);
+      const parentRecord =
+        args.entity.records.find((item) => item.id === args.recordId) ?? null;
+      await persistRelatedAskUpdates(related, {
+        entities: args.entities,
+        parentEntity: args.entity,
+        parentRecord: parentRecord
+          ? {
+              ...parentRecord,
+              values: {
+                ...parentRecord.values,
+                ...Object.fromEntries(
+                  Object.entries(args.recordValues).map(([key, value]) => [
+                    key,
+                    value ?? "",
+                  ]),
+                ),
+                ...Object.fromEntries(
+                  Object.entries(args.values).filter(
+                    ([key]) => !key.includes(":"),
+                  ),
+                ),
+              },
+            }
+          : null,
+      });
       if (generation !== genRef.current) return;
       dirtyRef.current = false;
       setStatus("saved");

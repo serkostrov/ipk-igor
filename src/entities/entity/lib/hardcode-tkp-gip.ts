@@ -17,6 +17,7 @@ import {
   collectRelationGroupsLeafIds,
   getRelationGroupsLeafEntityId,
   parseEntityRelationGroups,
+  serializeEntityRelationGroups,
 } from "../model/relation-groups";
 import { SYSTEM_USERS_ENTITY_ID } from "../model/system-entities";
 import {
@@ -62,7 +63,10 @@ function entityMatchesLoose(
   });
 }
 
-/** Exact or «starts with key» (e.g. «Руководитель отдела»). */
+/**
+ * Exact, spaced prefix («Руководитель отдела»), or simple plural
+ * («Руководитель» → «Руководители»).
+ */
 function fieldNameMatches(
   field: EntityField,
   keys: readonly string[],
@@ -70,7 +74,12 @@ function fieldNameMatches(
   const name = normalizeName(getEntityFieldDisplayName(field));
   return keys.some((key) => {
     const needle = normalizeName(key);
-    return name === needle || name.startsWith(`${needle} `);
+    if (!needle) return false;
+    if (name === needle || name.startsWith(`${needle} `)) return true;
+    if (!name.startsWith(needle) || name.length <= needle.length) return false;
+    const suffix = name.slice(needle.length);
+    // «и» / «ы» / «а» plurals and short endings only.
+    return /^[аеиыя]{1,3}$/i.test(suffix);
   });
 }
 
@@ -86,8 +95,8 @@ const DEPT_CALC_KEYS = [
   "Расчеты отдела",
 ] as const;
 const GIP_KEYS = ["ГИП", "Гип"] as const;
-const MANAGER_KEYS = ["Руководитель"] as const;
-const PERFORMER_KEYS = ["Исполнитель"] as const;
+const MANAGER_KEYS = ["Руководитель", "Руководители"] as const;
+const PERFORMER_KEYS = ["Исполнитель", "Исполнители"] as const;
 
 export function isTkpAnalysisEntity(
   entity: Pick<Entity, "id" | "name" | "namePlural">,
@@ -258,6 +267,21 @@ export function resolveDeptCalculationsCreateFanOut(options: {
   return { groupsField, pairs };
 }
 
+/** Encode one stage × one department for a «Расчёты отделов» row. */
+export function encodeTkpStageDepartmentPair(
+  pair: TkpStageDepartmentPair,
+): string {
+  const stageId = pair.stageId.trim();
+  const departmentId = pair.departmentId.trim();
+  if (!stageId || !departmentId) return "";
+  return serializeEntityRelationGroups([
+    {
+      id: stageId,
+      children: [{ id: departmentId, children: [] }],
+    },
+  ]);
+}
+
 /** True when a child row is exactly one stage + one nested department. */
 export function deptCalculationValuesMatchStagePair(
   groupsValue: string | undefined,
@@ -420,7 +444,6 @@ export function formatTkpGipDepartmentExtras(options: {
     departmentEntity,
     departmentRecordId,
     displayFieldIds,
-    defaultExtras,
   } = options;
 
   // Lead = softFill parent when child form, or the host itself when
@@ -443,10 +466,21 @@ export function formatTkpGipDepartmentExtras(options: {
   const gipField = findTkpGipUserField(leadEntity);
   if (!gipField) return null;
 
+  // Prefer draft/parent values, fall back to the live lead record in the store.
+  const liveLead =
+    leadEntity.records.find((item) => item.id === parentRecord.id) ?? null;
+  const leadForFormat: EntityRecord = {
+    ...parentRecord,
+    values: {
+      ...(liveLead?.values ?? {}),
+      ...parentRecord.values,
+    },
+  };
+
   const text = formatRecordFieldValue(
     ctx,
     leadEntity,
-    parentRecord,
+    leadForFormat,
     gipField,
   ).trim();
   if (!text || text === "—") {
@@ -454,27 +488,21 @@ export function formatTkpGipDepartmentExtras(options: {
     return "";
   }
 
-  // Replace manager-like display fields with the lead GIP; keep other extras.
+  // Replace any Users display field (руководитель / руководители / …)
+  // with the lead’s «ГИП»; keep non-user extras as-is.
   if (displayFieldIds.length === 0) return text;
 
   const parts: string[] = [];
-  let replacedManager = false;
+  let replacedUserExtra = false;
   for (const fieldId of displayFieldIds) {
     const extraField = departmentEntity.fields.find(
       (item) => item.id === fieldId,
     );
     if (!extraField) continue;
-    const isManagerLike =
-      isUsersRelationField(extraField) &&
-      fieldNameMatches(extraField, [
-        ...MANAGER_KEYS,
-        ...PERFORMER_KEYS,
-        ...GIP_KEYS,
-      ]);
-    if (isManagerLike) {
-      if (!replacedManager) {
+    if (isUsersRelationField(extraField)) {
+      if (!replacedUserExtra) {
         parts.push(text);
-        replacedManager = true;
+        replacedUserExtra = true;
       }
       continue;
     }
@@ -487,8 +515,8 @@ export function formatTkpGipDepartmentExtras(options: {
     if (!other || other === "—") continue;
     parts.push(other);
   }
-  if (!replacedManager) parts.unshift(text);
-  return parts.join(" · ") || defaultExtras || null;
+  if (!replacedUserExtra) parts.unshift(text);
+  return parts.join(" · ");
 }
 
 /**

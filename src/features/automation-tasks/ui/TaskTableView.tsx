@@ -751,16 +751,16 @@ export function TaskTableView({
         ) : (
           <>
             <div className="min-h-0 min-w-0 flex-1 overflow-auto">
-              <Table className="table-fixed text-[13px]">
+              <Table className="min-w-[68rem] table-fixed text-[13px]">
                 <colgroup>
-                  <col />
-                  <col className="w-44" />
+                  <col style={{ width: "28%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col className="w-16" />
                   <col className="w-36" />
-                  <col className="w-40" />
-                  <col className="w-40" />
-                  <col className="w-20" />
-                  <col className="w-32" />
-                  <col className="w-40" />
+                  <col className="w-36" />
                   {canDelete ? <col className="w-12" /> : null}
                 </colgroup>
                 <TableHeader className="sticky top-0 z-10">
@@ -770,7 +770,9 @@ export function TaskTableView({
                     <TableHead className={headClass}>Сущность</TableHead>
                     <TableHead className={headClass}>Исполнитель</TableHead>
                     <TableHead className={headClass}>Менеджер</TableHead>
-                    <TableHead className={headClass}>Шаг</TableHead>
+                    <TableHead className={cn(headClass, "text-center")}>
+                      Шаг
+                    </TableHead>
                     <TableHead className={headClass}>Статус</TableHead>
                     <TableHead className={headClass}>Срок</TableHead>
                     {canDelete ? (
@@ -795,6 +797,9 @@ export function TaskTableView({
                       entity,
                       leadRecord,
                     );
+                    const entityLabel =
+                      entity?.namePlural?.trim() || entity?.name || "—";
+                    const description = task.description.trim();
                     return (
                       <TableRow
                         key={task.id}
@@ -802,7 +807,7 @@ export function TaskTableView({
                         onClick={() => onOpenTask(task.id)}
                       >
                         <TableCell className="px-3 py-2.5">
-                          <div className="flex min-w-0 items-start gap-1.5">
+                          <div className="flex min-w-0 items-start gap-2">
                             {task.isBlocking ? (
                               <Lock
                                 className="mt-0.5 size-3.5 shrink-0 text-primary"
@@ -814,13 +819,19 @@ export function TaskTableView({
                                 aria-hidden
                               />
                             )}
-                            <div className="min-w-0">
-                              <p className="truncate font-medium tracking-tight">
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className="truncate font-medium tracking-tight text-foreground"
+                                title={task.name}
+                              >
                                 {task.name}
                               </p>
-                              {task.description.trim() ? (
-                                <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
-                                  {task.description}
+                              {description ? (
+                                <p
+                                  className="mt-0.5 truncate text-[11px] leading-snug text-muted-foreground"
+                                  title={description}
+                                >
+                                  {description}
                                 </p>
                               ) : null}
                             </div>
@@ -830,7 +841,7 @@ export function TaskTableView({
                           {recordTitle && onOpenRecord ? (
                             <button
                               type="button"
-                              className="max-w-full truncate text-left font-medium text-primary underline-offset-2 hover:underline"
+                              className="block max-w-full truncate text-left font-medium text-primary underline-offset-2 hover:underline"
                               title={recordTitle}
                               onClick={(event) => {
                                 event.stopPropagation();
@@ -840,25 +851,37 @@ export function TaskTableView({
                               {recordTitle}
                             </button>
                           ) : (
-                            <span className="truncate text-muted-foreground">
+                            <span
+                              className="block truncate text-muted-foreground"
+                              title={recordTitle ?? undefined}
+                            >
                               {recordTitle ?? "—"}
                             </span>
                           )}
                         </TableCell>
-                        <TableCell className="truncate px-3 py-2.5 text-muted-foreground">
-                          {entity?.namePlural?.trim() || entity?.name || "—"}
+                        <TableCell
+                          className="truncate px-3 py-2.5 text-muted-foreground"
+                          title={entityLabel}
+                        >
+                          {entityLabel}
                         </TableCell>
-                        <TableCell className="truncate px-3 py-2.5">
+                        <TableCell
+                          className="truncate px-3 py-2.5"
+                          title={assignee ?? undefined}
+                        >
                           {assignee ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="truncate px-3 py-2.5">
+                        <TableCell
+                          className="truncate px-3 py-2.5"
+                          title={leadManager ?? undefined}
+                        >
                           {leadManager ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="px-3 py-2.5 tabular-nums text-muted-foreground">
+                        <TableCell className="px-3 py-2.5 text-center tabular-nums text-muted-foreground">
                           {task.stepOrder}
                         </TableCell>
                         <TableCell className="px-3 py-2.5">

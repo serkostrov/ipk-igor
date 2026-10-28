@@ -264,14 +264,34 @@ export function RecordFieldControl({
     const hostIsLead = isTkpAnalysisEntity(entity);
     const softIsLead =
       softFillParent != null && isTkpAnalysisEntity(softFillParent.entity);
+    const storeHostValues =
+      entity.records.find((item) => item.id === recordId)?.values ?? {};
     const leadParent = hostIsLead
       ? {
           entity,
-          // Prefer unsaved form values (incl. «ГИП») over the store snapshot.
-          record: createEntityDraftRecord(values, recordId),
+          // Store + unsaved form: «ГИП» may not be among ask fields.
+          record: createEntityDraftRecord(
+            { ...storeHostValues, ...values },
+            recordId,
+          ),
         }
-      : softIsLead
-        ? softFillParent
+      : softIsLead && softFillParent
+        ? {
+            entity: softFillParent.entity,
+            record: (() => {
+              const live =
+                softFillParent.entity.records.find(
+                  (item) => item.id === softFillParent.record.id,
+                ) ?? softFillParent.record;
+              return {
+                ...live,
+                values: {
+                  ...live.values,
+                  ...softFillParent.record.values,
+                },
+              };
+            })(),
+          }
         : null;
     return (
       <div className="flex flex-col gap-2">

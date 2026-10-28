@@ -5,6 +5,7 @@ export {
   automationOutcomeNeedsInput,
   automationTaskNeedsFillDialog,
   automationTaskShowsFormUpfront,
+  filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
   getDefaultSelectedOutcomeId,
