@@ -5,7 +5,7 @@ import { Label } from "@/shared/ui/label";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   createEntityDraftRecord,
   ensureTkpGipDepartmentInGroupsValue,
@@ -24,6 +24,7 @@ import {
   isEntityComputedFieldType,
   isEntityNameField,
   isValidEntityEmail,
+  resolveTkpGipDepartmentRecordId,
   resolveTkpGipLeadContext,
   normalizeEntityDecimalInput,
   normalizeEntityPhoneValue,
@@ -131,7 +132,7 @@ function getRelationControlOptions(
   return hidden.length > 0 ? [...options, ...hidden] : options;
 }
 
-/** «Стадия/отделы»: always keep nested «ГИП» under every stage. */
+/** «Стадия/отделы»: keep nested «ГИП» in value, hide it in the picker UI. */
 function TkpRelationGroupsControl({
   id,
   ctx,
@@ -161,6 +162,11 @@ function TkpRelationGroupsControl({
     entities,
     softFillParent,
   });
+  const gipDepartmentId = resolveTkpGipDepartmentRecordId(entity, entities);
+  const hiddenNestedRecordIds = useMemo(() => {
+    if (!gipDepartmentId) return undefined;
+    return new Set([gipDepartmentId]);
+  }, [gipDepartmentId]);
   const ensuredValue = ensureTkpGipDepartmentInGroupsValue({
     value,
     hostEntity: entity,
@@ -193,6 +199,7 @@ function TkpRelationGroupsControl({
         )
       }
       mode={mode}
+      hiddenNestedRecordIds={hiddenNestedRecordIds}
       resolveRecordExtras={
         leadParent
           ? ({

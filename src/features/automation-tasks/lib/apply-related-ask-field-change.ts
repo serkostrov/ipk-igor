@@ -4,6 +4,7 @@ import {
   applyTkpGipDepartmentUsers,
   ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationsGroupsField,
+  isDeptCalculationsEntity,
   updateEntityRecord,
   type Entity,
   type EntityRecord,
@@ -93,6 +94,26 @@ export function applyRelatedAskFieldChange(options: {
     if (item.valueKey === valueKey) continue;
     if ((formValues[item.valueKey] ?? "") === nextValue) continue;
     nextForm = { ...nextForm, [item.valueKey]: nextValue };
+  }
+
+  // Collapsed «Расчёты отделов» UI edits one merged tree on the primary row.
+  // Drop stale sibling «Стадия/отделы» keys so autosave does not fan-out the
+  // merged tree and then overwrite siblings with old single-pair drafts.
+  if (
+    groupsField &&
+    row.field.id === groupsField.id &&
+    isDeptCalculationsEntity(group.relatedEntity)
+  ) {
+    for (const sibling of groups) {
+      if (sibling.relatedEntity.id !== group.relatedEntity.id) continue;
+      if (sibling.relatedRecordId === group.relatedRecordId) continue;
+      const siblingRow = sibling.fields.find(
+        (item) => item.field.id === groupsField.id,
+      );
+      if (!siblingRow || !(siblingRow.valueKey in nextForm)) continue;
+      nextForm = { ...nextForm };
+      delete nextForm[siblingRow.valueKey];
+    }
   }
 
   // Soft-fill / GIP may set руководитель·исполнитель outside the ask list —

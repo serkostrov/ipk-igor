@@ -37,6 +37,8 @@ import {
 import { ListSelect } from "./ListSelect";
 import { RelationSelect } from "./RelationSelect";
 
+const EMPTY_HIDDEN_NESTED: ReadonlySet<string> = new Set();
+
 type RelationGroupsFieldControlProps = {
   id: string;
   ctx: EntityValueContext;
@@ -44,6 +46,11 @@ type RelationGroupsFieldControlProps = {
   value: string;
   onChange: (value: string) => void;
   mode?: EntityRelationGroupsMode;
+  /**
+   * Nested record ids hidden from the picker (chips + options) at depth ≥ 1.
+   * Still may exist in the stored value — used by product hardcodes («ГИП»).
+   */
+  hiddenNestedRecordIds?: ReadonlySet<string>;
   /**
    * Optional label extras override (e.g. product hardcode: «ГИП» → parent GIP).
    * Return `null` to keep the default catalog extras.
@@ -269,8 +276,10 @@ export function RelationGroupsFieldControl({
   value,
   onChange,
   mode = "full",
+  hiddenNestedRecordIds,
   resolveRecordExtras,
 }: RelationGroupsFieldControlProps) {
+  const hiddenNested = hiddenNestedRecordIds ?? EMPTY_HIDDEN_NESTED;
   function extrasFor(
     entity: Entity,
     recordId: string,
@@ -475,12 +484,15 @@ export function RelationGroupsFieldControl({
 
     const allowed = allowedIdsFromParent(parentEntity, parentId, level);
     const catalogFilter = levelCatalogFilter(level);
-    const selectedIds = node.children.map((child) => child.id);
+    const selectedIds = node.children
+      .map((child) => child.id)
+      .filter((itemId) => !hiddenNested.has(itemId));
     const options =
       entity != null
         ? enrichOptions(
             getRelationRecordOptions(entity, ctx.entities).filter(
               (option) =>
+                !hiddenNested.has(option.id) &&
                 isSelectableRecord(entity, option.id, ctx.entities) &&
                 (allowed ? allowed.has(option.id) : true) &&
                 passesLevelCatalogFilter(
@@ -532,10 +544,16 @@ export function RelationGroupsFieldControl({
               emptyLabel="Выберите…"
               className="min-h-8 w-full rounded-md border-input font-normal"
               onChange={(next) => {
-                const ids = parseEntityListValueIds(next).filter((itemId) =>
-                  allowed ? allowed.has(itemId) : true,
+                const ids = parseEntityListValueIds(next).filter(
+                  (itemId) =>
+                    !hiddenNested.has(itemId) &&
+                    (allowed ? allowed.has(itemId) : true),
                 );
-                setNodeChildren(path, ids);
+                // Keep hidden nested ids that were already on the node.
+                const keptHidden = node.children
+                  .map((child) => child.id)
+                  .filter((itemId) => hiddenNested.has(itemId));
+                setNodeChildren(path, [...ids, ...keptHidden]);
               }}
             />
           ) : (
@@ -547,10 +565,15 @@ export function RelationGroupsFieldControl({
               placeholder="Выберите…"
               className="h-8 min-h-8 bg-background hover:bg-background aria-expanded:bg-background"
               onChange={(next) => {
-                const ids = parseEntityRelationIds(next).filter((itemId) =>
-                  allowed ? allowed.has(itemId) : true,
+                const ids = parseEntityRelationIds(next).filter(
+                  (itemId) =>
+                    !hiddenNested.has(itemId) &&
+                    (allowed ? allowed.has(itemId) : true),
                 );
-                setNodeChildren(path, ids);
+                const keptHidden = node.children
+                  .map((child) => child.id)
+                  .filter((itemId) => hiddenNested.has(itemId));
+                setNodeChildren(path, [...ids, ...keptHidden]);
               }}
             />
           )}
@@ -558,28 +581,30 @@ export function RelationGroupsFieldControl({
 
         {depth < editableThrough && node.children.length > 0 ? (
           <NodesGrid layout={childLayout}>
-            {node.children.map((child) => {
-              const title = isListSource
-                ? (parentSourceField.listOptions.find(
-                    (option) => option.id === child.id,
-                  )?.name ?? child.id)
-                : entity
-                  ? recordTitle(entity, child.id, ctx)
-                  : child.id;
-              const extras =
-                !isListSource && entity
-                  ? extrasFor(entity, child.id, depth, level.displayFieldIds)
-                  : "";
-              return (
-                <div
-                  key={child.id}
-                  className="flex min-w-0 flex-col gap-2 rounded-md border border-border/60 bg-background/80 p-2.5"
-                >
-                  <ItemMeta title={title} extras={extras} />
-                  {renderLevel(child, [...path, child.id], depth + 1)}
-                </div>
-              );
-            })}
+            {node.children
+              .filter((child) => !hiddenNested.has(child.id))
+              .map((child) => {
+                const title = isListSource
+                  ? (parentSourceField.listOptions.find(
+                      (option) => option.id === child.id,
+                    )?.name ?? child.id)
+                  : entity
+                    ? recordTitle(entity, child.id, ctx)
+                    : child.id;
+                const extras =
+                  !isListSource && entity
+                    ? extrasFor(entity, child.id, depth, level.displayFieldIds)
+                    : "";
+                return (
+                  <div
+                    key={child.id}
+                    className="flex min-w-0 flex-col gap-2 rounded-md border border-border/60 bg-background/80 p-2.5"
+                  >
+                    <ItemMeta title={title} extras={extras} />
+                    {renderLevel(child, [...path, child.id], depth + 1)}
+                  </div>
+                );
+              })}
           </NodesGrid>
         ) : null}
       </div>

@@ -148,14 +148,23 @@ export function TaskRelatedAskFields({
       if (!groupsField || !group.mergedGroupsValue) continue;
       const row = group.fields.find((item) => item.field.id === groupsField.id);
       if (!row) continue;
-      if ((valuesRef.current[row.valueKey] ?? "") === group.mergedGroupsValue) {
-        continue;
-      }
-      // Only replace when the draft still looks like a single fan-out pair
-      // (or empty) — don't clobber an in-progress multi-select edit.
       const current = valuesRef.current[row.valueKey] ?? "";
+      if (current === group.mergedGroupsValue) continue;
+
       const currentPairs = collectTkpStageDepartmentPairs(current);
-      if (currentPairs.length > 1) continue;
+      const mergedPairs = collectTkpStageDepartmentPairs(
+        group.mergedGroupsValue,
+      );
+      // Keep an in-progress richer draft (user added depts not yet persisted).
+      if (currentPairs.length > mergedPairs.length) continue;
+      const mergedKeys = new Set(
+        mergedPairs.map((pair) => `${pair.stageId}\0${pair.departmentId}`),
+      );
+      const hasUnsaved = currentPairs.some(
+        (pair) => !mergedKeys.has(`${pair.stageId}\0${pair.departmentId}`),
+      );
+      if (hasUnsaved) continue;
+
       onChangeRef.current(row.valueKey, group.mergedGroupsValue);
     }
   }, [displayGroups]);

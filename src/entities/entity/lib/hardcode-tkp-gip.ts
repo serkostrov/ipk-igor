@@ -533,6 +533,50 @@ export function ensureTkpGipDepartmentInGroupsValue(options: {
   return changed ? serializeEntityRelationGroups(next) : value;
 }
 
+/**
+ * UI-only: hide «ГИП» chips from the nested picker while the stored value
+ * still keeps them (see `ensureTkpGipDepartmentInGroupsValue`).
+ */
+export function stripTkpGipDepartmentFromGroupsValue(options: {
+  value: string;
+  hostEntity: Entity;
+  entities: readonly Entity[];
+}): string {
+  const { value, hostEntity, entities } = options;
+  if (
+    !isTkpAnalysisEntity(hostEntity) &&
+    !isDeptCalculationsEntity(hostEntity)
+  ) {
+    return value;
+  }
+  const gipId = findGipDepartmentRecordIdFromHost(hostEntity, entities);
+  if (!gipId) return value;
+  const roots = parseEntityRelationGroups(value);
+  if (roots.length === 0) return value;
+  let changed = false;
+  const next = roots.map((root) => {
+    const children = root.children.filter((child) => child.id.trim() !== gipId);
+    if (children.length === root.children.length) return root;
+    changed = true;
+    return { ...root, children };
+  });
+  return changed ? serializeEntityRelationGroups(next) : value;
+}
+
+/** Catalog id of «ГИП» for a TKP / dept-calc host, if resolvable. */
+export function resolveTkpGipDepartmentRecordId(
+  hostEntity: Entity,
+  entities: readonly Entity[],
+): string | null {
+  if (
+    !isTkpAnalysisEntity(hostEntity) &&
+    !isDeptCalculationsEntity(hostEntity)
+  ) {
+    return null;
+  }
+  return findGipDepartmentRecordIdFromHost(hostEntity, entities);
+}
+
 /** Encode one stage × one department for a «Расчёты отделов» row. */
 export function encodeTkpStageDepartmentPair(
   pair: TkpStageDepartmentPair,

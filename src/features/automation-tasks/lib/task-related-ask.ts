@@ -6,7 +6,9 @@ import {
   type AutomationOutcomeFieldAccess,
 } from "@/entities/automation";
 import {
+  collectTkpStageDepartmentPairs,
   createEntityDraftRecord,
+  findDeptCalculationsGroupsField,
   getEntityRecordTitle,
   isDeptCalculationsEntity,
   isEntityFieldVisibleByConditions,
@@ -323,6 +325,72 @@ export function buildRelatedAskPersistUpdates(options: {
   return updates;
 }
 
+/**
+ * For collapsed «Расчёты отделов» asks, several sibling rows may each carry a
+ * «Стадия/отделы» patch. Keep a single richest tree and fan-out from one row;
+ * apply non-groups fields on every row as usual.
+ */
+function coalesceDeptCalculationUpdates(
+  updates: RelatedAskPersistUpdate[],
+  entities: readonly Entity[],
+): RelatedAskPersistUpdate[] {
+  const deptEntityIds = new Set(
+    entities
+      .filter((item) => isDeptCalculationsEntity(item))
+      .map((item) => item.id),
+  );
+  if (deptEntityIds.size === 0) return updates;
+
+  const passthrough: RelatedAskPersistUpdate[] = [];
+  const byEntity = new Map<string, RelatedAskPersistUpdate[]>();
+
+  for (const update of updates) {
+    if (!deptEntityIds.has(update.entityId)) {
+      passthrough.push(update);
+      continue;
+    }
+    const list = byEntity.get(update.entityId) ?? [];
+    list.push(update);
+    byEntity.set(update.entityId, list);
+  }
+
+  const coalesced: RelatedAskPersistUpdate[] = [...passthrough];
+
+  for (const [entityId, list] of byEntity) {
+    const entity = entities.find((item) => item.id === entityId);
+    const groupsField = entity ? findDeptCalculationsGroupsField(entity) : null;
+    if (!groupsField) {
+      coalesced.push(...list);
+      continue;
+    }
+
+    let best: { recordId: string; value: string; pairs: number } | null = null;
+    for (const update of list) {
+      const value = update.patch[groupsField.id];
+      if (value === undefined) continue;
+      const pairs = collectTkpStageDepartmentPairs(value).length;
+      if (!best || pairs > best.pairs) {
+        best = { recordId: update.recordId, value, pairs };
+      }
+    }
+
+    for (const update of list) {
+      const patch = { ...update.patch };
+      if (best && patch[groupsField.id] !== undefined) {
+        if (update.recordId === best.recordId) {
+          patch[groupsField.id] = best.value;
+        } else {
+          delete patch[groupsField.id];
+        }
+      }
+      if (Object.keys(patch).length === 0) continue;
+      coalesced.push({ ...update, patch });
+    }
+  }
+
+  return coalesced;
+}
+
 export async function persistRelatedAskUpdates(
   updates: RelatedAskPersistUpdate[],
   options?: {
@@ -332,7 +400,8 @@ export async function persistRelatedAskUpdates(
   },
 ) {
   const entities = options?.entities ?? [];
-  for (const update of updates) {
+  const normalized = coalesceDeptCalculationUpdates(updates, entities);
+  for (const update of normalized) {
     const entity = entities.find((item) => item.id === update.entityId) ?? null;
     if (entity && isDeptCalculationsEntity(entity)) {
       await persistDeptCalculationRelatedUpdate({
