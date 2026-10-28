@@ -45,10 +45,12 @@ import {
   useAppNavigate,
 } from "@/shared/lib/navigation";
 import { EntityTimelineSettingsDialog } from "@/features/manage-entities";
+import { isDeptCalculationsEntity } from "@/features/hardcode";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { EntityRecordPage } from "./EntityRecordPage";
 import { EntityKanbanView } from "./EntityKanbanView";
 import { AddRecordButton, EntityTableView } from "./EntityTableView";
+import { DeptCalculationsView } from "./DeptCalculationsView";
 import { EntityBoardView } from "./EntityBoardView";
 import {
   entityBoardChromeCollapsedKey,
@@ -222,6 +224,11 @@ export function EntityPage({
     currentEntity.namePlural.trim() ||
     currentEntity.name.trim() ||
     "Без названия";
+  const pageDescription =
+    currentEntity.description.trim() ||
+    (isDeptCalculationsEntity(currentEntity)
+      ? "Для каждого отдела видны руководитель, число подзадач, часы и итоговая сумма. Внутри отдела можно выбрать шаблон подзадачи, указать часы или фиксированную сумму и добавить комментарий."
+      : undefined);
   const views = getEntityBrowseViews(currentEntity.views);
   const browseViews =
     views.length > 0 ? views : (["table"] as EntityBrowseView[]);
@@ -309,6 +316,9 @@ export function EntityPage({
 
   const addAction = canCreateRecord ? (
     <AddRecordButton
+      label={
+        isDeptCalculationsEntity(currentEntity) ? "Добавить отдел" : "Добавить"
+      }
       onClick={() => {
         setEditingRecord(null);
         setCreateHierarchyGroupId(null);
@@ -380,6 +390,15 @@ export function EntityPage({
 
   function renderView(view: EntityBrowseView) {
     if (view === "table") {
+      if (isDeptCalculationsEntity(currentEntity)) {
+        return (
+          <DeptCalculationsView
+            entity={currentEntity}
+            records={scope.records}
+            onEditRecord={canOpenRecord ? editRecordLocal : undefined}
+          />
+        );
+      }
       const tableProps = {
         entity: currentEntity,
         records: scope.records,
@@ -442,7 +461,7 @@ export function EntityPage({
       >
         <PageHeader
           title={title}
-          description={currentEntity.description || undefined}
+          description={pageDescription}
           titleExtra={
             <TabsList className="!h-8 gap-0.5 p-0.5">
               {browseViews.map((view) => {
@@ -478,7 +497,7 @@ export function EntityPage({
       <>
         <PageHeader
           title={title}
-          description={currentEntity.description || undefined}
+          description={pageDescription}
           actions={headerActions}
           descriptionActions={descriptionActions}
         />

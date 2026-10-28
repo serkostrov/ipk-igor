@@ -33,12 +33,15 @@ import {
 } from "@/shared/ui/table";
 import { cn } from "@/shared/lib/cn";
 import {
+  buildEntityTableDisplayColumns,
+  entityTableDisplayColumnIncludeInTotal,
   formatEntityDecimalTotal,
   getEntityContactHref,
   getEntityFieldDisplayName,
   getEntityFieldTypeLabel,
   getEntityListParentField,
   getEntityRelationTargetId,
+  getEntityTableDisplayColumnNumber,
   getEntityTableFields,
   isEntityInternal,
   getEntityUrlHref,
@@ -47,9 +50,8 @@ import {
   resolveEntityListFieldPresentation,
   formatRecordFieldValue,
   getEntityForRecord,
-  getRecordFieldNumber,
   isEntityNameField,
-  isEntityNumericFieldType,
+  isEntityTableDisplayColumnNumeric,
   isRecordValueDecorated,
   ListSelect,
   ListValueDisplay,
@@ -63,10 +65,18 @@ import {
   parseEntityRelationIds,
   applyEntityFieldValue,
   removeEntityRecord,
+  resolveEntityTableDisplayColumnField,
   resolveRelationRecordLabel,
   getEntityFileDownloadUrl,
+  countEntityTableNestedChildren,
+  findEntityManagerUserField,
   flattenEntityTableHierarchyRows,
+  getSystemUserName,
+  isEntityTableRelationGroupsNestedSubgroup,
   parseEntityTableParentGroupIds,
+  parseEntityTableRelationGroupsNestedIds,
+  resolveEntityTableHierarchyGroupRecord,
+  resolveEntityTableNestedTarget,
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
   updateEntityRecord,
@@ -437,6 +447,14 @@ export function EntityTableView({
     () => resolveEntityTableSubgroupField(entity),
     [entity],
   );
+  const nestedTarget = useMemo(
+    () => resolveEntityTableNestedTarget(entity, entities),
+    [entity, entities],
+  );
+  const subgroupRelationGroupsDepth: 0 | 1 =
+    isEntityTableRelationGroupsNestedSubgroup(parentField, subgroupField)
+      ? 1
+      : 0;
   const tableFields = useMemo(() => {
     const fields = getEntityTableFields(entity.fields, {
       preferArrayOrder: isEntityInternal(entity),
@@ -446,6 +464,10 @@ export function EntityTableView({
       (field) => field.id !== parentField.id && field.id !== subgroupField?.id,
     );
   }, [entity, parentField, subgroupField]);
+  const tableColumns = useMemo(
+    () => buildEntityTableDisplayColumns(tableFields),
+    [tableFields],
+  );
   const filterFields = getEntityBrowseFilterFields(entity).filter(
     (field) => field.id !== parentField?.id && field.id !== subgroupField?.id,
   );
@@ -670,7 +692,7 @@ export function EntityTableView({
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
-  if (tableFields.length === 0) {
+  if (tableColumns.length === 0) {
     return <FieldEmptyState title={title} />;
   }
 
@@ -685,34 +707,40 @@ export function EntityTableView({
     ? "Измените поиск или сбросьте фильтры"
     : "Создайте первую запись — она появится в таблице";
 
-  const totalFields = tableFields.filter(
-    (field) => isEntityNumericFieldType(field.type) && field.includeInTotal,
+  const totalColumns = tableColumns.filter((column) =>
+    entityTableDisplayColumnIncludeInTotal(column),
   );
-  const showTotalsRow = totalFields.length > 0 && filteredRecords.length > 0;
+  const showTotalsRow = totalColumns.length > 0 && filteredRecords.length > 0;
   const columnTotals = showTotalsRow
     ? Object.fromEntries(
-        totalFields.map((field) => [
-          field.id,
+        totalColumns.map((column) => [
+          column.id,
           filteredRecords.reduce(
             (sum, record) =>
               sum +
-              (getRecordFieldNumber(valueContext, entity, record, field) ?? 0),
+              (getEntityTableDisplayColumnNumber(
+                valueContext,
+                entity,
+                record,
+                column,
+              ) ?? 0),
             0,
           ),
         ]),
       )
     : {};
 
-  const columnMinWidths = tableFields.map((field, index) => {
+  const columnMinWidths = tableColumns.map((column, index) => {
+    const primary = column.fields[0];
     const listLabels =
-      field.type === "list"
-        ? resolveEntityListFieldOptions(field, entities).map(
+      column.fields.length === 1 && primary?.type === "list"
+        ? resolveEntityListFieldOptions(primary, entities).map(
             (option) => option.name,
           )
         : undefined;
-    return getEntityTableHeaderMinWidth(getEntityFieldDisplayName(field), {
+    return getEntityTableHeaderMinWidth(column.label, {
       first: index === 0,
-      numberLike: isEntityNumericFieldType(field.type),
+      numberLike: isEntityTableDisplayColumnNumeric(column),
       listLabels,
       sortable: true,
     });
@@ -756,7 +784,7 @@ export function EntityTableView({
   // Equal share of remaining width for data columns; actions stay fixed.
   // Absolute px widths used to stretch proportionally to header length
   // (short «Название» stayed narrow while «Описание» ate empty space).
-  const contentColCount = Math.max(tableFields.length, 1);
+  const contentColCount = Math.max(tableColumns.length, 1);
   const contentColWidth = `calc((100% - ${fixedColsWidth}px) / ${contentColCount})`;
   const bodyRows = pagedHierarchyRows;
   const isEmpty = bodyRows ? bodyRows.length === 0 : pagedRecords.length === 0;
@@ -772,9 +800,9 @@ export function EntityTableView({
             }}
           />
         ) : null}
-        {tableFields.map((field, index) => (
+        {tableColumns.map((column, index) => (
           <col
-            key={field.id}
+            key={column.id}
             style={{
               width: contentColWidth,
               minWidth: columnMinWidths[index],
@@ -811,13 +839,18 @@ export function EntityTableView({
               />
             </TableHead>
           ) : null}
-          {tableFields.map((field, index) => {
+          {tableColumns.map((column, index) => {
+            const sortFieldId = column.fields[0]?.id ?? column.id;
             const direction =
-              sort?.fieldId === field.id ? sort.direction : null;
+              sort?.fieldId === sortFieldId ? sort.direction : null;
+            const typeLabel =
+              column.fields.length === 1 && column.fields[0]
+                ? getEntityFieldTypeLabel(column.fields[0].type)
+                : column.label;
             return (
               <TableHead
-                key={field.id}
-                title={getEntityFieldTypeLabel(field.type)}
+                key={column.id}
+                title={typeLabel}
                 aria-sort={
                   direction === "asc"
                     ? "ascending"
@@ -842,12 +875,10 @@ export function EntityTableView({
                     direction && "text-foreground",
                   )}
                   onClick={() =>
-                    setSort(getNextEntityRecordSort(sort, field.id))
+                    setSort(getNextEntityRecordSort(sort, sortFieldId))
                   }
                 >
-                  <span className="whitespace-nowrap">
-                    {getEntityFieldDisplayName(field)}
-                  </span>
+                  <span className="whitespace-nowrap">{column.label}</span>
                   <SortIcon direction={direction} />
                 </button>
               </TableHead>
@@ -955,6 +986,214 @@ export function EntityTableView({
                       const rootGroupId = isSubgroup
                         ? (row.parentGroupId ?? "")
                         : row.id;
+                      const groupChildRecords = filteredRecords.filter(
+                        (record) => {
+                          if (!parentField) return false;
+                          if (row.depth === 0) {
+                            return parseEntityTableParentGroupIds(
+                              parentField,
+                              record.values[parentField.id],
+                            ).includes(row.valueId);
+                          }
+                          const parentId = row.parentGroupId ?? "";
+                          if (
+                            !parseEntityTableParentGroupIds(
+                              parentField,
+                              record.values[parentField.id],
+                            ).includes(parentId)
+                          ) {
+                            return false;
+                          }
+                          if (!subgroupField) return true;
+                          if (
+                            isEntityTableRelationGroupsNestedSubgroup(
+                              parentField,
+                              subgroupField,
+                            )
+                          ) {
+                            return parseEntityTableRelationGroupsNestedIds(
+                              record.values[subgroupField.id],
+                              parentId,
+                            ).includes(row.valueId);
+                          }
+                          return parseEntityTableParentGroupIds(
+                            subgroupField,
+                            record.values[subgroupField.id],
+                          ).includes(row.valueId);
+                        },
+                      );
+                      const nestedSubtaskCount = countEntityTableNestedChildren(
+                        groupChildRecords,
+                        nestedTarget,
+                      );
+                      const subtaskCount =
+                        nestedSubtaskCount > 0
+                          ? nestedSubtaskCount
+                          : row.childCount;
+                      const subgroupTarget =
+                        isSubgroup && subgroupField
+                          ? resolveEntityTableHierarchyGroupRecord(
+                              subgroupField,
+                              row.valueId,
+                              entities,
+                              subgroupRelationGroupsDepth,
+                            )
+                          : null;
+                      const managerField = subgroupTarget
+                        ? findEntityManagerUserField(subgroupTarget.entity)
+                        : null;
+                      const managerUserId = managerField
+                        ? parseEntityRelationIds(
+                            subgroupTarget!.record.values[managerField.id],
+                          )[0]
+                        : null;
+                      const managerName = managerUserId
+                        ? getSystemUserName(entities, managerUserId)
+                        : null;
+                      const fieldSums = Object.fromEntries(
+                        tableColumns.map((column) => {
+                          if (!isEntityTableDisplayColumnNumeric(column)) {
+                            return [column.id, null as number | null];
+                          }
+                          let sum = 0;
+                          let has = false;
+                          for (const record of groupChildRecords) {
+                            const value = getEntityTableDisplayColumnNumber(
+                              valueContext,
+                              entity,
+                              record,
+                              column,
+                            );
+                            if (value == null) continue;
+                            sum += value;
+                            has = true;
+                          }
+                          return [column.id, has ? sum : null];
+                        }),
+                      );
+
+                      const toggleExpand = () => {
+                        setExpandedHierarchyIds((prev) => {
+                          const next = new Set(prev);
+                          if (expanded) next.delete(row.id);
+                          else next.add(row.id);
+                          return next;
+                        });
+                      };
+
+                      const nameCell = (
+                        <div
+                          className={cn(
+                            "flex min-w-0 items-center gap-1.5",
+                            isSubgroup && "pl-9",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            className={cn(
+                              "relative z-[1] inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border/80 bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground",
+                              expanded && "border-transparent bg-foreground/5",
+                              isSubgroup && "size-5 border-border/60",
+                            )}
+                            aria-label={expanded ? "Свернуть" : "Развернуть"}
+                            aria-expanded={expanded}
+                            onClick={toggleExpand}
+                          >
+                            {expanded ? (
+                              <ChevronDown className="size-3.5" />
+                            ) : (
+                              <ChevronRight className="size-3.5" />
+                            )}
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <div
+                              className={cn(
+                                "min-w-0 truncate",
+                                isSubgroup ? "text-[12.5px]" : "text-sm",
+                              )}
+                            >
+                              {row.label}
+                            </div>
+                            {isSubgroup && (managerName || subtaskCount > 0) ? (
+                              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-normal text-muted-foreground">
+                                {managerName ? (
+                                  <span
+                                    className="truncate"
+                                    title={`Руководитель: ${managerName}`}
+                                  >
+                                    Рук.:{" "}
+                                    <span className="text-foreground/80">
+                                      {managerName}
+                                    </span>
+                                  </span>
+                                ) : null}
+                                <span
+                                  className="shrink-0 tabular-nums"
+                                  title="Подзадачи в отделе"
+                                >
+                                  {subtaskCount}{" "}
+                                  {pluralRu(
+                                    subtaskCount,
+                                    "подзадача",
+                                    "подзадачи",
+                                    "подзадач",
+                                  )}
+                                </span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+
+                      const actionsCell = (
+                        <TableCell className="w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] px-2 py-1.5 text-right">
+                          <div
+                            className="inline-flex items-center justify-end gap-1"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <span
+                              className={cn(
+                                "px-0.5 text-[11px] font-medium tabular-nums",
+                                isSubgroup
+                                  ? "text-muted-foreground/80"
+                                  : "text-muted-foreground",
+                              )}
+                              title={
+                                isSubgroup
+                                  ? "Записей в подгруппе"
+                                  : "Записей в группе"
+                              }
+                            >
+                              {row.childCount}
+                            </span>
+                            {onCreateChildRecord && parentField ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="size-7 text-foreground"
+                                aria-label="Добавить запись в группу"
+                                title="Добавить запись в группу"
+                                onClick={() => {
+                                  setExpandedHierarchyIds((prev) => {
+                                    const next = new Set(prev);
+                                    next.add(row.id);
+                                    if (rootGroupId) next.add(rootGroupId);
+                                    return next;
+                                  });
+                                  onCreateChildRecord(
+                                    rootGroupId,
+                                    isSubgroup ? row.valueId : undefined,
+                                  );
+                                }}
+                              >
+                                <Plus className="size-3.5" />
+                              </Button>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      );
+
                       return (
                         <TableRow
                           key={`group:${row.id}`}
@@ -969,105 +1208,54 @@ export function EntityTableView({
                           {massSelection ? (
                             <TableCell className="w-11 min-w-11 max-w-11 px-2 py-1.5" />
                           ) : null}
-                          <TableCell
-                            colSpan={Math.max(tableFields.length, 1)}
-                            className={cn(
-                              "relative min-w-0 px-3 py-2",
-                              isSubgroup
-                                ? "py-1.5 font-medium text-muted-foreground"
-                                : "font-semibold text-foreground",
-                            )}
-                          >
-                            {isSubgroup ? (
-                              <HierarchyTreeGuides
-                                isFirst={false}
-                                isLast={!expanded}
-                              />
-                            ) : null}
-                            <div
-                              className={cn(
-                                "flex min-w-0 items-center gap-1.5",
-                                isSubgroup && "pl-9",
-                              )}
-                            >
-                              <button
-                                type="button"
-                                className={cn(
-                                  "relative z-[1] inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border/80 bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground",
-                                  expanded &&
-                                    "border-transparent bg-foreground/5",
-                                  isSubgroup && "size-5 border-border/60",
-                                )}
-                                aria-label={
-                                  expanded ? "Свернуть" : "Развернуть"
-                                }
-                                aria-expanded={expanded}
-                                onClick={() => {
-                                  setExpandedHierarchyIds((prev) => {
-                                    const next = new Set(prev);
-                                    if (expanded) next.delete(row.id);
-                                    else next.add(row.id);
-                                    return next;
-                                  });
-                                }}
+                          {isSubgroup ? (
+                            <>
+                              {tableColumns.map((column, index) => {
+                                const sum = fieldSums[column.id];
+                                return (
+                                  <TableCell
+                                    key={column.id}
+                                    className={cn(
+                                      "relative min-w-0 px-3 py-1.5 font-medium text-muted-foreground",
+                                      index === 0 && "overflow-visible",
+                                    )}
+                                  >
+                                    {index === 0 ? (
+                                      <>
+                                        <HierarchyTreeGuides
+                                          isFirst={false}
+                                          isLast={!expanded}
+                                        />
+                                        {nameCell}
+                                      </>
+                                    ) : sum != null ? (
+                                      <span
+                                        className="block truncate tabular-nums text-foreground/85"
+                                        title={formatEntityDecimalTotal(sum)}
+                                      >
+                                        {formatEntityDecimalTotal(sum)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground/50">
+                                        —
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
+                              {actionsCell}
+                            </>
+                          ) : (
+                            <>
+                              <TableCell
+                                colSpan={Math.max(tableColumns.length, 1)}
+                                className="relative min-w-0 px-3 py-2 font-semibold text-foreground"
                               >
-                                {expanded ? (
-                                  <ChevronDown className="size-3.5" />
-                                ) : (
-                                  <ChevronRight className="size-3.5" />
-                                )}
-                              </button>
-                              <span
-                                className={cn(
-                                  "min-w-0 flex-1 truncate",
-                                  isSubgroup ? "text-[12.5px]" : "text-sm",
-                                )}
-                              >
-                                {row.label}
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="w-[7.5rem] min-w-[7.5rem] max-w-[7.5rem] px-2 py-1.5 text-right">
-                            <div
-                              className="inline-flex items-center justify-end gap-1"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <span
-                                className={cn(
-                                  "px-0.5 text-[11px] font-medium tabular-nums",
-                                  isSubgroup
-                                    ? "text-muted-foreground/80"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                {row.childCount}
-                              </span>
-                              {onCreateChildRecord && parentField ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  className="size-7 text-foreground"
-                                  aria-label="Добавить запись в группу"
-                                  title="Добавить запись в группу"
-                                  onClick={() => {
-                                    setExpandedHierarchyIds((prev) => {
-                                      const next = new Set(prev);
-                                      next.add(row.id);
-                                      if (rootGroupId) next.add(rootGroupId);
-                                      return next;
-                                    });
-                                    onCreateChildRecord(
-                                      rootGroupId,
-                                      isSubgroup ? row.valueId : undefined,
-                                    );
-                                  }}
-                                >
-                                  <Plus className="size-3.5" />
-                                </Button>
-                              ) : null}
-                            </div>
-                          </TableCell>
+                                {nameCell}
+                              </TableCell>
+                              {actionsCell}
+                            </>
+                          )}
                         </TableRow>
                       );
                     }
@@ -1119,7 +1307,25 @@ export function EntityTableView({
                             />
                           </TableCell>
                         ) : null}
-                        {tableFields.map((field, index) => {
+                        {tableColumns.map((column, index) => {
+                          const resolvedField =
+                            resolveEntityTableDisplayColumnField(
+                              valueContext,
+                              entity,
+                              record,
+                              column,
+                            ) ?? column.fields[0];
+                          if (!resolvedField) {
+                            return (
+                              <TableCell
+                                key={column.id}
+                                className="min-w-0 px-3 py-2 text-muted-foreground/50"
+                              >
+                                —
+                              </TableCell>
+                            );
+                          }
+                          const field = resolvedField;
                           const schemaEntity =
                             getEntityForRecord(entity.id, record) ?? entity;
                           const schemaField =
@@ -1177,7 +1383,7 @@ export function EntityTableView({
 
                           return (
                             <TableCell
-                              key={field.id}
+                              key={column.id}
                               className={cn(
                                 "min-w-0 px-3 py-2 text-foreground/90",
                                 index === 0 && hierarchyDepth > 0
@@ -1500,7 +1706,7 @@ export function EntityTableView({
                     >
                       <TableCell
                         colSpan={
-                          tableFields.length + 1 + (massSelection ? 1 : 0)
+                          tableColumns.length + 1 + (massSelection ? 1 : 0)
                         }
                         className="border-0 p-0"
                       />
@@ -1513,19 +1719,18 @@ export function EntityTableView({
                       {massSelection ? (
                         <TableCell className="w-11 min-w-11 max-w-11 px-2 py-0" />
                       ) : null}
-                      {tableFields.map((field, index) => {
+                      {tableColumns.map((column, index) => {
                         const isTotalColumn =
-                          isEntityNumericFieldType(field.type) &&
-                          field.includeInTotal;
+                          entityTableDisplayColumnIncludeInTotal(column);
                         const totalValue = isTotalColumn
                           ? formatEntityDecimalTotal(
-                              columnTotals[field.id] ?? 0,
+                              columnTotals[column.id] ?? 0,
                             )
                           : null;
 
                         return (
                           <TableCell
-                            key={field.id}
+                            key={column.id}
                             className={cn(
                               dataTableFootClass,
                               index === 0 &&
@@ -1625,11 +1830,17 @@ export function EntityTableView({
   );
 }
 
-export function AddRecordButton({ onClick }: { onClick: () => void }) {
+export function AddRecordButton({
+  onClick,
+  label = "Добавить",
+}: {
+  onClick: () => void;
+  label?: string;
+}) {
   return (
     <Button type="button" className="shrink-0" onClick={onClick}>
       <Plus />
-      Добавить
+      {label}
     </Button>
   );
 }

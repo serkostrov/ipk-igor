@@ -74,6 +74,47 @@ export async function markAllNotificationsRead(
   if (error) throw error;
 }
 
+export async function deleteNotification(
+  notificationId: string,
+): Promise<void> {
+  const client = requireClient();
+  const { error } = await client
+    .from("notifications")
+    .delete()
+    .eq("id", notificationId);
+  if (error) throw error;
+}
+
+/** Deletes all notifications linked to the given entity records. */
+export async function deleteNotificationsForRecords(
+  entityId: string,
+  recordIds: string[],
+): Promise<number> {
+  if (!isSupabaseConfigured || !supabase || recordIds.length === 0) return 0;
+  const { data, error } = await supabase
+    .from("notifications")
+    .delete()
+    .eq("entity_id", entityId)
+    .in("record_id", recordIds)
+    .select("id");
+  if (error) throw error;
+  return data?.length ?? 0;
+}
+
+export async function countNotificationsForRecords(
+  entityId: string,
+  recordIds: string[],
+): Promise<number> {
+  if (!isSupabaseConfigured || !supabase || recordIds.length === 0) return 0;
+  const { count, error } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("entity_id", entityId)
+    .in("record_id", recordIds);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export type CreateNotificationInput = {
   userId: string;
   title: string;
@@ -158,6 +199,7 @@ export function subscribeNotifications(
   onChange: (payload?: {
     eventType?: string;
     new?: Record<string, unknown>;
+    old?: Record<string, unknown>;
   }) => void,
 ): () => void {
   if (!isSupabaseConfigured || !supabase) return () => {};
@@ -170,6 +212,7 @@ export function subscribeNotifications(
         onChange({
           eventType: payload.eventType,
           new: payload.new as Record<string, unknown> | undefined,
+          old: payload.old as Record<string, unknown> | undefined,
         });
       },
     )

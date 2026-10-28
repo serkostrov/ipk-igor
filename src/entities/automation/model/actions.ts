@@ -138,6 +138,16 @@ export type AutomationAction =
       fieldAskOptions?: Record<string, AutomationFieldAskOptions>;
       /** Child records under the created parent (task form list). */
       nestedCreates?: AutomationCreateNestedSpec[];
+      /**
+       * Copy «Записи» (comments) from the trigger record onto each created row
+       * (matched by tab name, then first free tab of the same kind).
+       */
+      copyRecordsTabs?: boolean;
+      /**
+       * Copy «Файлы» from the trigger record onto each created row
+       * (storage objects are duplicated under the new record).
+       */
+      copyFilesTabs?: boolean;
     }
   | {
       id: string;
@@ -640,6 +650,12 @@ export function normalizeAutomationAction(
                 : {}),
             }),
         ...(nestedCreates.length > 0 ? { nestedCreates } : {}),
+        ...(raw.copyRecordsTabs === true || raw.copy_records_tabs === true
+          ? { copyRecordsTabs: true as const }
+          : {}),
+        ...(raw.copyFilesTabs === true || raw.copy_files_tabs === true
+          ? { copyFilesTabs: true as const }
+          : {}),
       };
     }
     case "updateRecords":
@@ -831,6 +847,8 @@ export function describeAutomationAction(
       } else if (action.multiple) bits.push("несколько");
       if (askCount > 0) bits.push(`запрос: ${askCount}`);
       if (nestedCount > 0) bits.push(`вложенные: ${nestedCount}`);
+      if (action.copyRecordsTabs) bits.push("комментарии");
+      if (action.copyFilesTabs) bits.push("файлы");
       return bits.join(" · ");
     }
     case "updateRecords":

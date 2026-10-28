@@ -37,6 +37,7 @@ import {
   resolveHostChildParentLinkField,
   resolveParentForwardChildField,
 } from "./ask-related";
+import { copyTriggerTabsOntoRecord } from "./copy-trigger-tabs";
 import {
   resolveCreateRecordAskFields,
   resolveCreateRecordParentHost,
@@ -478,6 +479,28 @@ async function createMappedRecord(
   return record;
 }
 
+/** Optional createRecord flag: copy comments / files from the trigger record. */
+async function maybeCopyTriggerTabsToCreated(
+  action: Extract<AutomationAction, { kind: "createRecord" }>,
+  createdRecordId: string,
+  ctx: AutomationExecutionContext,
+) {
+  if (!action.copyRecordsTabs && !action.copyFilesTabs) return;
+  const sourceEntity =
+    ctx.entities.find((item) => item.id === ctx.triggerEntityId) ?? null;
+  const targetEntity =
+    ctx.entities.find((item) => item.id === action.entityId) ?? null;
+  if (!sourceEntity || !targetEntity) return;
+  await copyTriggerTabsOntoRecord({
+    sourceEntity,
+    sourceValues: ctx.values,
+    targetEntity,
+    targetRecordId: createdRecordId,
+    copyRecords: action.copyRecordsTabs === true,
+    copyFiles: action.copyFilesTabs === true,
+  });
+}
+
 function resolveUserIds(
   resolver: AutomationAssigneeResolver,
   ctx: AutomationExecutionContext,
@@ -663,6 +686,7 @@ export async function executeAutomationActions(
                 if (!child) continue;
                 createdRecordIds.push(child.id);
                 multiIds.push(child.id);
+                await maybeCopyTriggerTabsToCreated(action, child.id, ctx);
               }
             } else {
               // Fan-out: create under each related parent record separately.
@@ -715,6 +739,7 @@ export async function executeAutomationActions(
                   if (!child) continue;
                   createdRecordIds.push(child.id);
                   multiIds.push(child.id);
+                  await maybeCopyTriggerTabsToCreated(action, child.id, ctx);
                 }
               }
             }
@@ -793,6 +818,7 @@ export async function executeAutomationActions(
               if (!child) continue;
               createdRecordIds.push(child.id);
               multiIds.push(child.id);
+              await maybeCopyTriggerTabsToCreated(action, child.id, ctx);
             }
             if (action.linkBackFieldId && multiIds.length > 0) {
               const linked = serializeEntityRelationIds(multiIds);
@@ -859,6 +885,9 @@ export async function executeAutomationActions(
             break;
           }
           createdRecordIds.push(record.id);
+          if (!reused) {
+            await maybeCopyTriggerTabsToCreated(action, record.id, ctx);
+          }
           if (action.linkBackFieldId) {
             const linked = serializeEntityRelationIds([record.id]);
             await updateEntityRecord(ctx.triggerEntityId, ctx.triggerRecordId, {

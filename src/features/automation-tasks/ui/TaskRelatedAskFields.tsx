@@ -7,6 +7,7 @@ import {
   parseEntityListValueIds,
   resolveEntityListFieldPresentation,
   type Entity,
+  type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
@@ -23,6 +24,7 @@ export function TaskRelatedAskFields({
   ctx,
   disabled,
   onChange,
+  softFillParent = null,
 }: {
   groups: RelatedAskGroup[];
   emptyRelations: RelatedAskEmptyRelation[];
@@ -31,6 +33,7 @@ export function TaskRelatedAskFields({
   ctx: EntityValueContext;
   disabled?: boolean;
   onChange: (valueKey: string, value: string) => void;
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
 }) {
   if (groups.length === 0 && emptyRelations.length === 0) return null;
 
@@ -152,6 +155,7 @@ export function TaskRelatedAskFields({
                     recordId={group.relatedRecordId}
                     required={row.required}
                     relationGroupsMode={row.relationGroupsMode ?? "full"}
+                    softFillParent={softFillParent}
                   />
                 </div>
               );

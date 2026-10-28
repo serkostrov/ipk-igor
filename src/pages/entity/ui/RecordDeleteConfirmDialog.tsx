@@ -4,6 +4,10 @@ import {
   countAutomationTasksForRecords,
   deleteAutomationTasksForRecords,
 } from "@/entities/automation";
+import {
+  countNotificationsForRecords,
+  deleteNotificationsForRecords,
+} from "@/entities/notification";
 import { pluralRu } from "@/shared/lib/plural";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 
@@ -20,8 +24,11 @@ type RecordDeleteConfirmDialogProps = {
 };
 
 /**
- * Waits for automation-task count before showing the confirm UI, so the
- * «Удалить с автоматизацией» action never pops in a second later.
+ * Waits for automation-task / notification counts before showing the confirm UI,
+ * so the «Удалить с автоматизацией» action never pops in a second later.
+ *
+ * Notifications for the records are always purged on confirm (and again in
+ * removeEntityRecord). Automation tasks are removed only via the secondary action.
  */
 export function RecordDeleteConfirmDialog({
   open,
@@ -37,7 +44,8 @@ export function RecordDeleteConfirmDialog({
   const fetchKey = open && entityId && idsKey ? `${entityId}:${idsKey}` : null;
   const [fetched, setFetched] = useState<{
     key: string;
-    count: number;
+    taskCount: number;
+    notificationCount: number;
   } | null>(null);
 
   useEffect(() => {
@@ -45,12 +53,19 @@ export function RecordDeleteConfirmDialog({
 
     const ids = idsKey.split(",");
     let cancelled = false;
-    void countAutomationTasksForRecords(entityId, ids)
-      .then((count) => {
-        if (!cancelled) setFetched({ key: fetchKey, count });
+    void Promise.all([
+      countAutomationTasksForRecords(entityId, ids),
+      countNotificationsForRecords(entityId, ids),
+    ])
+      .then(([taskCount, notificationCount]) => {
+        if (!cancelled) {
+          setFetched({ key: fetchKey, taskCount, notificationCount });
+        }
       })
       .catch(() => {
-        if (!cancelled) setFetched({ key: fetchKey, count: 0 });
+        if (!cancelled) {
+          setFetched({ key: fetchKey, taskCount: 0, notificationCount: 0 });
+        }
       });
 
     return () => {
@@ -59,15 +74,39 @@ export function RecordDeleteConfirmDialog({
   }, [fetchKey, entityId, idsKey]);
 
   const ready = fetchKey != null && fetched?.key === fetchKey;
-  const taskCount = ready ? fetched.count : 0;
+  const taskCount = ready ? fetched.taskCount : 0;
+  const notificationCount = ready ? fetched.notificationCount : 0;
   const isBulk = recordIds.length > 1;
+  const scopeLabel = isBulk ? "По выбранным записям" : "По записи";
+
+  const relatedParts: string[] = [];
+  if (taskCount > 0) {
+    relatedParts.push(
+      `${taskCount} ${pluralRu(taskCount, "задача", "задачи", "задач")} автоматизации`,
+    );
+  }
+  if (notificationCount > 0) {
+    relatedParts.push(
+      `${notificationCount} ${pluralRu(notificationCount, "уведомление", "уведомления", "уведомлений")}`,
+    );
+  }
 
   const fullDescription =
-    taskCount > 0
-      ? `${description}\n\n${
-          isBulk ? "По выбранным записям" : "По записи"
-        } есть ${taskCount} ${pluralRu(taskCount, "задача", "задачи", "задач")} автоматизации.`
+    relatedParts.length > 0
+      ? `${description}\n\n${scopeLabel} есть ${relatedParts.join(" и ")}.`
       : description;
+
+  const secondaryLabel =
+    taskCount > 0
+      ? notificationCount > 0
+        ? "Удалить с автоматизацией и уведомлениями"
+        : "Удалить с автоматизацией"
+      : undefined;
+
+  async function purgeNotifications() {
+    if (!entityId || recordIds.length === 0 || notificationCount === 0) return;
+    await deleteNotificationsForRecords(entityId, recordIds);
+  }
 
   return (
     <ConfirmDialog
@@ -76,22 +115,33 @@ export function RecordDeleteConfirmDialog({
       title={title}
       description={fullDescription}
       confirmLabel={confirmLabel}
-      onConfirm={onConfirm}
-      secondaryConfirmLabel={
-        taskCount > 0 ? "Удалить с автоматизацией" : undefined
-      }
+      onConfirm={async () => {
+        try {
+          await purgeNotifications();
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Не удалось удалить уведомления",
+          );
+          throw error;
+        }
+        await onConfirm();
+      }}
+      secondaryConfirmLabel={secondaryLabel}
       onSecondaryConfirm={
         taskCount > 0
           ? async () => {
               if (!entityId || recordIds.length === 0) return;
               try {
                 await deleteAutomationTasksForRecords(entityId, recordIds);
+                await purgeNotifications();
                 await onConfirm();
               } catch (error) {
                 toast.error(
                   error instanceof Error
                     ? error.message
-                    : "Не удалось удалить задачи автоматизации",
+                    : "Не удалось удалить связанные данные",
                 );
                 throw error; // keep dialog open
               }

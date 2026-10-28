@@ -377,10 +377,14 @@ export {
   getUsersSystemField,
 } from "./model/system-entities";
 export {
+  buildEntityFieldFileStoragePath,
+  buildEntityFileStoragePath,
+  copyEntityFileObject,
   deleteEntityFileObject,
   getEntityFileDownloadUrl,
   uploadEntityFieldFile,
   uploadEntityFile,
+  ENTITY_FILES_BUCKET,
 } from "./api/entity-files-api";
 export {
   inviteSystemUser,
@@ -417,7 +421,9 @@ export { RelationSelect } from "./ui/RelationSelect";
 export { RelationGroupsFieldControl } from "./ui/RelationGroupsFieldControl";
 export {
   ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID,
+  countEntityTableNestedChildren,
   encodeEntityTableSubgroupRowId,
+  findEntityManagerUserField,
   flattenEntityTableHierarchyRows,
   flattenEntityTableNestedRows,
   getEntityTableNestedEntityOptions,
@@ -433,6 +439,7 @@ export {
   parseEntityTableRelationGroupsNestedIds,
   parseEntityTableSubgroupRowId,
   encodeEntityTableParentValue,
+  resolveEntityTableHierarchyGroupRecord,
   resolveEntityTableNestedTarget,
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
@@ -442,6 +449,16 @@ export {
   type EntityTableNestedHierarchyRow,
   type EntityTableNestedTarget,
 } from "./model/table-hierarchy";
+export {
+  buildEntityTableDisplayColumns,
+  entityTableDisplayColumnIncludeInTotal,
+  formatEntityTableDisplayColumnValue,
+  getEntityTableDisplayColumnNumber,
+  getEntityTableDisplayColumns,
+  isEntityTableDisplayColumnNumeric,
+  resolveEntityTableDisplayColumnField,
+  type EntityTableDisplayColumn,
+} from "./model/table-display-columns";
 export {
   buildEntityAggregateRows,
   buildEntityCashFlowRows,
@@ -477,6 +494,19 @@ export {
   type RecordMentionSegment,
 } from "./lib/record-mentions";
 export { notifyRecordMentions } from "./lib/notify-record-mentions";
+export {
+  applyTkpGipDepartmentUsers,
+  childValuesSelectGipDepartment,
+  findDeptCalculationUserFields,
+  findDeptCalculationsGroupsField,
+  findTkpGipUserField,
+  formatTkpGipDepartmentExtras,
+  isDeptCalculationsEntity,
+  isGipDepartmentRecord,
+  isTkpAnalysisEntity,
+  resolveTkpGipAssigneeUserIds,
+  type TkpGipDepartmentUsersResult,
+} from "./lib/hardcode-tkp-gip";
 export {
   getEntityRecordDependencies,
   getEntityTimelineDates,
@@ -566,6 +596,7 @@ export {
   subscribeEntityConfig,
   updateEntity,
   updateEntityField,
+  convertTabLinkRelationFieldToLookup,
   updateEntityFieldGroup,
   updateEntityListOption,
   setEntityRecordValuesLocal,

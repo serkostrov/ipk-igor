@@ -1,4 +1,36 @@
 export { isDdsOperationsEntity } from "./dds/match";
+
+export {
+  applyTkpGipDepartmentUsers,
+  type TkpGipDepartmentUsersResult,
+} from "./tkp-gip/apply-gip-department-users";
+export {
+  findDeptCalculationUserFields,
+  findDeptCalculationsGroupsField,
+  findTkpGipUserField,
+  formatTkpGipDepartmentExtras,
+  isDeptCalculationsEntity,
+  isGipDepartmentRecord,
+  isTkpAnalysisEntity,
+} from "./tkp-gip/match";
+
+export {
+  resolveDeptCalculationsHostFields,
+  resolveDeptCalculationsSubtaskFields,
+} from "./dept-calculations/model/fields";
+export {
+  calculateDeptCalculationsBreakdown,
+  formatDeptDeadlineDays,
+  formatDeptHours,
+  formatDeptMoney,
+} from "./dept-calculations/model/aggregation";
+export { resolveDeptCalculationsNestedTarget } from "./dept-calculations/model/resolve-nested";
+export {
+  buildDeptCalculationStageGroups,
+  resolveDeptCalculationDepartmentLabel,
+  resolveDeptCalculationManagerName,
+} from "./dept-calculations/model/stage-groups";
+
 export {
   buildDdsWalletSummaryRows,
   resolveDdsWalletSummarySetup,

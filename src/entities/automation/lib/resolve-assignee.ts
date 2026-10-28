@@ -19,6 +19,7 @@ import {
   isEntityRelationLikeFieldType,
   parseEntityRelationGroups,
   parseEntityRelationIds,
+  resolveTkpGipAssigneeUserIds,
   type Entity,
   type EntityField,
 } from "@/entities/entity";
@@ -112,7 +113,11 @@ function collectLinkedChildCursors(
   entities: Entity[],
   triggerRecordId: string,
   fanOut: boolean,
-): Array<{ entity: Entity; values: Record<string, string | undefined> }> {
+): Array<{
+  entity: Entity;
+  values: Record<string, string | undefined>;
+  recordId: string;
+}> {
   const childEntity = entities.find((item) => item.id === linkedChild.entityId);
   if (!childEntity) return [];
   const children = childEntity.records.filter((record) =>
@@ -125,6 +130,7 @@ function collectLinkedChildCursors(
   return pick.map((record) => ({
     entity: childEntity,
     values: record.values,
+    recordId: record.id,
   }));
 }
 
@@ -152,6 +158,7 @@ function resolveRelatedFieldUserIds(
   type Cursor = {
     entity: Entity;
     values: Record<string, string | undefined>;
+    recordId?: string;
   };
 
   let cursors: Cursor[] = [{ entity: rootEntity, values }];
@@ -202,6 +209,7 @@ function resolveRelatedFieldUserIds(
         nextCursors.push({
           entity: relatedEntity,
           values: relatedRecord.values,
+          recordId: relatedRecord.id,
         });
       }
     }
@@ -212,7 +220,22 @@ function resolveRelatedFieldUserIds(
   const userIds: string[] = [];
   const seen = new Set<string>();
   for (const cursor of cursors) {
-    const ids = parseEntityRelationIds(cursor.values[resolver.fieldId]);
+    const fallbackIds = parseEntityRelationIds(cursor.values[resolver.fieldId]);
+    const departmentRecord =
+      (cursor.recordId
+        ? cursor.entity.records.find((item) => item.id === cursor.recordId)
+        : null) ?? null;
+    const gipIds =
+      departmentRecord != null
+        ? resolveTkpGipAssigneeUserIds({
+            triggerEntity: rootEntity,
+            triggerValues: values,
+            departmentEntity: cursor.entity,
+            departmentRecord,
+            fallbackUserIds: fallbackIds,
+          })
+        : null;
+    const ids = gipIds ?? fallbackIds;
     const pick = fanOut ? ids : ids.slice(0, 1);
     for (const id of pick) {
       if (seen.has(id)) continue;

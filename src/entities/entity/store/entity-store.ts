@@ -5,7 +5,10 @@ import { formatDateDisplay } from "@/shared/lib/format-date";
 import { withTimeout } from "@/shared/lib/with-timeout";
 import { purgeFieldFromAutomations } from "@/entities/automation/store/automation-store";
 import { syncEntityMenuItems } from "@/entities/menu";
-import { purgeFieldFromNotificationRules } from "@/entities/notification/store/notification-store";
+import {
+  deleteNotificationsForRecords,
+  purgeFieldFromNotificationRules,
+} from "@/entities/notification/store/notification-store";
 import {
   fetchEntityConfig,
   saveEntityConfig,
@@ -112,6 +115,7 @@ import type {
   EntityFieldGroup,
   EntityFieldGroupArea,
   EntityListOption,
+  EntityLookupConfig,
   EntityRecord,
   EntityRecordColumns,
   EntityRecordsDisplay,
@@ -1445,6 +1449,163 @@ export function updateEntityField(
       ),
     };
   });
+}
+
+/**
+ * Converts an auto-created tab-link relation into a lookup without breaking
+ * the tab filter: a new relation keeps `parentLinkFieldId` + stored ids,
+ * the original field becomes «значение из связи» over that bridge.
+ */
+export function convertTabLinkRelationFieldToLookup(
+  entityId: string,
+  fieldId: string,
+  patch: {
+    name: string;
+    hint: string;
+    group: string;
+    required: boolean;
+    showInTable: boolean;
+    showInFilters: boolean;
+    showOnCreate: boolean;
+    showOnRecord?: boolean;
+    tableOrder?: number;
+    colSpan?: number;
+    rowSpan?: number;
+    tabId?: string | null;
+    lookup: EntityLookupConfig;
+  },
+): { bridgeFieldId: string } | null {
+  const entity = config.entities.find((item) => item.id === entityId);
+  const field = entity?.fields.find((item) => item.id === fieldId);
+  if (!entity || !field || field.type !== "relation") return null;
+  if (!getEntityTabLinkFieldIds(entityId, config.entities).has(fieldId)) {
+    return null;
+  }
+
+  const relationEntityId = getEntityRelationTargetId(field);
+  if (!relationEntityId) return null;
+
+  const bridgeFieldId = createId("field");
+  const bridgeField = normalizeEntityField({
+    ...field,
+    id: bridgeFieldId,
+    // Keep the structural link; display name stays the parent label.
+    name: field.name,
+    type: "relation",
+    hint: "",
+    group: "",
+    required: false,
+    showInTable: false,
+    showInFilters: false,
+    showOnRecord: true,
+    showOnCreate: true,
+    visibilityConditions: [],
+    includeInTotal: false,
+    tableOrder: 0,
+    relationEntityId,
+    relationMultiple: Boolean(field.relationMultiple),
+    lookup: undefined,
+    formula: undefined,
+    rollup: undefined,
+    defaultValue: undefined,
+    relationFilter: field.relationFilter,
+  });
+
+  const targetFieldId = patch.lookup.targetFieldId.trim();
+  if (!targetFieldId) return null;
+
+  const lookupField = normalizeEntityField({
+    ...field,
+    name: patch.name,
+    hint: patch.hint,
+    group: patch.group,
+    type: "lookup",
+    required: false,
+    showInTable: patch.showInTable,
+    showInFilters: patch.showInFilters,
+    showOnCreate: patch.showOnCreate,
+    showOnRecord: patch.showOnRecord ?? field.showOnRecord,
+    visibilityConditions: [],
+    includeInTotal: false,
+    tableOrder: patch.tableOrder ?? field.tableOrder,
+    colSpan: patch.colSpan ?? field.colSpan,
+    rowSpan: patch.rowSpan ?? field.rowSpan,
+    tabId:
+      (patch.tabId === undefined ? field.tabId : patch.tabId) ??
+      ENTITY_OVERVIEW_TAB_ID,
+    relationEntityId: null,
+    relationMultiple: false,
+    lookup: {
+      relationFieldId: bridgeFieldId,
+      targetFieldId,
+      ...(patch.lookup.relationGroupsDepth != null
+        ? { relationGroupsDepth: patch.lookup.relationGroupsDepth }
+        : {}),
+    },
+    formula: undefined,
+    rollup: undefined,
+    defaultValue: undefined,
+    relationFilter: undefined,
+  });
+
+  const valueMigrations: Array<{ recordId: string; value: string }> = [];
+
+  persistStructure({
+    entities: config.entities.map((item) => {
+      const nextTabs = item.tabs.map((tab) =>
+        isEntityTabWithLinkedEntity(tab) &&
+        tab.linkedEntityId === entityId &&
+        tab.parentLinkFieldId === fieldId
+          ? normalizeEntityTab({ ...tab, parentLinkFieldId: bridgeFieldId })
+          : tab,
+      );
+
+      if (item.id !== entityId) {
+        if (nextTabs === item.tabs) return item;
+        return normalizeEntity({ ...item, tabs: nextTabs });
+      }
+
+      const nextFields = item.fields.flatMap((entry) =>
+        entry.id === fieldId ? [lookupField, bridgeField] : [entry],
+      );
+      const nextRecords = item.records.map((record) => {
+        const linkValue = record.values[fieldId] ?? "";
+        if (linkValue) {
+          valueMigrations.push({ recordId: record.id, value: linkValue });
+        }
+        const values = { ...record.values };
+        if (linkValue) values[bridgeFieldId] = linkValue;
+        delete values[fieldId];
+        return normalizeEntityRecord({ ...record, values });
+      });
+
+      return normalizeEntity({
+        ...item,
+        tabs: nextTabs,
+        fields: nextFields,
+        fieldGroups: ensureEntityFieldGroups(item.fieldGroups, nextFields),
+        records: nextRecords,
+      });
+    }),
+  });
+
+  if (isSupabaseConfigured) {
+    for (const migration of valueMigrations) {
+      markLocalRecordWrite(migration.recordId);
+      void updateEntityRecordValues(migration.recordId, {
+        [bridgeFieldId]: migration.value,
+        [fieldId]: "",
+      }).catch((error: unknown) => {
+        console.error(
+          "[entity] migrate tab-link values to bridge field",
+          migration.recordId,
+          error,
+        );
+      });
+    }
+  }
+
+  return { bridgeFieldId };
 }
 
 export function removeEntityField(entityId: string, fieldId: string) {
@@ -3493,6 +3654,11 @@ export function removeEntityRecord(entityId: string, recordId: string) {
   if (!isSupabaseConfigured) return;
 
   markLocalRecordWrite(recordId);
+  void deleteNotificationsForRecords(entityId, [recordId]).catch(
+    (error: unknown) => {
+      console.error("[entity] purge notifications on record delete", error);
+    },
+  );
   void deleteEntityRecord(recordId).catch((error: unknown) => {
     handlePersistError(error, "Не удалось удалить запись");
   });

@@ -12,6 +12,7 @@ import {
 import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import { cn } from "@/shared/lib/cn";
 import {
+  buildEntityTableDisplayColumns,
   flattenEntityTableHierarchyRows,
   formatRecordFieldValue,
   getEntityFieldDisplayName,
@@ -20,8 +21,8 @@ import {
   getEntityTableFields,
   isEntityInternal,
   isEntityNameField,
-  isEntityNumericFieldType,
   isEntityFieldVisibleOnRecord,
+  isEntityTableDisplayColumnNumeric,
   isRecordValueDecorated,
   ListValueDisplay,
   normalizeEntityRecordColumns,
@@ -29,11 +30,12 @@ import {
   RecordValue,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
+  resolveEntityTableDisplayColumnField,
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
   type Entity,
-  type EntityField,
   type EntityRecord,
+  type EntityTableDisplayColumn,
   type EntityValueContext,
 } from "@/entities/entity";
 import { EntityRecordDialog } from "@/pages/entity/ui/EntityRecordDialog";
@@ -68,11 +70,13 @@ type DialogState =
 function getCreateAskTableColumns(
   entity: Entity,
   hideFieldIds: ReadonlySet<string>,
-) {
+): EntityTableDisplayColumn[] {
   const tableFields = getEntityTableFields(entity.fields, {
     preferArrayOrder: isEntityInternal(entity),
   }).filter((field) => !hideFieldIds.has(field.id));
-  if (tableFields.length > 0) return tableFields;
+  if (tableFields.length > 0) {
+    return buildEntityTableDisplayColumns(tableFields);
+  }
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   const fallback = entity.fields
     .filter(
@@ -82,7 +86,8 @@ function getCreateAskTableColumns(
         isEntityFieldVisibleOnRecord(field),
     )
     .slice(0, 4);
-  return nameField ? [nameField, ...fallback] : fallback;
+  const fields = nameField ? [nameField, ...fallback] : fallback;
+  return buildEntityTableDisplayColumns(fields);
 }
 
 function getCreateAskCardFields(
@@ -100,7 +105,7 @@ function getCreateAskCardFields(
 function CreateAskFieldCell({
   entity,
   record,
-  field,
+  column,
   entities,
   ctx,
   indent = false,
@@ -110,7 +115,7 @@ function CreateAskFieldCell({
 }: {
   entity: Entity;
   record: EntityRecord;
-  field: EntityField;
+  column: EntityTableDisplayColumn;
   entities: Entity[];
   ctx: EntityValueContext;
   indent?: boolean;
@@ -118,6 +123,16 @@ function CreateAskFieldCell({
   isGroupStart?: boolean;
   isGroupEnd?: boolean;
 }) {
+  const field =
+    resolveEntityTableDisplayColumnField(ctx, entity, record, column) ??
+    column.fields[0];
+  if (!field) {
+    return (
+      <TableCell className="relative min-w-0 overflow-hidden px-3 py-2 text-muted-foreground/70">
+        —
+      </TableCell>
+    );
+  }
   const display = formatRecordFieldValue(ctx, entity, record, field);
   const listPresentation =
     field.type === "list"
@@ -281,16 +296,17 @@ function CreateAskDraftsTable({
     return meta;
   }, [hierarchyRows]);
 
-  const columnMinWidths = columns.map((field, index) => {
+  const columnMinWidths = columns.map((column, index) => {
+    const primary = column.fields[0];
     const listLabels =
-      field.type === "list"
-        ? resolveEntityListFieldOptions(field, entities).map(
+      column.fields.length === 1 && primary?.type === "list"
+        ? resolveEntityListFieldOptions(primary, entities).map(
             (option) => option.name,
           )
         : undefined;
-    return getEntityTableHeaderMinWidth(getEntityFieldDisplayName(field), {
+    return getEntityTableHeaderMinWidth(column.label, {
       first: index === 0,
-      numberLike: isEntityNumericFieldType(field.type),
+      numberLike: isEntityTableDisplayColumnNumeric(column),
       listLabels,
       sortable: false,
     });
@@ -318,9 +334,9 @@ function CreateAskDraftsTable({
         }}
       >
         <colgroup>
-          {columns.map((field, index) => (
+          {columns.map((column, index) => (
             <col
-              key={field.id}
+              key={column.id}
               style={{
                 width: columnMinWidths[index],
                 minWidth: columnMinWidths[index],
@@ -336,16 +352,16 @@ function CreateAskDraftsTable({
         </colgroup>
         <TableHeader>
           <TableRow className="border-0 hover:bg-transparent">
-            {columns.map((field, index) => (
+            {columns.map((column, index) => (
               <TableHead
-                key={field.id}
+                key={column.id}
                 className={cn(dataTableHeadClass, index === 0 && "pl-3.5")}
                 style={{
                   width: columnMinWidths[index],
                   minWidth: columnMinWidths[index],
                 }}
               >
-                {getEntityFieldDisplayName(field)}
+                {column.label}
               </TableHead>
             ))}
             <TableHead className={dataTableActionsHeadClass}>
@@ -458,12 +474,12 @@ function CreateAskDraftsTable({
                 )}
                 onClick={disabled ? undefined : () => onEdit(record)}
               >
-                {columns.map((field, index) => (
+                {columns.map((column, index) => (
                   <CreateAskFieldCell
-                    key={field.id}
+                    key={column.id}
                     entity={entity}
                     record={record}
-                    field={field}
+                    column={column}
                     entities={entities}
                     ctx={ctx}
                     indent={indented && index === 0}
@@ -640,6 +656,7 @@ function CreateAskPanel({
   dialog,
   onDialogOpenChange,
   onDialogSubmit,
+  softFillParent = null,
 }: {
   title: string;
   entity: Entity;
@@ -656,6 +673,7 @@ function CreateAskPanel({
   dialog: DialogState | null;
   onDialogOpenChange: (open: boolean) => void;
   onDialogSubmit: (fieldValues: Record<string, string>) => void;
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
 }) {
   const recordsDisplay = normalizeEntityRecordsDisplay(entity.recordsDisplay);
   const recordColumns = normalizeEntityRecordColumns(entity.recordColumns);
@@ -741,6 +759,7 @@ function CreateAskPanel({
         entity={entity}
         record={dialogRecord}
         entities={entities}
+        softFillParent={softFillParent}
         hiddenFieldIds={dialogHiddenFieldIds}
         titleOverride={
           dialog?.mode === "create" ? `Новая запись · ${title}` : undefined
@@ -764,6 +783,7 @@ function CreateAskNestedPanel({
   ctx,
   disabled,
   onValuesChange,
+  softFillParent = null,
 }: {
   title: string;
   nested: AutomationCreateAskNestedSlot;
@@ -774,6 +794,7 @@ function CreateAskNestedPanel({
   ctx: EntityValueContext;
   disabled?: boolean;
   onValuesChange: (next: Record<string, string>) => void;
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
 }) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const count = getNestedDraftCount(values, actionId, nested.nestedId);
@@ -857,6 +878,7 @@ function CreateAskNestedPanel({
       entities={entities}
       ctx={ctx}
       disabled={disabled}
+      softFillParent={softFillParent}
       onAdd={openCreate}
       onEdit={openEdit}
       onDelete={handleDelete}
@@ -879,6 +901,7 @@ function CreateAskSinglePanel({
   disabled,
   onValuesChange,
   nestedPanels,
+  softFillParent = null,
 }: {
   title: string;
   slot: AutomationCreateAskSlot;
@@ -889,6 +912,7 @@ function CreateAskSinglePanel({
   disabled?: boolean;
   onValuesChange: (next: Record<string, string>) => void;
   nestedPanels: ReactNode;
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
 }) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const hasDraft = singleCreateAskHasDraft(
@@ -932,6 +956,7 @@ function CreateAskSinglePanel({
         ctx={ctx}
         disabled={disabled}
         singleRecord
+        softFillParent={softFillParent}
         onAdd={() => setDialog({ mode: "create" })}
         onEdit={(record) => setDialog({ mode: "edit", index: 0, record })}
         onDelete={() =>
@@ -970,6 +995,7 @@ export function TaskCreateRecordAsk({
   entities,
   ctx,
   disabled,
+  softFillParent = null,
   onChange: _onChange,
   onValuesChange,
 }: {
@@ -978,6 +1004,7 @@ export function TaskCreateRecordAsk({
   entities: Entity[];
   ctx: EntityValueContext;
   disabled?: boolean;
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
   /** Kept for API compatibility; drafts are written via onValuesChange. */
   onChange: (draftKey: string, value: string) => void;
   onValuesChange: (next: Record<string, string>) => void;
@@ -1032,6 +1059,7 @@ export function TaskCreateRecordAsk({
                     entities={entities}
                     ctx={ctx}
                     disabled={disabled}
+                    softFillParent={softFillParent}
                     onValuesChange={onValuesChange}
                   />
                 ))
@@ -1046,6 +1074,7 @@ export function TaskCreateRecordAsk({
                   entities={entities}
                   ctx={ctx}
                   disabled={disabled}
+                  softFillParent={softFillParent}
                   onValuesChange={onValuesChange}
                 />
               ) : null}
@@ -1066,6 +1095,7 @@ export function TaskCreateRecordAsk({
               entities={entities}
               ctx={ctx}
               disabled={disabled}
+              softFillParent={softFillParent}
               onValuesChange={onValuesChange}
             />
           );
@@ -1081,6 +1111,7 @@ export function TaskCreateRecordAsk({
             entities={entities}
             ctx={ctx}
             disabled={disabled}
+            softFillParent={softFillParent}
             onValuesChange={onValuesChange}
             nestedPanels={slot.nested.map((nested) => {
               const child = entities.find(
@@ -1098,6 +1129,7 @@ export function TaskCreateRecordAsk({
                   entities={entities}
                   ctx={ctx}
                   disabled={disabled}
+                  softFillParent={softFillParent}
                   onValuesChange={onValuesChange}
                 />
               );

@@ -7,6 +7,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
 import {
   createEntityDraftRecord,
+  formatTkpGipDepartmentExtras,
   ListSelect,
   RelationGroupsFieldControl,
   RelationSelect,
@@ -30,6 +31,7 @@ import {
   type Entity,
   type EntityField,
   type EntityListOption,
+  type EntityRecord,
   type EntityRelationGroupsMode,
   type EntityValueContext,
 } from "@/entities/entity";
@@ -143,6 +145,7 @@ export function RecordFieldControl({
   recordId,
   required: requiredOverride,
   relationGroupsMode = "full",
+  softFillParent = null,
 }: {
   /** Preview context: computed values follow the unsaved `values`. */
   ctx: EntityValueContext;
@@ -157,6 +160,11 @@ export function RecordFieldControl({
   listMultiple?: boolean;
   /** When false, a list cannot be cleared (e.g. status under a process). */
   listAllowEmpty?: boolean;
+  /**
+   * Parent record when editing a linked child (e.g. «Разбор ТКП» for
+   * «Расчёты отделов») — used by product hardcodes.
+   */
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
   /** Ask mode for `relationGroups` (items / nested / full). */
   relationGroupsMode?: EntityRelationGroupsMode;
   showColors?: boolean;
@@ -265,6 +273,26 @@ export function RecordFieldControl({
           value={value}
           onChange={onChange}
           mode={relationGroupsMode}
+          resolveRecordExtras={
+            softFillParent
+              ? ({
+                  entity: departmentEntity,
+                  recordId,
+                  fieldIds,
+                  defaultExtras,
+                }) =>
+                  formatTkpGipDepartmentExtras({
+                    ctx,
+                    hostEntity: entity,
+                    parentEntity: softFillParent.entity,
+                    parentRecord: softFillParent.record,
+                    departmentEntity,
+                    departmentRecordId: recordId,
+                    displayFieldIds: fieldIds,
+                    defaultExtras,
+                  })
+              : undefined
+          }
         />
       </div>
     );

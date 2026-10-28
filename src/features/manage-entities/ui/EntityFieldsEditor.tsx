@@ -87,6 +87,7 @@ import {
   sortEntitiesByMenuOrder,
   updateEntity,
   updateEntityField,
+  convertTabLinkRelationFieldToLookup,
   updateEntityTab,
   useEntityConfig,
   type Entity,
@@ -3843,6 +3844,36 @@ export function EntityFieldsEditor({
           showInFilters: data.showInFilters,
         });
         updateEntity(entity.id, { nameTemplate: data.nameTemplate });
+        return dialog.field.id;
+      }
+      if (
+        isTabLink &&
+        dialog.field.type === "relation" &&
+        data.type === "lookup" &&
+        data.settings.lookup
+      ) {
+        convertTabLinkRelationFieldToLookup(entity.id, dialog.field.id, {
+          name: data.name,
+          hint: data.hint,
+          group,
+          required: data.required,
+          showInTable: data.showInTable,
+          showInFilters: data.showInFilters,
+          showOnCreate: data.showOnCreate,
+          lookup: data.settings.lookup,
+        });
+        if (pinToHeader) {
+          setEntityHeaderField(entity.id, dialog.field.id);
+        } else if (headerField?.id === dialog.field.id) {
+          setEntityHeaderField(entity.id, null);
+        }
+        if (data.showInTable) {
+          placeEntityFieldInTable(
+            entity.id,
+            dialog.field.id,
+            data.tablePosition,
+          );
+        }
         return dialog.field.id;
       }
       updateEntityField(entity.id, dialog.field.id, {

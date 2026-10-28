@@ -12,6 +12,7 @@ import {
   parseEntityRelationGroups,
   serializeEntityRelationGroups,
 } from "./relation-groups";
+import { SYSTEM_USERS_ENTITY_ID } from "./system-entities";
 import {
   getRelationRecordOptions,
   isEntityTabWithLinkedEntity,
@@ -693,4 +694,72 @@ export function getEntityTableNestedEntityOptions(
     value: item.entityId,
     label: item.label,
   }));
+}
+
+/** Users-relation «Руководитель» (or similar) on an entity. */
+export function findEntityManagerUserField(entity: Entity): EntityField | null {
+  const keys = ["руководитель", "менеджер"];
+  let fallback: EntityField | null = null;
+  for (const field of entity.fields) {
+    if (field.type !== "relation" && field.type !== "belonging") continue;
+    if (getEntityRelationTargetId(field) !== SYSTEM_USERS_ENTITY_ID) continue;
+    const name = getEntityFieldDisplayName(field)
+      .trim()
+      .toLocaleLowerCase("ru");
+    if (name.includes("руководитель")) return field;
+    if (!fallback && keys.some((key) => name.includes(key))) fallback = field;
+  }
+  return fallback;
+}
+
+/**
+ * Related record for a hierarchy group/subgroup row when the grouping field
+ * is a relation / belonging / relationGroups hop.
+ */
+export function resolveEntityTableHierarchyGroupRecord(
+  field: EntityField | null | undefined,
+  valueId: string,
+  entities: readonly Entity[],
+  relationGroupsDepth: 0 | 1 = 0,
+): { entity: Entity; record: EntityRecord } | null {
+  if (!field || !valueId) return null;
+  let target: Entity | null = null;
+  if (field.type === "relation" || field.type === "belonging") {
+    const targetId = getEntityRelationTargetId(field);
+    target = targetId
+      ? (entities.find((item) => item.id === targetId) ?? null)
+      : null;
+  } else if (field.type === "relationGroups") {
+    target = resolveRelationGroupsEntityAtDepth(
+      field,
+      entities,
+      relationGroupsDepth,
+    );
+  }
+  if (!target) return null;
+  const record = target.records.find((item) => item.id === valueId);
+  if (!record) return null;
+  return { entity: target, record };
+}
+
+/** Count nested-tab children under host records (подзадачи), if configured. */
+export function countEntityTableNestedChildren(
+  hostRecords: readonly EntityRecord[],
+  nested: EntityTableNestedTarget | null,
+): number {
+  if (!nested || hostRecords.length === 0) return 0;
+  let count = 0;
+  for (const host of hostRecords) {
+    for (const child of nested.entity.records) {
+      if (
+        entityRelationIncludesId(
+          child.values[nested.parentLinkFieldId],
+          host.id,
+        )
+      ) {
+        count += 1;
+      }
+    }
+  }
+  return count;
 }

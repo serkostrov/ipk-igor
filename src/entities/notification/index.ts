@@ -22,7 +22,10 @@ export {
   upsertNotificationRule,
 } from "./api/notification-config-api";
 export {
+  countNotificationsForRecords,
   createNotification,
+  deleteNotification as deleteNotificationApi,
+  deleteNotificationsForRecords as deleteNotificationsForRecordsApi,
   fetchNotifications,
   markAllNotificationsRead as markAllNotificationsReadApi,
   markNotificationRead as markNotificationReadApi,
@@ -31,6 +34,8 @@ export {
 } from "./api/notifications-api";
 export type { NotificationStatus } from "./store/notification-store";
 export {
+  deleteNotification,
+  deleteNotificationsForRecords,
   getNotificationConfig,
   getNotificationError,
   getNotificationInbox,

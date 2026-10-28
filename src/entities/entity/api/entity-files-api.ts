@@ -130,6 +130,28 @@ export async function getEntityFileDownloadUrl(
   return data.signedUrl;
 }
 
+/** Duplicate a storage object (e.g. when copying files between records). */
+export async function copyEntityFileObject(
+  fromPath: string,
+  toPath: string,
+): Promise<void> {
+  const source = fromPath.trim();
+  const target = toPath.trim();
+  if (!source || !target) {
+    throw new Error("Некорректный путь файла");
+  }
+  if (source === target) return;
+
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error("Хранилище файлов недоступно");
+  }
+
+  const { error } = await supabase.storage
+    .from(ENTITY_FILES_BUCKET)
+    .copy(source, target);
+  if (error) throw error;
+}
+
 export async function deleteEntityFileObject(
   storagePath: string,
 ): Promise<void> {

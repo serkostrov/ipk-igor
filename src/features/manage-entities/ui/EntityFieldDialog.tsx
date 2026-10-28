@@ -164,8 +164,8 @@ type EntityFieldDialogProps = {
   /** When false, list type is hidden (unless editing an existing list field). */
   allowListType?: boolean;
   /**
-   * System tab-link relation: type and target entity stay fixed,
-   * display settings remain editable.
+   * Auto tab-link relation: target entity stays fixed; type may become
+   * «значение из связи» (bridge is preserved for the tab).
    */
   lockRelationBinding?: boolean;
   /** System entity field: type stays fixed, display settings remain editable. */
@@ -1144,13 +1144,16 @@ function buildEntityFieldFormData({
 
   const nextGroup = group.trim();
   const isNumberType = type === "number";
-  const resolvedType: EntityFieldType = relationBindingLocked
-    ? "relation"
-    : systemBindingLocked && field
-      ? field.type
-      : isNumberType && useAsSum
-        ? "numberSum"
-        : type;
+  const resolvedType: EntityFieldType =
+    relationBindingLocked && type === "lookup"
+      ? "lookup"
+      : relationBindingLocked
+        ? "relation"
+        : systemBindingLocked && field
+          ? field.type
+          : isNumberType && useAsSum
+            ? "numberSum"
+            : type;
   const columnTotal = Math.max(1, tableColumnCount);
   const minPosition = Math.min(tablePositionMin, columnTotal);
   const resolvedRelationEntityId =
@@ -1302,9 +1305,10 @@ function EntityFieldForm({
   const isNameField = field != null && isEntityNameField(field);
   const systemBindingLocked =
     lockSystemBinding && field != null && isSystemEntityField(field);
-  const relationBindingLocked =
-    lockRelationBinding && field?.type === "relation";
-  const typeLocked = relationBindingLocked || systemBindingLocked;
+  const isTabLinkRelation = lockRelationBinding && field?.type === "relation";
+  /** Tab-link may switch only between relation and lookup. */
+  const relationBindingLocked = isTabLinkRelation;
+  const typeLocked = systemBindingLocked;
   const [name, setName] = useState(field?.name ?? "");
   const [hint, setHint] = useState(field?.hint ?? "");
   const [type, setType] = useState<EntityFieldType>(() =>
@@ -1451,12 +1455,19 @@ function EntityFieldForm({
     () =>
       ENTITY_FIELD_TYPE_GROUPS.map((group) => ({
         ...group,
-        types: group.types.filter(
-          (item) => item !== "list" || field?.type === "list" || allowListType,
-        ),
+        types: group.types.filter((item) => {
+          if (isTabLinkRelation) {
+            return item === "relation" || item === "lookup";
+          }
+          return item !== "list" || field?.type === "list" || allowListType;
+        }),
       })).filter((group) => group.types.length > 0),
-    [allowListType, field?.type],
+    [allowListType, field?.type, isTabLinkRelation],
   );
+
+  const tabLinkTargetEntityId = isTabLinkRelation
+    ? field?.relationEntityId?.trim() || relationEntityId.trim() || null
+    : null;
 
   const listSourceCandidates = useMemo(
     () =>
@@ -1524,7 +1535,9 @@ function EntityFieldForm({
 
   function handleTypeChange(next: EntityFieldType) {
     const resolved = next === "numberSum" ? "number" : next;
-    if (resolved !== type) patchTypeSettings({ defaultValue: null });
+    if (isTabLinkRelation && resolved !== "relation" && resolved !== "lookup") {
+      return;
+    }
     setType(resolved);
     if (resolved !== "number") {
       setUseAsSum(false);
@@ -1536,8 +1549,10 @@ function EntityFieldForm({
       setUnitSuffix("");
     }
     if (resolved !== "relation" && resolved !== "belonging") {
-      setRelationEntityId("");
-      setRelationMultiple(false);
+      if (!isTabLinkRelation) {
+        setRelationEntityId("");
+        setRelationMultiple(false);
+      }
     }
     if (resolved !== "list") {
       setListSourceFieldId("");
@@ -1553,9 +1568,26 @@ function EntityFieldForm({
       setRelationEntityId(entityId ?? "");
       setRelationMultiple(false);
     } else if (resolved === "relation") {
-      if (!relationEntityId && entityOptions.length === 1) {
+      if (isTabLinkRelation && field?.relationEntityId) {
+        setRelationEntityId(field.relationEntityId);
+        setRelationMultiple(Boolean(field.relationMultiple));
+      } else if (!relationEntityId && entityOptions.length === 1) {
         setRelationEntityId(entityOptions[0]!.id);
       }
+    }
+
+    if (resolved === "lookup" && isTabLinkRelation && field) {
+      // Placeholder bridge id = current field; store remaps on save.
+      patchTypeSettings({
+        defaultValue: null,
+        lookup: {
+          relationFieldId: field.id,
+          targetFieldId:
+            resolved === type ? (typeSettings.lookup?.targetFieldId ?? "") : "",
+        },
+      });
+    } else if (resolved !== type) {
+      patchTypeSettings({ defaultValue: null });
     }
   }
 
@@ -1603,7 +1635,7 @@ function EntityFieldForm({
             : systemBindingLocked
               ? "Системное поле — тип зафиксирован, можно изменить название и отображение."
               : relationBindingLocked
-                ? "Связь вкладки: можно изменить название, группу и настройки отображения."
+                ? "Связь вкладки: можно сменить тип на «значение из связи» — фильтр вкладки сохранится."
                 : "Название, подсказка, тип, группа и настройки отображения."}
         </DialogDescription>
       </DialogHeader>
@@ -1791,6 +1823,20 @@ function EntityFieldForm({
                     entities={entities}
                     value={typeSettings.lookup}
                     onChange={(lookup) => patchTypeSettings({ lookup })}
+                    tabLinkBridge={
+                      isTabLinkRelation && field && tabLinkTargetEntityId
+                        ? {
+                            fieldId: field.id,
+                            label:
+                              field.name.trim() ||
+                              entityOptions.find(
+                                (item) => item.id === tabLinkTargetEntityId,
+                              )?.name ||
+                              "Связь вкладки",
+                            targetEntityId: tabLinkTargetEntityId,
+                          }
+                        : null
+                    }
                   />
                 ) : null}
                 {type === "dependencies" ? (

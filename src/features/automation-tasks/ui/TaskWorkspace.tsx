@@ -75,6 +75,11 @@ import {
   useTaskFormAutosave,
 } from "../lib/use-task-form-autosave";
 import { resumePendingRecordListChange } from "../model/pending-list-change";
+import {
+  resolveTaskAssigneeName,
+  resolveTaskLeadManagerName,
+} from "../lib/task-people";
+import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewContextFields } from "./TaskViewContextFields";
@@ -523,8 +528,23 @@ function TaskWorkspaceBody({
   }
 
   function setRelatedValue(valueKey: string, value: string) {
+    if (!entity || !record) {
+      autosave.markDirty();
+      setValues((current) => ({ ...current, [valueKey]: value }));
+      return;
+    }
     autosave.markDirty();
-    setValues((current) => ({ ...current, [valueKey]: value }));
+    setValues((current) =>
+      applyRelatedAskFieldChange({
+        groups: relatedLayout.groups,
+        valueKey,
+        value,
+        formValues: current,
+        triggerEntity: entity,
+        triggerRecord: record,
+        entities,
+      }),
+    );
   }
 
   function setCreateDraftValue(draftKey: string, value: string) {
@@ -693,6 +713,9 @@ function TaskWorkspaceBody({
     applyOutcomeAutofill(outcomeId);
   }
 
+  const assigneeName = resolveTaskAssigneeName(entities, task);
+  const leadManagerName = resolveTaskLeadManagerName(entities, entity, record);
+
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2">
@@ -737,6 +760,44 @@ function TaskWorkspaceBody({
               >
                 {title}
               </button>
+            </>
+          ) : title ? (
+            <>
+              <span className="text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <span className="truncate font-medium text-foreground">
+                {title}
+              </span>
+            </>
+          ) : null}
+          {assigneeName ? (
+            <>
+              <span className="text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <span className="truncate" title={`Исполнитель: ${assigneeName}`}>
+                Исполнитель:{" "}
+                <span className="font-medium text-foreground">
+                  {assigneeName}
+                </span>
+              </span>
+            </>
+          ) : null}
+          {leadManagerName ? (
+            <>
+              <span className="text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <span
+                className="truncate"
+                title={`Менеджер лида: ${leadManagerName}`}
+              >
+                Менеджер лида:{" "}
+                <span className="font-medium text-foreground">
+                  {leadManagerName}
+                </span>
+              </span>
             </>
           ) : null}
         </div>
@@ -894,6 +955,9 @@ function TaskWorkspaceBody({
                     ctx={previewContext}
                     disabled={busy}
                     onChange={setRelatedValue}
+                    softFillParent={
+                      entity && record ? { entity, record } : null
+                    }
                   />
                 ) : null}
 
@@ -904,6 +968,9 @@ function TaskWorkspaceBody({
                     entities={entities}
                     ctx={previewContext}
                     disabled={busy}
+                    softFillParent={
+                      entity && record ? { entity, record } : null
+                    }
                     onChange={setCreateDraftValue}
                     onValuesChange={replaceCreateDraftValues}
                   />

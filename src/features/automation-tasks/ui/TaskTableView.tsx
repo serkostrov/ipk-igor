@@ -69,6 +69,10 @@ import { useSessionUser } from "@/entities/session";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { formatTimestampDisplay } from "@/shared/lib/format-date";
 import { cn } from "@/shared/lib/cn";
+import {
+  resolveTaskAssigneeName,
+  resolveTaskLeadManagerName,
+} from "../lib/task-people";
 
 const ALL_OPTION = "__all__";
 const NONE_ASSIGNEE = "__none__";
@@ -501,15 +505,17 @@ export function TaskTableView({
       if (!needle) return true;
       const entity = entities.find((item) => item.id === task.entityId);
       const recordTitle = taskRecordTitle(entities, task) ?? "";
-      const assignee = task.assigneeUserId
-        ? (getSystemUserName(entities, task.assigneeUserId) ?? "")
-        : "";
+      const assignee = resolveTaskAssigneeName(entities, task) ?? "";
+      const record = entity?.records.find((item) => item.id === task.recordId);
+      const leadManager =
+        resolveTaskLeadManagerName(entities, entity, record) ?? "";
       const haystack = [
         task.name,
         task.description,
         entity?.name ?? "",
         recordTitle,
         assignee,
+        leadManager,
         STATUS_LABELS[task.status],
         String(task.stepOrder),
       ]
@@ -751,6 +757,7 @@ export function TaskTableView({
                   <col className="w-44" />
                   <col className="w-36" />
                   <col className="w-40" />
+                  <col className="w-40" />
                   <col className="w-20" />
                   <col className="w-32" />
                   <col className="w-40" />
@@ -762,6 +769,7 @@ export function TaskTableView({
                     <TableHead className={headClass}>Запись</TableHead>
                     <TableHead className={headClass}>Сущность</TableHead>
                     <TableHead className={headClass}>Исполнитель</TableHead>
+                    <TableHead className={headClass}>Менеджер лида</TableHead>
                     <TableHead className={headClass}>Шаг</TableHead>
                     <TableHead className={headClass}>Статус</TableHead>
                     <TableHead className={headClass}>Срок</TableHead>
@@ -778,9 +786,15 @@ export function TaskTableView({
                       (item) => item.id === task.entityId,
                     );
                     const recordTitle = taskRecordTitle(entities, task);
-                    const assignee = task.assigneeUserId
-                      ? getSystemUserName(entities, task.assigneeUserId)
-                      : null;
+                    const assignee = resolveTaskAssigneeName(entities, task);
+                    const leadRecord = entity?.records.find(
+                      (item) => item.id === task.recordId,
+                    );
+                    const leadManager = resolveTaskLeadManagerName(
+                      entities,
+                      entity,
+                      leadRecord,
+                    );
                     return (
                       <TableRow
                         key={task.id}
@@ -836,6 +850,11 @@ export function TaskTableView({
                         </TableCell>
                         <TableCell className="truncate px-3 py-2.5">
                           {assignee ?? (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="truncate px-3 py-2.5">
+                          {leadManager ?? (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>

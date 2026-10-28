@@ -14,6 +14,7 @@ import { Label } from "@/shared/ui/label";
 import {
   addEntityRecord,
   applyEntityFieldValue,
+  applyTkpGipDepartmentUsers,
   createEntityDraftRecord,
   sanitizeEntityRelationDependencies,
   getEntityFieldDisplayName,
@@ -60,6 +61,11 @@ type EntityRecordDialogProps = {
   record?: EntityRecord | null;
   entities?: Entity[];
   presetValues?: Record<string, string>;
+  /**
+   * Parent host record for product soft-fill hardcodes
+   * (e.g. «Разбор ТКП» → «Расчёты отделов» / ГИП).
+   */
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
   hiddenFieldIds?: Set<string>;
   titleOverride?: string;
   submitLabel?: string;
@@ -143,6 +149,7 @@ function EntityRecordForm({
   record,
   entities,
   presetValues,
+  softFillParent = null,
   hiddenFieldIds,
   titleOverride,
   submitLabel,
@@ -154,6 +161,7 @@ function EntityRecordForm({
   record?: EntityRecord | null;
   entities: Entity[];
   presetValues?: Record<string, string>;
+  softFillParent?: { entity: Entity; record: EntityRecord } | null;
   hiddenFieldIds?: Set<string>;
   titleOverride?: string;
   submitLabel?: string;
@@ -199,27 +207,35 @@ function EntityRecordForm({
       }),
     [editableFields, isEdit],
   );
-  const initialValues = useMemo(
-    () =>
-      sanitizeEntityRelationDependencies(
-        entity,
-        buildRecordValues(
-          editableFields,
-          record?.values,
-          presetValues,
-          currentUserRecordId,
-        ),
-        entities,
-      ),
-    [
+  const initialValues = useMemo(() => {
+    const sanitized = sanitizeEntityRelationDependencies(
       entity,
+      buildRecordValues(
+        editableFields,
+        record?.values,
+        presetValues,
+        currentUserRecordId,
+      ),
       entities,
-      editableFields,
-      record,
-      presetValues,
-      currentUserRecordId,
-    ],
-  );
+    );
+    if (!softFillParent) return sanitized;
+    return applyTkpGipDepartmentUsers({
+      childEntity: entity,
+      childValues: sanitized,
+      entities,
+      parentEntity: softFillParent.entity,
+      parentRecord: softFillParent.record,
+      changedFieldId: null,
+    }).values;
+  }, [
+    entity,
+    entities,
+    editableFields,
+    record,
+    presetValues,
+    currentUserRecordId,
+    softFillParent,
+  ]);
   const [values, setValues] = useState(initialValues);
   const [password, setPassword] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -311,9 +327,26 @@ function EntityRecordForm({
   const previewContext = getEntityPreviewValueContext(valueContext);
 
   function setValue(fieldId: string, value: string) {
-    setValues((current) =>
-      applyEntityFieldValue(entity, current, fieldId, value, entities),
-    );
+    setValues((current) => {
+      let next = applyEntityFieldValue(
+        entity,
+        current,
+        fieldId,
+        value,
+        entities,
+      );
+      if (softFillParent) {
+        next = applyTkpGipDepartmentUsers({
+          childEntity: entity,
+          childValues: next,
+          entities,
+          parentEntity: softFillParent.entity,
+          parentRecord: softFillParent.record,
+          changedFieldId: fieldId,
+        }).values;
+      }
+      return next;
+    });
   }
 
   function renderField(field: EntityField) {
@@ -353,6 +386,7 @@ function EntityRecordForm({
         entities={entities}
         recordId={draftRecordId}
         required={field.required}
+        softFillParent={softFillParent}
       />
     );
   }
@@ -490,6 +524,7 @@ export function EntityRecordDialog({
   record = null,
   entities: entitiesProp,
   presetValues,
+  softFillParent = null,
   hiddenFieldIds,
   titleOverride,
   submitLabel,
@@ -511,6 +546,7 @@ export function EntityRecordDialog({
             record={record}
             entities={entities}
             presetValues={presetValues}
+            softFillParent={softFillParent}
             hiddenFieldIds={hiddenFieldIds}
             titleOverride={titleOverride}
             submitLabel={submitLabel}

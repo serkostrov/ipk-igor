@@ -56,6 +56,7 @@ import {
   isEntityFilesTab,
   isEntityNameField,
   isEntityParentLinkField,
+  isEntityRecordsTab,
   isEntityTabWithLinkedEntity,
   ListSelect,
   parseEntityListValueIds,
@@ -686,6 +687,13 @@ function ActionFields({
             В задании исполнитель нажмёт «Добавить» и заполнит поля как при
             создании записи в сущности. Система заранее ничего не создаёт.
           </p>
+          <CreateRecordCopyTabsSettings
+            action={createRecord}
+            sourceEntity={sourceEntity}
+            targetEntity={target}
+            sourceLabel={sourceLabel}
+            onChange={onChange}
+          />
         </div>
       );
     }
@@ -865,6 +873,13 @@ function ActionFields({
           sourceEntityName={sourceLabel}
           entities={entities}
           onChange={(mappings) => onChange({ ...action, mappings })}
+        />
+        <CreateRecordCopyTabsSettings
+          action={createRecord}
+          sourceEntity={sourceEntity}
+          targetEntity={target}
+          sourceLabel={sourceLabel}
+          onChange={onChange}
         />
         {target &&
         (!createAskVisible || !createNestedVisible) &&
@@ -3063,6 +3078,73 @@ function CreateRecordNestedEditor({
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+function CreateRecordCopyTabsSettings({
+  action,
+  sourceEntity,
+  targetEntity,
+  sourceLabel,
+  onChange,
+}: {
+  action: Extract<AutomationAction, { kind: "createRecord" }>;
+  sourceEntity: Entity | null;
+  targetEntity: Entity | null;
+  sourceLabel: string;
+  onChange: (next: AutomationAction) => void;
+}) {
+  if (!sourceEntity || !targetEntity) return null;
+  const canCopyRecords =
+    sourceEntity.tabs.some(isEntityRecordsTab) &&
+    targetEntity.tabs.some(isEntityRecordsTab);
+  const canCopyFiles =
+    sourceEntity.tabs.some(isEntityFilesTab) &&
+    targetEntity.tabs.some(isEntityFilesTab);
+  if (!canCopyRecords && !canCopyFiles) return null;
+
+  const fromLabel = sourceLabel.trim() || "текущей записи";
+
+  return (
+    <div className="flex flex-col gap-2.5 border-t border-border/50 pt-2.5">
+      <div className="min-w-0">
+        <p className="text-[11px] font-medium leading-none text-muted-foreground">
+          Скопировать с «{fromLabel}»
+        </p>
+        <p className="mt-1 text-[10px] leading-snug text-muted-foreground/80">
+          На каждую новую запись — вкладки с совпадающим названием (или первая
+          свободная того же типа).
+        </p>
+      </div>
+      {canCopyRecords ? (
+        <SettingSwitch
+          id={`create-copy-records-${action.id}`}
+          title="Комментарии"
+          description="Вкладка «Записи» — все заметки текущей записи"
+          checked={action.copyRecordsTabs === true}
+          onCheckedChange={(checked) =>
+            onChange({
+              ...action,
+              copyRecordsTabs: checked ? true : undefined,
+            })
+          }
+        />
+      ) : null}
+      {canCopyFiles ? (
+        <SettingSwitch
+          id={`create-copy-files-${action.id}`}
+          title="Файлы"
+          description="Вкладка «Файлы» — папки и файлы (копии в хранилище)"
+          checked={action.copyFilesTabs === true}
+          onCheckedChange={(checked) =>
+            onChange({
+              ...action,
+              copyFilesTabs: checked ? true : undefined,
+            })
+          }
+        />
+      ) : null}
     </div>
   );
 }

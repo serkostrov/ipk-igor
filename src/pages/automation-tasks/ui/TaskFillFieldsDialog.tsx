@@ -78,6 +78,7 @@ import {
   taskFormAutosaveLabel,
   useTaskFormAutosave,
 } from "@/features/automation-tasks/lib/use-task-form-autosave";
+import { applyRelatedAskFieldChange } from "@/features/automation-tasks/lib/apply-related-ask-field-change";
 import { TaskRelatedAskFields } from "@/features/automation-tasks/ui/TaskRelatedAskFields";
 import { TaskViewContextFields } from "@/features/automation-tasks/ui/TaskViewContextFields";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
@@ -440,8 +441,23 @@ function TaskFillFieldsDialogBody({
   }
 
   function setRelatedValue(valueKey: string, value: string) {
+    if (!entity || !record) {
+      autosave.markDirty();
+      setValues((current) => ({ ...current, [valueKey]: value }));
+      return;
+    }
     autosave.markDirty();
-    setValues((current) => ({ ...current, [valueKey]: value }));
+    setValues((current) =>
+      applyRelatedAskFieldChange({
+        groups: relatedLayout.groups,
+        valueKey,
+        value,
+        formValues: current,
+        triggerEntity: entity,
+        triggerRecord: record,
+        entities,
+      }),
+    );
   }
 
   function setCreateDraftValue(draftKey: string, value: string) {
@@ -803,6 +819,9 @@ function TaskFillFieldsDialogBody({
                         ctx={previewContext}
                         disabled={busy}
                         onChange={setRelatedValue}
+                        softFillParent={
+                          entity && record ? { entity, record } : null
+                        }
                       />
                     ) : null}
 
@@ -813,6 +832,9 @@ function TaskFillFieldsDialogBody({
                         entities={entities}
                         ctx={previewContext}
                         disabled={busy}
+                        softFillParent={
+                          entity && record ? { entity, record } : null
+                        }
                         onChange={setCreateDraftValue}
                         onValuesChange={replaceCreateDraftValues}
                       />

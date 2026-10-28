@@ -6,6 +6,8 @@ import {
 } from "../api/notification-config-api";
 import {
   createNotification as createNotificationApi,
+  deleteNotification as deleteNotificationApi,
+  deleteNotificationsForRecords as deleteNotificationsForRecordsApi,
   fetchNotifications,
   markAllNotificationsRead as markAllReadApi,
   markNotificationRead as markReadApi,
@@ -237,6 +239,22 @@ export function startNotificationRealtime() {
       }
       return;
     }
+    if (payload?.eventType === "DELETE") {
+      const deletedId =
+        typeof payload.old?.id === "string"
+          ? payload.old.id
+          : typeof payload.new?.id === "string"
+            ? payload.new.id
+            : null;
+      if (deletedId) {
+        const next = inbox.filter((item) => item.id !== deletedId);
+        if (next.length !== inbox.length) {
+          inbox = next;
+          notify();
+        }
+        return;
+      }
+    }
     if (inboxUserIds.length > 0) {
       void loadNotificationInbox(inboxUserIds);
     }
@@ -262,6 +280,35 @@ export async function markAllNotificationsRead() {
   notify();
   if (!isSupabaseConfigured) return;
   await markAllReadApi(inboxUserIds);
+}
+
+export async function deleteNotification(notificationId: string) {
+  const prev = inbox;
+  inbox = inbox.filter((item) => item.id !== notificationId);
+  if (inbox !== prev) notify();
+  if (!isSupabaseConfigured) return;
+  await deleteNotificationApi(notificationId);
+}
+
+/** Removes inbox rows and DB notifications for the given entity records. */
+export async function deleteNotificationsForRecords(
+  entityId: string,
+  recordIds: string[],
+): Promise<number> {
+  if (!entityId.trim() || recordIds.length === 0) return 0;
+  const idSet = new Set(recordIds);
+  const prev = inbox;
+  inbox = inbox.filter(
+    (item) =>
+      !(
+        item.entityId === entityId &&
+        item.recordId &&
+        idSet.has(item.recordId)
+      ),
+  );
+  if (inbox !== prev) notify();
+  if (!isSupabaseConfigured) return 0;
+  return deleteNotificationsForRecordsApi(entityId, recordIds);
 }
 
 export async function sendNotification(

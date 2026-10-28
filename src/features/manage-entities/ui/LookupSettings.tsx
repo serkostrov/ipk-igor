@@ -21,6 +21,15 @@ type LookupSettingsProps = {
   entities: Entity[];
   value: EntityLookupConfig | null;
   onChange: (value: EntityLookupConfig) => void;
+  /**
+   * Tab-link relation → lookup: bridge stays the preserved link field;
+   * only the target field on the parent entity is chosen here.
+   */
+  tabLinkBridge?: {
+    fieldId: string;
+    label: string;
+    targetEntityId: string;
+  } | null;
 };
 
 function entityLabel(entity: Pick<Entity, "name" | "namePlural">) {
@@ -58,23 +67,29 @@ export function LookupSettings({
   entities,
   value,
   onChange,
+  tabLinkBridge = null,
 }: LookupSettingsProps) {
   // Relations, relationGroups, lookups that yield relation ids.
   const relationFields =
     entity?.fields.filter((field) =>
       isEntityLookupBridgeField(entity, field, entities),
     ) ?? [];
-  const relationField = relationFields.find(
-    (field) => field.id === value?.relationFieldId,
-  );
+  const tabLinkTarget = tabLinkBridge
+    ? (entities.find((item) => item.id === tabLinkBridge.targetEntityId) ??
+      null)
+    : null;
+  const relationField = tabLinkBridge
+    ? null
+    : relationFields.find((field) => field.id === value?.relationFieldId);
   const isGroupsBridge = relationField?.type === "relationGroups";
   const groupsLevels = relationField?.relationGroups?.levels ?? [];
   const groupsDepth =
     value?.relationGroupsDepth ??
     (isGroupsBridge ? Math.max(0, groupsLevels.length - 1) : undefined);
 
-  const target =
-    entity && relationField
+  const target = tabLinkTarget
+    ? tabLinkTarget
+    : entity && relationField
       ? resolveEntityRelationBridgeTarget(
           entity,
           relationField,
@@ -87,16 +102,21 @@ export function LookupSettings({
       (field) => field.type !== "file" && field.type !== "dependencies",
     ) ?? [];
 
-  const selectedRelation = relationField
+  const selectedRelation = tabLinkBridge
     ? {
-        name: getEntityFieldDisplayName(relationField),
-        targetName: target
-          ? entityLabel(target)
-          : isGroupsBridge
-            ? "набор связей"
-            : null,
+        name: tabLinkBridge.label,
+        targetName: tabLinkTarget ? entityLabel(tabLinkTarget) : null,
       }
-    : null;
+    : relationField
+      ? {
+          name: getEntityFieldDisplayName(relationField),
+          targetName: target
+            ? entityLabel(target)
+            : isGroupsBridge
+              ? "набор связей"
+              : null,
+        }
+      : null;
 
   const selectedTarget = targetFields.find(
     (field) => field.id === value?.targetFieldId,
@@ -128,9 +148,23 @@ export function LookupSettings({
         <SettingLabel
           htmlFor="entity-field-lookup-relation"
           title="Связь"
-          description="Поле связи или наборов связей этой сущности"
+          description={
+            tabLinkBridge
+              ? "Связь вкладки сохранится — по ней подставляется значение"
+              : "Поле связи или наборов связей этой сущности"
+          }
         />
-        {relationFields.length === 0 ? (
+        {tabLinkBridge ? (
+          <div
+            id="entity-field-lookup-relation"
+            className="flex h-8 items-center rounded-md border border-border bg-muted/40 px-2.5 text-sm"
+          >
+            <RelationLinkLabel
+              fieldName={selectedRelation?.name ?? tabLinkBridge.label}
+              targetName={selectedRelation?.targetName}
+            />
+          </div>
+        ) : relationFields.length === 0 ? (
           <div className="rounded-md border border-dashed border-border/80 bg-background/70 px-2.5 py-2 text-center text-[11px] leading-snug text-muted-foreground">
             Сначала добавьте «Связь» или «Наборы связей»
           </div>
@@ -240,7 +274,7 @@ export function LookupSettings({
         />
       ) : null}
 
-      {relationField ? (
+      {relationField || tabLinkBridge ? (
         <div className="flex flex-col gap-1.5">
           <SettingLabel
             htmlFor="entity-field-lookup-target"
@@ -256,9 +290,15 @@ export function LookupSettings({
           <Select
             value={value?.targetFieldId || undefined}
             onValueChange={(next) => {
-              if (next && value) {
-                onChange({ ...value, targetFieldId: String(next) });
-              }
+              if (!next) return;
+              onChange({
+                relationFieldId:
+                  value?.relationFieldId || tabLinkBridge?.fieldId || "",
+                targetFieldId: String(next),
+                ...(value?.relationGroupsDepth != null
+                  ? { relationGroupsDepth: value.relationGroupsDepth }
+                  : {}),
+              });
             }}
           >
             <SelectTrigger

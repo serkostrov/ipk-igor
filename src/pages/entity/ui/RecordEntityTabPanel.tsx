@@ -47,8 +47,10 @@ import {
   addEntityRecord,
   updateEntityRecord,
   waitForEntityRecordInsert,
+  buildEntityTableDisplayColumns,
   encodeEntityTableParentValue,
   entityRelationIncludesId,
+  entityTableDisplayColumnIncludeInTotal,
   flattenEntityTableHierarchyRows,
   flattenEntityTableNestedRows,
   formatEntityDecimalTotal,
@@ -56,17 +58,17 @@ import {
   ENTITY_FIELD_GROUP_COLUMNS,
   getEntityFieldDisplayName,
   getEntityRecordTitle,
+  getEntityTableDisplayColumnNumber,
   getEntityTableFields,
   isEntityFieldGroupTitleHidden,
   isEntityFieldVisibleByConditions,
   isEntityFieldVisibleOnRecord,
   isEntityInternal,
+  isEntityTableDisplayColumnNumeric,
   isEntityTableRelationGroupsNestedSubgroup,
-  getRecordFieldNumber,
   getRelationRecordOptions,
   groupEntityFields,
   isEntityNameField,
-  isEntityNumericFieldType,
   isEntityParentLinkField,
   isEntitySubEntity,
   isRecordValueDecorated,
@@ -78,6 +80,7 @@ import {
   removeEntityRecord,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
+  resolveEntityTableDisplayColumnField,
   resolveEntityTableNestedTarget,
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
@@ -89,6 +92,7 @@ import {
   type EntityField,
   type EntityRecord,
   type EntityTab,
+  type EntityTableDisplayColumn,
   type EntityValueContext,
 } from "@/entities/entity";
 import {
@@ -142,7 +146,7 @@ function getLinkedTableColumns(
   parentLinkFieldId: string | null,
   /** When grouping by a field, hide those columns (value is already the group). */
   hierarchyFieldIds: ReadonlySet<string> | string | null = null,
-) {
+): EntityTableDisplayColumn[] {
   const hideIds =
     hierarchyFieldIds == null
       ? null
@@ -156,12 +160,15 @@ function getLinkedTableColumns(
       !isEntityParentLinkField(field, parentLinkFieldId) &&
       !hideIds?.has(field.id),
   );
-  if (tableFields.length > 0) return tableFields;
+  if (tableFields.length > 0) {
+    return buildEntityTableDisplayColumns(tableFields);
+  }
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   const fallback = getRecordCardFields(entity, parentLinkFieldId)
     .filter((field) => !hideIds?.has(field.id))
     .slice(0, 4);
-  return nameField ? [nameField, ...fallback] : fallback;
+  const fields = nameField ? [nameField, ...fallback] : fallback;
+  return buildEntityTableDisplayColumns(fields);
 }
 
 /**
@@ -287,7 +294,7 @@ function NestedRecordFieldsStrip({
 function RecordsTableFieldCell({
   entity,
   record,
-  field,
+  column,
   entities,
   valueContext,
   indent = false,
@@ -299,7 +306,7 @@ function RecordsTableFieldCell({
 }: {
   entity: Entity;
   record: EntityRecord;
-  field: EntityField;
+  column: EntityTableDisplayColumn;
   entities: Entity[];
   valueContext: EntityValueContext;
   indent?: boolean;
@@ -311,6 +318,20 @@ function RecordsTableFieldCell({
   leading?: ReactNode;
   emphasize?: boolean;
 }) {
+  const field =
+    resolveEntityTableDisplayColumnField(
+      valueContext,
+      entity,
+      record,
+      column,
+    ) ?? column.fields[0];
+  if (!field) {
+    return (
+      <TableCell className="relative min-w-0 overflow-hidden px-3 py-2 text-muted-foreground/70">
+        —
+      </TableCell>
+    );
+  }
   const display = formatRecordFieldValue(valueContext, entity, record, field);
   const listPresentation =
     field.type === "list"
@@ -516,16 +537,17 @@ function RecordsTable({
         )
       : null,
   );
-  const columnMinWidths = columns.map((field, index) => {
+  const columnMinWidths = columns.map((column, index) => {
+    const primary = column.fields[0];
     const listLabels =
-      field.type === "list"
-        ? resolveEntityListFieldOptions(field, entities).map(
+      column.fields.length === 1 && primary?.type === "list"
+        ? resolveEntityListFieldOptions(primary, entities).map(
             (option) => option.name,
           )
         : undefined;
-    return getEntityTableHeaderMinWidth(getEntityFieldDisplayName(field), {
+    return getEntityTableHeaderMinWidth(column.label, {
       first: index === 0,
-      numberLike: isEntityNumericFieldType(field.type),
+      numberLike: isEntityTableDisplayColumnNumeric(column),
       listLabels,
       sortable: false,
     });
@@ -533,19 +555,24 @@ function RecordsTable({
   const tableMinWidth =
     columnMinWidths.reduce((sum, width) => sum + width, 0) +
     ENTITY_TABLE_ACTIONS_WIDTH;
-  const totalFields = columns.filter(
-    (field) => isEntityNumericFieldType(field.type) && field.includeInTotal,
+  const totalColumns = columns.filter((column) =>
+    entityTableDisplayColumnIncludeInTotal(column),
   );
   const showTotalsRow =
-    !nestedTarget && totalFields.length > 0 && records.length > 0;
+    !nestedTarget && totalColumns.length > 0 && records.length > 0;
   const columnTotals = showTotalsRow
     ? Object.fromEntries(
-        totalFields.map((field) => [
-          field.id,
+        totalColumns.map((column) => [
+          column.id,
           records.reduce(
             (sum, record) =>
               sum +
-              (getRecordFieldNumber(valueContext, entity, record, field) ?? 0),
+              (getEntityTableDisplayColumnNumber(
+                valueContext,
+                entity,
+                record,
+                column,
+              ) ?? 0),
             0,
           ),
         ]),
@@ -602,9 +629,9 @@ function RecordsTable({
         }}
       >
         <colgroup>
-          {columns.map((field, index) => (
+          {columns.map((column, index) => (
             <col
-              key={field.id}
+              key={column.id}
               style={{
                 width: columnMinWidths[index],
                 minWidth: columnMinWidths[index],
@@ -622,16 +649,16 @@ function RecordsTable({
         </colgroup>
         <TableHeader>
           <TableRow className="border-0 hover:bg-transparent">
-            {columns.map((field, index) => (
+            {columns.map((column, index) => (
               <TableHead
-                key={field.id}
+                key={column.id}
                 className={cn(dataTableHeadClass, index === 0 && "pl-3.5")}
                 style={{
                   width: columnMinWidths[index],
                   minWidth: columnMinWidths[index],
                 }}
               >
-                {getEntityFieldDisplayName(field)}
+                {column.label}
               </TableHead>
             ))}
             {canMutate ? (
@@ -694,12 +721,12 @@ function RecordsTable({
                       )}
                       onClick={onEdit ? () => onEdit(parentRecord) : undefined}
                     >
-                      {columns.map((field, index) => (
+                      {columns.map((column, index) => (
                         <RecordsTableFieldCell
-                          key={field.id}
+                          key={column.id}
                           entity={entity}
                           record={parentRecord}
-                          field={field}
+                          column={column}
                           entities={entities}
                           valueContext={valueContext}
                           emphasize={index === 0}
@@ -1023,12 +1050,12 @@ function RecordsTable({
                 )}
                 onClick={onEdit ? () => onEdit(record) : undefined}
               >
-                {columns.map((field, index) => (
+                {columns.map((column, index) => (
                   <RecordsTableFieldCell
-                    key={field.id}
+                    key={column.id}
                     entity={entity}
                     record={record}
-                    field={field}
+                    column={column}
                     entities={entities}
                     valueContext={valueContext}
                     indent={indented && index === 0}
@@ -1077,16 +1104,16 @@ function RecordsTable({
         {showTotalsRow ? (
           <TableFooter className="sticky bottom-0 z-[5] border-t border-border bg-muted [&>tr]:h-9 [&>tr]:border-0">
             <TableRow className="h-9 hover:bg-transparent">
-              {columns.map((field, index) => {
+              {columns.map((column, index) => {
                 const isTotalColumn =
-                  isEntityNumericFieldType(field.type) && field.includeInTotal;
+                  entityTableDisplayColumnIncludeInTotal(column);
                 const totalValue = isTotalColumn
-                  ? formatEntityDecimalTotal(columnTotals[field.id] ?? 0)
+                  ? formatEntityDecimalTotal(columnTotals[column.id] ?? 0)
                   : null;
 
                 return (
                   <TableCell
-                    key={field.id}
+                    key={column.id}
                     className={cn(
                       dataTableFootClass,
                       index === 0 && "pl-3.5 font-medium text-foreground",

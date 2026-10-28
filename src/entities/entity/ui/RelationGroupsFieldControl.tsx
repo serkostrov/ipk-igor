@@ -42,6 +42,17 @@ type RelationGroupsFieldControlProps = {
   value: string;
   onChange: (value: string) => void;
   mode?: EntityRelationGroupsMode;
+  /**
+   * Optional label extras override (e.g. product hardcode: «ГИП» → parent GIP).
+   * Return `null` to keep the default catalog extras.
+   */
+  resolveRecordExtras?: (args: {
+    entity: Entity;
+    recordId: string;
+    depth: number;
+    fieldIds: readonly string[];
+    defaultExtras: string;
+  }) => string | null;
 };
 
 function formatRecordExtras(
@@ -98,19 +109,17 @@ function recordTitle(
 }
 
 function enrichOptions(
-  ctx: EntityValueContext,
-  entity: Entity,
   base: RelationRecordOption[],
   fieldIds: readonly string[],
+  resolveExtras: (recordId: string, fieldIds: readonly string[]) => string,
 ): RelationRecordOption[] {
   if (fieldIds.length === 0) return base;
-  return base.map((option) => ({
-    ...option,
-    label: (() => {
-      const extras = formatRecordExtras(ctx, entity, option.id, fieldIds);
-      return extras ? `${option.label} · ${extras}` : option.label;
-    })(),
-  }));
+  return base.map((option) => {
+    const extras = resolveExtras(option.id, fieldIds);
+    return extras
+      ? { ...option, label: `${option.label} · ${extras}` }
+      : option;
+  });
 }
 
 function ItemMeta({ title, extras }: { title: string; extras: string }) {
@@ -226,7 +235,26 @@ export function RelationGroupsFieldControl({
   value,
   onChange,
   mode = "full",
+  resolveRecordExtras,
 }: RelationGroupsFieldControlProps) {
+  function extrasFor(
+    entity: Entity,
+    recordId: string,
+    depth: number,
+    fieldIds: readonly string[],
+  ) {
+    const defaultExtras = formatRecordExtras(ctx, entity, recordId, fieldIds);
+    if (!resolveRecordExtras) return defaultExtras;
+    return (
+      resolveRecordExtras({
+        entity,
+        recordId,
+        depth,
+        fieldIds,
+        defaultExtras,
+      }) ?? defaultExtras
+    );
+  }
   const config = field.relationGroups;
   const levels = config?.levels ?? [];
   const modeDepth = resolveRelationGroupsModeDepth(mode);
@@ -366,12 +394,11 @@ export function RelationGroupsFieldControl({
   }
 
   const rootOptions = enrichOptions(
-    ctx,
-    rootEntity,
     getRelationRecordOptions(rootEntity, ctx.entities).filter((option) =>
       isSelectableRecord(rootEntity, option.id, ctx.entities),
     ),
     rootLevel.displayFieldIds,
+    (recordId, fieldIds) => extrasFor(rootEntity, recordId, 0, fieldIds),
   );
   const canEditRoot = editableThrough >= 0;
   const showDeeper = editableThrough >= 1;
@@ -405,14 +432,14 @@ export function RelationGroupsFieldControl({
     const options =
       entity != null
         ? enrichOptions(
-            ctx,
-            entity,
             getRelationRecordOptions(entity, ctx.entities).filter(
               (option) =>
                 isSelectableRecord(entity, option.id, ctx.entities) &&
                 (allowed ? allowed.has(option.id) : true),
             ),
             level.displayFieldIds,
+            (recordId, fieldIds) =>
+              extrasFor(entity, recordId, depth, fieldIds),
           )
         : [];
 
@@ -486,12 +513,7 @@ export function RelationGroupsFieldControl({
                   : child.id;
               const extras =
                 !isListSource && entity
-                  ? formatRecordExtras(
-                      ctx,
-                      entity,
-                      child.id,
-                      level.displayFieldIds,
-                    )
+                  ? extrasFor(entity, child.id, depth, level.displayFieldIds)
                   : "";
               return (
                 <div
@@ -571,10 +593,10 @@ export function RelationGroupsFieldControl({
         >
           {groups.map((node) => {
             const title = recordTitle(rootEntity, node.id, ctx);
-            const extras = formatRecordExtras(
-              ctx,
+            const extras = extrasFor(
               rootEntity,
               node.id,
+              0,
               rootLevel.displayFieldIds,
             );
             return (

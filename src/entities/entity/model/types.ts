@@ -331,7 +331,8 @@ export type EntityField = {
   /**
    * When false, the field is hidden in the «new record» form
    * (still editable later on the record page). Required and title
-   * fields are always shown on create.
+   * fields are always shown on create. Formula / rollup / numberSum
+   * are never shown on create regardless of this flag.
    */
   showOnCreate: boolean;
   /**
@@ -532,9 +533,18 @@ export function isEntityFieldVisibleOnRecord(
 
 /** Fields shown in the create-record dialog (title + required always). */
 export function isEntityFieldVisibleOnCreate(
-  field: Pick<EntityField, "showOnCreate" | "required" | "locked">,
+  field: Pick<EntityField, "type" | "showOnCreate" | "required" | "locked">,
 ) {
   if (isEntityNameField(field)) return true;
+  // Formula / rollup / numberSum are empty or zero on a blank draft — never
+  // clutter the create form (values still resolve once the record exists).
+  if (
+    field.type === "formula" ||
+    field.type === "rollup" ||
+    field.type === "numberSum"
+  ) {
+    return false;
+  }
   if (field.required) return true;
   return field.showOnCreate !== false;
 }
