@@ -417,7 +417,7 @@ export type GetOutcomeCreateAskSlotsOptions = {
 };
 
 /**
- * Related «Расчёты отделов» are edited via DeptCalculationsView (incl. lines).
+ * Related «Расчёты отделов» use the stage→department picker + fan-out.
  * Drop create-ask under those parents so «Новые подзадачи» does not duplicate.
  */
 export function filterCreateAskSlotsForDeptCalculationsView(
