@@ -106,8 +106,8 @@ export type AutomationViewEntityField = {
 /**
  * How a `relationGroups` field is asked on a task form.
  * - full — both levels
- * - items — only «Строки»
- * - nested — «Строки» + «Вложенные»
+ * - items — only «Строки» (roots)
+ * - nested — only «Вложенные» under existing «Строки»
  */
 export type AutomationRelationGroupsAskMode = "full" | "items" | "nested";
 

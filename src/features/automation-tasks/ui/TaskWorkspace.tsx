@@ -83,7 +83,6 @@ import {
   resolveTaskLeadManagerName,
 } from "../lib/task-people";
 import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
-import { filterCreateAskSlotsForDeptCalculationsView } from "../lib/task-ask-fields";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewContextFields } from "./TaskViewContextFields";
@@ -244,7 +243,7 @@ function TaskWorkspaceBody({
   const ask = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
-  const createAskSlotsRaw = selectedOutcome
+  const createAskSlots = selectedOutcome
     ? getOutcomeCreateAskSlots(selectedOutcome, entities, {
         sourceEntity: entity,
         triggerRecordId: record?.id ?? task.recordId,
@@ -319,15 +318,6 @@ function TaskWorkspaceBody({
           ctx: previewContext,
         })
       : { groups: [], emptyRelations: [] };
-
-  const createAskSlots = useMemo(
-    () =>
-      filterCreateAskSlotsForDeptCalculationsView(
-        createAskSlotsRaw,
-        relatedLayout.groups,
-      ),
-    [createAskSlotsRaw, relatedLayout.groups],
-  );
 
   const viewRelatedFieldsForForm = ask?.viewRelatedFields ?? [];
   const viewEntityFieldsForForm = ask?.viewEntityFields ?? [];

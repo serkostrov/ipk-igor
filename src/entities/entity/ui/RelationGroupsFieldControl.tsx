@@ -262,6 +262,10 @@ export function RelationGroupsFieldControl({
     modeDepth == null
       ? levels.length - 1
       : Math.min(modeDepth, levels.length - 1);
+  // «Только строки» — edit roots only; «Только вложенные» — roots read-only,
+  // edit nested under existing stages; «Всё сразу» — both.
+  const canEditRoot = mode !== "nested" && editableThrough >= 0;
+  const showDeeper = editableThrough >= 1;
 
   function resolveFieldTarget(entityId: string, fieldId: string) {
     const entity = ctx.entityById.get(entityId);
@@ -400,8 +404,6 @@ export function RelationGroupsFieldControl({
     rootLevel.displayFieldIds,
     (recordId, fieldIds) => extrasFor(rootEntity, recordId, 0, fieldIds),
   );
-  const canEditRoot = editableThrough >= 0;
-  const showDeeper = editableThrough >= 1;
   const rootLayout = rootLevel.layout === "row" ? "row" : "column";
   const rootEntityLabel = getEntityDisplayName(rootEntity);
   const rootSelectedIds = groups.map((node) => node.id);

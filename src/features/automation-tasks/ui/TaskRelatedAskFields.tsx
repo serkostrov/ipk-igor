@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useRef } from "react";
 import {
   createEntityDraftRecord,
   getEntityFieldDisplayName,
@@ -11,9 +10,7 @@ import {
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
-import { isDeptCalculationsEntity } from "@/features/hardcode";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
-import { DeptCalculationsView } from "@/pages/entity/ui/DeptCalculationsView";
 import type {
   RelatedAskEmptyRelation,
   RelatedAskGroup,
@@ -38,74 +35,6 @@ export function TaskRelatedAskFields({
   onChange: (valueKey: string, value: string) => void;
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
 }) {
-  const deptGroups = useMemo(
-    () =>
-      groups.filter((group) => isDeptCalculationsEntity(group.relatedEntity)),
-    [groups],
-  );
-  const otherGroups = useMemo(
-    () =>
-      groups.filter((group) => !isDeptCalculationsEntity(group.relatedEntity)),
-    [groups],
-  );
-
-  const deptBlocks = useMemo(() => {
-    const byEntity = new Map<
-      string,
-      {
-        entity: Entity;
-        recordIds: string[];
-        label: string;
-        groups: RelatedAskGroup[];
-      }
-    >();
-    for (const group of deptGroups) {
-      const live =
-        entities.find((item) => item.id === group.relatedEntity.id) ??
-        group.relatedEntity;
-      const existing = byEntity.get(live.id);
-      if (existing) {
-        existing.recordIds.push(group.relatedRecordId);
-        existing.groups.push(group);
-        continue;
-      }
-      byEntity.set(live.id, {
-        entity: live,
-        recordIds: [group.relatedRecordId],
-        label: group.relationLabel,
-        groups: [group],
-      });
-    }
-    return [...byEntity.values()].map((block) => ({
-      ...block,
-      records: block.entity.records.filter((record) =>
-        block.recordIds.includes(record.id),
-      ),
-    }));
-  }, [deptGroups, entities]);
-
-  /** Keep related:* form keys in sync with live store (DeptCalculationsView writes there). */
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-  const valuesRef = useRef(values);
-  valuesRef.current = values;
-
-  useEffect(() => {
-    for (const block of deptBlocks) {
-      for (const group of block.groups) {
-        const record = block.entity.records.find(
-          (item) => item.id === group.relatedRecordId,
-        );
-        if (!record) continue;
-        for (const row of group.fields) {
-          const live = record.values[row.field.id] ?? "";
-          if ((valuesRef.current[row.valueKey] ?? "") === live) continue;
-          onChangeRef.current(row.valueKey, live);
-        }
-      }
-    }
-  }, [deptBlocks, entities]);
-
   if (groups.length === 0 && emptyRelations.length === 0) return null;
 
   return (
@@ -123,34 +52,16 @@ export function TaskRelatedAskFields({
         </p>
       ))}
 
-      {deptBlocks.map((block) => (
-        <div key={block.entity.id} className="flex flex-col gap-2">
-          <p className="truncate text-[11px] font-medium text-muted-foreground">
-            {block.label}
-          </p>
-          {block.records.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-3 py-2.5 text-xs text-muted-foreground">
-              Нет записей «{block.label}».
-            </p>
-          ) : (
-            <DeptCalculationsView
-              entity={block.entity}
-              records={block.records}
-            />
-          )}
-        </div>
-      ))}
-
-      {otherGroups.map((group, groupIndex) => {
+      {groups.map((group, groupIndex) => {
         const showTitle =
-          otherGroups.filter(
+          groups.filter(
             (item) => item.relationFieldId === group.relationFieldId,
           ).length > 1;
         return (
           <div
             key={`${group.relationFieldId}:${group.relatedRecordId}`}
             className={
-              groupIndex > 0 || deptBlocks.length > 0
+              groupIndex > 0
                 ? "flex flex-col gap-3 border-t border-border/50 pt-3.5"
                 : "flex flex-col gap-3"
             }

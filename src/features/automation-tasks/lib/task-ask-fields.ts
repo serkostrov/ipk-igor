@@ -28,9 +28,6 @@ import {
   type EntityField,
   type EntityValueContext,
 } from "@/entities/entity";
-import { isDeptCalculationsEntity } from "@/features/hardcode";
-import type { RelatedAskGroup } from "./task-related-ask";
-
 function isCreateAskFieldVisible(options: {
   ctx: EntityValueContext | undefined;
   entity: Entity;
@@ -415,36 +412,6 @@ export type GetOutcomeCreateAskSlotsOptions = {
   triggerValues?: Record<string, string>;
   getRecordTitle?: (entity: Entity, recordId: string) => string;
 };
-
-/**
- * Related «Расчёты отделов» are edited via DeptCalculationsView (incl. lines).
- * Drop create-ask under those parents so «Новые подзадачи» does not duplicate.
- */
-export function filterCreateAskSlotsForDeptCalculationsView(
-  slots: AutomationCreateAskSlot[],
-  relatedGroups: RelatedAskGroup[],
-): AutomationCreateAskSlot[] {
-  const coveredParentIds = new Set(
-    relatedGroups
-      .filter((group) => isDeptCalculationsEntity(group.relatedEntity))
-      .map((group) => group.relatedRecordId),
-  );
-  if (coveredParentIds.size === 0) return slots;
-  return slots.flatMap((slot) => {
-    if (!slot.underRelatedParents?.length) return [slot];
-    const remaining = slot.underRelatedParents.filter(
-      (parent) => !coveredParentIds.has(parent.parentRecordId),
-    );
-    if (remaining.length === slot.underRelatedParents.length) return [slot];
-    if (remaining.length === 0) {
-      if (slot.multiple) {
-        return [{ ...slot, underRelatedParents: undefined }];
-      }
-      return [];
-    }
-    return [{ ...slot, underRelatedParents: remaining }];
-  });
-}
 
 function nestedSpecToSlot(
   nested: AutomationCreateNestedSpec,

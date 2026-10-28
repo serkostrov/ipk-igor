@@ -7,7 +7,6 @@ export {
   automationTaskShowsFormUpfront,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
-  filterCreateAskSlotsForDeptCalculationsView,
   getDefaultSelectedOutcomeId,
   getOutcomeCreateAskSlots,
   outcomeHasCreateAsk,
