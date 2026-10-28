@@ -2,6 +2,8 @@ import { relatedAskValueKey } from "@/entities/automation";
 import {
   applyEntityFieldValue,
   applyTkpGipDepartmentUsers,
+  ensureTkpGipDepartmentInGroupsValue,
+  findDeptCalculationsGroupsField,
   updateEntityRecord,
   type Entity,
   type EntityRecord,
@@ -59,6 +61,18 @@ export function applyRelatedAskFieldChange(options: {
     entities,
   );
 
+  const groupsField = findDeptCalculationsGroupsField(group.relatedEntity);
+  if (groupsField && nextRelated[groupsField.id] !== undefined) {
+    nextRelated = {
+      ...nextRelated,
+      [groupsField.id]: ensureTkpGipDepartmentInGroupsValue({
+        value: nextRelated[groupsField.id] ?? "",
+        hostEntity: group.relatedEntity,
+        entities,
+      }),
+    };
+  }
+
   const gip = applyTkpGipDepartmentUsers({
     childEntity: group.relatedEntity,
     childValues: nextRelated,
@@ -69,7 +83,11 @@ export function applyRelatedAskFieldChange(options: {
   });
   nextRelated = gip.values;
 
-  let nextForm = { ...formValues, [valueKey]: value };
+  // Prefer values after soft-fill / GIP ensure (may differ from raw `value`).
+  let nextForm = {
+    ...formValues,
+    [valueKey]: nextRelated[row.field.id] ?? value,
+  };
   for (const item of group.fields) {
     const nextValue = nextRelated[item.field.id] ?? "";
     if (item.valueKey === valueKey) continue;

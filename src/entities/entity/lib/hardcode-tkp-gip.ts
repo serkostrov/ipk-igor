@@ -179,6 +179,19 @@ export function isGipDepartmentRecord(
   });
 }
 
+/** Catalog id of the department named «ГИП», if present. */
+export function findGipDepartmentRecordId(
+  departmentEntity: Entity,
+  entities?: readonly Entity[],
+): string | null {
+  for (const record of departmentEntity.records) {
+    if (isGipDepartmentRecord(departmentEntity, record, entities)) {
+      return record.id;
+    }
+  }
+  return null;
+}
+
 function isUsersRelationField(field: EntityField): boolean {
   return (
     (field.type === "relation" || field.type === "belonging") &&
@@ -380,11 +393,18 @@ export function resolveDeptCalculationsCreateFanOut(options: {
   triggerValues: Record<string, string | undefined>;
   /** Mapped / ask values for the child (may already copy the full tree). */
   createValues?: Record<string, string | undefined>;
+  entities?: readonly Entity[];
 }): {
   groupsField: EntityField;
   pairs: TkpStageDepartmentPair[];
 } | null {
-  const { triggerEntity, targetEntity, triggerValues, createValues } = options;
+  const {
+    triggerEntity,
+    targetEntity,
+    triggerValues,
+    createValues,
+    entities = [],
+  } = options;
   if (!isTkpAnalysisEntity(triggerEntity)) return null;
   if (!isDeptCalculationsEntity(targetEntity)) return null;
 
@@ -413,8 +433,104 @@ export function resolveDeptCalculationsCreateFanOut(options: {
       break;
     }
   }
+  // Stages with no nested depts yet still need a «ГИП» row.
+  if (pairs.length === 0) {
+    for (const source of sources) {
+      if (!source) continue;
+      for (const root of parseEntityRelationGroups(source)) {
+        const stageId = root.id.trim();
+        if (!stageId) continue;
+        pairs.push({ stageId, departmentId: "" });
+      }
+      if (pairs.length > 0) break;
+    }
+  }
+
+  const catalog =
+    entities.length > 0 ? entities : [triggerEntity, targetEntity];
+  const gipId = findGipDepartmentRecordIdFromHost(targetEntity, catalog);
+  if (gipId) {
+    pairs = withGipDepartmentPairs(pairs, gipId);
+  } else {
+    pairs = pairs.filter((pair) => Boolean(pair.departmentId.trim()));
+  }
   if (pairs.length === 0) return null;
   return { groupsField, pairs };
+}
+
+/** Stage×dept pairs plus «ГИП» under every distinct stage. */
+export function withGipDepartmentPairs(
+  pairs: readonly TkpStageDepartmentPair[],
+  gipDepartmentId: string,
+): TkpStageDepartmentPair[] {
+  const gipId = gipDepartmentId.trim();
+  if (!gipId) {
+    return pairs.filter((pair) => Boolean(pair.departmentId.trim()));
+  }
+  const next: TkpStageDepartmentPair[] = [];
+  const seen = new Set<string>();
+  const stages = new Set<string>();
+  for (const pair of pairs) {
+    const stageId = pair.stageId.trim();
+    const departmentId = pair.departmentId.trim();
+    if (!stageId) continue;
+    stages.add(stageId);
+    if (!departmentId) continue;
+    const key = `${stageId}\0${departmentId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push({ stageId, departmentId });
+  }
+  for (const stageId of stages) {
+    const key = `${stageId}\0${gipId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push({ stageId, departmentId: gipId });
+  }
+  return next;
+}
+
+function findGipDepartmentRecordIdFromHost(
+  hostEntity: Entity,
+  entities: readonly Entity[],
+): string | null {
+  const departmentEntity = resolveDepartmentEntity(hostEntity, entities);
+  if (!departmentEntity) return null;
+  return findGipDepartmentRecordId(departmentEntity, entities);
+}
+
+/**
+ * Hardcode: every stage root always includes nested department «ГИП».
+ * Applies to «Разбор ТКП» / «Расчёты отделов» relationGroups values.
+ */
+export function ensureTkpGipDepartmentInGroupsValue(options: {
+  value: string;
+  hostEntity: Entity;
+  entities: readonly Entity[];
+}): string {
+  const { value, hostEntity, entities } = options;
+  if (
+    !isTkpAnalysisEntity(hostEntity) &&
+    !isDeptCalculationsEntity(hostEntity)
+  ) {
+    return value;
+  }
+  const gipId = findGipDepartmentRecordIdFromHost(hostEntity, entities);
+  if (!gipId) return value;
+  const roots = parseEntityRelationGroups(value);
+  if (roots.length === 0) return value;
+  let changed = false;
+  const next = roots.map((root) => {
+    if (root.children.some((child) => child.id.trim() === gipId)) {
+      return root;
+    }
+    changed = true;
+    return {
+      ...root,
+      children: [...root.children, { id: gipId, children: [] }],
+    };
+  });
+  return changed ? serializeEntityRelationGroups(next) : value;
 }
 
 /** Encode one stage × one department for a «Расчёты отделов» row. */

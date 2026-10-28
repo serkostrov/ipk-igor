@@ -585,6 +585,7 @@ async function tryCreateDeptCalculationsFanOut(
     targetEntity: target,
     triggerValues: ctx.values,
     createValues: preview,
+    entities: ctx.entities,
   });
   if (!fanOut) return null;
 

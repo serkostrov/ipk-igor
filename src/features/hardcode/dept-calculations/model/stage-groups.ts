@@ -3,13 +3,17 @@
  */
 
 import {
+  childValuesSelectGipDepartment,
   findEntityManagerUserField,
+  findTkpGipUserField,
   formatRecordFieldValue,
   getEntityFieldDisplayName,
   getEntityRecordTitle,
   getEntityRelationTargetId,
   getSystemUserName,
   isEntityTableRelationGroupsNestedSubgroup,
+  isGipDepartmentRecord,
+  isTkpAnalysisEntity,
   parseEntityRelationIds,
   parseEntityTableParentGroupIds,
   parseEntityTableRelationGroupsNestedIds,
@@ -233,9 +237,58 @@ export function resolveDeptCalculationDepartmentLabel(
   return getEntityRecordTitle(ctx, entity, record);
 }
 
+function resolveLeadParentForDeptCalc(
+  entity: Entity,
+  record: EntityRecord,
+  entities: readonly Entity[],
+): { entity: Entity; record: EntityRecord } | null {
+  for (const field of entity.fields) {
+    if (field.type !== "relation" && field.type !== "belonging") continue;
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) continue;
+    const target = entities.find((item) => item.id === targetId);
+    if (!target) continue;
+    if (
+      !isTkpAnalysisEntity(target) &&
+      !findTkpGipUserField(target, entities)
+    ) {
+      continue;
+    }
+    const parentId = parseEntityRelationIds(record.values[field.id])[0];
+    if (!parentId) continue;
+    const parentRecord = target.records.find((item) => item.id === parentId);
+    if (!parentRecord) continue;
+    return { entity: target, record: parentRecord };
+  }
+  return null;
+}
+
+function resolveGipManagerNameFromLead(
+  entity: Entity,
+  record: EntityRecord,
+  entities: readonly Entity[],
+): string | null {
+  const isGipRow = childValuesSelectGipDepartment({
+    childEntity: entity,
+    childValues: record.values,
+    entities,
+  });
+  if (!isGipRow) return null;
+  const lead = resolveLeadParentForDeptCalc(entity, record, entities);
+  if (!lead) return null;
+  const gipField = findTkpGipUserField(lead.entity, entities);
+  if (!gipField) return null;
+  const userIds = parseEntityRelationIds(lead.record.values[gipField.id]);
+  const names = userIds
+    .map((id) => getSystemUserName(entities, id)?.trim())
+    .filter((name): name is string => Boolean(name));
+  return names.length > 0 ? names.join(", ") : null;
+}
+
 /**
  * Manager: field on the calculation record (relation or lookup), else
- * «Руководитель» on the department entity linked as subgroup.
+ * lead «ГИП» for the ГИП department row, else «Руководитель» on the
+ * department catalog.
  */
 export function resolveDeptCalculationManagerName(
   ctx: EntityValueContext,
@@ -251,6 +304,9 @@ export function resolveDeptCalculationManagerName(
       if (name) return name;
     }
   }
+
+  const fromLead = resolveGipManagerNameFromLead(entity, record, entities);
+  if (fromLead) return fromLead;
 
   const managerLookup = entity.fields.find(
     (field) => field.type === "lookup" && looksLikeManagerField(field),
@@ -307,6 +363,10 @@ export function resolveDeptCalculationManagerName(
     depth,
   );
   if (!resolved) return null;
+  // «ГИП» never falls back to the catalog department head — lead only.
+  if (isGipDepartmentRecord(resolved.entity, resolved.record, entities)) {
+    return null;
+  }
   const deptManager = findEntityManagerUserField(resolved.entity);
   if (!deptManager) return null;
   const userId = parseEntityRelationIds(

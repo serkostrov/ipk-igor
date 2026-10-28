@@ -5,8 +5,10 @@ import { Label } from "@/shared/ui/label";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
+import { useEffect, useRef } from "react";
 import {
   createEntityDraftRecord,
+  ensureTkpGipDepartmentInGroupsValue,
   formatTkpGipDepartmentExtras,
   ListSelect,
   RelationGroupsFieldControl,
@@ -127,6 +129,92 @@ function getRelationControlOptions(
     (option) => selected.has(option.id) && !known.has(option.id),
   );
   return hidden.length > 0 ? [...options, ...hidden] : options;
+}
+
+/** «Стадия/отделы»: always keep nested «ГИП» under every stage. */
+function TkpRelationGroupsControl({
+  id,
+  ctx,
+  entity,
+  field,
+  value,
+  onChange,
+  mode,
+  entities,
+  softFillParent,
+  hostRecord,
+}: {
+  id: string;
+  ctx: EntityValueContext;
+  entity: Entity;
+  field: EntityField;
+  value: string;
+  onChange: (value: string) => void;
+  mode: EntityRelationGroupsMode;
+  entities: readonly Entity[];
+  softFillParent: { entity: Entity; record: EntityRecord } | null;
+  hostRecord: EntityRecord;
+}) {
+  const leadParent = resolveTkpGipLeadContext({
+    hostEntity: entity,
+    hostRecord,
+    entities,
+    softFillParent,
+  });
+  const ensuredValue = ensureTkpGipDepartmentInGroupsValue({
+    value,
+    hostEntity: entity,
+    entities,
+  });
+  const lastEnsuredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (ensuredValue === value) {
+      lastEnsuredRef.current = null;
+      return;
+    }
+    if (lastEnsuredRef.current === `${value}→${ensuredValue}`) return;
+    lastEnsuredRef.current = `${value}→${ensuredValue}`;
+    onChange(ensuredValue);
+  }, [ensuredValue, onChange, value]);
+
+  return (
+    <RelationGroupsFieldControl
+      id={id}
+      ctx={ctx}
+      field={field}
+      value={ensuredValue}
+      onChange={(next) =>
+        onChange(
+          ensureTkpGipDepartmentInGroupsValue({
+            value: next,
+            hostEntity: entity,
+            entities,
+          }),
+        )
+      }
+      mode={mode}
+      resolveRecordExtras={
+        leadParent
+          ? ({
+              entity: departmentEntity,
+              recordId: departmentRecordId,
+              fieldIds,
+              defaultExtras,
+            }) =>
+              formatTkpGipDepartmentExtras({
+                ctx,
+                hostEntity: entity,
+                parentEntity: leadParent.entity,
+                parentRecord: leadParent.record,
+                departmentEntity,
+                departmentRecordId,
+                displayFieldIds: fieldIds,
+                defaultExtras,
+              })
+          : undefined
+      }
+    />
+  );
 }
 
 export function RecordFieldControl({
@@ -268,45 +356,23 @@ export function RecordFieldControl({
       recordId,
     );
     const entityCatalog = entities.length > 0 ? entities : (ctx.entities ?? []);
-    const leadParent = resolveTkpGipLeadContext({
-      hostEntity: entity,
-      hostRecord,
-      entities: entityCatalog,
-      softFillParent,
-    });
     return (
       <div className="flex flex-col gap-2">
         {labelNode}
         {hint ? (
           <span className="text-xs text-muted-foreground">{hint}</span>
         ) : null}
-        <RelationGroupsFieldControl
+        <TkpRelationGroupsControl
           id={id}
           ctx={ctx}
+          entity={entity}
           field={field}
           value={value}
           onChange={onChange}
           mode={relationGroupsMode}
-          resolveRecordExtras={
-            leadParent
-              ? ({
-                  entity: departmentEntity,
-                  recordId: departmentRecordId,
-                  fieldIds,
-                  defaultExtras,
-                }) =>
-                  formatTkpGipDepartmentExtras({
-                    ctx,
-                    hostEntity: entity,
-                    parentEntity: leadParent.entity,
-                    parentRecord: leadParent.record,
-                    departmentEntity,
-                    departmentRecordId,
-                    displayFieldIds: fieldIds,
-                    defaultExtras,
-                  })
-              : undefined
-          }
+          entities={entityCatalog}
+          softFillParent={softFillParent}
+          hostRecord={hostRecord}
         />
       </div>
     );

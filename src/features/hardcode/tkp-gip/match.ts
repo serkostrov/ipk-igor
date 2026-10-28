@@ -1,8 +1,10 @@
 export {
   buildTkpGipSoftFillParentRecord,
   collectTkpStageDepartmentPairs,
+  ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
+  findGipDepartmentRecordId,
   findTkpGipUserField,
   formatTkpGipDepartmentExtras,
   isDeptCalculationsEntity,
@@ -10,5 +12,6 @@ export {
   isTkpAnalysisEntity,
   resolveDeptCalculationsCreateFanOut,
   resolveTkpGipLeadContext,
+  withGipDepartmentPairs,
   type TkpStageDepartmentPair,
 } from "@/entities/entity";

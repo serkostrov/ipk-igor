@@ -1824,6 +1824,11 @@ export function RecordEntityTabPanel({
             <DeptCalculationsView
               entity={linkedEntity}
               records={records}
+              leadParent={
+                hostEntity && parentRecord
+                  ? { entity: hostEntity, record: parentRecord }
+                  : null
+              }
               onEditRecord={
                 readOnly ? undefined : (record) => setDialogRecord(record)
               }

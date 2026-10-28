@@ -503,8 +503,10 @@ export {
   collectTkpStageDepartmentPairs,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
+  ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
+  findGipDepartmentRecordId,
   findTkpGipUserField,
   formatTkpGipDepartmentExtras,
   isDeptCalculationsEntity,
@@ -513,6 +515,7 @@ export {
   resolveDeptCalculationsCreateFanOut,
   resolveTkpGipAssigneeUserIds,
   resolveTkpGipLeadContext,
+  withGipDepartmentPairs,
   type TkpGipDepartmentUsersResult,
   type TkpStageDepartmentPair,
 } from "./lib/hardcode-tkp-gip";

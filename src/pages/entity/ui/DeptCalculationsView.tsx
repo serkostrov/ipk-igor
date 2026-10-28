@@ -3,7 +3,7 @@
  * stage group → department summary row → expand «Работы отдела» + nested lines.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -33,6 +33,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 import {
   addEntityRecord,
+  applyTkpGipDepartmentUsers,
   formatEntityDecimalTotal,
   formatRecordFieldValue,
   getRecordFieldNumber,
@@ -80,6 +81,8 @@ type DeptCalculationsViewProps = {
   entity: Entity;
   records: EntityRecord[];
   onEditRecord?: (record: EntityRecord) => void;
+  /** Parent «Разбор ТКП» — hardcode: ГИП manager from lead. */
+  leadParent?: { entity: Entity; record: EntityRecord } | null;
 };
 
 function StatusPill({ label }: { label: string }) {
@@ -145,6 +148,7 @@ export function DeptCalculationsView({
   entity,
   records,
   onEditRecord,
+  leadParent = null,
 }: DeptCalculationsViewProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
@@ -164,6 +168,33 @@ export function DeptCalculationsView({
     () => buildDeptCalculationStageGroups(entity, records, entities),
     [entity, records, entities],
   );
+
+  // Hardcode: keep «ГИП» row manager/performer in sync with the lead.
+  useEffect(() => {
+    if (!leadParent) return;
+    for (const record of records) {
+      const next = applyTkpGipDepartmentUsers({
+        childEntity: entity,
+        childValues: { ...record.values },
+        entities,
+        parentEntity: leadParent.entity,
+        parentRecord: leadParent.record,
+        changedFieldId: null,
+      });
+      if (!next.applied || next.overriddenFieldIds.length === 0) continue;
+      const patch: Record<string, string> = {};
+      for (const fieldId of next.overriddenFieldIds) {
+        const value = next.values[fieldId] ?? "";
+        if ((record.values[fieldId] ?? "") === value) continue;
+        patch[fieldId] = value;
+      }
+      if (Object.keys(patch).length === 0) continue;
+      updateEntityRecord(entity.id, record.id, {
+        ...record.values,
+        ...patch,
+      });
+    }
+  }, [entity, entities, leadParent, records]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deadlineDrafts, setDeadlineDrafts] = useState<Record<string, string>>(

@@ -9,8 +9,10 @@ import {
   collectTkpStageDepartmentPairs,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
+  ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
+  findGipDepartmentRecordId,
   getEntityConfig,
   getEntityParentLinkField,
   getEntityRelationTargetId,
@@ -18,6 +20,7 @@ import {
   parseEntityRelationIds,
   serializeEntityRelationIds,
   updateEntityRecord,
+  withGipDepartmentPairs,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -203,7 +206,24 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     return;
   }
 
-  const pairs = collectTkpStageDepartmentPairs(patch[groupsField.id]);
+  const ensuredGroups = ensureTkpGipDepartmentInGroupsValue({
+    value: patch[groupsField.id] ?? "",
+    hostEntity: entity,
+    entities,
+  });
+  let pairs = collectTkpStageDepartmentPairs(ensuredGroups);
+  const leafEntityId =
+    groupsField.relationGroups?.levels[1]?.source.kind === "entity"
+      ? groupsField.relationGroups.levels[1].source.entityId
+      : null;
+  const departmentEntity = leafEntityId
+    ? (entities.find((item) => item.id === leafEntityId) ?? null)
+    : null;
+  const gipId = departmentEntity
+    ? findGipDepartmentRecordId(departmentEntity, entities)
+    : null;
+  if (gipId) pairs = withGipDepartmentPairs(pairs, gipId);
+
   if (pairs.length <= 1) {
     const nextPatch =
       pairs.length === 1
@@ -211,7 +231,7 @@ export async function persistDeptCalculationRelatedUpdate(options: {
             ...patch,
             [groupsField.id]: encodeTkpStageDepartmentPair(pairs[0]!),
           }
-        : patch;
+        : { ...patch, [groupsField.id]: ensuredGroups };
     await updateEntityRecord(entity.id, recordId, nextPatch);
     return;
   }
