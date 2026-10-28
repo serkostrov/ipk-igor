@@ -1303,9 +1303,12 @@ function matchesEntityCondition(
       return !isRecordFieldEmpty(ctx, entity, record, field);
     case "in":
     case "notIn": {
-      const ids = getRecordFieldIds(ctx, entity, record, field).map((id) =>
-        isEntityListOtherValue(id) ? ENTITY_LIST_OTHER_OPTION_ID : id,
-      );
+      // Title field: values are catalog record ids (see ConditionBuilder).
+      const ids = isEntityNameField(field)
+        ? [record.id]
+        : getRecordFieldIds(ctx, entity, record, field).map((id) =>
+            isEntityListOtherValue(id) ? ENTITY_LIST_OTHER_OPTION_ID : id,
+          );
       const wanted = condition.values ?? [];
       const hit = ids.some((id) => wanted.includes(id));
       return condition.operator === "in" ? hit : !hit;

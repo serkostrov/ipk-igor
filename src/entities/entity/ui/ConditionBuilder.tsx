@@ -36,6 +36,7 @@ import {
 import { getSystemUsersEntity } from "../model/system-entities";
 import {
   getRelationRecordOptions,
+  isEntityNameField,
   parseEntityListValueIds,
   parseEntityRelationIds,
   resolveEntityListFieldOptions,
@@ -200,6 +201,22 @@ function ConditionValueEditor({
   const operandKind = getOperandKind(condition.operator);
 
   if (operandKind === "ids") {
+    // Title identifies the record — pick catalog rows by id.
+    if (isEntityNameField(field)) {
+      return (
+        <RelationSelect
+          multiple
+          options={getRelationRecordOptions(entity, entities)}
+          value={serializeEntityRelationIds(condition.values ?? [])}
+          placeholder="Выберите записи"
+          aria-label="Записи"
+          className="h-8"
+          onChange={(next) =>
+            onChange({ values: parseEntityRelationIds(next) })
+          }
+        />
+      );
+    }
     const source = resolveEntityFieldSource(entity, field, entities);
     if (source?.field.type === "list") {
       const options = resolveEntityListFieldOptions(source.field, entities);
@@ -419,9 +436,13 @@ export function ConditionBuilder({
   }, [onChange]);
 
   function operatorsOf(field: EntityField) {
-    const operators = getEntityConditionOperators(
+    const base = getEntityConditionOperators(
       fieldKind(entity, field, entities),
     );
+    // Name is the record identity — allow «один из» / «не из» by catalog id.
+    const operators = isEntityNameField(field)
+      ? Array.from(new Set<EntityConditionOperator>([...base, "in", "notIn"]))
+      : base;
     if (sourceEntity) return operators;
     return operators.filter((item) => item !== "equalsRecordField");
   }
