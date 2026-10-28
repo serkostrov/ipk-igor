@@ -590,15 +590,7 @@ function TaskWorkspaceBody({
     await persistRelatedAskUpdates(related, {
       entities,
       parentEntity: entity,
-      parentRecord: {
-        ...record,
-        values: {
-          ...record.values,
-          ...Object.fromEntries(
-            Object.entries(values).filter(([key]) => !key.includes(":")),
-          ),
-        },
-      },
+      parentRecord: buildTkpGipSoftFillParentRecord(record, values),
     });
   }
 

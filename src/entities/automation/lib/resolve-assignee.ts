@@ -16,7 +16,9 @@ import {
   getRelationGroupsLeafEntityId,
   getRelationGroupsLevelEntityId,
   getSystemUsersEntity,
+  isDeptCalculationsEntity,
   isEntityRelationLikeFieldType,
+  isTkpAnalysisEntity,
   parseEntityRelationGroups,
   parseEntityRelationIds,
   resolveTkpGipAssigneeUserIds,
@@ -153,7 +155,20 @@ function resolveRelatedFieldUserIds(
   const rootEntity = entities.find((entity) => entity.id === triggerEntityId);
   if (!rootEntity) return [];
 
-  const fanOut = resolver.fanOut === true;
+  const linkedChildEntity = linkedChild
+    ? (entities.find((item) => item.id === linkedChild.entityId) ?? null)
+    : null;
+  // «Расчёты отделов» / стадии→отделы under «Разбор ТКП»: always one task
+  // per department head (incl. lead «ГИП»), not only the first.
+  const forceFanOut =
+    (linkedChildEntity != null &&
+      isDeptCalculationsEntity(linkedChildEntity)) ||
+    (isTkpAnalysisEntity(rootEntity) &&
+      path.some((fieldId) => {
+        const field = findBridgeField(rootEntity, fieldId);
+        return field?.type === "relationGroups";
+      }));
+  const fanOut = resolver.fanOut === true || forceFanOut;
   const depths = resolver.relationGroupsDepths ?? [];
   type Cursor = {
     entity: Entity;
@@ -183,10 +198,19 @@ function resolveRelatedFieldUserIds(
       const bridgeField = findBridgeField(cursor.entity, relationFieldId);
       if (!bridgeField) continue;
 
+      // Nested departments in «Стадия/отделы»: default to deepest level.
+      const effectiveDepth =
+        hopDepth != null && Number.isFinite(hopDepth)
+          ? hopDepth
+          : bridgeField.type === "relationGroups" &&
+              (bridgeField.relationGroups?.levels.length ?? 0) > 1
+            ? bridgeField.relationGroups!.levels.length - 1
+            : undefined;
+
       const relatedIds = bridgeRelatedRecordIds(
         cursor.values,
         bridgeField,
-        hopDepth != null && Number.isFinite(hopDepth) ? hopDepth : undefined,
+        effectiveDepth,
       );
       const hopIds = fanOut ? relatedIds : relatedIds.slice(0, 1);
       if (hopIds.length === 0) continue;
@@ -194,7 +218,7 @@ function resolveRelatedFieldUserIds(
       const targetId = bridgeTargetEntityId(
         bridgeField,
         entities,
-        hopDepth != null && Number.isFinite(hopDepth) ? hopDepth : undefined,
+        effectiveDepth,
       );
       const relatedEntity =
         (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
@@ -219,22 +243,31 @@ function resolveRelatedFieldUserIds(
 
   const userIds: string[] = [];
   const seen = new Set<string>();
+  const triggerRecordId = ctx.triggerRecordId?.trim() || null;
   for (const cursor of cursors) {
     const fallbackIds = parseEntityRelationIds(cursor.values[resolver.fieldId]);
-    const departmentRecord =
+    const stored =
       (cursor.recordId
         ? cursor.entity.records.find((item) => item.id === cursor.recordId)
         : null) ?? null;
-    const gipIds =
-      departmentRecord != null
-        ? resolveTkpGipAssigneeUserIds({
-            triggerEntity: rootEntity,
-            triggerValues: values,
-            departmentEntity: cursor.entity,
-            departmentRecord,
-            fallbackUserIds: fallbackIds,
-          })
-        : null;
+    const departmentRecord = stored ?? {
+      id: cursor.recordId ?? "draft",
+      values: Object.fromEntries(
+        Object.entries(cursor.values).map(([key, value]) => [key, value ?? ""]),
+      ),
+      authUserId: null,
+      createdBy: null,
+      schemaVersion: 0,
+    };
+    const gipIds = resolveTkpGipAssigneeUserIds({
+      triggerEntity: rootEntity,
+      triggerValues: values,
+      triggerRecordId,
+      departmentEntity: cursor.entity,
+      departmentRecord,
+      entities,
+      fallbackUserIds: fallbackIds,
+    });
     const ids = gipIds ?? fallbackIds;
     const pick = fanOut ? ids : ids.slice(0, 1);
     for (const id of pick) {

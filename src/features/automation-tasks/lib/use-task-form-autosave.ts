@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AutomationOutcome } from "@/entities/automation";
-import { updateEntityRecord, type Entity } from "@/entities/entity";
+import {
+  buildTkpGipSoftFillParentRecord,
+  updateEntityRecord,
+  type Entity,
+} from "@/entities/entity";
 import {
   buildTaskFormPersistPatch,
   buildTaskRelatedPersistUpdates,
@@ -130,23 +134,19 @@ export function useTaskFormAutosave({
         entities: args.entities,
         parentEntity: args.entity,
         parentRecord: parentRecord
-          ? {
-              ...parentRecord,
-              values: {
-                ...parentRecord.values,
-                ...Object.fromEntries(
-                  Object.entries(args.recordValues).map(([key, value]) => [
-                    key,
-                    value ?? "",
-                  ]),
+          ? buildTkpGipSoftFillParentRecord(parentRecord, {
+              ...Object.fromEntries(
+                Object.entries(args.recordValues).map(([key, value]) => [
+                  key,
+                  value ?? "",
+                ]),
+              ),
+              ...Object.fromEntries(
+                Object.entries(args.values).filter(
+                  ([key]) => !key.includes(":"),
                 ),
-                ...Object.fromEntries(
-                  Object.entries(args.values).filter(
-                    ([key]) => !key.includes(":"),
-                  ),
-                ),
-              },
-            }
+              ),
+            })
           : null,
       });
       if (generation !== genRef.current) return;

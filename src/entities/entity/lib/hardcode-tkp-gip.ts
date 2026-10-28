@@ -690,33 +690,66 @@ export function formatTkpGipDepartmentExtras(options: {
 }
 
 /**
- * When resolving assignees through a department record named «ГИП» under
- * «Разбор ТКП», use the parent’s «ГИП» users instead of the catalog manager.
+ * When resolving assignees through a department named «ГИП» (catalog) or a
+ * «Расчёты отделов» row that selects that department, use the lead’s «ГИП»
+ * users instead of the catalog manager.
  */
 export function resolveTkpGipAssigneeUserIds(options: {
   triggerEntity: Entity;
   triggerValues: Record<string, string | undefined>;
+  triggerRecordId?: string | null;
   departmentEntity: Entity;
   departmentRecord: EntityRecord;
+  entities?: readonly Entity[];
   fallbackUserIds: string[];
 }): string[] | null {
   const {
     triggerEntity,
     triggerValues,
+    triggerRecordId = null,
     departmentEntity,
     departmentRecord,
+    entities = [],
     fallbackUserIds,
   } = options;
   if (
     !isTkpAnalysisEntity(triggerEntity) &&
-    !entityHasGipUserField(triggerEntity)
+    !entityHasGipUserField(triggerEntity, entities)
   ) {
     return null;
   }
-  if (!isGipDepartmentRecord(departmentEntity, departmentRecord)) return null;
-  const gipField = findTkpGipUserField(triggerEntity);
+
+  const catalog =
+    entities.length > 0 ? entities : [triggerEntity, departmentEntity];
+  const isGipCatalog = isGipDepartmentRecord(
+    departmentEntity,
+    departmentRecord,
+    catalog,
+  );
+  const isGipCalc =
+    !isGipCatalog &&
+    childValuesSelectGipDepartment({
+      childEntity: departmentEntity,
+      childValues: departmentRecord.values,
+      entities: catalog,
+    });
+  if (!isGipCatalog && !isGipCalc) return null;
+
+  const gipField = findTkpGipUserField(triggerEntity, catalog);
   if (!gipField) return null;
-  const ids = parseEntityRelationIds(triggerValues[gipField.id]);
+
+  const live = triggerRecordId
+    ? (triggerEntity.records.find((item) => item.id === triggerRecordId) ??
+      null)
+    : null;
+  // Prefer filled live lead values; draft empties must not wipe «ГИП».
+  const draft: Record<string, string> = {};
+  for (const [key, value] of Object.entries(triggerValues)) {
+    if (value == null) continue;
+    draft[key] = value;
+  }
+  const merged = mergeLeadFieldValues(live?.values, draft);
+  const ids = parseEntityRelationIds(merged[gipField.id]);
   if (ids.length === 0) return null;
   void fallbackUserIds;
   return ids;
