@@ -18,6 +18,7 @@ import {
 } from "../model/field";
 import {
   formatRecordFieldValue,
+  recordMatchesRelationGroupsFilter,
   type EntityValueContext,
 } from "../model/field-value";
 import {
@@ -29,6 +30,7 @@ import {
   resolveRelationRecordLabel,
   type Entity,
   type EntityField,
+  type EntityRelationFilter,
   type EntityRelationGroupsLevel,
   type RelationRecordOption,
 } from "../model/types";
@@ -193,6 +195,38 @@ function allowedIdsFromParent(
     return new Set(parseEntityListValueIds(record.values[sourceField.id]));
   }
   return new Set(parseEntityRelationIds(record.values[sourceField.id]));
+}
+
+function levelCatalogFilter(
+  level: EntityRelationGroupsLevel,
+): EntityRelationFilter | null {
+  return level.source.kind === "entity" ? (level.source.filter ?? null) : null;
+}
+
+function passesLevelCatalogFilter(
+  ctx: EntityValueContext,
+  levelEntity: Entity,
+  recordId: string,
+  filter: EntityRelationFilter | null,
+  parentEntity: Entity | null,
+  parentId: string,
+): boolean {
+  if (!filter) return true;
+  const record = levelEntity.records.find((item) => item.id === recordId);
+  if (!record) return false;
+  const parentRecord =
+    parentEntity && parentId
+      ? (parentEntity.records.find((item) => item.id === parentId) ?? null)
+      : null;
+  return recordMatchesRelationGroupsFilter(
+    ctx,
+    levelEntity,
+    record,
+    filter,
+    parentEntity && parentRecord
+      ? { entity: parentEntity, record: parentRecord }
+      : null,
+  );
 }
 
 function seedChildren(
@@ -397,9 +431,19 @@ export function RelationGroupsFieldControl({
     );
   }
 
+  const rootFilter = levelCatalogFilter(rootLevel);
   const rootOptions = enrichOptions(
-    getRelationRecordOptions(rootEntity, ctx.entities).filter((option) =>
-      isSelectableRecord(rootEntity, option.id, ctx.entities),
+    getRelationRecordOptions(rootEntity, ctx.entities).filter(
+      (option) =>
+        isSelectableRecord(rootEntity, option.id, ctx.entities) &&
+        passesLevelCatalogFilter(
+          ctx,
+          rootEntity,
+          option.id,
+          rootFilter,
+          null,
+          "",
+        ),
     ),
     rootLevel.displayFieldIds,
     (recordId, fieldIds) => extrasFor(rootEntity, recordId, 0, fieldIds),
@@ -430,6 +474,7 @@ export function RelationGroupsFieldControl({
     if (!isListSource && !entity) return null;
 
     const allowed = allowedIdsFromParent(parentEntity, parentId, level);
+    const catalogFilter = levelCatalogFilter(level);
     const selectedIds = node.children.map((child) => child.id);
     const options =
       entity != null
@@ -437,7 +482,15 @@ export function RelationGroupsFieldControl({
             getRelationRecordOptions(entity, ctx.entities).filter(
               (option) =>
                 isSelectableRecord(entity, option.id, ctx.entities) &&
-                (allowed ? allowed.has(option.id) : true),
+                (allowed ? allowed.has(option.id) : true) &&
+                passesLevelCatalogFilter(
+                  ctx,
+                  entity,
+                  option.id,
+                  catalogFilter,
+                  parentEntity,
+                  parentId,
+                ),
             ),
             level.displayFieldIds,
             (recordId, fieldIds) =>

@@ -53,6 +53,7 @@ import {
   type EntityFormulaConfig,
   type EntityNumberDecimals,
   type EntityRecord,
+  type EntityRelationFilter,
   type RelationRecordOption,
 } from "./types";
 import {
@@ -1616,6 +1617,68 @@ export function getRelationFieldOptions(
         label: label || "Без названия",
       };
     });
+}
+
+/**
+ * Whether a catalog record passes a relationGroups level `filter`
+ * (conditions + optional field matches against a parent/host record).
+ */
+export function recordMatchesRelationGroupsFilter(
+  ctx: EntityValueContext,
+  levelEntity: Entity,
+  record: EntityRecord,
+  filter: EntityRelationFilter | null | undefined,
+  source?: EntityConditionSource | null,
+): boolean {
+  if (!filter) return true;
+  for (const match of filter.matches) {
+    if (!source) continue;
+    const sourceField = findField(source.entity, match.sourceFieldId);
+    const targetField = findField(levelEntity, match.targetFieldId);
+    if (!sourceField || !targetField) continue;
+    const sourceIds = getRecordFieldIds(
+      ctx,
+      source.entity,
+      source.record,
+      sourceField,
+    );
+    if (sourceIds.length === 0) continue;
+    const targetIds = getRecordFieldIds(ctx, levelEntity, record, targetField);
+    if (!targetIds.some((id) => sourceIds.includes(id))) return false;
+  }
+  return matchesEntityConditions(
+    ctx,
+    levelEntity,
+    record,
+    filter.conditions,
+    source,
+  );
+}
+
+/** Apply a relationGroups level filter to catalog picker options. */
+export function filterRelationGroupsCatalogOptions(
+  levelEntity: Entity,
+  entities: readonly Entity[],
+  options: readonly RelationRecordOption[],
+  filter: EntityRelationFilter | null | undefined,
+  source?: EntityConditionSource | null,
+): RelationRecordOption[] {
+  if (!filter) return [...options];
+  if (filter.matches.length === 0 && filter.conditions.length === 0) {
+    return [...options];
+  }
+  const ctx = getEntityValueContext(entities);
+  return options.filter((option) => {
+    const record = levelEntity.records.find((item) => item.id === option.id);
+    if (!record) return false;
+    return recordMatchesRelationGroupsFilter(
+      ctx,
+      levelEntity,
+      record,
+      filter,
+      source,
+    );
+  });
 }
 
 /**

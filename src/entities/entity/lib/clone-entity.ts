@@ -179,6 +179,7 @@ function remapRelationGroups(
   config: EntityRelationGroupsConfig | undefined,
   fieldIdMap: Map<string, string>,
   entityIdMap: Map<string, string>,
+  optionIdMap: Map<string, string>,
 ): EntityRelationGroupsConfig | undefined {
   if (!config) return undefined;
   return {
@@ -195,6 +196,11 @@ function remapRelationGroups(
                 ? (mapId(fieldIdMap, level.source.limitFieldId) ??
                   level.source.limitFieldId)
                 : null,
+              filter: remapRelationFilter(
+                level.source.filter ?? undefined,
+                fieldIdMap,
+                optionIdMap,
+              ),
             }
           : {
               kind: "field" as const,
@@ -294,6 +300,7 @@ function remapField(
       field.relationGroups,
       fieldIdMap,
       entityIdMap,
+      optionIdMap,
     ),
     defaultValue: remapDefaultValue(field.defaultValue, optionIdMap),
     relationFilter: remapRelationFilter(

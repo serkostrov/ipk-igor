@@ -267,6 +267,11 @@ export type EntityRelationGroupsLevelSource =
       entityId: string | null;
       /** Relation field on the previous level's entity that limits candidates. */
       limitFieldId: string | null;
+      /**
+       * Narrows catalog options: conditions on this level's entity,
+       * optional field matches against the previous level (or host record).
+       */
+      filter?: EntityRelationFilter | null;
     }
   | {
       kind: "field";

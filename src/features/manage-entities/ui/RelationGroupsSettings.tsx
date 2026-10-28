@@ -14,6 +14,7 @@ import {
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityFieldTypeLabel,
+  filterRelationGroupsCatalogOptions,
   getEntityRelationTargetId,
   getRelationRecordOptions,
   isEntityNameField,
@@ -38,6 +39,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { SettingLabel, SettingSelect } from "@/shared/ui/setting-controls";
+import { RelationFilterSettings } from "./RelationFilterSettings";
 
 type EntityOption = {
   id: string;
@@ -568,6 +570,17 @@ function LevelEditorPanel({
         }))
     : [];
 
+  const levelFilter =
+    level.source.kind === "entity" ? (level.source.filter ?? null) : null;
+  const defaultOptions = levelEntity
+    ? filterRelationGroupsCatalogOptions(
+        levelEntity,
+        entities,
+        getRelationRecordOptions(levelEntity, entities),
+        levelFilter,
+      )
+    : [];
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-start gap-2">
@@ -633,10 +646,13 @@ function LevelEditorPanel({
               })
             }
           />
-          {index > 0 && level.source.entityId && previousEntity ? (
+          {index > 0 &&
+          level.source.entityId &&
+          previousEntity &&
+          limitOptions.length > 0 ? (
             <SettingSelect
               id={`entity-field-relation-groups-level-${level.id}-limit`}
-              title="Ограничить"
+              title="По связи с родителем"
               description={
                 entityName
                   ? `Необязательно: связь на предыдущем уровне → «${entityName}»`
@@ -654,9 +670,35 @@ function LevelEditorPanel({
                         ? level.source.entityId
                         : null,
                     limitFieldId,
+                    filter:
+                      level.source.kind === "entity"
+                        ? (level.source.filter ?? null)
+                        : null,
                   },
                 })
               }
+            />
+          ) : null}
+          {level.source.kind === "entity" &&
+          level.source.entityId &&
+          levelEntity ? (
+            <RelationFilterSettings
+              entity={index > 0 ? previousEntity : null}
+              fieldId={null}
+              target={levelEntity}
+              entities={entities}
+              value={level.source.filter ?? null}
+              onChange={(filter) => {
+                if (level.source.kind !== "entity") return;
+                onUpdateLevel(index, {
+                  source: {
+                    kind: "entity",
+                    entityId: level.source.entityId,
+                    limitFieldId: level.source.limitFieldId,
+                    filter,
+                  },
+                });
+              }}
             />
           ) : null}
         </>
@@ -718,7 +760,7 @@ function LevelEditorPanel({
           ) : levelEntity ? (
             <RelationSelect
               id={`entity-field-relation-groups-level-${level.id}-default`}
-              options={getRelationRecordOptions(levelEntity, entities)}
+              options={defaultOptions}
               value={serializeEntityRelationIds(defaultIds)}
               multiple
               placeholder="Не заполнять"

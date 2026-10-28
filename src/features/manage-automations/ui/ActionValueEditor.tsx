@@ -21,11 +21,14 @@ import {
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
+  getEntityValueContext,
   getRelationRecordOptions,
   isEntityComputedFieldType,
+  isEntityRelationGroupsConfigReady,
   isEntityRelationLikeFieldType,
   ListSelect,
   normalizeEntityDecimalInput,
+  RelationGroupsFieldControl,
   RelationSelect,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
@@ -1311,6 +1314,81 @@ function ActionValueEditorBody({
             )}
             onChange={onChange}
           />
+        ) : null}
+        {fromFieldPicker}
+        {fromEntityPicker}
+      </div>
+    );
+  }
+
+  if (field.type === "relationGroups") {
+    const groupsMode =
+      mode === "fromField" || mode === "fromEntity" || mode === "empty"
+        ? mode
+        : "custom";
+    const groupsReady = isEntityRelationGroupsConfigReady(field.relationGroups);
+    const groupsCtx = getEntityValueContext(entities);
+    const storedGroupsValue =
+      isAutomationFieldRef(value) || isAutomationEntityPathRef(value)
+        ? ""
+        : value;
+    return (
+      <div
+        className={cn(
+          shellClass,
+          groupsMode === "custom" && compact && "flex-col items-stretch gap-2",
+        )}
+      >
+        <ModeSelect
+          className={modeClass}
+          mapping={mapping}
+          value={groupsMode}
+          options={[
+            { value: "empty", label: "Очистить" },
+            {
+              value: "custom",
+              label: customModeLabel("Выбрать набор", "Набор"),
+            },
+            ...sourceModeOptions,
+          ]}
+          onChange={(next) => {
+            if (next === "empty") applyMode("empty", "");
+            else if (next === "custom") {
+              applyMode(
+                "custom",
+                mode === "custom" &&
+                  !isAutomationFieldRef(value) &&
+                  !isAutomationEntityPathRef(value)
+                  ? value
+                  : "",
+              );
+            } else {
+              handleSourceModePick(next);
+            }
+          }}
+        />
+        {groupsMode === "custom" ? (
+          groupsReady ? (
+            <div
+              className={cn(
+                "min-w-0 rounded-md border border-border/80 bg-background p-2",
+                compact ? "w-full" : valueGrowClass,
+              )}
+            >
+              <RelationGroupsFieldControl
+                id={`action-value-groups-${field.id}`}
+                ctx={groupsCtx}
+                field={field}
+                value={storedGroupsValue}
+                onChange={onChange}
+                mode="full"
+              />
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Сначала настройте уровни поля «Наборы связей»
+            </p>
+          )
         ) : null}
         {fromFieldPicker}
         {fromEntityPicker}

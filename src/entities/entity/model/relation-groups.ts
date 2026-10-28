@@ -3,7 +3,9 @@
  * Exactly two levels: «Строки» (roots) and «Вложенные» (children).
  */
 
+import { normalizeEntityConditions } from "./condition";
 import type {
+  EntityRelationFilter,
   EntityRelationGroupsConfig,
   EntityRelationGroupsLayout,
   EntityRelationGroupsLevel,
@@ -93,6 +95,27 @@ function normalizeLayout(value: unknown): EntityRelationGroupsLayout {
   return value === "row" ? "row" : "column";
 }
 
+function normalizeRelationGroupsFilter(
+  value: unknown,
+): EntityRelationFilter | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const matches = Array.isArray(record.matches)
+    ? record.matches.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Record<string, unknown>;
+        const targetFieldId = normalizeId(row.targetFieldId);
+        const sourceFieldId = normalizeId(row.sourceFieldId);
+        return targetFieldId && sourceFieldId
+          ? [{ targetFieldId, sourceFieldId }]
+          : [];
+      })
+    : [];
+  const conditions = normalizeEntityConditions(record.conditions);
+  if (matches.length === 0 && conditions.length === 0) return undefined;
+  return { matches, conditions };
+}
+
 function normalizeLevelSource(
   raw: unknown,
   allowField: boolean,
@@ -103,10 +126,12 @@ function normalizeLevelSource(
       return { kind: "field", fieldId: normalizeId(record.fieldId) };
     }
     if (record.kind === "entity" || record.kind == null) {
+      const filter = normalizeRelationGroupsFilter(record.filter);
       return {
         kind: "entity",
         entityId: normalizeId(record.entityId),
         limitFieldId: normalizeId(record.limitFieldId),
+        ...(filter ? { filter } : {}),
       };
     }
   }

@@ -237,6 +237,8 @@ export {
   getEntityParentLinkField,
   getRelationFieldOptions,
   getRelationNestedParentField,
+  filterRelationGroupsCatalogOptions,
+  recordMatchesRelationGroupsFilter,
   isRecordFieldEmpty,
   sanitizeEntityRelationDependencies,
   sanitizeEntityRelationGroupsFieldValue,
