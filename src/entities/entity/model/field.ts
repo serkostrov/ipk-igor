@@ -27,8 +27,14 @@ export type EntityFieldType =
   | "rollup"
   | "lookup";
 
-/** Fraction digits for number / numberSum / formula / rollup. */
-export type EntityNumberDecimals = 0 | 1 | 2;
+/**
+ * Fraction digits for number / numberSum / formula / rollup.
+ * Integer in `0…ENTITY_NUMBER_DECIMALS_MAX` (default 2).
+ */
+export type EntityNumberDecimals = number;
+
+/** Max digits after the decimal comma a field may request. */
+export const ENTITY_NUMBER_DECIMALS_MAX = 10;
 
 export const ENTITY_FIELD_TYPE_OPTIONS: Array<{
   value: EntityFieldType;
@@ -585,11 +591,21 @@ export function entityFieldInputType(type: EntityFieldType) {
   return "text";
 }
 
-/** Clamp unknown → 0 | 1 | 2 (default 2). */
+/** Clamp unknown → 0…max (default 2). */
 export function normalizeEntityNumberDecimals(
   value: unknown,
 ): EntityNumberDecimals {
-  return value === 0 || value === 1 ? value : 2;
+  if (typeof value !== "number" || !Number.isFinite(value)) return 2;
+  return Math.min(ENTITY_NUMBER_DECIMALS_MAX, Math.max(0, Math.floor(value)));
+}
+
+/** Placeholder like `0`, `0,0`, `0,00` … for number inputs. */
+export function entityNumberInputPlaceholder(
+  decimals: EntityNumberDecimals = 2,
+): string {
+  const digits = normalizeEntityNumberDecimals(decimals);
+  if (digits === 0) return "0";
+  return `0,${"0".repeat(digits)}`;
 }
 
 /** Display / input fraction digits for a numeric field. */

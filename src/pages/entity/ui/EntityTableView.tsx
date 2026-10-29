@@ -1752,8 +1752,8 @@ function EntityTableViewInner({
                               Math.max(
                                 max,
                                 getEntityFieldFractionDigits(field),
-                              ) as 0 | 1 | 2,
-                            0 as 0 | 1 | 2,
+                              ),
+                            0,
                           );
                         const totalValue = isTotalColumn
                           ? formatEntityDecimalTotal(

@@ -53,6 +53,8 @@ import {
   type EntityCondition,
   type EntityField,
   type EntityFieldType,
+  ENTITY_NUMBER_DECIMALS_MAX,
+  normalizeEntityNumberDecimals,
   type EntityNumberDecimals,
 } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
@@ -1362,7 +1364,7 @@ function EntityFieldForm({
     Boolean(field?.unitSuffix?.trim()) && field?.type !== "numberSum",
   );
   const [decimals, setDecimals] = useState<EntityNumberDecimals>(() =>
-    field?.decimals === 0 || field?.decimals === 1 ? field.decimals : 2,
+    normalizeEntityNumberDecimals(field?.decimals),
   );
   const [sumFieldIds, setSumFieldIds] = useState(() => {
     const allowed = new Set(sumFieldOptions.map((option) => option.id));
@@ -1789,6 +1791,7 @@ function EntityFieldForm({
                   <DecimalsSelect
                     id="entity-field-formula-decimals"
                     value={typeSettings.formulaDecimals}
+                    max={ENTITY_NUMBER_DECIMALS_MAX}
                     onChange={(formulaDecimals) =>
                       patchTypeSettings({ formulaDecimals })
                     }
@@ -1820,10 +1823,14 @@ function EntityFieldForm({
                   <DecimalsSelect
                     id="entity-field-rollup-decimals"
                     value={typeSettings.rollup.decimals}
-                    onChange={(decimals) =>
+                    max={ENTITY_NUMBER_DECIMALS_MAX}
+                    onChange={(nextDecimals) =>
                       patchTypeSettings({
                         rollup: typeSettings.rollup
-                          ? { ...typeSettings.rollup, decimals }
+                          ? {
+                              ...typeSettings.rollup,
+                              decimals: nextDecimals,
+                            }
                           : null,
                       })
                     }
@@ -1919,6 +1926,7 @@ function EntityFieldForm({
                   <DecimalsSelect
                     id="entity-field-number-decimals"
                     value={decimals}
+                    max={ENTITY_NUMBER_DECIMALS_MAX}
                     onChange={setDecimals}
                   />
                 ) : null}

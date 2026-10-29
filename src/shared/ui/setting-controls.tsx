@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import {
   Select,
@@ -75,14 +77,6 @@ export function SettingSwitch({
     </div>
   );
 }
-
-export type SettingDecimals = 0 | 1 | 2;
-
-const DECIMALS_OPTIONS: SettingOption[] = [
-  { value: "0", label: "Без дробной части" },
-  { value: "1", label: "1 знак" },
-  { value: "2", label: "2 знака" },
-];
 
 /** Single choice with an optional «none» item; shows a hint when empty. */
 export function SettingSelect({
@@ -180,27 +174,79 @@ export function SettingSelect({
   );
 }
 
-/** «Точность»: digits after the decimal comma. */
+/**
+ * «Точность»: free integer digits after the decimal comma.
+ * Compact row — label left, numeric input right (like SettingSwitch).
+ */
 export function DecimalsSelect({
   id,
   value,
   onChange,
+  max = 10,
 }: {
   id: string;
-  value: SettingDecimals;
-  onChange: (value: SettingDecimals) => void;
+  value: number;
+  onChange: (value: number) => void;
+  /** Upper bound inclusive (default 10). */
+  max?: number;
 }) {
+  const upper = Math.max(0, Math.floor(max));
+  const safe = clampDecimals(value, upper);
+  const [draft, setDraft] = useState(String(safe));
+  const [focused, setFocused] = useState(false);
+  const shown = focused ? draft : String(safe);
+
+  function commit(raw: string) {
+    const parsed = Number(raw.trim());
+    const next = clampDecimals(Number.isFinite(parsed) ? parsed : safe, upper);
+    setDraft(String(next));
+    if (next !== safe) onChange(next);
+  }
+
   return (
-    <SettingSelect
-      id={id}
-      title="Точность"
-      description="Знаков после запятой"
-      value={String(value)}
-      options={DECIMALS_OPTIONS}
-      onChange={(next) => {
-        const decimals = Number(next);
-        onChange(decimals === 0 || decimals === 1 ? decimals : 2);
-      }}
-    />
+    <div className="flex items-center justify-between gap-3">
+      <SettingLabel
+        htmlFor={id}
+        title="Точность"
+        description={`Знаков после запятой · 0–${upper}`}
+      />
+      <Input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={upper}
+        step={1}
+        value={shown}
+        aria-label="Знаков после запятой"
+        className="h-8 w-[4.5rem] shrink-0 text-center tabular-nums"
+        onFocus={() => {
+          setFocused(true);
+          setDraft(String(safe));
+        }}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          if (next.trim() === "") return;
+          const parsed = Number(next);
+          if (!Number.isFinite(parsed)) return;
+          onChange(clampDecimals(parsed, upper));
+        }}
+        onBlur={() => {
+          setFocused(false);
+          commit(draft);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </div>
   );
+}
+
+function clampDecimals(value: number, max: number): number {
+  if (!Number.isFinite(value)) return 2;
+  return Math.min(max, Math.max(0, Math.floor(value)));
 }

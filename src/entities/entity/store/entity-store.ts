@@ -42,6 +42,7 @@ import {
 import { entitySchemasEqual } from "../model/schema-changes";
 import { resolveEntityForRecord } from "../model/schema-version";
 import {
+  normalizeEntityNumberDecimals,
   parseEntityListValueIds,
   serializeEntityDecimal,
   serializeEntityListValueIds,
@@ -1200,9 +1201,7 @@ export function addEntityField(
     unitSuffix: data?.unitSuffix?.trim() || null,
     decimals:
       type === "number" || type === "numberSum"
-        ? data?.decimals === 0 || data?.decimals === 1
-          ? data.decimals
-          : 2
+        ? normalizeEntityNumberDecimals(data?.decimals)
         : 2,
     formula: data?.formula,
     rollup: data?.rollup,
