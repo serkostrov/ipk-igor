@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   Check,
   ClipboardPen,
+  Clock,
   ExternalLink,
   FileText,
   Folder,
@@ -28,12 +29,16 @@ import {
   groupEntityFields,
   isEntityFieldVisibleByConditions,
   isEntityFieldVisibleOnRecord,
+  formatEntityComputedNumber,
+  getSystemUserName,
   isEntityFilesTab,
   isEntityHistoryTab,
+  isEntityTimeSessionsTab,
   isEntityMirrorTab,
   isEntityNameField,
   isEntityRecordsTab,
   isEntityTabWithLinkedEntity,
+  listRecordTimeEntries,
   parseEntityTabFileEntries,
   PRIMARY_ENTITY_FIELD_GROUP,
   RecordNotesEditor,
@@ -51,7 +56,11 @@ import {
 } from "@/entities/entity";
 import { useEntityRecordEvents } from "@/entities/history";
 import { RecordEntityTabPanel } from "@/pages/entity/ui/RecordEntityTabPanel";
-import { formatTimestampDisplay } from "@/shared/lib/format-date";
+import {
+  formatDatetimeDisplay,
+  formatTimestampDisplay,
+} from "@/shared/lib/format-date";
+import { toLocalDatetime } from "@/shared/lib/datetime";
 import { pluralRu } from "@/shared/lib/plural";
 import { cn } from "@/shared/lib/cn";
 import {
@@ -211,6 +220,8 @@ function TabKindIcon({ tab }: { tab: EntityTab }) {
   if (isEntityFilesTab(tab)) return <Folder className="size-3.5" aria-hidden />;
   if (isEntityHistoryTab(tab))
     return <History className="size-3.5" aria-hidden />;
+  if (isEntityTimeSessionsTab(tab))
+    return <Clock className="size-3.5" aria-hidden />;
   if (isEntityRecordsTab(tab))
     return <StickyNote className="size-3.5" aria-hidden />;
   if (isEntityMirrorTab(tab)) return <Link2 className="size-3.5" aria-hidden />;
@@ -742,6 +753,68 @@ function HistoryPreview({
   );
 }
 
+function TimeSessionsPreview({
+  entity,
+  record,
+}: {
+  entity: Entity;
+  record: EntityRecord;
+}) {
+  const { entities } = useEntityConfig();
+  const entries = listRecordTimeEntries(entity, record.id, entities);
+  if (!entries) {
+    return <EmptyPreview>Учёт времени не настроен</EmptyPreview>;
+  }
+  if (entries.length === 0) {
+    return <EmptyPreview>Сессий пока нет</EmptyPreview>;
+  }
+  const shown = entries.slice(0, PREVIEW_LIMIT);
+  const rest = entries.length - shown.length;
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {shown.map((row) => {
+        const employeeName = row.employeeId
+          ? getSystemUserName(entities, row.employeeId)
+          : null;
+        const startLabel = row.startedAt
+          ? formatDatetimeDisplay(toLocalDatetime(row.startedAt))
+          : "—";
+        return (
+          <li
+            key={row.entry.id}
+            className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background px-3 py-2.5"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm text-foreground">
+                {startLabel}
+                {row.running ? " · идёт" : ""}
+              </p>
+              {employeeName ? (
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {employeeName}
+                </p>
+              ) : null}
+            </div>
+            <span className="shrink-0 text-sm font-medium tabular-nums text-foreground">
+              {row.hours != null
+                ? `${formatEntityComputedNumber(row.hours)} ч`
+                : row.running
+                  ? "…"
+                  : "—"}
+            </span>
+          </li>
+        );
+      })}
+      {rest > 0 ? (
+        <li className="text-center text-[11px] text-muted-foreground">
+          и ещё {rest}
+        </li>
+      ) : null}
+    </ul>
+  );
+}
+
 function FieldsPreview({
   entity,
   record,
@@ -927,6 +1000,9 @@ function TabPreviewBody({
   }
   if (isEntityHistoryTab(tab)) {
     return <HistoryPreview entity={entity} record={record} />;
+  }
+  if (isEntityTimeSessionsTab(tab)) {
+    return <TimeSessionsPreview entity={entity} record={record} />;
   }
   if (isEntityMirrorTab(tab)) {
     if (depth > 0) {

@@ -1856,6 +1856,7 @@ function EntityFieldForm({
                   <RelationGroupsSettings
                     entities={entities}
                     entityOptions={entityOptions}
+                    hostEntity={currentEntity}
                     value={typeSettings.relationGroups}
                     onChange={(relationGroups) =>
                       patchTypeSettings({ relationGroups })

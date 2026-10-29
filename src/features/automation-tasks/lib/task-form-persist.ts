@@ -75,7 +75,7 @@ export function buildTaskFormPersistPatch(options: {
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
-/** Related-record patches for ask fields marked «запись». */
+/** Related-record patches for visible related ask fields. */
 export function buildTaskRelatedPersistUpdates(options: {
   entity: Entity;
   entities: Entity[];

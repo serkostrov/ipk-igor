@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import {
+  collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,
   createEntityDraftRecord,
   findDeptCalculationsGroupsField,
@@ -10,12 +11,18 @@ import {
   isEntityFieldVisibleByConditions,
   parseEntityListValueIds,
   resolveEntityListFieldPresentation,
-  serializeEntityRelationGroups,
+  serializeTkpStageDepartmentPairs,
   type Entity,
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+import {
+  filterDeptCalculationRecordsForAssignee,
+  resolveDeptCalculationsHostFields,
+  resolveEditableDeptCalculationRecordIds,
+} from "@/features/hardcode";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
+import { DeptCalculationsView } from "@/pages/entity/ui/DeptCalculationsView";
 import type {
   RelatedAskEmptyRelation,
   RelatedAskGroup,
@@ -28,23 +35,10 @@ function mergeDeptCalculationGroupsValue(
 ): string {
   const groupsField = findDeptCalculationsGroupsField(entity);
   if (!groupsField) return "";
-  const byStage = new Map<string, Set<string>>();
-  for (const record of records) {
-    for (const pair of collectTkpStageDepartmentPairs(
-      record.values[groupsField.id],
-    )) {
-      const set = byStage.get(pair.stageId) ?? new Set<string>();
-      set.add(pair.departmentId);
-      byStage.set(pair.stageId, set);
-    }
-  }
-  if (byStage.size === 0) return "";
-  return serializeEntityRelationGroups(
-    [...byStage.entries()].map(([stageId, departmentIds]) => ({
-      id: stageId,
-      children: [...departmentIds].map((id) => ({ id, children: [] })),
-    })),
+  const pairs = records.flatMap((record) =>
+    collectTkpStageDepartmentPairs(record.values[groupsField.id]),
   );
+  return serializeTkpStageDepartmentPairs(pairs);
 }
 
 type DisplayAskGroup = RelatedAskGroup & {
@@ -53,12 +47,14 @@ type DisplayAskGroup = RelatedAskGroup & {
 };
 
 /**
- * Related ask for «Расчёты отделов»: one «Стадия/отделы» picker (merged),
- * not the department-calculations table. Table view stays on the entity page.
+ * Related ask for «Расчёты отделов»: prefer the departments table (stage
+ * groups). Flat field controls remain a fallback when the groups field is
+ * the only ask (department selection step).
  */
 function collapseDeptCalculationGroups(
   groups: RelatedAskGroup[],
   entities: Entity[],
+  softFillParent?: { entity: Entity; record: EntityRecord } | null,
 ): DisplayAskGroup[] {
   const deptByEntity = new Map<string, RelatedAskGroup[]>();
   const other: DisplayAskGroup[] = [];
@@ -80,13 +76,19 @@ function collapseDeptCalculationGroups(
     const live =
       entities.find((item) => item.id === entityId) ?? primary.relatedEntity;
     const recordIds = [...new Set(list.map((item) => item.relatedRecordId))];
-    const records = live.records.filter((record) =>
-      recordIds.includes(record.id),
+    const parent =
+      softFillParent != null
+        ? { entity: softFillParent.entity, recordId: softFillParent.record.id }
+        : null;
+    // Ask layout may only list a subset — pull every fan-out sibling that
+    // shares the same parent so stages do not lose departments on reload.
+    const records = collectDeptCalculationSiblingRecords(
+      live,
+      recordIds,
+      parent,
     );
     const groupsField = findDeptCalculationsGroupsField(live);
     const mergedGroupsValue = mergeDeptCalculationGroupsValue(live, records);
-
-    // One form on the primary row — siblings are covered by fan-out on persist.
     const fields = primary.fields;
 
     collapsed.push({
@@ -108,6 +110,66 @@ function collapseDeptCalculationGroups(
   return [...collapsed, ...other];
 }
 
+function collectDeptCalcAskBundle(
+  groups: RelatedAskGroup[],
+  entities: Entity[],
+): {
+  entity: Entity;
+  recordIds: string[];
+  relationLabel: string;
+  /**
+   * Host fields (срок / описание / …) that this ask actually requests —
+   * when non-empty we show the departments table instead of flat controls.
+   */
+  tableFieldIds: Set<string>;
+  /** Asks that still need flat controls (e.g. stage/dept picker). */
+  leftoverFields: RelatedAskGroup["fields"];
+  primary: RelatedAskGroup;
+} | null {
+  const deptGroups = groups.filter((group) =>
+    isDeptCalculationsEntity(group.relatedEntity),
+  );
+  if (deptGroups.length === 0) return null;
+  const primary = deptGroups[0]!;
+  const entity =
+    entities.find((item) => item.id === primary.relatedEntity.id) ??
+    primary.relatedEntity;
+  const hostFields = resolveDeptCalculationsHostFields(entity);
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  const askedFieldIds = new Set(primary.fields.map((row) => row.field.id));
+  const hostTableFieldIds = new Set(
+    [hostFields.deadline, hostFields.description, hostFields.comment]
+      .filter(Boolean)
+      .map((field) => field!.id),
+  );
+  // Only show the fill table when this outcome asks for table-owned fields.
+  // Selection step asks «Стадия/отделы» alone — keep the groups picker.
+  const tableFieldIds = new Set(
+    [...hostTableFieldIds].filter((id) => askedFieldIds.has(id)),
+  );
+  const leftoverFields = primary.fields.filter((row) => {
+    if (tableFieldIds.has(row.field.id)) return false;
+    // On a fill-table step, groups are already chosen — hide the picker.
+    // On a selection step (no table fields asked), keep «Стадия/отделы».
+    if (
+      groupsField &&
+      row.field.id === groupsField.id &&
+      tableFieldIds.size > 0
+    ) {
+      return false;
+    }
+    return true;
+  });
+  return {
+    entity,
+    recordIds: [...new Set(deptGroups.map((item) => item.relatedRecordId))],
+    relationLabel: primary.relationLabel,
+    tableFieldIds,
+    leftoverFields,
+    primary,
+  };
+}
+
 export function TaskRelatedAskFields({
   groups,
   emptyRelations,
@@ -117,6 +179,8 @@ export function TaskRelatedAskFields({
   disabled,
   onChange,
   softFillParent = null,
+  assigneeUserId = null,
+  onSeedChange,
 }: {
   groups: RelatedAskGroup[];
   emptyRelations: RelatedAskEmptyRelation[];
@@ -125,51 +189,138 @@ export function TaskRelatedAskFields({
   ctx: EntityValueContext;
   disabled?: boolean;
   onChange: (valueKey: string, value: string) => void;
+  /**
+   * Sync draft from live fan-out siblings without marking the form dirty
+   * (avoids re-persist of a partial merge right after save).
+   */
+  onSeedChange?: (valueKey: string, value: string) => void;
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
+  /** Task assignee — filters «Расчёты отделов» to this head’s stages. */
+  assigneeUserId?: string | null;
 }) {
   const displayGroups = useMemo(
-    () => collapseDeptCalculationGroups(groups, entities),
+    () => collapseDeptCalculationGroups(groups, entities, softFillParent),
+    [groups, entities, softFillParent],
+  );
+
+  const deptBundle = useMemo(
+    () => collectDeptCalcAskBundle(groups, entities),
     [groups, entities],
   );
 
+  const deptTableRecords = useMemo(() => {
+    if (!deptBundle) return [];
+    const live =
+      entities.find((item) => item.id === deptBundle.entity.id) ??
+      deptBundle.entity;
+    const parent =
+      softFillParent != null
+        ? { entity: softFillParent.entity, recordId: softFillParent.record.id }
+        : null;
+    const linked = collectDeptCalculationSiblingRecords(
+      live,
+      deptBundle.recordIds,
+      parent,
+    );
+    return filterDeptCalculationRecordsForAssignee({
+      entity: live,
+      records: linked,
+      entities,
+      assigneeUserId,
+      leadParent: softFillParent,
+    });
+  }, [deptBundle, entities, assigneeUserId, softFillParent]);
+
+  const editableDeptRecordIds = useMemo(() => {
+    if (!deptBundle) return null;
+    const live =
+      entities.find((item) => item.id === deptBundle.entity.id) ??
+      deptBundle.entity;
+    return resolveEditableDeptCalculationRecordIds({
+      entity: live,
+      records: deptTableRecords,
+      entities,
+      assigneeUserId,
+      leadParent: softFillParent,
+    });
+  }, [deptBundle, deptTableRecords, entities, assigneeUserId, softFillParent]);
+
+  const flatGroups = useMemo(() => {
+    if (!deptBundle) return displayGroups;
+    const nonDept = displayGroups.filter(
+      (group) => !isDeptCalculationsEntity(group.relatedEntity),
+    );
+    if (deptBundle.leftoverFields.length === 0) return nonDept;
+    return [
+      {
+        ...deptBundle.primary,
+        relatedEntity: deptBundle.entity,
+        fields: deptBundle.leftoverFields,
+      },
+      ...nonDept,
+    ];
+  }, [displayGroups, deptBundle]);
+
   const onChangeRef = useRef(onChange);
+  const onSeedChangeRef = useRef(onSeedChange);
   const valuesRef = useRef(values);
+  /** Last value we auto-seeded per key — allows growing as siblings load. */
+  const lastAutoSeedRef = useRef<Record<string, string>>({});
   useEffect(() => {
     onChangeRef.current = onChange;
+    onSeedChangeRef.current = onSeedChange;
     valuesRef.current = values;
-  }, [onChange, values]);
+  }, [onChange, onSeedChange, values]);
 
-  // Seed the primary «Стадия/отделы» draft with the merged tree so the picker
-  // shows every stage×department already fan-out into sibling rows.
+  // Expand a pristine live draft (empty / single fan-out row) to the full
+  // sibling tree. Never overwrite a user-edited draft — that restored deletes
+  // and randomly wiped stages while autosave was still writing siblings.
   useEffect(() => {
+    const seed = onSeedChangeRef.current ?? onChangeRef.current;
     for (const group of displayGroups) {
       if (!isDeptCalculationsEntity(group.relatedEntity)) continue;
       const groupsField = findDeptCalculationsGroupsField(group.relatedEntity);
       if (!groupsField || !group.mergedGroupsValue) continue;
       const row = group.fields.find((item) => item.field.id === groupsField.id);
       if (!row) continue;
-      const current = valuesRef.current[row.valueKey] ?? "";
-      if (current === group.mergedGroupsValue) continue;
+      const key = row.valueKey;
+      const current = valuesRef.current[key] ?? "";
+      const merged = group.mergedGroupsValue;
+      if (!merged || current === merged) {
+        if (current === merged) lastAutoSeedRef.current[key] = merged;
+        continue;
+      }
 
+      const livePrimary = group.relatedEntity.records.find(
+        (item) => item.id === group.relatedRecordId,
+      );
+      const liveRaw = livePrimary?.values[groupsField.id] ?? "";
+      const lastSeeded = lastAutoSeedRef.current[key] ?? "";
       const currentPairs = collectTkpStageDepartmentPairs(current);
-      const mergedPairs = collectTkpStageDepartmentPairs(
-        group.mergedGroupsValue,
-      );
-      // Keep an in-progress richer draft (user added depts not yet persisted).
-      if (currentPairs.length > mergedPairs.length) continue;
-      const mergedKeys = new Set(
-        mergedPairs.map((pair) => `${pair.stageId}\0${pair.departmentId}`),
-      );
-      const hasUnsaved = currentPairs.some(
-        (pair) => !mergedKeys.has(`${pair.stageId}\0${pair.departmentId}`),
-      );
-      if (hasUnsaved) continue;
+      const lastPairs = collectTkpStageDepartmentPairs(lastSeeded);
+      // User removed departments — never grow the draft back from live siblings.
+      if (lastSeeded !== "" && currentPairs.length < lastPairs.length) {
+        continue;
+      }
+      // Pristine = empty, still equal to live row, or only what we auto-filled.
+      const pristine =
+        current.trim() === "" ||
+        current === liveRaw ||
+        (lastSeeded !== "" && current === lastSeeded);
+      if (!pristine) continue;
 
-      onChangeRef.current(row.valueKey, group.mergedGroupsValue);
+      const mergedPairs = collectTkpStageDepartmentPairs(merged);
+      if (mergedPairs.length <= currentPairs.length) continue;
+      lastAutoSeedRef.current[key] = merged;
+      seed(key, merged);
     }
   }, [displayGroups]);
 
   if (groups.length === 0 && emptyRelations.length === 0) return null;
+
+  const showDeptTable = Boolean(
+    deptBundle && deptBundle.tableFieldIds.size > 0,
+  );
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -186,16 +337,40 @@ export function TaskRelatedAskFields({
         </p>
       ))}
 
-      {displayGroups.map((group, groupIndex) => {
+      {showDeptTable && deptBundle ? (
+        <div className="flex flex-col gap-2">
+          <p className="truncate text-[11px] font-medium text-muted-foreground">
+            {deptBundle.relationLabel}
+          </p>
+          {deptTableRecords.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-3 py-2.5 text-xs text-muted-foreground">
+              Нет расчётов отделов для этого исполнителя. Проверьте выбор
+              отделов на предыдущем шаге.
+            </p>
+          ) : (
+            <DeptCalculationsView
+              entity={
+                entities.find((item) => item.id === deptBundle.entity.id) ??
+                deptBundle.entity
+              }
+              records={deptTableRecords}
+              leadParent={softFillParent}
+              editableRecordIds={editableDeptRecordIds}
+            />
+          )}
+        </div>
+      ) : null}
+
+      {flatGroups.map((group, groupIndex) => {
         const showTitle =
-          displayGroups.filter(
+          flatGroups.filter(
             (item) => item.relationFieldId === group.relationFieldId,
           ).length > 1;
         return (
           <div
             key={`${group.relationFieldId}:${group.relatedRecordId}`}
             className={
-              groupIndex > 0
+              groupIndex > 0 || showDeptTable
                 ? "flex flex-col gap-3 border-t border-border/50 pt-3.5"
                 : "flex flex-col gap-3"
             }

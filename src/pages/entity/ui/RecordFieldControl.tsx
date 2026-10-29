@@ -5,10 +5,9 @@ import { Label } from "@/shared/ui/label";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import {
   createEntityDraftRecord,
-  ensureTkpGipDepartmentInGroupsValue,
   formatTkpGipDepartmentExtras,
   ListSelect,
   RelationGroupsFieldControl,
@@ -132,7 +131,11 @@ function getRelationControlOptions(
   return hidden.length > 0 ? [...options, ...hidden] : options;
 }
 
-/** «Стадия/отделы»: keep nested «ГИП» in value, hide it in the picker UI. */
+/**
+ * «Стадия/отделы»: «ГИП» скрыт в пикере (чип + опции). В значение его
+ * дописывает только persist/fan-out — не на каждый onChange, иначе правки
+ * и удаления перетирались.
+ */
 function TkpRelationGroupsControl({
   id,
   ctx,
@@ -162,44 +165,21 @@ function TkpRelationGroupsControl({
     entities,
     softFillParent,
   });
-  const gipDepartmentId = resolveTkpGipDepartmentRecordId(entity, entities);
   const hiddenNestedRecordIds = useMemo(() => {
-    if (!gipDepartmentId) return undefined;
-    return new Set([gipDepartmentId]);
-  }, [gipDepartmentId]);
-  const ensuredValue = ensureTkpGipDepartmentInGroupsValue({
-    value,
-    hostEntity: entity,
-    entities,
-  });
-  const lastEnsuredRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (ensuredValue === value) {
-      lastEnsuredRef.current = null;
-      return;
-    }
-    if (lastEnsuredRef.current === `${value}→${ensuredValue}`) return;
-    lastEnsuredRef.current = `${value}→${ensuredValue}`;
-    onChange(ensuredValue);
-  }, [ensuredValue, onChange, value]);
+    const gipId = resolveTkpGipDepartmentRecordId(entity, entities);
+    return gipId ? new Set([gipId]) : undefined;
+  }, [entity, entities]);
 
   return (
     <RelationGroupsFieldControl
       id={id}
       ctx={ctx}
       field={field}
-      value={ensuredValue}
-      onChange={(next) =>
-        onChange(
-          ensureTkpGipDepartmentInGroupsValue({
-            value: next,
-            hostEntity: entity,
-            entities,
-          }),
-        )
-      }
+      value={value}
+      onChange={onChange}
       mode={mode}
       hiddenNestedRecordIds={hiddenNestedRecordIds}
+      catalogFilterSource={{ entity, record: hostRecord }}
       resolveRecordExtras={
         leadParent
           ? ({

@@ -521,7 +521,9 @@ function EntityTabForm({
                           ? "Например, Документы"
                           : kind === "history"
                             ? "Например, История"
-                            : "Например, Детали"
+                            : kind === "timeSessions"
+                              ? "Например, Учёт времени"
+                              : "Например, Детали"
               }
               autoFocus={!isExisting && !isMirrorTab}
               onKeyDown={(event) => {
@@ -559,6 +561,12 @@ function EntityTabForm({
               <p className="text-xs text-muted-foreground">
                 На странице записи появится лента изменений: кто, когда и что
                 поменял.
+              </p>
+            ) : null}
+            {!isEdit && kind === "timeSessions" ? (
+              <p className="text-xs text-muted-foreground">
+                На странице записи появится список сессий таймера и ручных
+                записей времени. У сущности должен быть включён учёт времени.
               </p>
             ) : null}
           </div>

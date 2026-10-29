@@ -160,6 +160,8 @@ const localRecordWrites = new Map<string, number>();
 const localStructureWrites = new Map<string, number>();
 /** In-flight inserts so updates wait for the row to exist remotely. */
 const pendingRecordInserts = new Map<string, Promise<void>>();
+/** In-flight deletes so fan-out orphan cleanup can await remote removal. */
+const pendingRecordDeletes = new Map<string, Promise<void>>();
 
 function notify() {
   listeners.forEach((listener) => listener());
@@ -3069,23 +3071,32 @@ export function placeEntityFieldInTable(
 export function reorderEntityFields(entityId: string, fieldIds: string[]) {
   mapEntity(entityId, (entity) => {
     const byId = new Map(entity.fields.map((field) => [field.id, field]));
-    const next: EntityField[] = [];
+    const nameFields = entity.fields.filter((field) =>
+      isEntityNameField(field),
+    );
+    // Create-form DnD may include «Название»; constructor lists still omit it.
+    const includesName = fieldIds.some((id) => {
+      const field = byId.get(id);
+      return field != null && isEntityNameField(field);
+    });
 
+    const next: EntityField[] = [];
     for (const id of fieldIds) {
       const field = byId.get(id);
-      if (!field || isEntityNameField(field)) continue;
+      if (!field) continue;
+      if (!includesName && isEntityNameField(field)) continue;
       next.push(field);
       byId.delete(id);
     }
 
-    for (const field of byId.values()) {
-      if (isEntityNameField(field)) continue;
+    // Preserve prior relative order for anything not in `fieldIds`.
+    for (const field of entity.fields) {
+      if (!byId.has(field.id)) continue;
+      if (!includesName && isEntityNameField(field)) continue;
       next.push(field);
+      byId.delete(field.id);
     }
 
-    const nameFields = entity.fields.filter((field) =>
-      isEntityNameField(field),
-    );
     // Keep table / create / settings order in sync (settings list is source).
     let tableOrder = 1;
     const ordered = next.map((field) => {
@@ -3095,6 +3106,9 @@ export function reorderEntityFields(entityId: string, fieldIds: string[]) {
       return normalizeEntityField({ ...field, tableOrder: nextOrder });
     });
 
+    if (includesName) {
+      return { ...entity, fields: ordered };
+    }
     return { ...entity, fields: [...nameFields, ...ordered] };
   });
 }
@@ -3288,6 +3302,14 @@ function dropEntityRecordLocal(entityId: string, recordId: string) {
  */
 export function waitForEntityRecordInsert(recordId: string): Promise<void> {
   return pendingRecordInserts.get(recordId) ?? Promise.resolve();
+}
+
+/**
+ * Wait until a just-removed record has finished remote delete (or failed).
+ * No-op when the record was never pending or Supabase is off.
+ */
+export function waitForEntityRecordDelete(recordId: string): Promise<void> {
+  return pendingRecordDeletes.get(recordId) ?? Promise.resolve();
 }
 
 function insertRecord(entityId: string, values: Record<string, string>) {
@@ -3706,7 +3728,12 @@ export function removeEntityRecord(entityId: string, recordId: string) {
       console.error("[entity] purge notifications on record delete", error);
     },
   );
-  void deleteEntityRecord(recordId).catch((error: unknown) => {
-    handlePersistError(error, "Не удалось удалить запись");
-  });
+  const persist = deleteEntityRecord(recordId)
+    .catch((error: unknown) => {
+      handlePersistError(error, "Не удалось удалить запись");
+    })
+    .finally(() => {
+      pendingRecordDeletes.delete(recordId);
+    });
+  pendingRecordDeletes.set(recordId, persist);
 }

@@ -50,6 +50,7 @@ import {
   isEntityFieldVisibleOnRecord,
   isEntityFilesTab,
   isEntityHistoryTab,
+  isEntityTimeSessionsTab,
   isEntityMirrorTab,
   getEntityRecordTitle,
   isEntityNameField,
@@ -91,6 +92,7 @@ import { RecordFilesTabPanel } from "./RecordFilesTabPanel";
 import { RecordHistoryTabPanel } from "./RecordHistoryTabPanel";
 import { RecordMirrorTabPanel } from "./RecordMirrorTabPanel";
 import { RecordNotesTabPanel } from "./RecordNotesTabPanel";
+import { RecordTimeSessionsTabPanel } from "./RecordTimeSessionsTabPanel";
 import { UserPrimaryProfileCard } from "./UserPrimaryProfileCard";
 
 const RECORD_FIELD_ROW_HEIGHT = 44;
@@ -1349,6 +1351,18 @@ export function EntityRecordPage({
                 return (
                   <TabsContent key={tab.id} value={tab.id} className="mt-0">
                     <RecordHistoryTabPanel
+                      entity={entity}
+                      record={record}
+                      tab={tab}
+                    />
+                  </TabsContent>
+                );
+              }
+
+              if (isEntityTimeSessionsTab(tab)) {
+                return (
+                  <TabsContent key={tab.id} value={tab.id} className="mt-0">
+                    <RecordTimeSessionsTabPanel
                       entity={entity}
                       record={record}
                       tab={tab}

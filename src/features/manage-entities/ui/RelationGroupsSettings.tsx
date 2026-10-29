@@ -55,6 +55,8 @@ type RelationGroupsSettingsProps = {
   /** Root ids for a new record (level 0 defaults live in field.defaultValue). */
   defaultValue: EntityFieldDefaultValue | null;
   onDefaultValueChange: (value: EntityFieldDefaultValue | null) => void;
+  /** Entity that owns the relationGroups field («эта запись» in catalog filters). */
+  hostEntity?: Entity | null;
 };
 
 const SETTINGS_SELECT_CLASS =
@@ -482,6 +484,7 @@ function LevelEditorPanel({
   level,
   levels,
   entities,
+  hostEntity = null,
   selectOptions,
   defaultValue,
   onBack,
@@ -493,6 +496,7 @@ function LevelEditorPanel({
   level: EntityRelationGroupsLevel;
   levels: readonly EntityRelationGroupsLevel[];
   entities: Entity[];
+  hostEntity?: Entity | null;
   selectOptions: Array<{ value: string; label: string }>;
   defaultValue: EntityFieldDefaultValue | null;
   onBack: () => void;
@@ -683,7 +687,7 @@ function LevelEditorPanel({
           level.source.entityId &&
           levelEntity ? (
             <RelationFilterSettings
-              entity={index > 0 ? previousEntity : null}
+              entity={hostEntity ?? (index > 0 ? previousEntity : null)}
               fieldId={null}
               target={levelEntity}
               entities={entities}
@@ -788,6 +792,7 @@ export function RelationGroupsSettings({
   onChange,
   defaultValue,
   onDefaultValueChange,
+  hostEntity = null,
 }: RelationGroupsSettingsProps) {
   const levels = twoLevels(value.levels);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -870,6 +875,7 @@ export function RelationGroupsSettings({
         level={editingLevel}
         levels={levels}
         entities={entities}
+        hostEntity={hostEntity}
         selectOptions={selectOptions}
         defaultValue={defaultValue}
         onBack={() => setEditingIndex(null)}

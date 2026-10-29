@@ -32,10 +32,12 @@ import {
 } from "../model/types";
 import {
   formatRecordFieldValue,
+  getEntityParentLinkField,
   getRecordFieldIds,
   resolveEntityFieldSource,
   type EntityValueContext,
 } from "../model/field-value";
+import { findEntityManagerUserField } from "../model/table-hierarchy";
 
 /** Merge draft over live without blanking filled lead fields with "". */
 function mergeLeadFieldValues(
@@ -130,6 +132,8 @@ const DEPT_CALC_KEYS = [
   "Расчеты отдела",
 ] as const;
 const GIP_KEYS = ["ГИП", "Гип"] as const;
+/** Exact «лид» / «лиды» — not «Главный инженер» or other people fields. */
+const LEAD_FIELD_KEYS = ["Лид", "Лиды"] as const;
 const MANAGER_KEYS = ["Руководитель", "Руководители"] as const;
 const PERFORMER_KEYS = ["Исполнитель", "Исполнители"] as const;
 
@@ -247,6 +251,99 @@ export function findTkpGipUserField(
 }
 
 /**
+ * Relation to the Lead record: field named «лид», or target entity named «лид».
+ * Never matches «Главный инженер» / other people fields.
+ */
+export function findTkpLeadRelationField(
+  entity: Entity,
+  entities: readonly Entity[] = [],
+): EntityField | null {
+  const byName = entity.fields.find(
+    (field) =>
+      (field.type === "relation" || field.type === "belonging") &&
+      fieldNameMatches(field, LEAD_FIELD_KEYS),
+  );
+  if (byName) return byName;
+
+  for (const field of entity.fields) {
+    if (field.type !== "relation" && field.type !== "belonging") continue;
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId || targetId === SYSTEM_USERS_ENTITY_ID) continue;
+    const target = entities.find((item) => item.id === targetId);
+    if (!target) continue;
+    const label = normalizeName(`${target.name} ${target.namePlural}`);
+    if (!label.includes("лид")) continue;
+    // Avoid «руководитель» / engineer-like entities named with «лид» substring edge cases.
+    if (label.includes("инженер")) continue;
+    return field;
+  }
+  return null;
+}
+
+/** People field on Lead that identifies the GIP («руководитель», else «ГИП»). */
+function findLeadGipPeopleField(
+  leadEntity: Entity,
+  entities: readonly Entity[],
+): EntityField | null {
+  // Product rule: GIP of the lead = Lead.«руководитель» (not «Главный инженер»).
+  const manager = leadEntity.fields.find(
+    (field) =>
+      isUsersRelationField(field) && fieldNameMatches(field, MANAGER_KEYS),
+  );
+  if (manager) return manager;
+  const catalogManager = findEntityManagerUserField(leadEntity);
+  if (catalogManager) return catalogManager;
+  return findTkpGipUserField(leadEntity, entities);
+}
+
+/**
+ * «ГИП» user ids for a TKP host: field «ГИП» on the host, else hop via «лид»
+ * to the Lead and read «руководитель» (fallback «ГИП»). Never «Главный инженер».
+ */
+export function resolveTkpGipUserIdsFromHost(options: {
+  hostEntity: Entity;
+  hostValues: Record<string, string | undefined>;
+  entities: readonly Entity[];
+}): string[] {
+  const { hostEntity, hostValues, entities } = options;
+
+  const direct = findTkpGipUserField(hostEntity, entities);
+  if (direct) {
+    const ids = parseEntityRelationIds(hostValues[direct.id]);
+    if (ids.length > 0) return ids;
+  }
+
+  const leadField = findTkpLeadRelationField(hostEntity, entities);
+  if (!leadField) return [];
+  const leadEntityId = getEntityRelationTargetId(leadField);
+  if (!leadEntityId) return [];
+  const leadEntity = entities.find((item) => item.id === leadEntityId);
+  if (!leadEntity) return [];
+  const leadRecordId = parseEntityRelationIds(hostValues[leadField.id])[0];
+  if (!leadRecordId) return [];
+  const leadRecord = leadEntity.records.find(
+    (item) => item.id === leadRecordId,
+  );
+  if (!leadRecord) return [];
+
+  const peopleField = findLeadGipPeopleField(leadEntity, entities);
+  if (!peopleField) return [];
+  return parseEntityRelationIds(leadRecord.values[peopleField.id]);
+}
+
+/** Whether `userId` is the lead GIP for this TKP host. */
+export function isTkpLeadGipUser(options: {
+  hostEntity: Entity;
+  hostValues: Record<string, string | undefined>;
+  entities: readonly Entity[];
+  userId: string | null | undefined;
+}): boolean {
+  const userId = options.userId?.trim() ?? "";
+  if (!userId) return false;
+  return resolveTkpGipUserIdsFromHost(options).includes(userId);
+}
+
+/**
  * Lead («Разбор ТКП») whose «ГИП» users override department catalog heads.
  * Prefer explicit softFill parent; else the host itself; else parent link
  * from a «Расчёты отделов» row.
@@ -356,6 +453,136 @@ export type TkpStageDepartmentPair = {
   stageId: string;
   departmentId: string;
 };
+
+/**
+ * Serialize stage→department map as a relationGroups value (stable stage order
+ * of first appearance, departments sorted for stable compare).
+ */
+export function serializeTkpStageDepartmentPairs(
+  pairs: readonly TkpStageDepartmentPair[],
+): string {
+  const byStage = new Map<string, Set<string>>();
+  const stageOrder: string[] = [];
+  for (const pair of pairs) {
+    const stageId = pair.stageId.trim();
+    const departmentId = pair.departmentId.trim();
+    if (!stageId || !departmentId) continue;
+    if (!byStage.has(stageId)) {
+      byStage.set(stageId, new Set());
+      stageOrder.push(stageId);
+    }
+    byStage.get(stageId)!.add(departmentId);
+  }
+  if (byStage.size === 0) return "";
+  return serializeEntityRelationGroups(
+    stageOrder.map((stageId) => ({
+      id: stageId,
+      children: [...(byStage.get(stageId) ?? [])]
+        .sort()
+        .map((id) => ({ id, children: [] })),
+    })),
+  );
+}
+
+/** Union two «Стадия/отделы» trees without dropping pairs from either side. */
+export function unionTkpStageDepartmentGroupsValues(
+  left: string | undefined,
+  right: string | undefined,
+): string {
+  return serializeTkpStageDepartmentPairs([
+    ...collectTkpStageDepartmentPairs(left),
+    ...collectTkpStageDepartmentPairs(right),
+  ]);
+}
+
+/**
+ * All «Расчёты отделов» rows that share a parent with any seed id —
+ * used when the ask layout only discovered a subset of fan-out siblings.
+ *
+ * Discovers via child→parent belonging and, when `parent` is passed, also via
+ * the parent forward relation (orphans often hang only on that side).
+ */
+export function collectDeptCalculationSiblingRecords(
+  entity: Entity,
+  seedIds: readonly string[],
+  parent?: {
+    entity: Entity;
+    recordId: string;
+  } | null,
+): EntityRecord[] {
+  if (!isDeptCalculationsEntity(entity) || seedIds.length === 0) return [];
+  const seedSet = new Set(
+    seedIds.map((id) => id.trim()).filter((id) => id.length > 0),
+  );
+  if (seedSet.size === 0) return [];
+  const seeds = entity.records.filter((record) => seedSet.has(record.id));
+  if (seeds.length === 0) return [];
+
+  const owned = getEntityParentLinkField(entity);
+  const linkFields = entity.fields.filter((field) => {
+    if (field.type !== "relation" && field.type !== "belonging") return false;
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) return false;
+    return (
+      field.id === owned?.id ||
+      field.type === "belonging" ||
+      (entity.parentEntityId != null && targetId === entity.parentEntityId)
+    );
+  });
+
+  const parentKeys = new Set<string>();
+  for (const seed of seeds) {
+    for (const field of linkFields) {
+      for (const parentId of parseEntityRelationIds(seed.values[field.id])) {
+        parentKeys.add(`${field.id}:${parentId}`);
+      }
+    }
+  }
+  if (parent?.recordId && parent.entity.id) {
+    for (const field of linkFields) {
+      if (getEntityRelationTargetId(field) !== parent.entity.id) continue;
+      parentKeys.add(`${field.id}:${parent.recordId}`);
+    }
+  }
+
+  const result: EntityRecord[] = [];
+  const seen = new Set<string>();
+  const push = (record: EntityRecord) => {
+    if (seen.has(record.id)) return;
+    seen.add(record.id);
+    result.push(record);
+  };
+  for (const seed of seeds) push(seed);
+
+  if (parentKeys.size > 0) {
+    for (const record of entity.records) {
+      const linked = linkFields.some((field) =>
+        parseEntityRelationIds(record.values[field.id]).some((parentId) =>
+          parentKeys.has(`${field.id}:${parentId}`),
+        ),
+      );
+      if (linked) push(record);
+    }
+  }
+
+  // Parent forward relation may list fan-out children that never got belonging.
+  if (parent) {
+    const parentRecord =
+      parent.entity.records.find((item) => item.id === parent.recordId) ?? null;
+    for (const field of parent.entity.fields) {
+      if (field.type !== "relation" && field.type !== "dependencies") continue;
+      if (getEntityRelationTargetId(field) !== entity.id) continue;
+      for (const id of parseEntityRelationIds(
+        parentRecord?.values[field.id] ?? "",
+      )) {
+        const record = entity.records.find((item) => item.id === id);
+        if (record) push(record);
+      }
+    }
+  }
+
+  return result;
+}
 
 /**
  * Expand a 2-level relationGroups value into stage×department pairs.
@@ -675,12 +902,11 @@ export function applyTkpGipDepartmentUsers(options: {
     applied: false,
   };
 
-  if (
-    !isTkpAnalysisEntity(parentEntity) &&
-    !entityHasGipUserField(parentEntity, entities)
-  ) {
-    return empty;
-  }
+  const canResolveGip =
+    isTkpAnalysisEntity(parentEntity) ||
+    entityHasGipUserField(parentEntity, entities) ||
+    findTkpLeadRelationField(parentEntity, entities) != null;
+  if (!canResolveGip) return empty;
   if (!isDeptCalculationsEntity(childEntity)) return empty;
 
   const groupsField = findDeptCalculationsGroupsField(childEntity);
@@ -692,16 +918,17 @@ export function applyTkpGipDepartmentUsers(options: {
   const { manager, performer } = findDeptCalculationUserFields(childEntity);
   if (!manager && !performer) return empty;
 
-  const gipField = findTkpGipUserField(parentEntity, entities);
-  if (!gipField) return empty;
-
   const liveParent =
     parentEntity.records.find((item) => item.id === parentRecord.id) ?? null;
   const parentValues = mergeLeadFieldValues(
     liveParent?.values,
     parentRecord.values,
   );
-  const resolvedGipIds = parseEntityRelationIds(parentValues[gipField.id]);
+  const resolvedGipIds = resolveTkpGipUserIdsFromHost({
+    hostEntity: parentEntity,
+    hostValues: parentValues,
+    entities,
+  });
   if (resolvedGipIds.length === 0) return empty;
 
   if (
@@ -776,43 +1003,61 @@ export function formatTkpGipDepartmentExtras(options: {
     return null;
   }
 
-  // Lead = softFill parent when child form, or the host itself when
-  // «Стадия/отделы» lives on «Разбор ТКП». Prefer an entity that has «ГИП».
-  const leadEntity = entityHasGipUserField(parentEntity, entities)
+  // Lead host = softFill parent when child form, or the host itself when
+  // «Стадия/отделы» lives on «Разбор ТКП». «ГИП» may sit on the lead via «лид».
+  const leadHost = entityHasGipUserField(parentEntity, entities)
     ? parentEntity
-    : entityHasGipUserField(hostEntity, entities)
-      ? hostEntity
-      : isTkpAnalysisEntity(parentEntity)
-        ? parentEntity
-        : isTkpAnalysisEntity(hostEntity)
+    : findTkpLeadRelationField(parentEntity, entities)
+      ? parentEntity
+      : entityHasGipUserField(hostEntity, entities)
+        ? hostEntity
+        : findTkpLeadRelationField(hostEntity, entities)
           ? hostEntity
-          : null;
-  if (!leadEntity) return null;
-
-  const gipField = findTkpGipUserField(leadEntity, entities);
-  // Known «ГИП» department under a lead — never fall back to catalog head.
-  if (!gipField) return "";
+          : isTkpAnalysisEntity(parentEntity)
+            ? parentEntity
+            : isTkpAnalysisEntity(hostEntity)
+              ? hostEntity
+              : null;
+  if (!leadHost) return null;
 
   const liveLead =
-    leadEntity.records.find((item) => item.id === parentRecord.id) ?? null;
-  const leadForFormat: EntityRecord = {
-    ...parentRecord,
-    values: mergeLeadFieldValues(liveLead?.values, parentRecord.values),
-  };
-
-  let text = formatRecordFieldValue(
-    ctx,
-    leadEntity,
-    leadForFormat,
-    gipField,
-  ).trim();
-  if (!text || text === "—") {
-    // Fallback: resolve stored relation ids → user names directly.
-    const ids = getRecordFieldIds(ctx, leadEntity, leadForFormat, gipField);
-    text = ids
-      .map((id) => getSystemUserName(entities, id)?.trim())
-      .filter((name): name is string => Boolean(name))
-      .join(", ");
+    leadHost.records.find((item) => item.id === parentRecord.id) ?? null;
+  const hostValues = mergeLeadFieldValues(
+    liveLead?.values,
+    parentRecord.values,
+  );
+  const gipIds = resolveTkpGipUserIdsFromHost({
+    hostEntity: leadHost,
+    hostValues,
+    entities,
+  });
+  // Known «ГИП» department under a lead — never fall back to catalog head.
+  let text = gipIds
+    .map((id) => getSystemUserName(entities, id)?.trim())
+    .filter((name): name is string => Boolean(name))
+    .join(", ");
+  if (!text) {
+    // Fallback: format via direct «ГИП» field when present on the host.
+    const gipField = findTkpGipUserField(leadHost, entities);
+    if (gipField) {
+      const leadForFormat: EntityRecord = {
+        ...parentRecord,
+        values: hostValues,
+      };
+      text = formatRecordFieldValue(
+        ctx,
+        leadHost,
+        leadForFormat,
+        gipField,
+      ).trim();
+      if (!text || text === "—") {
+        const ids = getRecordFieldIds(ctx, leadHost, leadForFormat, gipField);
+        text = ids
+          .map((id) => getSystemUserName(entities, id)?.trim())
+          .filter((name): name is string => Boolean(name))
+          .join(", ");
+      }
+    }
   }
   if (!text || text === "—") {
     return "";
@@ -872,10 +1117,11 @@ export function resolveTkpGipAssigneeUserIds(options: {
     entities = [],
     fallbackUserIds,
   } = options;
-  if (
-    !isTkpAnalysisEntity(triggerEntity) &&
-    !entityHasGipUserField(triggerEntity, entities)
-  ) {
+  const canResolveGip =
+    isTkpAnalysisEntity(triggerEntity) ||
+    entityHasGipUserField(triggerEntity, entities) ||
+    findTkpLeadRelationField(triggerEntity, entities) != null;
+  if (!canResolveGip) {
     return null;
   }
 
@@ -895,9 +1141,6 @@ export function resolveTkpGipAssigneeUserIds(options: {
     });
   if (!isGipCatalog && !isGipCalc) return null;
 
-  const gipField = findTkpGipUserField(triggerEntity, catalog);
-  if (!gipField) return null;
-
   const live = triggerRecordId
     ? (triggerEntity.records.find((item) => item.id === triggerRecordId) ??
       null)
@@ -909,8 +1152,154 @@ export function resolveTkpGipAssigneeUserIds(options: {
     draft[key] = value;
   }
   const merged = mergeLeadFieldValues(live?.values, draft);
-  const ids = parseEntityRelationIds(merged[gipField.id]);
+  const ids = resolveTkpGipUserIdsFromHost({
+    hostEntity: triggerEntity,
+    hostValues: merged,
+    entities: catalog,
+  });
   if (ids.length === 0) return null;
   void fallbackUserIds;
   return ids;
+}
+
+function recordManagerUserIds(
+  entity: Entity,
+  record: EntityRecord,
+  entities: readonly Entity[],
+): string[] {
+  const { manager, performer } = findDeptCalculationUserFields(entity);
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const push = (id: string) => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  for (const field of [manager, performer]) {
+    if (!field) continue;
+    for (const id of parseEntityRelationIds(record.values[field.id])) {
+      push(id);
+    }
+  }
+  // Fallback: catalog «Руководитель» of the nested department (assignee path
+  // often walks the catalog even when the calc row manager is still empty).
+  if (ids.length === 0) {
+    const departmentEntity = resolveDepartmentEntity(entity, entities);
+    const deptManager = departmentEntity
+      ? findEntityManagerUserField(departmentEntity)
+      : null;
+    if (departmentEntity && deptManager) {
+      const groupsField = findDeptCalculationsGroupsField(entity);
+      for (const pair of collectTkpStageDepartmentPairs(
+        groupsField ? record.values[groupsField.id] : undefined,
+      )) {
+        if (!pair.departmentId.trim()) continue;
+        const deptRecord = departmentEntity.records.find(
+          (item) => item.id === pair.departmentId,
+        );
+        if (!deptRecord) continue;
+        if (isGipDepartmentRecord(departmentEntity, deptRecord, entities)) {
+          continue;
+        }
+        for (const id of parseEntityRelationIds(
+          deptRecord.values[deptManager.id],
+        )) {
+          push(id);
+        }
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Rows visible in a department-fill / GIP-fill task:
+ * - department head → their departments across stages (no GIP);
+ * - lead GIP → **all** department rows (others read-only in the UI);
+ * - no assignee → all non-GIP rows.
+ */
+export function filterDeptCalculationRecordsForAssignee(options: {
+  entity: Entity;
+  records: readonly EntityRecord[];
+  entities: readonly Entity[];
+  assigneeUserId?: string | null;
+  /** «Разбор ТКП» / lead host — used to recognise the lead GIP assignee. */
+  leadParent?: { entity: Entity; record: EntityRecord } | null;
+}): EntityRecord[] {
+  const {
+    entity,
+    records,
+    entities,
+    assigneeUserId = null,
+    leadParent = null,
+  } = options;
+
+  const assigneeIsGip =
+    Boolean(assigneeUserId) &&
+    Boolean(leadParent) &&
+    isTkpLeadGipUser({
+      hostEntity: leadParent!.entity,
+      hostValues: leadParent!.record.values,
+      entities,
+      userId: assigneeUserId,
+    });
+
+  // GIP review task: every department is visible; editability is separate.
+  if (assigneeIsGip) return [...records];
+
+  return records.filter((record) => {
+    const isGip = childValuesSelectGipDepartment({
+      childEntity: entity,
+      childValues: record.values,
+      entities,
+    });
+    if (isGip) return false;
+    if (!assigneeUserId) return true;
+    return recordManagerUserIds(entity, record, entities).includes(
+      assigneeUserId,
+    );
+  });
+}
+
+/**
+ * Record ids the assignee may edit in the departments table.
+ * Lead GIP → only «ГИП» rows; department heads → their visible rows.
+ */
+export function resolveEditableDeptCalculationRecordIds(options: {
+  entity: Entity;
+  records: readonly EntityRecord[];
+  entities: readonly Entity[];
+  assigneeUserId?: string | null;
+  leadParent?: { entity: Entity; record: EntityRecord } | null;
+}): Set<string> {
+  const {
+    entity,
+    entities,
+    assigneeUserId = null,
+    leadParent = null,
+  } = options;
+  const visible = filterDeptCalculationRecordsForAssignee(options);
+  const assigneeIsGip =
+    Boolean(assigneeUserId) &&
+    Boolean(leadParent) &&
+    isTkpLeadGipUser({
+      hostEntity: leadParent!.entity,
+      hostValues: leadParent!.record.values,
+      entities,
+      userId: assigneeUserId,
+    });
+  if (!assigneeIsGip) {
+    return new Set(visible.map((record) => record.id));
+  }
+  return new Set(
+    visible
+      .filter((record) =>
+        childValuesSelectGipDepartment({
+          childEntity: entity,
+          childValues: record.values,
+          entities,
+        }),
+      )
+      .map((record) => record.id),
+  );
 }

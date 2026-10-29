@@ -58,6 +58,7 @@ import {
   isEntityFieldsHostTab,
   isEntityFilesTab,
   isEntityHistoryTab,
+  isEntityTimeSessionsTab,
   isEntityMirrorTab,
   isEntityInternal,
   isEntityFieldGroupTitleHidden,
@@ -4922,6 +4923,17 @@ export function EntityFieldsEditor({
                 <p className="max-w-sm text-sm text-muted-foreground">
                   На странице карточки здесь будет лента изменений записи: кто,
                   когда и что поменял — без отдельных полей.
+                </p>
+              </div>
+            ) : activeTab && isEntityTimeSessionsTab(activeTab) ? (
+              <div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-muted/15 px-6 py-12 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  Учёт времени
+                </p>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  На странице карточки здесь будет список сессий таймера и
+                  ручных записей времени — без отдельных полей. Нужна настройка
+                  учёта времени у сущности.
                 </p>
               </div>
             ) : linkedEntityForActiveTab ? (

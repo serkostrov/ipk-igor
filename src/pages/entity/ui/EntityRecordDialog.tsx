@@ -290,11 +290,13 @@ function EntityRecordForm({
     return field;
   }, [entity, hiddenFieldIds, isEdit, valueContext, draftRecord]);
   const pinnedFields = useMemo(() => {
+    // Create form is a flat list — «Название» follows «При создании» order.
+    if (!isEdit) return [];
     const fields: EntityField[] = [];
     if (nameField) fields.push(nameField);
     if (headerField) fields.push(headerField);
     return fields;
-  }, [nameField, headerField]);
+  }, [isEdit, nameField, headerField]);
   const pinnedIds = useMemo(
     () => new Set(pinnedFields.map((field) => field.id)),
     [pinnedFields],
@@ -306,8 +308,9 @@ function EntityRecordForm({
     [visibleFields, pinnedIds],
   );
   const fieldGroups = useMemo(() => {
-    // Service entities: flat order from settings (entity.fields), no folders.
-    if (isInternal) {
+    // Create form + service entities: flat order from settings (entity.fields).
+    // Matches «Все поля → При создании» drag order (including «Название»).
+    if (isInternal || !isEdit) {
       return bodyFields.length > 0
         ? [{ name: "", fields: bodyFields, colSpan: 2 }]
         : [];
@@ -321,7 +324,7 @@ function EntityRecordForm({
     return groupEntityFields(fields, entity.fieldGroups).filter(
       (group) => !(isSubEntity && group.name === PRIMARY_ENTITY_FIELD_GROUP),
     );
-  }, [bodyFields, entity.fieldGroups, isSubEntity, isInternal]);
+  }, [bodyFields, entity.fieldGroups, isSubEntity, isInternal, isEdit]);
   const entityLabel =
     entity.name.trim() || entity.namePlural.trim() || "Без названия";
   const previewContext = getEntityPreviewValueContext(valueContext);

@@ -8,11 +8,13 @@ import {
 import {
   collectTkpStageDepartmentPairs,
   createEntityDraftRecord,
+  filterDeptCalculationRecordsForAssignee,
   findDeptCalculationsGroupsField,
   getEntityRecordTitle,
   isDeptCalculationsEntity,
   isEntityFieldVisibleByConditions,
   normalizeEntityFieldInputValue,
+  resolveEditableDeptCalculationRecordIds,
   resolveEntityFieldLabel,
   updateEntityRecord,
   type Entity,
@@ -20,7 +22,10 @@ import {
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
-import { persistDeptCalculationRelatedUpdate } from "@/features/hardcode";
+import {
+  persistDeptCalculationRelatedUpdate,
+  resolveDeptCalculationsHostFields,
+} from "@/features/hardcode";
 
 export type RelatedAskFieldRow = {
   askId: string;
@@ -257,13 +262,17 @@ export type RelatedAskPersistUpdate = {
 };
 
 /**
- * Related asks that must be written to linked records during fill/autosave.
- * Mirrors local fields: explicit «запись» ∪ required.
+ * Related asks written during fill/autosave: every visible related field so
+ * drafts survive reload (same expectation as local required/record fields).
  */
 function relatedAskIdsToPersist(
   access: AutomationOutcomeFieldAccess,
 ): Set<string> {
-  return new Set([...access.relatedRecordIds, ...access.relatedRequiredIds]);
+  return new Set([
+    ...access.relatedRecordIds,
+    ...access.relatedRequiredIds,
+    ...access.relatedVisibleFields.map((item) => item.id),
+  ]);
 }
 
 /**
@@ -344,21 +353,24 @@ export function buildRelatedAskPersistUpdates(options: {
         });
         if (!richest) continue;
         if (options.skipUnchanged) {
-          const livePairs = resolved.relatedRecordIds.flatMap((recordId) => {
-            const record = resolved.relatedEntity.records.find(
-              (item) => item.id === recordId,
-            );
-            return collectTkpStageDepartmentPairs(record?.values[ask.fieldId]);
-          });
-          const nextPairs = collectTkpStageDepartmentPairs(richest.value);
           const liveKeys = new Set(
-            livePairs.map((pair) => `${pair.stageId}\0${pair.departmentId}`),
+            resolved.relatedRecordIds.flatMap((recordId) => {
+              const record = resolved.relatedEntity.records.find(
+                (item) => item.id === recordId,
+              );
+              return collectTkpStageDepartmentPairs(
+                record?.values[ask.fieldId],
+              ).map((pair) => `${pair.stageId}\0${pair.departmentId}`);
+            }),
+          );
+          const nextKeys = new Set(
+            collectTkpStageDepartmentPairs(richest.value).map(
+              (pair) => `${pair.stageId}\0${pair.departmentId}`,
+            ),
           );
           const same =
-            nextPairs.length === livePairs.length &&
-            nextPairs.every((pair) =>
-              liveKeys.has(`${pair.stageId}\0${pair.departmentId}`),
-            );
+            nextKeys.size === liveKeys.size &&
+            [...nextKeys].every((key) => liveKeys.has(key));
           if (same) continue;
         }
         const mapKey = `${resolved.relatedEntity.id}:${richest.recordId}`;
@@ -503,6 +515,8 @@ export function validateRelatedAskRequired(options: {
   values: Record<string, string>;
   triggerRecordId: string;
   ctx?: EntityValueContext;
+  assigneeUserId?: string | null;
+  leadParent?: { entity: Entity; record: EntityRecord } | null;
   isFieldFilled: (
     field: EntityField,
     value: string,
@@ -516,6 +530,8 @@ export function validateRelatedAskRequired(options: {
     entities,
     triggerRecordId,
     ctx,
+    assigneeUserId = null,
+    leadParent = null,
     isFieldFilled,
   } = options;
   if (fieldAccess.relatedRequiredIds.length === 0) return null;
@@ -577,6 +593,68 @@ export function validateRelatedAskRequired(options: {
       ) {
         missingLabels.push(`${relationLabel} · ${fieldLabel}`);
       }
+      continue;
+    }
+
+    // Table-owned host fields (срок / описание): validate assignee’s live rows.
+    const hostFields = isDeptCalculationsEntity(resolved.relatedEntity)
+      ? resolveDeptCalculationsHostFields(resolved.relatedEntity)
+      : null;
+    const isTableHostField =
+      hostFields != null &&
+      (field.id === hostFields.deadline?.id ||
+        field.id === hostFields.description?.id ||
+        field.id === hostFields.comment?.id);
+    if (isTableHostField) {
+      const linked = resolved.relatedEntity.records.filter((record) =>
+        resolved.relatedRecordIds.includes(record.id),
+      );
+      const parent =
+        leadParent ??
+        ({
+          entity: triggerEntity,
+          record: {
+            id: triggerRecordId,
+            values,
+            authUserId: null,
+            createdBy: null,
+            schemaVersion: 0,
+          },
+        } as const);
+      const visible = filterDeptCalculationRecordsForAssignee({
+        entity: resolved.relatedEntity,
+        records: linked,
+        entities,
+        assigneeUserId,
+        leadParent: parent,
+      });
+      const editableIds = resolveEditableDeptCalculationRecordIds({
+        entity: resolved.relatedEntity,
+        records: visible,
+        entities,
+        assigneeUserId,
+        leadParent: parent,
+      });
+      const scoped = visible.filter((record) => editableIds.has(record.id));
+      if (scoped.length === 0) {
+        missingLabels.push(`${relationLabel} · ${fieldLabel}`);
+        continue;
+      }
+      const incomplete = scoped.some((record) => {
+        const key = relatedAskValueKey(
+          resolved.scopeKey,
+          record.id,
+          ask.fieldId,
+        );
+        const draft = values[key];
+        const live = record.values[ask.fieldId] ?? "";
+        return !isFieldFilled(
+          field,
+          draft !== undefined ? draft : live,
+          ask.relationGroupsMode ?? "full",
+        );
+      });
+      if (incomplete) missingLabels.push(`${relationLabel} · ${fieldLabel}`);
       continue;
     }
 

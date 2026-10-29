@@ -466,6 +466,30 @@ function TaskFillFieldsDialogBody({
     );
   }
 
+  /** Sync from live fan-out siblings — must not trigger another autosave. */
+  function seedRelatedValue(valueKey: string, value: string) {
+    if (!entity || !record) {
+      setValues((current) =>
+        (current[valueKey] ?? "") === value
+          ? current
+          : { ...current, [valueKey]: value },
+      );
+      return;
+    }
+    setValues((current) => {
+      if ((current[valueKey] ?? "") === value) return current;
+      return applyRelatedAskFieldChange({
+        groups: relatedLayout.groups,
+        valueKey,
+        value,
+        formValues: current,
+        triggerEntity: entity,
+        triggerRecord: record,
+        entities,
+      });
+    });
+  }
+
   function setCreateDraftValue(draftKey: string, value: string) {
     autosave.markDirty();
     setValues((current) => ({ ...current, [draftKey]: value }));
@@ -543,6 +567,14 @@ function TaskFillFieldsDialogBody({
       fieldAccess: outcome.fieldAccess,
       values: mergedValues,
       triggerRecordId: record?.id ?? task.recordId,
+      assigneeUserId: task.assigneeUserId,
+      leadParent:
+        entity && record
+          ? {
+              entity,
+              record: buildTkpGipSoftFillParentRecord(record, values),
+            }
+          : null,
       isFieldFilled: (field, value, relationGroupsMode) =>
         isTaskAskFieldFilled(field, value, {
           relationGroupsMode: relationGroupsMode ?? "full",
@@ -829,6 +861,8 @@ function TaskFillFieldsDialogBody({
                         ctx={previewContext}
                         disabled={busy}
                         onChange={setRelatedValue}
+                        onSeedChange={seedRelatedValue}
+                        assigneeUserId={task?.assigneeUserId}
                         softFillParent={
                           entity && record
                             ? {

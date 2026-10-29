@@ -32,7 +32,7 @@ type AutosaveArgs = {
 /**
  * Debounced persist of task form values onto the entity record so drafts
  * survive reload / restart. Skips the process trigger field (stage).
- * Also writes related-ask «запись» fields onto linked records.
+ * Also writes visible related-ask fields onto linked records.
  */
 export function useTaskFormAutosave({
   enabled,
@@ -222,9 +222,6 @@ export function useTaskFormAutosave({
 export function taskFormAutosaveLabel(
   status: TaskFormAutosaveStatus,
 ): string | null {
-  if (status === "pending") return "Сохранение…";
-  if (status === "saving") return "Сохранение…";
-  if (status === "saved") return "Сохранено";
   if (status === "error") return "Ошибка сохранения";
   return null;
 }

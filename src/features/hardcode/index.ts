@@ -7,18 +7,23 @@ export {
 export { persistDeptCalculationRelatedUpdate } from "./tkp-gip/fan-out-related-persist";
 export {
   buildTkpGipSoftFillParentRecord,
+  collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,
   ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
   findGipDepartmentRecordId,
   findTkpGipUserField,
+  findTkpLeadRelationField,
   formatTkpGipDepartmentExtras,
   isDeptCalculationsEntity,
   isGipDepartmentRecord,
   isTkpAnalysisEntity,
   resolveDeptCalculationsCreateFanOut,
   resolveTkpGipLeadContext,
+  resolveTkpGipUserIdsFromHost,
+  serializeTkpStageDepartmentPairs,
+  unionTkpStageDepartmentGroupsValues,
   withGipDepartmentPairs,
   type TkpStageDepartmentPair,
 } from "./tkp-gip/match";
@@ -39,6 +44,11 @@ export {
   resolveDeptCalculationDepartmentLabel,
   resolveDeptCalculationManagerName,
 } from "./dept-calculations/model/stage-groups";
+export {
+  filterDeptCalculationRecordsForAssignee,
+  isTkpLeadGipUser,
+  resolveEditableDeptCalculationRecordIds,
+} from "./dept-calculations/model/assignee-records";
 
 export {
   buildDdsWalletSummaryRows,

@@ -1,4 +1,10 @@
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+} from "react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { ListTree, Search, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
@@ -12,6 +18,10 @@ import { FilterPill } from "@/shared/ui/filter-pill";
 import { Input } from "@/shared/ui/input";
 import { Switch } from "@/shared/ui/switch";
 import { cn } from "@/shared/lib/cn";
+import {
+  lockDragSelection,
+  unlockDragSelection,
+} from "@/shared/lib/drag-selection";
 import {
   DEFAULT_ENTITY_FIELD_GROUP,
   ENTITY_HEADER_FIELD_GROUP,
@@ -34,6 +44,7 @@ import {
   isEntityOverviewTab,
   isSystemEntityField,
   PRIMARY_ENTITY_FIELD_GROUP,
+  reorderEntityFields,
   resolveEntityFieldGroups,
   resolveEntityListFieldSource,
   resolvePrimaryEntityFieldGroups,
@@ -60,6 +71,26 @@ type OverviewGroup = {
 };
 
 type CreateFilter = "all" | "onCreate" | "hiddenOnCreate";
+
+const OVERVIEW_FIELD_MIME = "application/x-ipk-overview-field";
+
+type OverviewFieldDragPayload = {
+  fieldId: string;
+};
+
+const overviewLayoutTransition = {
+  type: "spring" as const,
+  stiffness: 420,
+  damping: 36,
+  mass: 0.55,
+};
+
+const overviewDropTransition = {
+  type: "spring" as const,
+  stiffness: 520,
+  damping: 32,
+  mass: 0.4,
+};
 
 function fieldMatchesQuery(field: EntityField, needle: string) {
   if (!needle) return true;
@@ -179,6 +210,168 @@ function pluralFields(count: number) {
   return "полей";
 }
 
+function dropEdge(event: ReactDragEvent<HTMLElement>): "before" | "after" {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+}
+
+function readOverviewDrag(
+  event: ReactDragEvent,
+): OverviewFieldDragPayload | null {
+  const raw = event.dataTransfer.getData(OVERVIEW_FIELD_MIME);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as OverviewFieldDragPayload;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Apply a new create-form order to the full entity field list: create-visible
+ * slots (including «Название») keep their places among hidden fields, but
+ * follow `createOrderedIds`.
+ */
+function weaveCreateFormOrder(
+  allFields: readonly EntityField[],
+  createOrderedIds: readonly string[],
+): string[] {
+  const createSet = new Set(createOrderedIds);
+  const next: string[] = [];
+  let createIndex = 0;
+  for (const field of allFields) {
+    if (createSet.has(field.id)) {
+      const id = createOrderedIds[createIndex];
+      if (id) {
+        next.push(id);
+        createIndex += 1;
+      }
+      continue;
+    }
+    next.push(field.id);
+  }
+  while (createIndex < createOrderedIds.length) {
+    const id = createOrderedIds[createIndex];
+    if (id) next.push(id);
+    createIndex += 1;
+  }
+  return next;
+}
+
+function OverviewDragRail({
+  label,
+  active = false,
+  onPrepareDrag,
+}: {
+  label: string;
+  active?: boolean;
+  onPrepareDrag?: (event: { target: EventTarget | null }) => void;
+}) {
+  return (
+    <span
+      data-drag-handle
+      className={cn(
+        "relative z-10 flex w-2.5 shrink-0 touch-none items-center justify-center self-stretch select-none",
+        active ? "cursor-grabbing" : "cursor-grab",
+      )}
+      aria-label={label}
+      title={label}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        window.getSelection()?.removeAllRanges();
+        onPrepareDrag?.(event);
+      }}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "my-1.5 h-[calc(100%-0.75rem)] min-h-7 w-1 shrink-0 rounded-full bg-primary transition-[opacity,transform,box-shadow] duration-150",
+          active
+            ? "scale-y-105 opacity-100 shadow-[0_0_0_3px] shadow-primary/20"
+            : "opacity-50 group-hover/row:opacity-95 group-focus-within/row:opacity-95",
+        )}
+      />
+    </span>
+  );
+}
+
+function OverviewDropIndicator({ edge }: { edge: "before" | "after" }) {
+  return (
+    <motion.span
+      aria-hidden
+      initial={{ opacity: 0, scaleX: 0.82 }}
+      animate={{ opacity: 1, scaleX: 1 }}
+      exit={{ opacity: 0, scaleX: 0.9 }}
+      transition={overviewDropTransition}
+      className={cn(
+        "pointer-events-none absolute right-0 left-0 z-20 flex origin-left items-center",
+        edge === "before"
+          ? "top-0 -translate-y-1/2"
+          : "bottom-0 translate-y-1/2",
+      )}
+    >
+      <span className="relative flex size-2.5 shrink-0 items-center justify-center">
+        <motion.span
+          aria-hidden
+          className="absolute size-2.5 rounded-full bg-primary/30"
+          animate={{ scale: [1, 1.35, 1] }}
+          transition={{
+            duration: 0.9,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+        <span className="size-1.5 rounded-full bg-primary" />
+      </span>
+      <span className="h-0.5 min-w-0 flex-1 rounded-full bg-primary" />
+    </motion.span>
+  );
+}
+
+/**
+ * Parent lists use overflow clipping — clone onto `document.body` for the
+ * drag bitmap (same pattern as constructor simple-field rows).
+ */
+function setOverviewDragPreview(
+  event: ReactDragEvent,
+  source: HTMLElement,
+): HTMLElement {
+  const rect = source.getBoundingClientRect();
+  const ghost = source.cloneNode(true) as HTMLElement;
+  ghost.querySelectorAll("button").forEach((button) => button.remove());
+  ghost.setAttribute("aria-hidden", "true");
+  Object.assign(ghost.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: `${Math.ceil(rect.width)}px`,
+    height: `${Math.ceil(rect.height)}px`,
+    margin: "0",
+    pointerEvents: "none",
+    zIndex: "0",
+    opacity: "1",
+    boxShadow:
+      "0 18px 40px -16px rgb(0 0 0 / 0.4), 0 0 0 1px color-mix(in oklab, var(--primary) 35%, transparent)",
+    borderColor: "color-mix(in oklab, var(--primary) 45%, transparent)",
+    background: "var(--card)",
+  });
+  document.body.appendChild(ghost);
+  const offsetX = Math.min(
+    Math.max(event.clientX - rect.left, 12),
+    Math.max(rect.width - 12, 12),
+  );
+  const offsetY = Math.min(
+    Math.max(event.clientY - rect.top, 12),
+    Math.max(rect.height - 12, 12),
+  );
+  event.dataTransfer.setDragImage(ghost, offsetX, offsetY);
+  ghost.style.left = "-10000px";
+  ghost.style.top = "0";
+  ghost.style.opacity = "0";
+  return ghost;
+}
+
 function FieldTypeMeta({
   field,
   entityId,
@@ -233,9 +426,19 @@ function OverviewFieldRow({
   canEdit,
   canDelete,
   showCreateToggle,
+  canReorder,
+  isDragging,
+  dropEdgeHint,
+  handleEpoch = 0,
   onSelect,
   onDelete,
   onToggleShowOnCreate,
+  onPrepareDrag,
+  onDragStart,
+  onDragEnd,
+  onDragGhost,
+  onDragOver,
+  onDrop,
 }: {
   field: EntityField;
   entity: Entity;
@@ -243,9 +446,19 @@ function OverviewFieldRow({
   canEdit: boolean;
   canDelete: boolean;
   showCreateToggle: boolean;
+  canReorder: boolean;
+  isDragging: boolean;
+  dropEdgeHint: "before" | "after" | null;
+  handleEpoch?: number;
   onSelect?: () => void;
   onDelete?: () => void;
   onToggleShowOnCreate?: (next: boolean) => void;
+  onPrepareDrag?: (event: { target: EventTarget | null }) => void;
+  onDragStart?: (event: ReactDragEvent) => void;
+  onDragEnd?: (event?: ReactDragEvent) => void;
+  onDragGhost?: (ghost: HTMLElement) => void;
+  onDragOver?: (event: ReactDragEvent<HTMLElement>) => void;
+  onDrop?: (event: ReactDragEvent<HTMLElement>) => void;
 }) {
   const name = getEntityFieldDisplayName(field);
   const headerField = getEntityHeaderField(entity);
@@ -313,7 +526,9 @@ function OverviewFieldRow({
             onToggleShowOnCreate?.(checked);
           }}
         />
-      ) : null}
+      ) : (
+        <span className="w-9" aria-hidden />
+      )}
     </div>
   ) : null;
 
@@ -357,9 +572,15 @@ function OverviewFieldRow({
     </div>
   );
 
-  if (canEdit && onSelect) {
-    return (
-      <div className="group/row flex items-center transition-colors hover:bg-muted/60">
+  const card = (
+    <div
+      data-overview-field-card
+      className={cn(
+        "group/row relative flex min-w-0 flex-1 items-center rounded-lg border border-transparent bg-card",
+        !canReorder && "hover:bg-muted/60",
+      )}
+    >
+      {canEdit && onSelect ? (
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left focus-visible:outline-none"
@@ -367,15 +588,82 @@ function OverviewFieldRow({
         >
           {meta}
         </button>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center px-3 py-2.5">
+          {meta}
+        </div>
+      )}
+      {trailing}
+    </div>
+  );
+
+  if (!canReorder) {
+    return (
+      <div className="group/row relative flex items-center transition-colors hover:bg-muted/60">
+        {canEdit && onSelect ? (
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left focus-visible:outline-none"
+            onClick={onSelect}
+          >
+            {meta}
+          </button>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center px-3 py-2.5">
+            {meta}
+          </div>
+        )}
         {trailing}
       </div>
     );
   }
 
   return (
-    <div className="group/row flex items-center px-3 py-2.5">
-      {meta}
-      {trailing}
+    <div
+      className="group/row relative px-1.5 py-0.5"
+      draggable
+      onMouseDown={onPrepareDrag}
+      onDragStart={(event) => {
+        const preview = event.currentTarget.querySelector<HTMLElement>(
+          "[data-overview-field-card]",
+        );
+        if (preview) {
+          onDragGhost?.(setOverviewDragPreview(event, preview));
+        }
+        onDragStart?.(event);
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      <motion.div
+        layout="position"
+        layoutId={`overview-field-${field.id}`}
+        transition={overviewLayoutTransition}
+        className="relative flex min-w-0 items-stretch gap-0.5"
+      >
+        <OverviewDragRail
+          key={`handle-${field.id}-${handleEpoch}`}
+          label={`Переместить «${name}»`}
+          active={isDragging}
+          onPrepareDrag={onPrepareDrag}
+        />
+        <div className="relative min-w-0 flex-1">
+          <AnimatePresence initial={false}>
+            {dropEdgeHint ? (
+              <OverviewDropIndicator key="drop" edge={dropEdgeHint} />
+            ) : null}
+          </AnimatePresence>
+          {isDragging ? (
+            <div
+              aria-hidden
+              className="h-[3.25rem] rounded-lg border-2 border-dashed border-primary/35 bg-primary/[0.04]"
+            />
+          ) : (
+            card
+          )}
+        </div>
+      </motion.div>
     </div>
   );
 }
@@ -397,6 +685,13 @@ function EntityFieldsOverviewBody({
 }) {
   const [query, setQuery] = useState("");
   const [createFilter, setCreateFilter] = useState<CreateFilter>("all");
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropBeforeId, setDropBeforeId] = useState<string | null | undefined>(
+    undefined,
+  );
+  const [handleEpoch, setHandleEpoch] = useState(0);
+  const allowDragRef = useRef(false);
+  const dragGhostRef = useRef<HTMLElement | null>(null);
   const needle = query.trim().toLocaleLowerCase("ru");
   const showTabHints = entity.tabs.filter(isEntityFieldsHostTab).length > 1;
 
@@ -408,7 +703,21 @@ function EntityFieldsOverviewBody({
   );
   const hiddenOnCreateCount = entity.fields.length - onCreateCount;
 
+  /** Flat create-form order from entity.fields — matches create dialog. */
+  const createFormFields = useMemo(
+    () => entity.fields.filter((field) => isEntityFieldVisibleOnCreate(field)),
+    [entity.fields],
+  );
+
   const groups = useMemo(() => {
+    if (createFilter === "onCreate") {
+      const fields = createFormFields.filter((field) =>
+        fieldMatchesQuery(field, needle),
+      );
+      return fields.length > 0
+        ? [{ name: "Порядок в форме создания", fields }]
+        : [];
+    }
     const all = buildOverviewGroups(entity);
     return all
       .map((group) => ({
@@ -420,7 +729,7 @@ function EntityFieldsOverviewBody({
         ),
       }))
       .filter((group) => group.fields.length > 0);
-  }, [entity, needle, createFilter]);
+  }, [entity, needle, createFilter, createFormFields]);
 
   const totalVisible = groups.reduce(
     (sum, group) => sum + group.fields.length,
@@ -431,6 +740,61 @@ function EntityFieldsOverviewBody({
   const canDeleteAny = !readOnly && onDeleteField != null;
   /** Create-visibility switches only on the «При создании» filter. */
   const showCreateToggle = !readOnly && createFilter === "onCreate";
+  /** Reorder create-form fields when viewing that filter without search. */
+  const canReorderFields =
+    !readOnly && createFilter === "onCreate" && needle.length === 0;
+
+  function prepareDrag(event: { target: EventTarget | null }) {
+    allowDragRef.current = Boolean(
+      event.target instanceof Element &&
+      event.target.closest("[data-drag-handle]"),
+    );
+    if (allowDragRef.current) {
+      window.getSelection()?.removeAllRanges();
+    }
+  }
+
+  function clearDrag(event?: ReactDragEvent) {
+    allowDragRef.current = false;
+    setDraggingId(null);
+    setDropBeforeId(undefined);
+    setHandleEpoch((value) => value + 1);
+    unlockDragSelection();
+    dragGhostRef.current?.remove();
+    dragGhostRef.current = null;
+
+    const target = event?.target;
+    const handle =
+      target instanceof Element ? target.closest("[data-drag-handle]") : null;
+    if (handle instanceof HTMLElement) {
+      handle.style.pointerEvents = "none";
+      requestAnimationFrame(() => {
+        handle.style.pointerEvents = "";
+      });
+    }
+  }
+
+  function commitCreateReorder(
+    visibleFields: EntityField[],
+    fieldId: string,
+    beforeFieldId: string | null,
+  ) {
+    const visibleIds = visibleFields.map((field) => field.id);
+    if (!visibleIds.includes(fieldId)) return;
+
+    const without = visibleIds.filter((id) => id !== fieldId);
+    let insertAt = without.length;
+    if (beforeFieldId) {
+      const before = without.indexOf(beforeFieldId);
+      if (before >= 0) insertAt = before;
+    }
+    const nextVisible = [...without];
+    nextVisible.splice(insertAt, 0, fieldId);
+    if (nextVisible.every((id, index) => id === visibleIds[index])) return;
+
+    const nextFull = weaveCreateFormOrder(entity.fields, nextVisible);
+    reorderEntityFields(entity.id, nextFull);
+  }
 
   return (
     <>
@@ -485,14 +849,19 @@ function EntityFieldsOverviewBody({
             />
             {showCreateToggle ? (
               <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">
-                Тумблер — в форме создания
+                {canReorderFields
+                  ? "Тумблер · перетащите для порядка"
+                  : "Тумблер — в форме создания"}
               </span>
             ) : null}
           </div>
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+      <div
+        key={createFilter}
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+      >
         {groups.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border/80 px-4 py-10 text-center">
             <p className="text-sm font-medium tracking-tight">
@@ -505,34 +874,48 @@ function EntityFieldsOverviewBody({
             </p>
           </div>
         ) : (
-          groups.map((group) => (
-            <section
-              key={group.name}
-              className="rounded-xl border border-border/80 bg-card"
-            >
-              <header className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-t-xl border-b border-border/70 bg-muted/90 px-3.5 py-2 backdrop-blur-sm">
-                <h5 className="min-w-0 truncate text-[11px] font-semibold tracking-wide text-foreground/70 uppercase">
-                  {group.name.trim() || DEFAULT_ENTITY_FIELD_GROUP}
-                </h5>
-                <span className="shrink-0 text-[11px] font-semibold text-muted-foreground tabular-nums">
-                  {group.fields.length}
-                </span>
-              </header>
-              <ul className="divide-y divide-border/60 overflow-hidden rounded-b-xl">
-                {group.fields.map((field) => {
+          groups.map((group) => {
+            const groupCanReorder = canReorderFields && group.fields.length > 1;
+            const listClass = groupCanReorder
+              ? "flex flex-col gap-0.5 overflow-visible rounded-b-xl bg-muted/20 p-1.5"
+              : "divide-y divide-border/60 overflow-hidden rounded-b-xl";
+
+            const list = (
+              <ul className={listClass}>
+                {group.fields.map((field, index) => {
                   const locked =
                     lockedFieldIds.has(field.id) ||
                     isEntityNameField(field) ||
                     isSystemEntityField(field);
+                  const rowCanReorder = groupCanReorder;
+                  const nextId = group.fields[index + 1]?.id ?? null;
+                  const hintMatches =
+                    rowCanReorder &&
+                    draggingId != null &&
+                    draggingId !== field.id &&
+                    dropBeforeId !== undefined;
+                  const edge: "before" | "after" | null = !hintMatches
+                    ? null
+                    : dropBeforeId === field.id
+                      ? "before"
+                      : dropBeforeId == null &&
+                          index === group.fields.length - 1
+                        ? "after"
+                        : null;
+
                   return (
                     <li key={field.id}>
                       <OverviewFieldRow
                         field={field}
                         entity={entity}
-                        showTab={showTabHints}
+                        showTab={showTabHints && createFilter !== "onCreate"}
                         canEdit={canEdit}
                         canDelete={canDeleteAny && !locked}
                         showCreateToggle={showCreateToggle}
+                        canReorder={rowCanReorder}
+                        isDragging={draggingId === field.id}
+                        dropEdgeHint={edge}
+                        handleEpoch={handleEpoch}
                         onSelect={
                           canEdit
                             ? () => {
@@ -555,13 +938,101 @@ function EntityFieldsOverviewBody({
                               }
                             : undefined
                         }
+                        onPrepareDrag={prepareDrag}
+                        onDragStart={(event) => {
+                          if (!allowDragRef.current) {
+                            event.preventDefault();
+                            return;
+                          }
+                          lockDragSelection();
+                          const payload: OverviewFieldDragPayload = {
+                            fieldId: field.id,
+                          };
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData(
+                            OVERVIEW_FIELD_MIME,
+                            JSON.stringify(payload),
+                          );
+                          event.dataTransfer.setData("text/plain", field.id);
+                          setDraggingId(field.id);
+                          setDropBeforeId(undefined);
+                        }}
+                        onDragEnd={(event) => clearDrag(event)}
+                        onDragGhost={(ghost) => {
+                          dragGhostRef.current?.remove();
+                          dragGhostRef.current = ghost;
+                        }}
+                        onDragOver={(event) => {
+                          if (
+                            draggingId == null ||
+                            draggingId === field.id ||
+                            !rowCanReorder
+                          ) {
+                            return;
+                          }
+                          if (
+                            ![...event.dataTransfer.types].includes(
+                              OVERVIEW_FIELD_MIME,
+                            ) &&
+                            ![...event.dataTransfer.types].includes(
+                              "text/plain",
+                            )
+                          ) {
+                            return;
+                          }
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          const nextEdge = dropEdge(event);
+                          setDropBeforeId(
+                            nextEdge === "before" ? field.id : nextId,
+                          );
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const payload =
+                            readOverviewDrag(event) ??
+                            (draggingId ? { fieldId: draggingId } : null);
+                          const activeId = payload?.fieldId ?? draggingId;
+                          if (!activeId || activeId === field.id) {
+                            clearDrag(event);
+                            return;
+                          }
+                          const nextEdge = dropEdge(event);
+                          const beforeId =
+                            nextEdge === "before" ? field.id : nextId;
+                          commitCreateReorder(group.fields, activeId, beforeId);
+                          clearDrag(event);
+                        }}
                       />
                     </li>
                   );
                 })}
               </ul>
-            </section>
-          ))
+            );
+
+            return (
+              <section
+                key={group.name}
+                className="rounded-xl border border-border/80 bg-card"
+              >
+                <header className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-t-xl border-b border-border/70 bg-muted/90 px-3.5 py-2 backdrop-blur-sm">
+                  <h5 className="min-w-0 truncate text-[11px] font-semibold tracking-wide text-foreground/70 uppercase">
+                    {group.name.trim() || DEFAULT_ENTITY_FIELD_GROUP}
+                  </h5>
+                  <span className="shrink-0 text-[11px] font-semibold text-muted-foreground tabular-nums">
+                    {group.fields.length}
+                  </span>
+                </header>
+                {groupCanReorder ? (
+                  <LayoutGroup id={`overview-create-${entity.id}`}>
+                    {list}
+                  </LayoutGroup>
+                ) : (
+                  list
+                )}
+              </section>
+            );
+          })
         )}
       </div>
 
@@ -569,7 +1040,9 @@ function EntityFieldsOverviewBody({
         <p className="shrink-0 text-[11px] text-muted-foreground">
           Показано {totalVisible} из {totalFields}
           {createFilter === "onCreate"
-            ? " · в форме создания"
+            ? canReorderFields
+              ? " · в форме создания · перетащите для порядка"
+              : " · в форме создания"
             : createFilter === "hiddenOnCreate"
               ? " · скрыты при создании"
               : ""}

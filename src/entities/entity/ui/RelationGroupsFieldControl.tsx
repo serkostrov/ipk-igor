@@ -30,6 +30,7 @@ import {
   resolveRelationRecordLabel,
   type Entity,
   type EntityField,
+  type EntityRecord,
   type EntityRelationFilter,
   type EntityRelationGroupsLevel,
   type RelationRecordOption,
@@ -51,6 +52,11 @@ type RelationGroupsFieldControlProps = {
    * Still may exist in the stored value — used by product hardcodes («ГИП»).
    */
   hiddenNestedRecordIds?: ReadonlySet<string>;
+  /**
+   * Record that owns this field — used as «эта запись» for catalog filters
+   * (matches / equalsRecordField). Prefer over the tree parent (stage).
+   */
+  catalogFilterSource?: { entity: Entity; record: EntityRecord } | null;
   /**
    * Optional label extras override (e.g. product hardcode: «ГИП» → parent GIP).
    * Return `null` to keep the default catalog extras.
@@ -131,6 +137,27 @@ function enrichOptions(
   });
 }
 
+/** Keep already-selected ids visible as chips even when a catalog filter hides them. */
+function withSelectedOptions(
+  entity: Entity,
+  options: readonly RelationRecordOption[],
+  selectedIds: readonly string[],
+  entities: readonly Entity[],
+): RelationRecordOption[] {
+  if (selectedIds.length === 0) return [...options];
+  const known = new Set(options.map((option) => option.id));
+  const extra: RelationRecordOption[] = [];
+  for (const id of selectedIds) {
+    if (!id || known.has(id)) continue;
+    const label =
+      resolveRelationRecordLabel(entity, id, entities)?.trim() ||
+      "Удалённая запись";
+    extra.push({ id, label });
+    known.add(id);
+  }
+  return extra.length > 0 ? [...options, ...extra] : [...options];
+}
+
 function ItemMeta({ title, extras }: { title: string; extras: string }) {
   return (
     <div className="min-w-0 flex-1">
@@ -177,6 +204,15 @@ function NodesGrid({
   );
 }
 
+/**
+ * Optional whitelist of selectable child ids from the parent record.
+ *
+ * - `entity` + `limitFieldId` — ids linked on the parent; empty link → no
+ *   restriction (same as «Все записи»), otherwise the picker stays unusable.
+ * - `field` — the field only defines the catalog (list options / relation
+ *   target). Do **not** whitelist from the parent's current value: that value
+ *   is what this picker edits, so an empty parent would make the list unusable.
+ */
 function allowedIdsFromParent(
   parentEntity: Entity | null,
   parentId: string,
@@ -185,23 +221,15 @@ function allowedIdsFromParent(
   if (level.source.kind === "entity") {
     if (!level.source.limitFieldId || !parentEntity) return null;
     const record = parentEntity.records.find((item) => item.id === parentId);
-    if (!record) return new Set();
-    return new Set(
-      parseEntityRelationIds(record.values[level.source.limitFieldId]),
+    if (!record) return null;
+    const ids = parseEntityRelationIds(
+      record.values[level.source.limitFieldId],
     );
+    return ids.length > 0 ? new Set(ids) : null;
   }
-  if (level.source.kind !== "field" || !level.source.fieldId || !parentEntity) {
-    return new Set();
-  }
-  const fieldId = level.source.fieldId;
-  const record = parentEntity.records.find((item) => item.id === parentId);
-  if (!record) return new Set();
-  const sourceField = parentEntity.fields.find((item) => item.id === fieldId);
-  if (!sourceField) return new Set();
-  if (sourceField.type === "list") {
-    return new Set(parseEntityListValueIds(record.values[sourceField.id]));
-  }
-  return new Set(parseEntityRelationIds(record.values[sourceField.id]));
+  // Field source: catalog comes from the field itself (list options or the
+  // relation target entity resolved via `levelEntityAt`).
+  return null;
 }
 
 function levelCatalogFilter(
@@ -277,6 +305,7 @@ export function RelationGroupsFieldControl({
   onChange,
   mode = "full",
   hiddenNestedRecordIds,
+  catalogFilterSource = null,
   resolveRecordExtras,
 }: RelationGroupsFieldControlProps) {
   const hiddenNested = hiddenNestedRecordIds ?? EMPTY_HIDDEN_NESTED;
@@ -441,6 +470,8 @@ export function RelationGroupsFieldControl({
   }
 
   const rootFilter = levelCatalogFilter(rootLevel);
+  const rootFilterParent = catalogFilterSource?.entity ?? null;
+  const rootFilterParentId = catalogFilterSource?.record.id ?? "";
   const rootOptions = enrichOptions(
     getRelationRecordOptions(rootEntity, ctx.entities).filter(
       (option) =>
@@ -450,8 +481,8 @@ export function RelationGroupsFieldControl({
           rootEntity,
           option.id,
           rootFilter,
-          null,
-          "",
+          rootFilterParent,
+          rootFilterParentId,
         ),
     ),
     rootLevel.displayFieldIds,
@@ -484,29 +515,36 @@ export function RelationGroupsFieldControl({
 
     const allowed = allowedIdsFromParent(parentEntity, parentId, level);
     const catalogFilter = levelCatalogFilter(level);
+    const filterParentEntity = catalogFilterSource?.entity ?? parentEntity;
+    const filterParentId = catalogFilterSource?.record.id ?? parentId;
     const selectedIds = node.children
       .map((child) => child.id)
       .filter((itemId) => !hiddenNested.has(itemId));
     const options =
       entity != null
-        ? enrichOptions(
-            getRelationRecordOptions(entity, ctx.entities).filter(
-              (option) =>
-                !hiddenNested.has(option.id) &&
-                isSelectableRecord(entity, option.id, ctx.entities) &&
-                (allowed ? allowed.has(option.id) : true) &&
-                passesLevelCatalogFilter(
-                  ctx,
-                  entity,
-                  option.id,
-                  catalogFilter,
-                  parentEntity,
-                  parentId,
-                ),
+        ? withSelectedOptions(
+            entity,
+            enrichOptions(
+              getRelationRecordOptions(entity, ctx.entities).filter(
+                (option) =>
+                  !hiddenNested.has(option.id) &&
+                  isSelectableRecord(entity, option.id, ctx.entities) &&
+                  (allowed ? allowed.has(option.id) : true) &&
+                  passesLevelCatalogFilter(
+                    ctx,
+                    entity,
+                    option.id,
+                    catalogFilter,
+                    filterParentEntity,
+                    filterParentId,
+                  ),
+              ),
+              level.displayFieldIds,
+              (recordId, fieldIds) =>
+                extrasFor(entity, recordId, depth, fieldIds),
             ),
-            level.displayFieldIds,
-            (recordId, fieldIds) =>
-              extrasFor(entity, recordId, depth, fieldIds),
+            selectedIds,
+            ctx.entities,
           )
         : [];
 

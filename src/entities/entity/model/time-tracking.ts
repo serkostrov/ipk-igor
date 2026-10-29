@@ -120,6 +120,63 @@ export function getTimeEntryHours(start: Date, end: Date) {
   );
 }
 
+export type EntityTimeEntryRow = {
+  entry: EntityRecord;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  hours: number | null;
+  employeeId: string | null;
+  comment: string | null;
+  running: boolean;
+};
+
+/** Time entries linked to one record, newest first. `null` — tracking not set up. */
+export function listRecordTimeEntries(
+  entity: Pick<Entity, "timeTracking">,
+  recordId: string,
+  entities: readonly Entity[],
+): EntityTimeEntryRow[] | null {
+  const setup = getEntityTimeTracking(entity, entities);
+  if (!setup) return null;
+  const { config, entryEntity } = setup;
+  const rows: EntityTimeEntryRow[] = [];
+  for (const entry of entryEntity.records) {
+    if (
+      !parseEntityRelationIds(entry.values[config.linkFieldId]).includes(
+        recordId,
+      )
+    ) {
+      continue;
+    }
+    const startedAt = parseLocalDatetime(entry.values[config.startFieldId]);
+    const endedAt = parseLocalDatetime(entry.values[config.endFieldId]);
+    const hoursRaw = parseEntityDecimal(
+      entry.values[config.hoursFieldId] ?? "",
+    );
+    const employeeId =
+      parseEntityRelationIds(entry.values[config.employeeFieldId])[0] ?? null;
+    const comment = config.commentFieldId
+      ? entry.values[config.commentFieldId]?.trim() || null
+      : null;
+    const running = Boolean(startedAt) && !endedAt;
+    rows.push({
+      entry,
+      startedAt,
+      endedAt,
+      hours: Number.isFinite(hoursRaw) ? hoursRaw : null,
+      employeeId,
+      comment,
+      running,
+    });
+  }
+  rows.sort((a, b) => {
+    const aMs = a.startedAt?.getTime() ?? 0;
+    const bMs = b.startedAt?.getTime() ?? 0;
+    return bMs - aMs;
+  });
+  return rows;
+}
+
 /** Values of a new entry: name and context fields come from the record. */
 export function buildTimeEntryValues(
   entity: Entity,

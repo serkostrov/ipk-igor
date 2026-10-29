@@ -83,6 +83,12 @@ type DeptCalculationsViewProps = {
   onEditRecord?: (record: EntityRecord) => void;
   /** Parent «Разбор ТКП» — hardcode: ГИП manager from lead. */
   leadParent?: { entity: Entity; record: EntityRecord } | null;
+  /**
+   * When set, only these records are editable (e.g. GIP row in the GIP
+   * review task). Others show «Только просмотр».
+   * Omit / null = every row is editable.
+   */
+  editableRecordIds?: ReadonlySet<string> | null;
 };
 
 function StatusPill({ label }: { label: string }) {
@@ -149,6 +155,7 @@ export function DeptCalculationsView({
   records,
   onEditRecord,
   leadParent = null,
+  editableRecordIds = null,
 }: DeptCalculationsViewProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
@@ -312,6 +319,9 @@ export function DeptCalculationsView({
                 >
                   {group.records.map((record) => {
                     const expanded = expandedId === record.id;
+                    const canEdit =
+                      editableRecordIds == null ||
+                      editableRecordIds.has(record.id);
                     const breakdown = calculateDeptCalculationsBreakdown(
                       valueContext,
                       entity,
@@ -378,6 +388,7 @@ export function DeptCalculationsView({
                         fixedExpenses={breakdown.fixedExpenses}
                         total={breakdown.total}
                         statusLabel={statusLabel}
+                        canEdit={canEdit}
                         onToggle={() =>
                           setExpandedId(expanded ? null : record.id)
                         }
@@ -385,7 +396,11 @@ export function DeptCalculationsView({
                           setExpandedId(record.id);
                           setLineDialog({ mode: "create", hostId: record.id });
                         }}
-                        onEdit={() => onEditRecord?.(record)}
+                        onEdit={
+                          canEdit && onEditRecord
+                            ? () => onEditRecord(record)
+                            : undefined
+                        }
                         onDelete={() =>
                           setDeleteTarget({ kind: "host", record })
                         }
@@ -566,6 +581,7 @@ function DepartmentBlock({
   fixedExpenses,
   total,
   statusLabel,
+  canEdit = true,
   onToggle,
   onAddLine,
   onEdit,
@@ -598,6 +614,7 @@ function DepartmentBlock({
   fixedExpenses: number;
   total: number;
   statusLabel: string;
+  canEdit?: boolean;
   onToggle: () => void;
   onAddLine: () => void;
   onEdit?: () => void;
@@ -673,42 +690,50 @@ function DepartmentBlock({
           <StatusPill label={statusLabel} />
         </TableCell>
         <TableCell className={cellClass}>
-          <div className="flex items-center justify-end gap-0.5">
-            {nested ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1 px-2 text-[11px]"
-                onClick={onAddLine}
-              >
-                <Plus className="size-3.5" data-icon="inline-start" />
-                Строка
-              </Button>
-            ) : null}
-            {onEdit ? (
+          {canEdit ? (
+            <div className="flex items-center justify-end gap-0.5">
+              {nested ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-[11px]"
+                  onClick={onAddLine}
+                >
+                  <Plus className="size-3.5" data-icon="inline-start" />
+                  Строка
+                </Button>
+              ) : null}
+              {onEdit ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-7"
+                  aria-label="Редактировать"
+                  onClick={onEdit}
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="size-7"
-                aria-label="Редактировать"
-                onClick={onEdit}
+                className="size-7 hover:text-destructive"
+                aria-label="Удалить"
+                onClick={onDelete}
               >
-                <Pencil className="size-3.5" />
+                <Trash2 className="size-3.5" />
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="size-7 hover:text-destructive"
-              aria-label="Удалить"
-              onClick={onDelete}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          </div>
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <span className="text-[11px] text-muted-foreground/70">
+                Только просмотр
+              </span>
+            </div>
+          )}
         </TableCell>
       </TableRow>
 
@@ -730,57 +755,87 @@ function DepartmentBlock({
 
               {showContextPanel ? (
                 <div className="space-y-4 rounded-md border border-border bg-background p-4">
-                  {deadlineField ? (
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,20rem)_auto] md:items-end">
-                      <div className="grid gap-1.5">
-                        <Label htmlFor={`deadline-${deptLabel}`}>
-                          Срок выполнения работы, раб. дни
-                        </Label>
-                        <Input
-                          id={`deadline-${deptLabel}`}
-                          type="number"
-                          min="0.5"
-                          step="0.5"
-                          value={deadlineInput}
-                          onChange={(event) =>
-                            onDeadlineChange(event.target.value)
+                  {canEdit ? (
+                    <>
+                      {deadlineField ? (
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,20rem)_auto] md:items-end">
+                          <div className="grid gap-1.5">
+                            <Label htmlFor={`deadline-${deptLabel}`}>
+                              Срок выполнения работы, раб. дни
+                            </Label>
+                            <Input
+                              id={`deadline-${deptLabel}`}
+                              type="number"
+                              min="0.5"
+                              step="0.5"
+                              value={deadlineInput}
+                              onChange={(event) =>
+                                onDeadlineChange(event.target.value)
+                              }
+                            />
+                          </div>
+                          {!descriptionField ? (
+                            <Button type="button" onClick={onSaveContext}>
+                              Сохранить срок
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {descriptionField ? (
+                        <div className="grid gap-1.5">
+                          <Label htmlFor={`description-${deptLabel}`}>
+                            Описание работ
+                          </Label>
+                          <Textarea
+                            id={`description-${deptLabel}`}
+                            rows={3}
+                            value={descriptionInput}
+                            placeholder="Общее описание объёма работ для отдела"
+                            onChange={(event) =>
+                              onDescriptionChange(event.target.value)
+                            }
+                          />
+                        </div>
+                      ) : null}
+
+                      {descriptionField ? (
+                        <div className="flex justify-end">
+                          <Button type="button" onClick={onSaveContext}>
+                            {deadlineField
+                              ? "Сохранить срок и описание"
+                              : "Сохранить описание"}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div
+                      className={cn(
+                        "grid gap-3",
+                        deadlineField && descriptionField
+                          ? "md:grid-cols-2"
+                          : "md:grid-cols-1",
+                      )}
+                    >
+                      {deadlineField ? (
+                        <StaticField
+                          label="Срок выполнения работы, раб. дни"
+                          value={
+                            deadlineInput.trim() ? deadlineInput : "Не указан"
                           }
                         />
-                      </div>
-                      {!descriptionField ? (
-                        <Button type="button" onClick={onSaveContext}>
-                          Сохранить срок
-                        </Button>
+                      ) : null}
+                      {descriptionField ? (
+                        <StaticField
+                          label="Описание работ"
+                          value={
+                            descriptionInput.trim() ? descriptionInput : "—"
+                          }
+                        />
                       ) : null}
                     </div>
-                  ) : null}
-
-                  {descriptionField ? (
-                    <div className="grid gap-1.5">
-                      <Label htmlFor={`description-${deptLabel}`}>
-                        Описание работ
-                      </Label>
-                      <Textarea
-                        id={`description-${deptLabel}`}
-                        rows={3}
-                        value={descriptionInput}
-                        placeholder="Общее описание объёма работ для отдела"
-                        onChange={(event) =>
-                          onDescriptionChange(event.target.value)
-                        }
-                      />
-                    </div>
-                  ) : null}
-
-                  {descriptionField ? (
-                    <div className="flex justify-end">
-                      <Button type="button" onClick={onSaveContext}>
-                        {deadlineField
-                          ? "Сохранить срок и описание"
-                          : "Сохранить описание"}
-                      </Button>
-                    </div>
-                  ) : null}
+                  )}
                 </div>
               ) : null}
 
@@ -907,37 +962,43 @@ function DepartmentBlock({
                                   {lineComment || "—"}
                                 </td>
                                 <td className="px-3 py-2.5 text-right">
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger
-                                      render={
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="icon-sm"
-                                          className="size-7"
-                                          aria-label="Действия"
-                                        />
-                                      }
-                                    >
-                                      <MoreHorizontal className="size-3.5" />
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent
-                                      align="end"
-                                      searchable={false}
-                                    >
-                                      <DropdownMenuItem
-                                        onClick={() => onEditLine(line)}
+                                  {canEdit ? (
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger
+                                        render={
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            className="size-7"
+                                            aria-label="Действия"
+                                          />
+                                        }
                                       >
-                                        Редактировать
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                        className="text-destructive"
-                                        onClick={() => onDeleteLine(line)}
+                                        <MoreHorizontal className="size-3.5" />
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent
+                                        align="end"
+                                        searchable={false}
                                       >
-                                        Удалить
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
+                                        <DropdownMenuItem
+                                          onClick={() => onEditLine(line)}
+                                        >
+                                          Редактировать
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          className="text-destructive"
+                                          onClick={() => onDeleteLine(line)}
+                                        >
+                                          Удалить
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  ) : (
+                                    <span className="text-muted-foreground/50">
+                                      —
+                                    </span>
+                                  )}
                                 </td>
                               </tr>
                             );

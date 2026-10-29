@@ -22,6 +22,7 @@ import {
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
   resolveRelationRecordLabel,
+  resolveTkpGipUserIdsFromHost,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -276,9 +277,11 @@ function resolveGipManagerNameFromLead(
   if (!isGipRow) return null;
   const lead = resolveLeadParentForDeptCalc(entity, record, entities);
   if (!lead) return null;
-  const gipField = findTkpGipUserField(lead.entity, entities);
-  if (!gipField) return null;
-  const userIds = parseEntityRelationIds(lead.record.values[gipField.id]);
+  const userIds = resolveTkpGipUserIdsFromHost({
+    hostEntity: lead.entity,
+    hostValues: lead.record.values,
+    entities,
+  });
   const names = userIds
     .map((id) => getSystemUserName(entities, id)?.trim())
     .filter((name): name is string => Boolean(name));

@@ -1,6 +1,8 @@
 import {
   collectTkpStageDepartmentPairs,
+  filterDeptCalculationRecordsForAssignee,
   findDeptCalculationsGroupsField,
+  resolveEditableDeptCalculationRecordIds,
   formatRecordFieldValue,
   getCurrentUserRecordId,
   getEntityConfig,
@@ -209,11 +211,22 @@ function validateRelatedRequiredFields(
   fieldAccess: AutomationOutcomeFieldAccess,
   values: Record<string, string>,
   triggerRecordId: string,
+  assigneeUserId?: string | null,
 ): string[] {
   const missing: string[] = [];
   const requiredAsks = fieldAccess.relatedVisibleFields.filter((item) =>
     fieldAccess.relatedRequiredIds.includes(item.id),
   );
+  const leadParent = {
+    entity: triggerEntity,
+    record: {
+      id: triggerRecordId,
+      values,
+      authUserId: null,
+      createdBy: null,
+      schemaVersion: 0,
+    } satisfies EntityRecord,
+  };
 
   for (const ask of requiredAsks) {
     const resolved = resolveAskRelatedTarget({
@@ -239,7 +252,7 @@ function validateRelatedRequiredFields(
       ? resolveEntityFieldLabel(resolved.relatedEntity.fields, ask.fieldId)
       : "поле";
     const label = `${relationLabel} · ${fieldLabel}`;
-    const relatedIds = resolved?.relatedRecordIds ?? [];
+    let relatedIds = resolved?.relatedRecordIds ?? [];
     if (relatedIds.length === 0) {
       missing.push(label);
       continue;
@@ -286,13 +299,48 @@ function validateRelatedRequiredFields(
       continue;
     }
 
+    // Department head / GIP: only validate rows this assignee must fill.
+    if (isDeptCalculationsEntity(resolved!.relatedEntity)) {
+      const linked = resolved!.relatedEntity.records.filter((record) =>
+        relatedIds.includes(record.id),
+      );
+      const visible = filterDeptCalculationRecordsForAssignee({
+        entity: resolved!.relatedEntity,
+        records: linked,
+        entities,
+        assigneeUserId,
+        leadParent,
+      });
+      const editableIds = resolveEditableDeptCalculationRecordIds({
+        entity: resolved!.relatedEntity,
+        records: visible,
+        entities,
+        assigneeUserId,
+        leadParent,
+      });
+      relatedIds = visible
+        .filter((record) => editableIds.has(record.id))
+        .map((record) => record.id);
+      if (relatedIds.length === 0) {
+        missing.push(label);
+        continue;
+      }
+    }
+
     for (const relatedRecordId of relatedIds) {
       const key = relatedAskValueKey(
         resolved!.scopeKey,
         relatedRecordId,
         ask.fieldId,
       );
-      const raw = values[key] ?? "";
+      const relatedRecord = resolved!.relatedEntity.records.find(
+        (item) => item.id === relatedRecordId,
+      );
+      const draft = values[key];
+      const raw =
+        draft !== undefined
+          ? draft
+          : (relatedRecord?.values[ask.fieldId] ?? "");
       if (field.type === "boolean") continue;
       if (field.type === "relationGroups") {
         if (
@@ -373,6 +421,7 @@ export async function completeAutomationTask(
       outcome.fieldAccess,
       valuesForForm,
       task.recordId,
+      task.assigneeUserId,
     );
     if (missingRelated.length > 0) {
       throw new Error(

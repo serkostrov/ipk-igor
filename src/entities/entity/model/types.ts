@@ -491,7 +491,11 @@ export function isSystemEntityField(
   return Boolean(field.locked) || Boolean(field.systemKey?.trim());
 }
 
-/** Ensures every entity has exactly one locked «Название» field, pinned first. */
+/**
+ * Ensures every entity has exactly one locked «Название» field.
+ * Preserves its position among siblings so create-form DnD can move it;
+ * only a newly inserted title is prepended.
+ */
 export function ensureEntityNameField(fields: EntityField[]): EntityField[] {
   const withFlags = fields.map((field) => ({
     ...field,
@@ -532,11 +536,11 @@ export function ensureEntityNameField(fields: EntityField[]): EntityField[] {
     showOnCreate: true,
     visibilityConditions: [],
   };
-  const rest = withFlags
-    .filter((_, index) => index !== nameIndex)
-    .map((field) => ({ ...field, locked: false }));
 
-  return [nameField, ...rest];
+  // Keep title where the caller put it (create-form order); unlock everyone else.
+  return withFlags.map((field, index) =>
+    index === nameIndex ? nameField : { ...field, locked: false },
+  );
 }
 
 export function isEntityFieldVisibleOnRecord(
@@ -736,6 +740,7 @@ export const ENTITY_TAB_KINDS = [
   "records",
   "files",
   "history",
+  "timeSessions",
   "mirror",
 ] as const;
 export type EntityTabKind = (typeof ENTITY_TAB_KINDS)[number];
@@ -746,6 +751,7 @@ export const ENTITY_TAB_KIND_LABELS: Record<EntityTabKind, string> = {
   records: "Записи",
   files: "Файлы",
   history: "История",
+  timeSessions: "Учёт времени",
   entity: "Сущность",
   mirror: "Из записи",
 };
@@ -757,7 +763,7 @@ export const ENTITY_TAB_KIND_GROUPS: Array<{
 }> = [
   {
     label: "На этой записи",
-    items: ["fields", "records", "files", "history"],
+    items: ["fields", "records", "files", "history", "timeSessions"],
   },
   {
     label: "Связанные данные",
@@ -862,14 +868,21 @@ export function isEntityHistoryTab(tab: Pick<EntityTab, "kind">) {
   return tab.kind === "history";
 }
 
+export function isEntityTimeSessionsTab(tab: Pick<EntityTab, "kind">) {
+  return tab.kind === "timeSessions";
+}
+
 export function isEntityMirrorTab(tab: Pick<EntityTab, "kind">) {
   return tab.kind === "mirror";
 }
 
-/** Tab with built-in content (notes, files, history) instead of fields. */
+/** Tab with built-in content (notes, files, history, time) instead of fields. */
 export function isEntityContentTab(tab: Pick<EntityTab, "kind">) {
   return (
-    isEntityRecordsTab(tab) || isEntityFilesTab(tab) || isEntityHistoryTab(tab)
+    isEntityRecordsTab(tab) ||
+    isEntityFilesTab(tab) ||
+    isEntityHistoryTab(tab) ||
+    isEntityTimeSessionsTab(tab)
   );
 }
 

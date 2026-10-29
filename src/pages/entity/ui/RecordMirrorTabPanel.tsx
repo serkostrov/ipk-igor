@@ -12,6 +12,7 @@ import {
   isEntityFieldVisibleOnRecord,
   isEntityFilesTab,
   isEntityHistoryTab,
+  isEntityTimeSessionsTab,
   isEntityNameField,
   isEntityRecordsTab,
   isEntityTabWithLinkedEntity,
@@ -29,6 +30,7 @@ import { RecordEntityTabPanel } from "./RecordEntityTabPanel";
 import { RecordFilesTabPanel } from "./RecordFilesTabPanel";
 import { RecordHistoryTabPanel } from "./RecordHistoryTabPanel";
 import { RecordNotesTabPanel } from "./RecordNotesTabPanel";
+import { RecordTimeSessionsTabPanel } from "./RecordTimeSessionsTabPanel";
 
 type RecordMirrorTabPanelProps = {
   hostEntity: Entity;
@@ -226,6 +228,15 @@ export function RecordMirrorTabPanel({
     if (isEntityHistoryTab(sourceTab)) {
       return (
         <RecordHistoryTabPanel
+          entity={sourceEntity}
+          record={sourceRecord}
+          tab={sourceTab}
+        />
+      );
+    }
+    if (isEntityTimeSessionsTab(sourceTab)) {
+      return (
+        <RecordTimeSessionsTabPanel
           entity={sourceEntity}
           record={sourceRecord}
           tab={sourceTab}

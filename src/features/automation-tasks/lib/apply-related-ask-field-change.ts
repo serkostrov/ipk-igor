@@ -2,7 +2,6 @@ import { relatedAskValueKey } from "@/entities/automation";
 import {
   applyEntityFieldValue,
   applyTkpGipDepartmentUsers,
-  ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationsGroupsField,
   isDeptCalculationsEntity,
   updateEntityRecord,
@@ -63,16 +62,6 @@ export function applyRelatedAskFieldChange(options: {
   );
 
   const groupsField = findDeptCalculationsGroupsField(group.relatedEntity);
-  if (groupsField && nextRelated[groupsField.id] !== undefined) {
-    nextRelated = {
-      ...nextRelated,
-      [groupsField.id]: ensureTkpGipDepartmentInGroupsValue({
-        value: nextRelated[groupsField.id] ?? "",
-        hostEntity: group.relatedEntity,
-        entities,
-      }),
-    };
-  }
 
   const gip = applyTkpGipDepartmentUsers({
     childEntity: group.relatedEntity,
