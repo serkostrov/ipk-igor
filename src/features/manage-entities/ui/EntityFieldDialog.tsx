@@ -53,6 +53,7 @@ import {
   type EntityCondition,
   type EntityField,
   type EntityFieldType,
+  type EntityNumberDecimals,
 } from "@/entities/entity";
 import { cn } from "@/shared/lib/cn";
 import { pluralRu } from "@/shared/lib/plural";
@@ -107,6 +108,8 @@ export type EntityFieldFormData = {
   listMultiple: boolean;
   /** Optional unit suffix for number, formula and rollup (e.g. «м/с»). */
   unitSuffix: string | null;
+  /** Fraction digits for number / numberSum. */
+  decimals: EntityNumberDecimals;
   sumFieldIds: string[];
   /** When `type === "datetime"` — store and show time. */
   datetimeWithTime: boolean;
@@ -1074,6 +1077,7 @@ function buildEntityFieldFormData({
   listMultiple,
   unitSuffix,
   useUnit,
+  decimals,
   sumFieldIds,
   useAsSum,
   datetimeWithTime,
@@ -1105,6 +1109,7 @@ function buildEntityFieldFormData({
   listMultiple: boolean;
   unitSuffix: string;
   useUnit: boolean;
+  decimals: EntityNumberDecimals;
   sumFieldIds: string[];
   useAsSum: boolean;
   datetimeWithTime: boolean;
@@ -1134,6 +1139,7 @@ function buildEntityFieldFormData({
       listSourceFieldId: null,
       listMultiple: false,
       unitSuffix: null,
+      decimals: 2,
       sumFieldIds: [],
       datetimeWithTime: false,
       booleanInline: false,
@@ -1191,6 +1197,8 @@ function buildEntityFieldFormData({
       isEntityUnitFieldType(resolvedType) && useUnit
         ? unitSuffix.trim() || null
         : null,
+    decimals:
+      resolvedType === "number" || resolvedType === "numberSum" ? decimals : 2,
     sumFieldIds: resolvedType === "numberSum" ? sumFieldIds : [],
     datetimeWithTime:
       resolvedType === "datetime" ? Boolean(datetimeWithTime) : false,
@@ -1353,6 +1361,9 @@ function EntityFieldForm({
   const [useUnit, setUseUnit] = useState(
     Boolean(field?.unitSuffix?.trim()) && field?.type !== "numberSum",
   );
+  const [decimals, setDecimals] = useState<EntityNumberDecimals>(() =>
+    field?.decimals === 0 || field?.decimals === 1 ? field.decimals : 2,
+  );
   const [sumFieldIds, setSumFieldIds] = useState(() => {
     const allowed = new Set(sumFieldOptions.map((option) => option.id));
     return normalizeEntitySumFieldIds(field?.sumFieldIds).filter((id) =>
@@ -1504,6 +1515,7 @@ function EntityFieldForm({
       listMultiple,
       unitSuffix,
       useUnit,
+      decimals,
       sumFieldIds,
       useAsSum,
       datetimeWithTime,
@@ -1904,6 +1916,13 @@ function EntityFieldForm({
                   />
                 ) : null}
                 {isNumberType ? (
+                  <DecimalsSelect
+                    id="entity-field-number-decimals"
+                    value={decimals}
+                    onChange={setDecimals}
+                  />
+                ) : null}
+                {isNumberType ? (
                   <NumberSumModeControl
                     enabled={useAsSum}
                     onEnabledChange={handleUseAsSumChange}
@@ -1979,6 +1998,7 @@ function EntityFieldForm({
                     }
                     listAllowOther={field?.listAllowOther ?? false}
                     listUseColors={listPresentation?.listUseColors ?? false}
+                    decimals={decimals}
                     relationOptions={relationDefaultOptions}
                     relationMultiple={
                       effectiveType === "belonging" ? false : relationMultiple

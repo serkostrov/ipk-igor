@@ -832,7 +832,8 @@ export function deptCalculationValuesMatchStagePair(
   return root.children[0]!.id.trim() === pair.departmentId;
 }
 
-function resolveDepartmentEntity(
+/** Leaf department catalog entity for «Расчёты отделов» relationGroups. */
+export function resolveDepartmentEntity(
   childEntity: Entity,
   entities: readonly Entity[],
 ): Entity | null {

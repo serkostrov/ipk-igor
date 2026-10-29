@@ -4,8 +4,11 @@
 
 import {
   childValuesSelectGipDepartment,
+  collectTkpStageDepartmentPairs,
+  findDeptCalculationsGroupsField,
   findEntityManagerUserField,
   findTkpGipUserField,
+  findTkpLeadRelationField,
   formatRecordFieldValue,
   getEntityFieldDisplayName,
   getEntityRecordTitle,
@@ -17,6 +20,7 @@ import {
   parseEntityRelationIds,
   parseEntityTableParentGroupIds,
   parseEntityTableRelationGroupsNestedIds,
+  resolveDepartmentEntity,
   resolveEntityListFieldOptions,
   resolveEntityTableHierarchyGroupRecord,
   resolveEntityTableParentField,
@@ -238,6 +242,14 @@ export function resolveDeptCalculationDepartmentLabel(
   return getEntityRecordTitle(ctx, entity, record);
 }
 
+function hostCanResolveGip(host: Entity, entities: readonly Entity[]): boolean {
+  return (
+    isTkpAnalysisEntity(host) ||
+    Boolean(findTkpGipUserField(host, entities)) ||
+    findTkpLeadRelationField(host, entities) != null
+  );
+}
+
 function resolveLeadParentForDeptCalc(
   entity: Entity,
   record: EntityRecord,
@@ -248,13 +260,7 @@ function resolveLeadParentForDeptCalc(
     const targetId = getEntityRelationTargetId(field);
     if (!targetId) continue;
     const target = entities.find((item) => item.id === targetId);
-    if (!target) continue;
-    if (
-      !isTkpAnalysisEntity(target) &&
-      !findTkpGipUserField(target, entities)
-    ) {
-      continue;
-    }
+    if (!target || !hostCanResolveGip(target, entities)) continue;
     const parentId = parseEntityRelationIds(record.values[field.id])[0];
     if (!parentId) continue;
     const parentRecord = target.records.find((item) => item.id === parentId);
@@ -264,10 +270,21 @@ function resolveLeadParentForDeptCalc(
   return null;
 }
 
+function namesFromUserIds(
+  entities: readonly Entity[],
+  userIds: readonly string[],
+): string | null {
+  const names = userIds
+    .map((id) => getSystemUserName(entities, id)?.trim())
+    .filter((name): name is string => Boolean(name));
+  return names.length > 0 ? names.join(", ") : null;
+}
+
 function resolveGipManagerNameFromLead(
   entity: Entity,
   record: EntityRecord,
   entities: readonly Entity[],
+  leadParent?: { entity: Entity; record: EntityRecord } | null,
 ): string | null {
   const isGipRow = childValuesSelectGipDepartment({
     childEntity: entity,
@@ -275,17 +292,56 @@ function resolveGipManagerNameFromLead(
     entities,
   });
   if (!isGipRow) return null;
-  const lead = resolveLeadParentForDeptCalc(entity, record, entities);
+  const lead =
+    leadParent && hostCanResolveGip(leadParent.entity, entities)
+      ? leadParent
+      : resolveLeadParentForDeptCalc(entity, record, entities);
   if (!lead) return null;
-  const userIds = resolveTkpGipUserIdsFromHost({
-    hostEntity: lead.entity,
-    hostValues: lead.record.values,
+  return namesFromUserIds(
     entities,
-  });
-  const names = userIds
-    .map((id) => getSystemUserName(entities, id)?.trim())
-    .filter((name): name is string => Boolean(name));
-  return names.length > 0 ? names.join(", ") : null;
+    resolveTkpGipUserIdsFromHost({
+      hostEntity: lead.entity,
+      hostValues: lead.record.values,
+      entities,
+    }),
+  );
+}
+
+/**
+ * «Руководитель» from the department catalog via «Стадия/отделы»
+ * (same path as assignee resolution — does not depend on table hierarchy).
+ */
+function resolveManagerNameFromDepartmentCatalog(
+  entity: Entity,
+  record: EntityRecord,
+  entities: readonly Entity[],
+): string | null {
+  const departmentEntity = resolveDepartmentEntity(entity, entities);
+  const deptManager = departmentEntity
+    ? findEntityManagerUserField(departmentEntity)
+    : null;
+  if (!departmentEntity || !deptManager) return null;
+
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  for (const pair of collectTkpStageDepartmentPairs(
+    groupsField ? record.values[groupsField.id] : undefined,
+  )) {
+    if (!pair.departmentId.trim()) continue;
+    const deptRecord = departmentEntity.records.find(
+      (item) => item.id === pair.departmentId,
+    );
+    if (!deptRecord) continue;
+    // «ГИП» never falls back to the catalog department head — lead only.
+    if (isGipDepartmentRecord(departmentEntity, deptRecord, entities)) {
+      continue;
+    }
+    const name = namesFromUserIds(
+      entities,
+      parseEntityRelationIds(deptRecord.values[deptManager.id]),
+    );
+    if (name) return name;
+  }
+  return null;
 }
 
 /**
@@ -298,6 +354,7 @@ export function resolveDeptCalculationManagerName(
   entity: Entity,
   record: EntityRecord,
   entities: readonly Entity[],
+  leadParent?: { entity: Entity; record: EntityRecord } | null,
 ): string | null {
   const { manager } = findDeptCalculationUserFields(entity);
   if (manager) {
@@ -308,7 +365,12 @@ export function resolveDeptCalculationManagerName(
     }
   }
 
-  const fromLead = resolveGipManagerNameFromLead(entity, record, entities);
+  const fromLead = resolveGipManagerNameFromLead(
+    entity,
+    record,
+    entities,
+    leadParent,
+  );
   if (fromLead) return fromLead;
 
   const managerLookup = entity.fields.find(
@@ -324,6 +386,14 @@ export function resolveDeptCalculationManagerName(
     if (label && label !== "—") return label;
   }
 
+  const fromCatalog = resolveManagerNameFromDepartmentCatalog(
+    entity,
+    record,
+    entities,
+  );
+  if (fromCatalog) return fromCatalog;
+
+  // Legacy table-hierarchy fallback when relationGroups path is unavailable.
   const parentField = resolveEntityTableParentField(entity);
   const subgroupField = resolveEntityTableSubgroupField(entity);
   if (!parentField || !subgroupField) return null;
@@ -366,7 +436,6 @@ export function resolveDeptCalculationManagerName(
     depth,
   );
   if (!resolved) return null;
-  // «ГИП» never falls back to the catalog department head — lead only.
   if (isGipDepartmentRecord(resolved.entity, resolved.record, entities)) {
     return null;
   }

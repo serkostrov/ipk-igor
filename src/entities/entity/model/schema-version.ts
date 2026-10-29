@@ -1,11 +1,34 @@
 import { toEntityStructure } from "../lib/parse-entity-config";
 import { entitySchemasEqual } from "./schema-changes";
-import type { Entity, EntityRecord } from "./types";
+import type { Entity, EntityField, EntityRecord } from "./types";
+
+/**
+ * List option catalogs evolve in the live draft (automation stages, renames)
+ * while records stay pinned to a published schema for formulas/structure.
+ * Overlay live catalog/presentation onto the same field id so labels resolve
+ * the same way as the table (which reads columns from the live entity).
+ */
+function overlayLiveListCatalog(
+  versioned: EntityField,
+  live: EntityField | undefined,
+): EntityField {
+  if (versioned.type !== "list" || !live || live.type !== "list") {
+    return versioned;
+  }
+  return {
+    ...versioned,
+    listOptions: live.listOptions,
+    listUseColors: live.listUseColors,
+    listShowEmptyValue: live.listShowEmptyValue,
+    listFixed: live.listFixed,
+  };
+}
 
 /**
  * Entity structure used for a record: fields/formulas/tabs from the
  * published schema version the record was created on.
- * Live `records` and `publishedVersion` always come from the current entity.
+ * Live `records`, `publishedVersion`, and list option catalogs always come
+ * from the current entity (draft/published working copy).
  */
 export function resolveEntityForRecord(
   liveEntity: Entity,
@@ -13,11 +36,18 @@ export function resolveEntityForRecord(
   versionDefinition: Entity | null | undefined,
 ): Entity {
   if (!versionDefinition) return liveEntity;
+  const liveFieldById = new Map(
+    liveEntity.fields.map((field) => [field.id, field]),
+  );
   return {
     ...versionDefinition,
     id: liveEntity.id,
     records: liveEntity.records,
     publishedVersion: liveEntity.publishedVersion,
+    headerFieldId: liveEntity.headerFieldId,
+    fields: versionDefinition.fields.map((field) =>
+      overlayLiveListCatalog(field, liveFieldById.get(field.id)),
+    ),
   };
 }
 

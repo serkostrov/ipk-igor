@@ -39,7 +39,6 @@ import {
   getEntityFieldTabId,
   resolvePrimaryEntityFieldGroups,
   getEntityHeaderField,
-  getEntityListOption,
   getEntityListOptions,
   getEntityListParentField,
   getEntityRelationTargetId,
@@ -495,12 +494,7 @@ function RecordHeaderField({
     parentField != null && parseEntityListValueIds(parentValue).length === 0;
 
   if (field.type === "list") {
-    const selected = listPresentation.listMultiple
-      ? getEntityListOptions(listOptions, value)
-      : (() => {
-          const one = getEntityListOption(listOptions, value);
-          return one ? [one] : [];
-        })();
+    const selected = getEntityListOptions(listOptions, value);
     const empty = selected.length === 0;
     const primary = selected[0] ?? null;
     const display = empty ? "—" : selected.map((item) => item.name).join(", ");

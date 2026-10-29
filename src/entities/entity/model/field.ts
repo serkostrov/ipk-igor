@@ -27,6 +27,9 @@ export type EntityFieldType =
   | "rollup"
   | "lookup";
 
+/** Fraction digits for number / numberSum / formula / rollup. */
+export type EntityNumberDecimals = 0 | 1 | 2;
+
 export const ENTITY_FIELD_TYPE_OPTIONS: Array<{
   value: EntityFieldType;
   label: string;
@@ -582,11 +585,40 @@ export function entityFieldInputType(type: EntityFieldType) {
   return "text";
 }
 
+/** Clamp unknown → 0 | 1 | 2 (default 2). */
+export function normalizeEntityNumberDecimals(
+  value: unknown,
+): EntityNumberDecimals {
+  return value === 0 || value === 1 ? value : 2;
+}
+
+/** Display / input fraction digits for a numeric field. */
+export function getEntityFieldFractionDigits(field: {
+  type: EntityFieldType;
+  decimals?: EntityNumberDecimals;
+  formula?: { decimals?: EntityNumberDecimals } | null;
+  rollup?: { decimals?: EntityNumberDecimals } | null;
+}): EntityNumberDecimals {
+  if (field.type === "formula") {
+    return normalizeEntityNumberDecimals(field.formula?.decimals);
+  }
+  if (field.type === "rollup") {
+    return normalizeEntityNumberDecimals(field.rollup?.decimals);
+  }
+  if (field.type === "number" || field.type === "numberSum") {
+    return normalizeEntityNumberDecimals(field.decimals);
+  }
+  return 2;
+}
+
 /**
  * Typed decimal with comma as separator.
- * Dots become commas; at most 2 digits after the comma.
+ * Dots become commas; fraction length follows `decimals`.
  */
-export function normalizeEntityDecimalInput(value: string): string {
+export function normalizeEntityDecimalInput(
+  value: string,
+  decimals: EntityNumberDecimals = 2,
+): string {
   let next = value.replace(/\s/g, "").replace(/\./g, ",");
   next = next.replace(/[^\d,-]/g, "");
 
@@ -594,23 +626,32 @@ export function normalizeEntityDecimalInput(value: string): string {
   next = next.replace(/-/g, "");
 
   const commaIndex = next.indexOf(",");
-  if (commaIndex === -1) {
-    return negative ? `-${next}` : next;
+  if (commaIndex === -1 || decimals === 0) {
+    const intOnly = next.replace(/,/g, "");
+    return negative ? `-${intOnly}` : intOnly;
   }
 
   const intPart = next.slice(0, commaIndex).replace(/,/g, "");
   const fracPart = next
     .slice(commaIndex + 1)
     .replace(/,/g, "")
-    .slice(0, 2);
+    .slice(0, decimals);
   next = `${intPart},${fracPart}`;
   return negative ? `-${next}` : next;
 }
 
-/** Number → stored decimal string (comma, up to 2 fraction digits). */
-export function serializeEntityDecimal(value: number): string {
+/** Number → stored decimal string (comma, up to `decimals` fraction digits). */
+export function serializeEntityDecimal(
+  value: number,
+  decimals: EntityNumberDecimals = 2,
+): string {
   if (!Number.isFinite(value)) return "";
-  return String(Math.round(value * 100) / 100).replace(".", ",");
+  const factor = 10 ** decimals;
+  const rounded = Math.round(value * factor) / factor;
+  if (decimals === 0 || Number.isInteger(rounded)) {
+    return String(Math.trunc(rounded));
+  }
+  return rounded.toFixed(decimals).replace(".", ",");
 }
 
 /** Parse stored/typed decimal (comma or dot) to a finite-checkable number. */
@@ -621,13 +662,13 @@ export function parseEntityDecimal(value: string): number {
 }
 
 /** Format a total/sum with the same glyphs as regular number cells. */
-export function formatEntityDecimalTotal(value: number): string {
+export function formatEntityDecimalTotal(
+  value: number,
+  decimals: EntityNumberDecimals = 2,
+): string {
   if (!Number.isFinite(value)) return "—";
-  const rounded = Math.round(value * 100) / 100;
-  const raw = Number.isInteger(rounded)
-    ? String(rounded)
-    : rounded.toFixed(2).replace(".", ",");
-  const formatted = formatEntityNumberDisplay(raw);
+  const raw = serializeEntityDecimal(value, decimals);
+  const formatted = formatEntityNumberDisplay(raw, decimals);
   return formatted.length > 0 ? formatted : "—";
 }
 
@@ -714,6 +755,7 @@ export function formatEntityNumberSumDisplay(
   field: {
     type: EntityFieldType;
     sumFieldIds?: readonly string[];
+    decimals?: EntityNumberDecimals;
   },
   values: Record<string, string | undefined>,
 ): string {
@@ -722,18 +764,25 @@ export function formatEntityNumberSumDisplay(
   if (ids.length === 0) return "—";
   const hasAny = ids.some((id) => (values[id] ?? "").trim().length > 0);
   if (!hasAny) return "—";
+  const decimals = normalizeEntityNumberDecimals(field.decimals);
   return formatEntityDecimalTotal(
     sumEntityDecimalValues(ids.map((id) => values[id])),
+    decimals,
   );
 }
 
 /** Normalize a typed value before storing it (phone «+», decimal comma). */
 export function normalizeEntityFieldInputValue(
-  field: { type: EntityFieldType },
+  field: { type: EntityFieldType; decimals?: EntityNumberDecimals },
   value: string,
 ): string {
   if (field.type === "phone") return normalizeEntityPhoneValue(value);
-  if (field.type === "number") return normalizeEntityDecimalInput(value);
+  if (field.type === "number") {
+    return normalizeEntityDecimalInput(
+      value,
+      normalizeEntityNumberDecimals(field.decimals),
+    );
+  }
   return value;
 }
 
@@ -780,7 +829,10 @@ export function getEntityUrlHref(value: string | undefined): string | null {
 }
 
 /** Group thousands with spaces; decimal separator is comma (ru-RU). */
-export function formatEntityNumberDisplay(value: string): string {
+export function formatEntityNumberDisplay(
+  value: string,
+  decimals: EntityNumberDecimals = 2,
+): string {
   const trimmed = value.trim().replace(/\s/g, "");
   if (!trimmed) return "";
   const numeric = parseEntityDecimal(trimmed);
@@ -788,12 +840,12 @@ export function formatEntityNumberDisplay(value: string): string {
 
   const normalized = trimmed.replace(",", ".");
   const fractionDigits = Math.min(
-    2,
+    decimals,
     normalized.includes(".") ? (normalized.split(".")[1]?.length ?? 0) : 0,
   );
 
   return new Intl.NumberFormat("ru-RU", {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: decimals,
     minimumFractionDigits: fractionDigits,
   }).format(numeric);
 }
@@ -827,7 +879,7 @@ export function formatEntityScalarFieldValue(
   }
   if (type === "number" || type === "numberSum") {
     if (!raw) return "—";
-    const formatted = formatEntityNumberDisplay(raw);
+    const formatted = formatEntityNumberDisplay(raw, 2);
     return formatted.length > 0 ? formatted : "—";
   }
   if (type === "file") {
@@ -849,6 +901,7 @@ export function formatEntityFieldScalarValue(
   field: {
     type: EntityFieldType;
     unitSuffix?: string | null;
+    decimals?: EntityNumberDecimals;
     datetimeWithTime?: boolean;
   },
   value: string | undefined,
@@ -856,7 +909,10 @@ export function formatEntityFieldScalarValue(
   if (field.type === "number") {
     const raw = value?.trim() ?? "";
     if (!raw) return "—";
-    const formatted = formatEntityNumberDisplay(raw);
+    const formatted = formatEntityNumberDisplay(
+      raw,
+      normalizeEntityNumberDecimals(field.decimals),
+    );
     if (!formatted) return "—";
     const unit = field.unitSuffix?.trim() ?? "";
     return unit.length > 0 ? `${formatted} ${unit}` : formatted;

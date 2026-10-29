@@ -641,10 +641,24 @@ export function RecordFieldControl({
             type="text"
             inputMode="decimal"
             value={value}
-            placeholder={hint || "0,00"}
+            placeholder={
+              hint ||
+              (field.decimals === 0
+                ? "0"
+                : field.decimals === 1
+                  ? "0,0"
+                  : "0,00")
+            }
             style={unit ? { paddingRight: `${unitPadCh}ch` } : undefined}
             onChange={(event) =>
-              onChange(normalizeEntityDecimalInput(event.target.value))
+              onChange(
+                normalizeEntityDecimalInput(
+                  event.target.value,
+                  field.decimals === 0 || field.decimals === 1
+                    ? field.decimals
+                    : 2,
+                ),
+              )
             }
           />
           {unit ? (

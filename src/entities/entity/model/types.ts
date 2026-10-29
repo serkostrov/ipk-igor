@@ -1,5 +1,5 @@
 import type { EntityCondition } from "./condition";
-import type { EntityFieldType } from "./field";
+import type { EntityFieldType, EntityNumberDecimals } from "./field";
 import {
   formatEntityFieldScalarValue,
   getEntityFieldDisplayName,
@@ -11,7 +11,7 @@ import {
   parseEntityRelationIds,
   serializeEntityRelationIds,
 } from "./field";
-export type { EntityFieldType } from "./field";
+export type { EntityFieldType, EntityNumberDecimals } from "./field";
 export type { EntityFieldFileValue } from "./field";
 export {
   ENTITY_FIELD_TYPE_OPTIONS,
@@ -39,6 +39,8 @@ export {
   isEntitySummableFieldType,
   isValidEntityEmail,
   normalizeEntityDecimalInput,
+  normalizeEntityNumberDecimals,
+  getEntityFieldFractionDigits,
   normalizeEntityFieldInputValue,
   normalizeEntityPhoneValue,
   normalizeEntitySumFieldIds,
@@ -170,8 +172,6 @@ export type EntityListOption = {
   /** Records with this option stay hidden until «Показать скрытые». */
   hiddenByDefault?: boolean;
 };
-
-export type EntityNumberDecimals = 0 | 1 | 2;
 
 export type EntityNumberSignColor = "positiveRed" | "positiveGreen";
 
@@ -369,6 +369,11 @@ export type EntityField = {
    * Shown after the formatted number in display and input.
    */
   unitSuffix: string | null;
+  /**
+   * Fraction digits for `number` / `numberSum` (formula/rollup use nested
+   * `decimals` on their own configs). Default 2.
+   */
+  decimals: EntityNumberDecimals;
   /** Source field ids for `numberSum` fields. */
   sumFieldIds: string[];
   /** Options for this field when `type === "list"` and not linked. */
@@ -464,6 +469,7 @@ export function createEntityNameField(id: string): EntityField {
     relationEntityId: null,
     relationMultiple: false,
     unitSuffix: null,
+    decimals: 2,
     sumFieldIds: [],
     listOptions: [],
     listSourceFieldId: null,
@@ -1627,7 +1633,19 @@ export function getEntityListOption(
   optionId: string | undefined,
 ) {
   if (!optionId) return null;
-  return options.find((option) => option.id === optionId) ?? null;
+  const direct = options.find((option) => option.id === optionId);
+  if (direct) return direct;
+  // Values may be stored as id-list encoding (CSV / JSON array) even for
+  // single-select fields — resolve the first matching id.
+  const parsed = parseEntityRelationIds(optionId);
+  if (parsed.length === 0 || (parsed.length === 1 && parsed[0] === optionId)) {
+    return null;
+  }
+  for (const id of parsed) {
+    const found = options.find((option) => option.id === id);
+    if (found) return found;
+  }
+  return null;
 }
 
 /** Resolve selected list options from a single- or multi-value field string. */

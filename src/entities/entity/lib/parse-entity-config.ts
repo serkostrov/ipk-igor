@@ -3,6 +3,7 @@ import { defaultEntityConfig } from "../model/defaults";
 import {
   isEntityComputedFieldType,
   isEntityUnitFieldType,
+  normalizeEntityNumberDecimals,
 } from "../model/field";
 import { normalizeEntityRelationGroupsConfig } from "../model/relation-groups";
 import type {
@@ -148,7 +149,7 @@ function normalizeId(value: unknown): string | null {
 }
 
 function normalizeDecimals(value: unknown): EntityNumberDecimals {
-  return value === 0 || value === 1 ? value : 2;
+  return normalizeEntityNumberDecimals(value);
 }
 
 function normalizeFormulaConfig(
@@ -402,6 +403,10 @@ export function normalizeEntityField(field: EntityField): EntityField {
   const unitSuffix = isEntityUnitFieldType(type)
     ? normalizeEntityUnitSuffix(field.unitSuffix)
     : null;
+  const decimals =
+    type === "number" || type === "numberSum"
+      ? normalizeEntityNumberDecimals(field.decimals)
+      : 2;
   const sumFieldIds =
     type === "numberSum" ? normalizeEntitySumFieldIds(field.sumFieldIds) : [];
   const listSourceFieldId =
@@ -465,6 +470,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     relationEntityId,
     relationMultiple,
     unitSuffix,
+    decimals,
     sumFieldIds,
     listOptions,
     listSourceFieldId,
@@ -526,6 +532,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     relationEntityId: null,
     relationMultiple: false,
     unitSuffix: null,
+    decimals: 2,
     sumFieldIds: [],
     listOptions: [],
     listSourceFieldId: null,
@@ -645,6 +652,7 @@ function parseField(value: unknown): EntityField | null {
         : null,
     relationMultiple: Boolean(value.relationMultiple),
     unitSuffix,
+    decimals: normalizeEntityNumberDecimals(value.decimals),
     sumFieldIds: normalizeEntitySumFieldIds(value.sumFieldIds),
     listOptions: normalizeFieldListOptions(value.listOptions ?? value.statuses),
     listSourceFieldId:

@@ -3907,6 +3907,7 @@ export function EntityFieldsEditor({
             ? data.listMultiple
             : false,
         unitSuffix: isTabLink ? null : data.unitSuffix,
+        decimals: isTabLink ? 2 : data.decimals,
         sumFieldIds: isTabLink ? [] : data.sumFieldIds,
         datetimeWithTime: isTabLink ? false : data.datetimeWithTime,
         booleanInline: isTabLink ? false : data.booleanInline,
@@ -3939,6 +3940,7 @@ export function EntityFieldsEditor({
       listFixed: data.type === "list" ? data.listMultiple : false,
       listMultiple: data.type === "list" ? data.listMultiple : false,
       unitSuffix: data.unitSuffix,
+      decimals: data.decimals,
       sumFieldIds: data.sumFieldIds,
       datetimeWithTime: data.datetimeWithTime,
       booleanInline: data.booleanInline,

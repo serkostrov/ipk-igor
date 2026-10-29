@@ -134,15 +134,28 @@ function MetricCell({
   );
 }
 
-function StaticField({ label, value }: { label: string; value: string }) {
+function StaticField({
+  label,
+  value,
+  multiline = false,
+}: {
+  label: string;
+  value: string;
+  multiline?: boolean;
+}) {
   return (
     <div className="min-w-0 rounded-lg border border-border/80 bg-background px-3 py-2.5">
       <div className="mb-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
         {label}
       </div>
       <div
-        className="truncate text-sm font-medium text-foreground"
-        title={value}
+        className={cn(
+          "text-sm font-medium text-foreground",
+          multiline
+            ? "whitespace-pre-wrap break-words leading-snug"
+            : "truncate",
+        )}
+        title={multiline ? undefined : value}
       >
         {value}
       </div>
@@ -342,6 +355,7 @@ export function DeptCalculationsView({
                       entity,
                       record,
                       entities,
+                      leadParent,
                     );
                     const deadlineValue = hostFields.deadline
                       ? getRecordFieldNumber(
@@ -420,7 +434,21 @@ export function DeptCalculationsView({
                             [record.id]: value,
                           }))
                         }
-                        onSaveContext={() => void saveDepartmentContext(record)}
+                        onSaveContext={() => saveDepartmentContext(record)}
+                        onCancelContext={() => {
+                          setDeadlineDrafts((prev) => {
+                            if (!(record.id in prev)) return prev;
+                            const next = { ...prev };
+                            delete next[record.id];
+                            return next;
+                          });
+                          setDescriptionDrafts((prev) => {
+                            if (!(record.id in prev)) return prev;
+                            const next = { ...prev };
+                            delete next[record.id];
+                            return next;
+                          });
+                        }}
                         comment={comment}
                         laborCost={breakdown.laborCost}
                         lines={lines}
@@ -593,6 +621,7 @@ function DepartmentBlock({
   descriptionInput,
   onDescriptionChange,
   onSaveContext,
+  onCancelContext,
   comment,
   laborCost,
   lines,
@@ -625,7 +654,8 @@ function DepartmentBlock({
   descriptionField: boolean;
   descriptionInput: string;
   onDescriptionChange: (value: string) => void;
-  onSaveContext: () => void;
+  onSaveContext: () => void | Promise<void>;
+  onCancelContext: () => void;
   comment: string;
   laborCost: number;
   lines: EntityRecord[];
@@ -637,6 +667,22 @@ function DepartmentBlock({
   onDeleteLine: (line: EntityRecord) => void;
 }) {
   const showContextPanel = deadlineField || descriptionField;
+  const contextFilled =
+    (!deadlineField || deadlineInput.trim().length > 0) &&
+    (!descriptionField || descriptionInput.trim().length > 0);
+  const [editingContext, setEditingContext] = useState(false);
+  const showContextForm = canEdit && (!contextFilled || editingContext);
+
+  async function handleSaveContext() {
+    await onSaveContext();
+    setEditingContext(false);
+  }
+
+  function handleCancelContext() {
+    onCancelContext();
+    setEditingContext(false);
+  }
+
   return (
     <>
       <TableRow
@@ -755,7 +801,7 @@ function DepartmentBlock({
 
               {showContextPanel ? (
                 <div className="space-y-4 rounded-md border border-border bg-background p-4">
-                  {canEdit ? (
+                  {showContextForm ? (
                     <>
                       {deadlineField ? (
                         <div className="grid gap-3 md:grid-cols-[minmax(0,20rem)_auto] md:items-end">
@@ -775,9 +821,23 @@ function DepartmentBlock({
                             />
                           </div>
                           {!descriptionField ? (
-                            <Button type="button" onClick={onSaveContext}>
-                              Сохранить срок
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                onClick={() => void handleSaveContext()}
+                              >
+                                Сохранить срок
+                              </Button>
+                              {contextFilled && editingContext ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={handleCancelContext}
+                                >
+                                  Отмена
+                                </Button>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
                       ) : null}
@@ -800,39 +860,66 @@ function DepartmentBlock({
                       ) : null}
 
                       {descriptionField ? (
-                        <div className="flex justify-end">
-                          <Button type="button" onClick={onSaveContext}>
+                        <div className="flex items-center justify-start gap-2">
+                          <Button
+                            type="button"
+                            onClick={() => void handleSaveContext()}
+                          >
                             {deadlineField
                               ? "Сохранить срок и описание"
                               : "Сохранить описание"}
                           </Button>
+                          {contextFilled && editingContext ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={handleCancelContext}
+                            >
+                              Отмена
+                            </Button>
+                          ) : null}
                         </div>
                       ) : null}
                     </>
                   ) : (
-                    <div
-                      className={cn(
-                        "grid gap-3",
-                        deadlineField && descriptionField
-                          ? "md:grid-cols-2"
-                          : "md:grid-cols-1",
-                      )}
-                    >
-                      {deadlineField ? (
-                        <StaticField
-                          label="Срок выполнения работы, раб. дни"
-                          value={
-                            deadlineInput.trim() ? deadlineInput : "Не указан"
-                          }
-                        />
-                      ) : null}
-                      {descriptionField ? (
-                        <StaticField
-                          label="Описание работ"
-                          value={
-                            descriptionInput.trim() ? descriptionInput : "—"
-                          }
-                        />
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={cn(
+                          "grid min-w-0 flex-1 gap-3",
+                          deadlineField && descriptionField
+                            ? "md:grid-cols-2"
+                            : "md:grid-cols-1",
+                        )}
+                      >
+                        {deadlineField ? (
+                          <StaticField
+                            label="Срок выполнения работы, раб. дни"
+                            value={
+                              deadlineInput.trim() ? deadlineInput : "Не указан"
+                            }
+                          />
+                        ) : null}
+                        {descriptionField ? (
+                          <StaticField
+                            label="Описание работ"
+                            value={
+                              descriptionInput.trim() ? descriptionInput : "—"
+                            }
+                            multiline
+                          />
+                        ) : null}
+                      </div>
+                      {canEdit ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                          aria-label="Редактировать срок и описание"
+                          onClick={() => setEditingContext(true)}
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
                       ) : null}
                     </div>
                   )}

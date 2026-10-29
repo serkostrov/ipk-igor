@@ -1198,6 +1198,12 @@ export function addEntityField(
     relationMultiple:
       type === "relation" ? Boolean(data?.relationMultiple) : false,
     unitSuffix: data?.unitSuffix?.trim() || null,
+    decimals:
+      type === "number" || type === "numberSum"
+        ? data?.decimals === 0 || data?.decimals === 1
+          ? data.decimals
+          : 2
+        : 2,
     formula: data?.formula,
     rollup: data?.rollup,
     lookup: data?.lookup,
@@ -2010,6 +2016,7 @@ export function addEntityTabWithLinkedEntity(
     relationEntityId: parentEntityId,
     relationMultiple: false,
     unitSuffix: null,
+    decimals: 2,
     sumFieldIds: [],
     listOptions: [],
     listSourceFieldId: null,
@@ -2142,6 +2149,7 @@ export function addEntityTabWithExistingEntity(
       relationEntityId: parentEntityId,
       relationMultiple: false,
       unitSuffix: null,
+      decimals: 2,
       sumFieldIds: [],
       listOptions: [],
       listSourceFieldId: null,

@@ -11,6 +11,7 @@ import {
   type EntityFieldDefaultValue,
   type EntityFieldType,
   type EntityListOption,
+  type EntityNumberDecimals,
   type RelationRecordOption,
 } from "@/entities/entity";
 import {
@@ -26,6 +27,8 @@ type DefaultValueSettingsProps = {
   listMultiple: boolean;
   listAllowOther?: boolean;
   listUseColors?: boolean;
+  /** Fraction digits when `type === "number"`. */
+  decimals?: EntityNumberDecimals;
   /** Relation target options (records of the linked entity). */
   relationOptions?: RelationRecordOption[];
   relationMultiple?: boolean;
@@ -58,6 +61,7 @@ export function DefaultValueSettings({
   listMultiple,
   listAllowOther = false,
   listUseColors = false,
+  decimals = 2,
   relationOptions = [],
   relationMultiple = false,
   relationToUsers = false,
@@ -233,7 +237,7 @@ export function DefaultValueSettings({
           onChange(
             toConstant(
               type === "number"
-                ? normalizeEntityDecimalInput(event.target.value)
+                ? normalizeEntityDecimalInput(event.target.value, decimals)
                 : event.target.value,
             ),
           )

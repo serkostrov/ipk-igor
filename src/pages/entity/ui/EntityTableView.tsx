@@ -36,6 +36,7 @@ import {
   buildEntityTableDisplayColumns,
   entityTableDisplayColumnIncludeInTotal,
   formatEntityDecimalTotal,
+  getEntityFieldFractionDigits,
   getEntityContactHref,
   getEntityFieldDisplayName,
   getEntityFieldTypeLabel,
@@ -1737,9 +1738,27 @@ function EntityTableViewInner({
                       {tableColumns.map((column, index) => {
                         const isTotalColumn =
                           entityTableDisplayColumnIncludeInTotal(column);
+                        const totalDecimals = column.fields
+                          .filter(
+                            (field) =>
+                              field.includeInTotal &&
+                              (field.type === "number" ||
+                                field.type === "numberSum" ||
+                                field.type === "formula" ||
+                                field.type === "rollup"),
+                          )
+                          .reduce(
+                            (max, field) =>
+                              Math.max(
+                                max,
+                                getEntityFieldFractionDigits(field),
+                              ) as 0 | 1 | 2,
+                            0 as 0 | 1 | 2,
+                          );
                         const totalValue = isTotalColumn
                           ? formatEntityDecimalTotal(
                               columnTotals[column.id] ?? 0,
+                              totalDecimals,
                             )
                           : null;
 
