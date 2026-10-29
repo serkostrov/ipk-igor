@@ -656,18 +656,15 @@ export function normalizeEntityDecimalInput(
   return negative ? `-${next}` : next;
 }
 
-/** Number → stored decimal string (comma, up to `decimals` fraction digits). */
+/** Number → stored decimal string (comma, exactly `decimals` fraction digits). */
 export function serializeEntityDecimal(
   value: number,
   decimals: EntityNumberDecimals = 2,
 ): string {
   if (!Number.isFinite(value)) return "";
-  const factor = 10 ** decimals;
-  const rounded = Math.round(value * factor) / factor;
-  if (decimals === 0 || Number.isInteger(rounded)) {
-    return String(Math.trunc(rounded));
-  }
-  return rounded.toFixed(decimals).replace(".", ",");
+  const digits = normalizeEntityNumberDecimals(decimals);
+  if (digits === 0) return String(Math.round(value));
+  return value.toFixed(digits).replace(".", ",");
 }
 
 /** Parse stored/typed decimal (comma or dot) to a finite-checkable number. */
@@ -844,7 +841,10 @@ export function getEntityUrlHref(value: string | undefined): string | null {
   return normalizeEntityUrlHref(raw);
 }
 
-/** Group thousands with spaces; decimal separator is comma (ru-RU). */
+/**
+ * Group thousands with spaces; decimal separator is comma (ru-RU).
+ * Always shows exactly `decimals` fraction digits (pad with zeros, no trim).
+ */
 export function formatEntityNumberDisplay(
   value: string,
   decimals: EntityNumberDecimals = 2,
@@ -854,15 +854,10 @@ export function formatEntityNumberDisplay(
   const numeric = parseEntityDecimal(trimmed);
   if (!Number.isFinite(numeric)) return value.trim();
 
-  const normalized = trimmed.replace(",", ".");
-  const fractionDigits = Math.min(
-    decimals,
-    normalized.includes(".") ? (normalized.split(".")[1]?.length ?? 0) : 0,
-  );
-
+  const digits = normalizeEntityNumberDecimals(decimals);
   return new Intl.NumberFormat("ru-RU", {
-    maximumFractionDigits: decimals,
-    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
   }).format(numeric);
 }
 
@@ -895,7 +890,10 @@ export function formatEntityScalarFieldValue(
   }
   if (type === "number" || type === "numberSum") {
     if (!raw) return "—";
-    const formatted = formatEntityNumberDisplay(raw, 2);
+    const formatted = formatEntityNumberDisplay(
+      raw,
+      normalizeEntityNumberDecimals(2),
+    );
     return formatted.length > 0 ? formatted : "—";
   }
   if (type === "file") {
@@ -922,7 +920,7 @@ export function formatEntityFieldScalarValue(
   },
   value: string | undefined,
 ) {
-  if (field.type === "number") {
+  if (field.type === "number" || field.type === "numberSum") {
     const raw = value?.trim() ?? "";
     if (!raw) return "—";
     const formatted = formatEntityNumberDisplay(

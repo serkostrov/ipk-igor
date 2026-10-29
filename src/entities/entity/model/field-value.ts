@@ -18,6 +18,7 @@ import {
   getEntityRelationTargetId,
   isEntityComputedFieldType,
   isEntityListOtherValue,
+  normalizeEntityNumberDecimals,
   normalizeEntitySumFieldIds,
   parseEntityDecimal,
   parseEntityDependencies,
@@ -886,9 +887,10 @@ export function formatEntityComputedNumber(
   unitSuffix?: string | null,
 ): string {
   if (value == null || !Number.isFinite(value)) return "—";
+  const digits = normalizeEntityNumberDecimals(decimals);
   const formatted = new Intl.NumberFormat("ru-RU", {
-    maximumFractionDigits: decimals,
-    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
   }).format(value);
   const unit = unitSuffix?.trim() ?? "";
   return unit ? `${formatted} ${unit}` : formatted;
@@ -1113,13 +1115,13 @@ export function formatRecordFieldValue(
     case "formula":
       return formatFormulaValue(
         getFormulaResult(ctx, entity, record, field),
-        field.formula?.decimals ?? 2,
+        normalizeEntityNumberDecimals(field.formula?.decimals),
         field.unitSuffix,
       );
     case "rollup":
       return formatEntityComputedNumber(
         getRecordFieldNumber(ctx, entity, record, field),
-        field.rollup?.decimals ?? 2,
+        normalizeEntityNumberDecimals(field.rollup?.decimals),
         field.unitSuffix,
       );
     case "lookup": {
