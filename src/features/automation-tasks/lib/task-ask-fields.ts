@@ -14,8 +14,8 @@ import {
   type AutomationCreateNestedSpec,
   type AutomationFieldAskOptions,
   type AutomationOutcome,
+  type AutomationOutcomeFieldAccess,
   type AutomationTask,
-  type AutomationTaskTemplate,
   type AutomationViewEntityField,
 } from "@/entities/automation";
 import {
@@ -200,40 +200,65 @@ function uniqueViewEntityFields(
 }
 
 /** Fields / tabs for a single outcome (form appears only after that button). */
-export function getAutomationOutcomeAskFields(
-  outcome: AutomationOutcome,
-): AutomationAskFields {
+function getAskFieldsFromFieldAccess(
+  fieldAccess: AutomationOutcomeFieldAccess,
+): Pick<
+  AutomationAskFields,
+  | "requiredFieldIds"
+  | "visibleFieldIds"
+  | "requireAttachment"
+  | "relatedVisibleFields"
+  | "relatedRequiredIds"
+  | "relatedCommentIds"
+  | "relatedRecordIds"
+  | "fieldAskOptions"
+> {
   // Order matches «Поля формы» in the builder (`visibleFieldIds` is the source of truth).
   const visibleFieldIds = uniquePreserveOrder([
-    ...outcome.fieldAccess.visibleFieldIds,
+    ...fieldAccess.visibleFieldIds,
     // Legacy / edge: required without visible still must appear on the form.
-    ...outcome.fieldAccess.requiredFieldIds,
+    ...fieldAccess.requiredFieldIds,
   ]);
   const visibleSet = new Set(visibleFieldIds);
   const requiredFieldIds = uniquePreserveOrder(
-    outcome.fieldAccess.requiredFieldIds.filter((id) => visibleSet.has(id)),
+    fieldAccess.requiredFieldIds.filter((id) => visibleSet.has(id)),
   );
 
   const relatedVisibleFields = uniqueRelatedFields(
-    outcome.fieldAccess.relatedVisibleFields,
+    fieldAccess.relatedVisibleFields,
   );
   const relatedVisibleIds = new Set(
     relatedVisibleFields.map((item) => item.id),
   );
   const relatedRequiredIds = uniquePreserveOrder(
-    outcome.fieldAccess.relatedRequiredIds.filter((id) =>
-      relatedVisibleIds.has(id),
-    ),
+    fieldAccess.relatedRequiredIds.filter((id) => relatedVisibleIds.has(id)),
   );
   const relatedCommentIds = uniquePreserveOrder(
-    outcome.fieldAccess.relatedCommentIds.filter((id) =>
-      relatedVisibleIds.has(id),
-    ),
+    fieldAccess.relatedCommentIds.filter((id) => relatedVisibleIds.has(id)),
   );
   const relatedRecordIds = uniquePreserveOrder(
-    outcome.fieldAccess.relatedRecordIds.filter((id) =>
-      relatedVisibleIds.has(id),
-    ),
+    fieldAccess.relatedRecordIds.filter((id) => relatedVisibleIds.has(id)),
+  );
+
+  return {
+    requiredFieldIds,
+    visibleFieldIds,
+    requireAttachment: fieldAccess.requireAttachment,
+    relatedVisibleFields,
+    relatedRequiredIds,
+    relatedCommentIds,
+    relatedRecordIds,
+    fieldAskOptions: { ...fieldAccess.fieldAskOptions },
+  };
+}
+
+export function getAutomationOutcomeAskFields(
+  outcome: AutomationOutcome,
+): AutomationAskFields {
+  const fromAccess = getAskFieldsFromFieldAccess(outcome.fieldAccess);
+  const visibleSet = new Set(fromAccess.visibleFieldIds);
+  const relatedVisibleIds = new Set(
+    fromAccess.relatedVisibleFields.map((item) => item.id),
   );
 
   const viewOnly: string[] = [];
@@ -273,33 +298,46 @@ export function getAutomationOutcomeAskFields(
     (item) => !relatedVisibleIds.has(item.id),
   );
 
-  const fieldAskOptions: Record<string, AutomationFieldAskOptions> = {};
-  for (const [fieldId, opts] of Object.entries(
-    outcome.fieldAccess.fieldAskOptions ?? {},
-  )) {
-    if (!visibleSet.has(fieldId)) continue;
-    fieldAskOptions[fieldId] = { ...opts };
-  }
-
   return {
-    requiredFieldIds,
-    visibleFieldIds,
+    ...fromAccess,
     viewFieldIds,
     viewTabIds: uniquePreserveOrder(viewTabs),
     viewFilesTabEntryIds,
     viewFilesTabAllowMove,
-    requireAttachment: outcome.fieldAccess.requireAttachment === true,
-    relatedVisibleFields,
-    relatedRequiredIds,
-    relatedCommentIds,
-    relatedRecordIds,
     viewRelatedFields,
     viewEntityFields: uniqueViewEntityFields(viewEntity),
-    fieldAskOptions,
   };
 }
 
-/** Union across outcomes — for draft init / “needs dialog” checks. */
+/** Template-level ask from «Задание» — always shown before outcome buttons. */
+export function getAutomationTemplateAskFields(
+  task: AutomationTask,
+): AutomationAskFields {
+  return getAutomationOutcomeAskFields({
+    id: "__template__",
+    label: "",
+    color: null,
+    actions: task.config.actions ?? [],
+    fieldAccess:
+      task.config.fieldAccess ??
+      ({
+        requiredFieldIds: [],
+        visibleFieldIds: [],
+        requireAttachment: false,
+        commentFieldIds: [],
+        recordFieldIds: [],
+        relatedVisibleFields: [],
+        relatedRequiredIds: [],
+        relatedCommentIds: [],
+        relatedRecordIds: [],
+        fieldAskOptions: {},
+      } satisfies AutomationOutcomeFieldAccess),
+    conditions: { version: 1, match: "all", rules: [] },
+    buttonMode: "auto",
+  });
+}
+
+/** Union of template + outcomes — for draft init / “needs dialog” checks. */
 export function getAutomationTaskAskFields(
   task: AutomationTask,
 ): AutomationAskFields {
@@ -317,6 +355,22 @@ export function getAutomationTaskAskFields(
   const fieldAskOptions: Record<string, AutomationFieldAskOptions> = {};
   let viewFilesTabAllowMove = false;
   let requireAttachment = false;
+
+  const templateAsk = getAutomationTemplateAskFields(task);
+  required.push(...templateAsk.requiredFieldIds);
+  visible.push(...templateAsk.visibleFieldIds);
+  viewOnly.push(...templateAsk.viewFieldIds);
+  viewTabs.push(...templateAsk.viewTabIds);
+  mergeFilesTabEntryIds(viewFilesTabEntryIds, templateAsk.viewFilesTabEntryIds);
+  mergeFieldAskOptions(fieldAskOptions, templateAsk.fieldAskOptions);
+  if (templateAsk.viewFilesTabAllowMove) viewFilesTabAllowMove = true;
+  if (templateAsk.requireAttachment) requireAttachment = true;
+  relatedVisible.push(...templateAsk.relatedVisibleFields);
+  relatedRequired.push(...templateAsk.relatedRequiredIds);
+  relatedComment.push(...templateAsk.relatedCommentIds);
+  relatedRecord.push(...templateAsk.relatedRecordIds);
+  viewRelated.push(...templateAsk.viewRelatedFields);
+  viewEntity.push(...templateAsk.viewEntityFields);
 
   for (const outcome of task.config.outcomes) {
     const ask = getAutomationOutcomeAskFields(outcome);
@@ -1119,33 +1173,18 @@ export function automationOutcomeHasViewContext(outcome: AutomationOutcome) {
 
 /**
  * Whether the first click should open a form instead of completing.
- * Honours `buttonMode`; `auto` opens a form only when there is something to fill
- * (or view context that appears only after select).
+ * Opens a form when there is something to fill or view after select.
  */
-export function automationOutcomeNeedsInput(
-  outcome: AutomationOutcome,
-  options?: {
-    viewFieldsPlacement?: AutomationTaskTemplate["viewFieldsPlacement"];
-  },
-) {
-  const mode = outcome.buttonMode ?? "auto";
-  if (mode === "immediate") return false;
-  if (mode === "withForm") return true;
-
+export function automationOutcomeNeedsInput(outcome: AutomationOutcome) {
   if (automationOutcomeHasFillFields(outcome)) return true;
-
-  const placement = options?.viewFieldsPlacement ?? "beforeOutcomes";
-  // View-only after select still needs a first click to reveal context.
-  if (placement === "afterSelect" && automationOutcomeHasViewContext(outcome)) {
-    return true;
-  }
+  // Outcome view context appears after select — need a first click.
+  if (automationOutcomeHasViewContext(outcome)) return true;
   return false;
 }
 
 export function automationTaskNeedsFillDialog(task: AutomationTask) {
-  const placement = task.config.viewFieldsPlacement ?? "beforeOutcomes";
   return task.config.outcomes.some((outcome) =>
-    automationOutcomeNeedsInput(outcome, { viewFieldsPlacement: placement }),
+    automationOutcomeNeedsInput(outcome),
   );
 }
 
@@ -1154,12 +1193,46 @@ export function automationTaskShowsFormUpfront(task: AutomationTask) {
   return task.config.kind === "single";
 }
 
-/** Show «Для просмотра» above outcome buttons (union across outcomes). */
+/**
+ * Outcome view context before buttons: only for single-button tasks.
+ * Shared fill before buttons comes from template `fieldAccess`.
+ */
 export function automationTaskShowsViewBeforeOutcomes(task: AutomationTask) {
-  if (task.config.kind === "single") return true;
+  return task.config.kind === "single";
+}
+
+export function automationTemplateHasFillFields(task: AutomationTask) {
+  const ask = getAutomationTemplateAskFields(task);
   return (
-    (task.config.viewFieldsPlacement ?? "beforeOutcomes") === "beforeOutcomes"
+    ask.visibleFieldIds.length > 0 ||
+    ask.requiredFieldIds.length > 0 ||
+    ask.relatedVisibleFields.length > 0 ||
+    ask.requireAttachment
   );
+}
+
+export function automationTemplateHasViewContext(task: AutomationTask) {
+  const ask = getAutomationTemplateAskFields(task);
+  return (
+    ask.viewFieldIds.length > 0 ||
+    ask.viewTabIds.length > 0 ||
+    ask.viewRelatedFields.length > 0 ||
+    ask.viewEntityFields.length > 0
+  );
+}
+
+export function automationTemplateHasCreateAsk(task: AutomationTask) {
+  return (task.config.actions ?? []).some((action) => {
+    if (action.kind !== "createRecord") return false;
+    if (action.useEntityCreateForm === true) return true;
+    if ((action.nestedCreates?.length ?? 0) > 0) return true;
+    const hasMappingTargets = (action.mappings ?? []).some(
+      (mapping) => mapping.targetFieldId.trim().length > 0,
+    );
+    if (hasMappingTargets) return false;
+    if ((action.askFieldIds?.length ?? 0) > 0) return true;
+    return action.multiple === true;
+  });
 }
 
 /** Preselect the sole outcome for single-button tasks. */

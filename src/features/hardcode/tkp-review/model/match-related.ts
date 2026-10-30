@@ -1,10 +1,9 @@
 /**
- * Match related entities for «Разбор ТКП»: dept calcs, trips, subcontractors.
+ * Match related entities for «Разбор ТКП» (dept calcs) and GIP duration fields.
  */
 
 import {
   getEntityFieldDisplayName,
-  isEntityNameField,
   isEntityNumericFieldType,
   isEntityTabWithLinkedEntity,
   type Entity,
@@ -14,14 +13,6 @@ import { isDeptCalculationsEntity } from "../../tkp-gip/match";
 
 function normalizeName(value: string): string {
   return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
-}
-
-function entityMatches(
-  entity: Pick<Entity, "name" | "namePlural">,
-  keys: readonly string[],
-): boolean {
-  const text = normalizeName(`${entity.name} ${entity.namePlural}`);
-  return keys.some((key) => text.includes(normalizeName(key)));
 }
 
 function findField(
@@ -39,51 +30,6 @@ function findField(
       });
     }) ?? null
   );
-}
-
-export function isTkpTripsEntity(
-  entity: Pick<Entity, "name" | "namePlural">,
-): boolean {
-  return (
-    entityMatches(entity, ["командиров"]) ||
-    (normalizeName(entity.name).includes("командир") &&
-      !normalizeName(entity.name).includes("подряд"))
-  );
-}
-
-export function isTkpSubcontractorsEntity(
-  entity: Pick<Entity, "name" | "namePlural">,
-): boolean {
-  const text = normalizeName(`${entity.name} ${entity.namePlural}`);
-  return (
-    text.includes("подряд") ||
-    text.includes("субподряд") ||
-    text.includes("контрагент")
-  );
-}
-
-export type TkpRelatedMoneyFields = {
-  amount: EntityField | null;
-  title: EntityField | null;
-  counterparty: EntityField | null;
-};
-
-export function resolveTkpRelatedMoneyFields(
-  entity: Entity,
-): TkpRelatedMoneyFields {
-  const amount =
-    findField(entity, ["сумма", "стоимость", "amount"], (field) =>
-      isEntityNumericFieldType(field.type),
-    ) ?? null;
-  const title =
-    entity.fields.find((field) => isEntityNameField(field)) ??
-    findField(entity, ["название", "наименование", "цель", "назначение"]);
-  const counterparty = findField(entity, [
-    "контрагент",
-    "подрядчик",
-    "исполнитель",
-  ]);
-  return { amount, title, counterparty };
 }
 
 export function findLinkedEntityByPredicate(
@@ -111,20 +57,6 @@ export function findDeptCalculationsLinkedEntity(
   entities: readonly Entity[],
 ): Entity | null {
   return findLinkedEntityByPredicate(host, entities, isDeptCalculationsEntity);
-}
-
-export function findTripsLinkedEntity(
-  host: Entity,
-  entities: readonly Entity[],
-): Entity | null {
-  return findLinkedEntityByPredicate(host, entities, isTkpTripsEntity);
-}
-
-export function findSubcontractorsLinkedEntity(
-  host: Entity,
-  entities: readonly Entity[],
-): Entity | null {
-  return findLinkedEntityByPredicate(host, entities, isTkpSubcontractorsEntity);
 }
 
 /** Soft key for GIP execution duration on «Разбор ТКП» record.values */

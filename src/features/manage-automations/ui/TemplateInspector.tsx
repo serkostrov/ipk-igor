@@ -67,13 +67,11 @@ import {
   type AutomationLaunchPhase,
   type AutomationNotificationRule,
   type AutomationOutcome,
-  type AutomationOutcomeButtonMode,
   type AutomationOutcomeFieldAccess,
   type AutomationRelationGroupsAskMode,
   type AutomationTaskKind,
   type AutomationTaskTemplate,
   type AutomationTaskUploadTarget,
-  type AutomationViewFieldsPlacement,
 } from "@/entities/automation";
 import { AssigneeEditor } from "@/entities/automation/ui/AssigneeEditor";
 import {
@@ -1930,6 +1928,7 @@ export function TemplateInspector({
   const [askFieldsDraftOutcomeIds, setAskFieldsDraftOutcomeIds] = useState(
     () => new Set<string>(),
   );
+  const [templateAskFieldsDraft, setTemplateAskFieldsDraft] = useState(false);
   const onSaveRef = useRef(onSave);
   useEffect(() => {
     onSaveRef.current = onSave;
@@ -2266,6 +2265,43 @@ export function TemplateInspector({
                 />
               </InspectorSwitchRow>
             </InspectorSection>
+
+            {(draft.kind === "decision" || draft.kind === "single") && (
+              <InspectorSection title="Действия задания">
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Показываются исполнителю до кнопок результата. Действия
+                  конкретной кнопки — во вкладке «Кнопки».
+                </p>
+                <OutcomeActionsPanel
+                  outcome={{
+                    id: "__template__",
+                    label: "Задание",
+                    color: null,
+                    actions: draft.actions ?? [],
+                    fieldAccess: draft.fieldAccess,
+                    conditions: emptyAutomationConditions(),
+                    buttonMode: "auto",
+                  }}
+                  actions={draft.actions ?? []}
+                  entity={entity}
+                  entities={entities}
+                  triggerFieldId={triggerFieldId}
+                  stageOptionId=""
+                  hasRecordsTab={hasRecordsTab}
+                  interactive
+                  askFieldsDraft={templateAskFieldsDraft}
+                  onAskFieldsDraftChange={setTemplateAskFieldsDraft}
+                  onPatchOutcome={(next) => {
+                    patch({
+                      ...(next.fieldAccess
+                        ? { fieldAccess: next.fieldAccess }
+                        : {}),
+                      ...(next.actions ? { actions: next.actions } : {}),
+                    });
+                  }}
+                />
+              </InspectorSection>
+            )}
           </TabsContent>
 
           <TabsContent value="assignee" className="mt-0 flex flex-col gap-3.5">
@@ -2395,38 +2431,6 @@ export function TemplateInspector({
               })()
             ) : (
               <>
-                {(draft.kind === "decision" || draft.kind === "single") && (
-                  <InspectorSection title="Просмотр полей">
-                    <Field
-                      title="Где показывать «Для просмотра»"
-                      description="Поля и вкладки только для чтения — до выбора кнопки или после."
-                    >
-                      <Select
-                        value={draft.viewFieldsPlacement ?? "beforeOutcomes"}
-                        onValueChange={(next) => {
-                          if (next == null) return;
-                          patch({
-                            viewFieldsPlacement:
-                              next as AutomationViewFieldsPlacement,
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="h-9">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="beforeOutcomes">
-                            Перед кнопками
-                          </SelectItem>
-                          <SelectItem value="afterSelect">
-                            После выбора кнопки
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </InspectorSection>
-                )}
-
                 <InspectorSection
                   title="Кнопки результата"
                   action={
@@ -2481,37 +2485,6 @@ export function TemplateInspector({
                               </Button>
                             ) : null}
                           </div>
-
-                          <Field
-                            title="Поведение кнопки"
-                            description="Финальная — один клик завершает. С заполнением — сначала форма, потом подтверждение."
-                          >
-                            <Select
-                              value={selectedOutcome.buttonMode ?? "auto"}
-                              onValueChange={(next) => {
-                                if (next == null) return;
-                                patchOutcome(selectedOutcomeIndex, {
-                                  buttonMode:
-                                    next as AutomationOutcomeButtonMode,
-                                });
-                              }}
-                            >
-                              <SelectTrigger className="h-9">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="auto">
-                                  Авто — сразу, если нечего заполнять
-                                </SelectItem>
-                                <SelectItem value="immediate">
-                                  Сразу завершить
-                                </SelectItem>
-                                <SelectItem value="withForm">
-                                  Сначала заполнить
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </Field>
 
                           <OutcomeStageSelect
                             compact

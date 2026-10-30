@@ -420,17 +420,14 @@ export function parseRelatedAskValueKey(key: string): {
 }
 
 /**
- * Where read-only «Для просмотра» appears relative to outcome buttons.
- * - `beforeOutcomes` — visible immediately, before choosing a result
- * - `afterSelect` — only after the assignee picks a button
+ * @deprecated Unused by the client. Kept for DB / snapshot compat.
+ * Template `fieldAccess` shows before buttons; outcome view after select.
  */
 export type AutomationViewFieldsPlacement = "beforeOutcomes" | "afterSelect";
 
 /**
- * How an outcome button behaves on first click.
- * - `auto` — finish immediately when there is nothing to fill; else open the form
- * - `immediate` — one click completes the task
- * - `withForm` — first click opens the form, second confirms
+ * @deprecated Kept only for stored outcome JSON compat. Runtime always
+ * behaves as auto (form if there is something to fill/view).
  */
 export type AutomationOutcomeButtonMode = "auto" | "immediate" | "withForm";
 
@@ -450,7 +447,7 @@ export type AutomationOutcome = {
    * Autofill evaluates outcomes in order and applies the first match.
    */
   conditions: AutomationConditions;
-  /** Click behaviour for interactive decision / single buttons. */
+  /** @deprecated Unused by UI/runtime; normalized for snapshot compat. */
   buttonMode: AutomationOutcomeButtonMode;
 };
 
@@ -536,8 +533,17 @@ export type AutomationTaskTemplate = {
   sla: AutomationSla | null;
   materials: string[];
   /**
-   * Where «Для просмотра» (viewField / view entity) is shown for decision
-   * tasks. Single-button tasks always show the form upfront.
+   * Fields the assignee fills on the task itself (tab «Задание»),
+   * shown before outcome buttons for decision tasks.
+   */
+  fieldAccess: AutomationOutcomeFieldAccess;
+  /**
+   * Actions on the task itself (view fields/tabs, create ask, …),
+   * shown before outcome buttons — same pipeline as on a result button.
+   */
+  actions: AutomationAction[];
+  /**
+   * @deprecated Unused. Prefer `fieldAccess` / `actions` for before-button forms.
    */
   viewFieldsPlacement: AutomationViewFieldsPlacement;
 };
@@ -827,7 +833,7 @@ export function normalizeAutomationViewFieldsPlacement(
   value: unknown,
 ): AutomationViewFieldsPlacement {
   if (value === "afterSelect" || value === "beforeOutcomes") return value;
-  return "beforeOutcomes";
+  return "afterSelect";
 }
 
 function normalizeOutcome(
@@ -1026,6 +1032,10 @@ export function normalizeAutomationTaskTemplate(
     materials: Array.isArray(raw.materials)
       ? raw.materials.filter((item): item is string => typeof item === "string")
       : [],
+    fieldAccess: normalizeAutomationOutcomeFieldAccess(
+      raw.fieldAccess ?? raw.field_access,
+    ),
+    actions: normalizeAutomationActions(raw.actions),
     viewFieldsPlacement: normalizeAutomationViewFieldsPlacement(
       raw.viewFieldsPlacement ?? raw.view_fields_placement,
     ),

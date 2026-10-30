@@ -48,9 +48,12 @@ import {
   automationOutcomeNeedsInput,
   automationTaskShowsFormUpfront,
   automationTaskShowsViewBeforeOutcomes,
+  automationTemplateHasFillFields,
+  automationTemplateHasViewContext,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
+  getAutomationTemplateAskFields,
   getDefaultSelectedOutcomeId,
   getOutcomeCreateAskSlots,
   resumePendingRecordListChange,
@@ -242,9 +245,11 @@ function TaskFillFieldsDialogBody({
   const formUpfront = task != null && automationTaskShowsFormUpfront(task);
   const showViewBefore =
     task != null && automationTaskShowsViewBeforeOutcomes(task);
-  const viewFieldsPlacement =
-    task?.config.viewFieldsPlacement ?? "beforeOutcomes";
   const taskAsk = task ? getAutomationTaskAskFields(task) : null;
+  const templateAsk = task ? getAutomationTemplateAskFields(task) : null;
+  const hasTemplateFill = task != null && automationTemplateHasFillFields(task);
+  const hasTemplateView =
+    task != null && automationTemplateHasViewContext(task);
   const selectedOutcome: AutomationOutcome | null =
     task?.config.outcomes.find((item) => item.id === selectedOutcomeId) ?? null;
   const autofillOutcomeId =
@@ -279,23 +284,59 @@ function TaskFillFieldsDialogBody({
         },
       })
     : [];
-  const requiredIds = new Set(ask?.requiredFieldIds ?? []);
-  const fields =
-    !entity || !ask
-      ? []
-      : ask.visibleFieldIds
-          .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-          .filter((field): field is EntityField => field != null);
-  const viewSourceAsk = showViewBefore ? taskAsk : ask;
-  const viewFields =
-    !entity || !viewSourceAsk
-      ? []
-      : viewSourceAsk.viewFieldIds
-          .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-          .filter((field): field is EntityField => field != null);
+  const requiredIds = new Set([
+    ...(templateAsk?.requiredFieldIds ?? []),
+    ...(ask?.requiredFieldIds ?? []),
+  ]);
+  const formVisibleFieldIds = (() => {
+    const ids = [...(templateAsk?.visibleFieldIds ?? [])];
+    if ((selectedOutcome || formUpfront) && ask) {
+      for (const id of ask.visibleFieldIds) {
+        if (!ids.includes(id)) ids.push(id);
+      }
+    }
+    return ids;
+  })();
+  const fields = !entity
+    ? []
+    : formVisibleFieldIds
+        .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+        .filter((field): field is EntityField => field != null);
+  const formViewFieldIds = (() => {
+    const ids = [...(templateAsk?.viewFieldIds ?? [])];
+    if ((selectedOutcome || formUpfront || showViewBefore) && ask) {
+      for (const id of ask.viewFieldIds) {
+        if (!ids.includes(id)) ids.push(id);
+      }
+    }
+    return ids;
+  })();
+  const viewFields = !entity
+    ? []
+    : formViewFieldIds
+        .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+        .filter((field): field is EntityField => field != null);
 
-  const relatedFieldsForForm = ask?.relatedVisibleFields ?? [];
-  const relatedRequiredForForm = ask?.relatedRequiredIds ?? [];
+  const relatedFieldsForForm = [
+    ...(templateAsk?.relatedVisibleFields ?? []),
+    ...(ask?.relatedVisibleFields ?? []),
+  ];
+  const relatedRequiredForForm = [
+    ...(templateAsk?.relatedRequiredIds ?? []),
+    ...(ask?.relatedRequiredIds ?? []),
+  ];
+  const viewRelatedFieldsForFormMerged = [
+    ...(templateAsk?.viewRelatedFields ?? []),
+    ...((selectedOutcome || formUpfront || showViewBefore) && ask
+      ? ask.viewRelatedFields
+      : []),
+  ];
+  const viewEntityFieldsForFormMerged = [
+    ...(templateAsk?.viewEntityFields ?? []),
+    ...((selectedOutcome || formUpfront || showViewBefore) && ask
+      ? ask.viewEntityFields
+      : []),
+  ];
   const relatedLayout =
     entity && relatedFieldsForForm.length > 0
       ? resolveRelatedAskLayout({
@@ -315,14 +356,12 @@ function TaskFillFieldsDialogBody({
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
 
-  const viewRelatedFieldsForForm = viewSourceAsk?.viewRelatedFields ?? [];
-  const viewEntityFieldsForForm = viewSourceAsk?.viewEntityFields ?? [];
   const viewRelatedLayout =
-    entity && viewRelatedFieldsForForm.length > 0
+    entity && viewRelatedFieldsForFormMerged.length > 0
       ? resolveRelatedAskLayout({
           triggerEntity: entity,
           entities,
-          relatedFields: viewRelatedFieldsForForm,
+          relatedFields: viewRelatedFieldsForFormMerged,
           relatedRequiredIds: [],
           triggerValues: { ...(record?.values ?? {}), ...values },
           triggerRecordId: record?.id ?? task?.recordId ?? "",
@@ -330,11 +369,11 @@ function TaskFillFieldsDialogBody({
         })
       : { groups: [], emptyRelations: [] };
   const viewEntityLayout =
-    entity && viewEntityFieldsForForm.length > 0
+    entity && viewEntityFieldsForFormMerged.length > 0
       ? resolveViewEntityFieldsLayout({
           triggerEntity: entity,
           entities,
-          entityFields: viewEntityFieldsForForm,
+          entityFields: viewEntityFieldsForFormMerged,
           triggerValues: { ...(record?.values ?? {}), ...values },
           ctx: previewContext,
         })
@@ -348,21 +387,21 @@ function TaskFillFieldsDialogBody({
 
   const mergedValues = { ...(record?.values ?? {}), ...values };
 
-  const missingLocalRequiredCount = ask
-    ? ask.requiredFieldIds.filter((fieldId) => {
-        const field = entity?.fields.find((item) => item.id === fieldId);
-        if (!field) return false;
-        if (!entity || !record) return true;
-        return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
-          ctx: previewContext,
-          entity,
-          values: mergedValues,
-          recordId: record.id,
-          relationGroupsMode:
-            ask.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full",
-        });
-      }).length
-    : 0;
+  const missingLocalRequiredCount = [...requiredIds].filter((fieldId) => {
+    const field = entity?.fields.find((item) => item.id === fieldId);
+    if (!field) return false;
+    if (!entity || !record) return true;
+    return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
+      ctx: previewContext,
+      entity,
+      values: mergedValues,
+      recordId: record.id,
+      relationGroupsMode:
+        ask?.fieldAskOptions[fieldId]?.relationGroupsMode ??
+        templateAsk?.fieldAskOptions[fieldId]?.relationGroupsMode ??
+        "full",
+    });
+  }).length;
   const missingRelatedRequiredCount =
     entity && relatedFieldsForForm.length > 0
       ? countMissingRelatedRequired({
@@ -392,11 +431,14 @@ function TaskFillFieldsDialogBody({
 
   const hasCreateAsk = createAskSlots.length > 0;
   const hasEditableFill =
-    ask != null && (fields.length > 0 || hasRelatedAsk || hasCreateAsk);
-  const hasEarlyView = showViewBefore && hasViewContext;
+    fields.length > 0 || hasRelatedAsk || hasCreateAsk || hasTemplateFill;
+  const hasEarlyView =
+    (showViewBefore && hasViewContext) || (hasTemplateView && !formUpfront);
+  const hasEarlyFill = hasTemplateFill && !formUpfront;
   const earlyViewTabIds = taskAsk?.viewTabIds ?? [];
   const hasOutcomeForm =
     hasEditableFill ||
+    hasEarlyFill ||
     (!showViewBefore &&
       ask != null &&
       (hasViewContext || (ask.viewTabIds.length ?? 0) > 0)) ||
@@ -528,6 +570,7 @@ function TaskFillFieldsDialogBody({
       outcomes,
       values,
       excludeFieldIds: [processTriggerFieldId(task.processId)],
+      templateFieldAccess: task.config.fieldAccess,
     });
     if (patch) {
       // Partial patch — store merges into current values (keeps files tabs etc.).
@@ -664,7 +707,7 @@ function TaskFillFieldsDialogBody({
   }
 
   function outcomeNeedsInput(outcome: AutomationOutcome) {
-    return automationOutcomeNeedsInput(outcome, { viewFieldsPlacement });
+    return automationOutcomeNeedsInput(outcome);
   }
 
   function handleOutcomeClick(outcome: AutomationOutcome) {

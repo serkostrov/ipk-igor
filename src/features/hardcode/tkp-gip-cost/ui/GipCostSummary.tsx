@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { cn } from "@/shared/lib/cn";
 import {
   formatReviewExecutionDuration,
   parseReviewExecutionDuration,
@@ -135,7 +137,7 @@ function CurrentCostSummary({
 
       <MetricDetails
         metricKey="before-fixed"
-        label="Расходы по проекту до FIX 30%"
+        label="До FIX 30%"
         value={calculation.costBeforeFixed}
       >
         <GroupComposition
@@ -172,8 +174,9 @@ function CurrentCostSummary({
 
       <MetricDetails
         metricKey="project-cost"
-        label="Стоимость проекта с FIX 30%"
+        label="С FIX 30%"
         value={calculation.projectCost}
+        emphasis
       >
         <FormulaBreakdown
           rows={[
@@ -209,8 +212,10 @@ function CurrentCostSummary({
 
       <MetricDetails
         metricKey="total"
-        label="Общая себестоимость с FIX 30% и подрядными блоками"
+        label="Общая себестоимость"
         value={reviewGipTotalAmount(calculation)}
+        emphasis
+        wide
       >
         <FormulaBreakdown
           rows={[
@@ -267,7 +272,7 @@ function HistoricalCostSummary({
       </MetricDetails>
       <MetricDetails
         metricKey="before-fixed"
-        label="Расходы по проекту до FIX 30%"
+        label="До FIX 30%"
         value={calculation.upperBase}
       >
         {unavailable}
@@ -281,15 +286,18 @@ function HistoricalCostSummary({
       </MetricDetails>
       <MetricDetails
         metricKey="project-cost"
-        label="Стоимость проекта с FIX 30%"
+        label="С FIX 30%"
         value={calculation.costWithFixed}
+        emphasis
       >
         {unavailable}
       </MetricDetails>
       <MetricDetails
         metricKey="total"
-        label="Общая себестоимость с FIX 30% и подрядными блоками"
+        label="Общая себестоимость"
         value={reviewGipTotalAmount(calculation)}
+        emphasis
+        wide
       >
         {unavailable}
       </MetricDetails>
@@ -308,19 +316,23 @@ function SummaryShell({
 }) {
   return (
     <section
-      className="space-y-4 rounded-md border bg-card p-4"
+      className="overflow-hidden rounded-xl border border-border bg-card shadow-xs"
       data-testid="review-gip-cost-summary"
     >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold">Расчёт ГИПа</h2>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        </div>
-        {durationControl}
-      </div>
-      <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <header className="border-b border-border/70 px-4 py-3.5 sm:px-5">
+        <h2 className="text-sm font-semibold tracking-tight text-foreground">
+          Расчёт ГИПа
+        </h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </header>
+
+      <div className="grid grid-cols-1 gap-2.5 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3 xl:grid-cols-4">
         {children}
       </div>
+
+      <footer className="border-t border-border/70 bg-muted/25 px-4 py-3 sm:px-5">
+        {durationControl}
+      </footer>
     </section>
   );
 }
@@ -361,14 +373,28 @@ function GipExecutionDurationControl({
 
   return (
     <div
-      className="min-w-0 rounded-md border border-primary/30 bg-primary/5 p-3 lg:min-w-[23rem]"
+      className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-4"
       data-testid="review-gip-execution-duration"
     >
-      <Label htmlFor="review-gip-execution-duration">
-        Общий срок выполнения, раб. дни
-      </Label>
+      <div className="min-w-0 flex-1">
+        <Label
+          htmlFor="review-gip-execution-duration"
+          className="text-sm font-medium text-foreground"
+        >
+          Общий срок выполнения
+        </Label>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          Рабочие дни · вручную · на стоимость не влияет
+        </p>
+        {error ? (
+          <p className="mt-1 text-[11px] text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+
       {canEdit ? (
-        <div className="mt-2 flex gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Input
             id="review-gip-execution-duration"
             data-testid="review-gip-execution-duration-input"
@@ -376,34 +402,37 @@ function GipExecutionDurationControl({
             min="0.5"
             step="0.5"
             required
+            inputMode="decimal"
+            placeholder="0"
+            className="h-9 w-28 bg-background text-right tabular-nums"
             value={value}
             onChange={(event) => setValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleSave();
+              }
+            }}
             aria-invalid={
               value.trim().length > 0 &&
               parseReviewExecutionDuration(value) === null
             }
           />
+          <span className="text-xs text-muted-foreground">дн.</span>
           <Button
             type="button"
+            size="sm"
+            className="h-9"
             onClick={() => void handleSave()}
             disabled={saving || !onSave}
             data-testid="review-gip-execution-duration-save"
           >
-            {saving ? "Сохранение..." : "Сохранить"}
+            {saving ? "…" : "Сохранить"}
           </Button>
         </div>
       ) : (
-        <div className="mt-1 text-sm font-semibold tabular-nums">
+        <p className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
           {formatReviewExecutionDuration(executionDurationDays)}
-        </div>
-      )}
-      {error ? (
-        <p className="mt-1 text-[11px] text-destructive" role="alert">
-          {error}
-        </p>
-      ) : (
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Вводится вручную и не влияет на стоимость расчёта.
         </p>
       )}
     </div>
@@ -415,29 +444,54 @@ function MetricDetails({
   label,
   value,
   children,
+  emphasis = false,
+  wide = false,
 }: {
   metricKey: string;
   label: string;
   value: number;
   children: ReactNode;
+  /** Stronger value — for project total / итог. */
+  emphasis?: boolean;
+  /** Span two columns on wide grids. */
+  wide?: boolean;
 }) {
   return (
     <details
-      className="group rounded-md border bg-background open:col-span-full"
+      className={cn(
+        "group/metric rounded-xl border border-border/70 bg-muted/15 open:col-span-full open:border-border open:bg-card open:shadow-xs",
+        wide && "sm:col-span-2 xl:col-span-2",
+        emphasis && "border-border bg-background",
+      )}
       data-testid={`review-gip-metric-${metricKey}`}
     >
       <summary
-        className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-md px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
+        className="flex cursor-pointer list-none items-start gap-3 rounded-xl px-3.5 py-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-open/metric:rounded-b-none [&::-webkit-details-marker]:hidden"
         data-cost-label={label}
       >
-        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          {label}
-        </span>
-        <span className="shrink-0 text-sm font-semibold tabular-nums">
-          {formatMoney(value)}
-        </span>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <span className="text-[11px] leading-snug font-medium text-muted-foreground">
+              {label}
+            </span>
+            <ChevronDown
+              className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform group-open/metric:rotate-180"
+              aria-hidden
+            />
+          </div>
+          <p
+            className={cn(
+              "tabular-nums tracking-tight text-foreground",
+              emphasis ? "text-lg font-semibold" : "text-base font-semibold",
+            )}
+          >
+            {formatMoney(value)}
+          </p>
+        </div>
       </summary>
-      <div className="space-y-4 border-t px-3 py-4">{children}</div>
+      <div className="space-y-4 border-t border-border/60 px-3.5 py-4">
+        {children}
+      </div>
     </details>
   );
 }
@@ -448,14 +502,16 @@ function FormulaBreakdown({
   rows: Array<{ label: string; value: number | string }>;
 }) {
   return (
-    <dl className="grid gap-2 rounded-md bg-muted/30 p-3 text-sm sm:grid-cols-3">
+    <dl className="grid gap-2 rounded-lg border border-border/60 bg-muted/25 p-3 text-sm sm:grid-cols-3">
       {rows.map((row) => (
         <div
           key={row.label}
-          className="flex items-center justify-between gap-3 sm:block"
+          className="flex items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-1"
         >
-          <dt className="text-xs text-muted-foreground">{row.label}</dt>
-          <dd className="font-medium tabular-nums">
+          <dt className="text-[11px] leading-snug text-muted-foreground">
+            {row.label}
+          </dt>
+          <dd className="font-semibold tabular-nums text-foreground">
             {typeof row.value === "number" ? formatMoney(row.value) : row.value}
           </dd>
         </div>

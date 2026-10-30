@@ -83,7 +83,6 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 import {
-  isTkpAnalysisEntity,
   isTkpPriceHardcodeTab,
   resolveTkpReviewCostVisibility,
   TkpReviewHardcodeSlot,
@@ -1158,9 +1157,10 @@ export function EntityRecordPage({
       withTkpPriceHardcodeTab(
         entity.tabs,
         entity,
+        entities,
         tkpCostVisibility.showCommercialPricing,
       ),
-    [entity, tkpCostVisibility.showCommercialPricing],
+    [entities, entity, tkpCostVisibility.showCommercialPricing],
   );
   const resolvedActiveTabId =
     entityTabs.find((tab) => tab.id === locationTabId)?.id ??
@@ -1277,15 +1277,6 @@ export function EntityRecordPage({
               onListChange={handleListChange}
               onOpenRelation={onOpenRelation}
               emptyLabel=""
-            />
-          ) : null}
-
-          {isTkpAnalysisEntity(entity) ? (
-            <TkpReviewHardcodeSlot
-              entity={entity}
-              record={record}
-              readOnly={!canUpdate}
-              sections={["related"]}
             />
           ) : null}
 

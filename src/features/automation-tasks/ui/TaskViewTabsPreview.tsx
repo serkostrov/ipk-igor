@@ -1065,12 +1065,18 @@ export function TaskViewTabsPreview({
     () => resolveTkpReviewCostVisibility(role).showCommercialPricing,
     [role],
   );
+  const { entities } = useEntityConfig();
   const viewTabs = useMemo(() => {
     const selected = tabIds
       .map((id) => entity.tabs.find((tab) => tab.id === id))
       .filter((tab): tab is EntityTab => tab != null);
-    return withTkpPriceHardcodeTab(selected, entity, showCommercialPricing);
-  }, [entity, showCommercialPricing, tabIds]);
+    return withTkpPriceHardcodeTab(
+      selected,
+      entity,
+      entities,
+      showCommercialPricing,
+    );
+  }, [entities, entity, showCommercialPricing, tabIds]);
 
   const hasFill = fillSlot != null;
   const defaultTab = hasFill ? FILL_TAB_ID : (viewTabs[0]?.id ?? FILL_TAB_ID);

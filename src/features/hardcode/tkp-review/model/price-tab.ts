@@ -1,5 +1,9 @@
 import type { Entity, EntityTab } from "@/entities/entity";
-import { isTkpAnalysisEntity } from "@/entities/entity";
+import {
+  isEntityTabWithLinkedEntity,
+  isTkpAnalysisEntity,
+} from "@/entities/entity";
+import { isDeptCalculationsEntity } from "../../tkp-gip/match";
 
 /** Virtual record tab — not stored in entity schema. */
 export const TKP_PRICE_HARDCODE_TAB_ID = "hardcode-tkp-price";
@@ -25,12 +29,13 @@ export function createTkpPriceHardcodeTab(): EntityTab {
 }
 
 /**
- * Appends the hardcode «Цена ТКП» tab for TKP analysis when commercial
- * pricing is visible. Idempotent.
+ * Inserts the hardcode «Цена ТКП» tab right after «Расчёты отделов».
+ * Falls back to the end when the dept tab is missing. Idempotent.
  */
 export function withTkpPriceHardcodeTab(
   tabs: readonly EntityTab[],
   entity: Entity,
+  entities: readonly Entity[],
   showCommercialPricing: boolean,
 ): EntityTab[] {
   if (!isTkpAnalysisEntity(entity) || !showCommercialPricing) {
@@ -39,5 +44,16 @@ export function withTkpPriceHardcodeTab(
   if (tabs.some((tab) => isTkpPriceHardcodeTab(tab))) {
     return [...tabs];
   }
-  return [...tabs, createTkpPriceHardcodeTab()];
+
+  const priceTab = createTkpPriceHardcodeTab();
+  const deptIndex = tabs.findIndex((tab) => {
+    if (!isEntityTabWithLinkedEntity(tab) || !tab.linkedEntityId) return false;
+    const linked = entities.find((item) => item.id === tab.linkedEntityId);
+    return linked != null && isDeptCalculationsEntity(linked);
+  });
+
+  if (deptIndex < 0) return [...tabs, priceTab];
+  const next = [...tabs];
+  next.splice(deptIndex + 1, 0, priceTab);
+  return next;
 }

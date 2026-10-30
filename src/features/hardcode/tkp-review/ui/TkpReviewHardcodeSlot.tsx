@@ -5,10 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useCurrentRole } from "@/entities/access";
-import {
-  collectRecordsLinkedToParent,
-  resolveHostChildParentLinkField,
-} from "@/entities/automation";
+import { collectRecordsLinkedToParent } from "@/entities/automation";
 import {
   getSystemUserName,
   updateEntityRecord,
@@ -18,11 +15,7 @@ import {
   type Entity,
   type EntityRecord,
 } from "@/entities/entity";
-import {
-  adaptDeptRecordsToGipDepartments,
-  adaptSubcontractorRecords,
-  adaptTripRecords,
-} from "../../tkp-gip-cost/model/adapt-departments";
+import { adaptDeptRecordsToGipDepartments } from "../../tkp-gip-cost/model/adapt-departments";
 import {
   calculateReviewCostBreakdown,
   type ReviewGipCostCalculation,
@@ -39,10 +32,7 @@ import {
 } from "../../tkp-commercial/ui/CommercialPricingPanel";
 import {
   findDeptCalculationsLinkedEntity,
-  findSubcontractorsLinkedEntity,
-  findTripsLinkedEntity,
   readTkpGipExecutionDurationDays,
-  resolveTkpRelatedMoneyFields,
   writeTkpGipExecutionDurationPatch,
 } from "../model/match-related";
 import { resolveTkpReviewCostVisibility } from "../model/visibility";
@@ -50,29 +40,25 @@ import {
   BIND_PRICE_REVISION_KEY,
   PENDING_NEW_PRICE_KEY,
 } from "../lib/tkp-file-bind";
-import { TkpRelatedMoneyTable } from "./TkpRelatedMoneyTable";
 import { TkpPendingPriceVersionBanner } from "./TkpPendingPriceVersionBanner";
 
-export type TkpReviewHardcodeSection = "gip" | "commercial" | "related";
+export type TkpReviewHardcodeSection = "gip" | "commercial";
 
 const ALL_TKP_REVIEW_SECTIONS: readonly TkpReviewHardcodeSection[] = [
   "gip",
   "commercial",
-  "related",
 ];
 
 export function TkpReviewHardcodeSlot({
   entity,
   record,
   readOnly = false,
-  showRelatedTables = true,
-  /** Which blocks to render (GIP summary can live on the dept-calculations tab). */
+  /** Which blocks to render (GIP on dept tab, commercial on «Цена ТКП»). */
   sections = ALL_TKP_REVIEW_SECTIONS,
 }: {
   entity: Entity;
   record: EntityRecord;
   readOnly?: boolean;
-  showRelatedTables?: boolean;
   sections?: readonly TkpReviewHardcodeSection[];
 }) {
   const role = useCurrentRole();
@@ -90,14 +76,6 @@ export function TkpReviewHardcodeSlot({
     () => findDeptCalculationsLinkedEntity(entity, entities),
     [entity, entities],
   );
-  const tripsEntity = useMemo(
-    () => findTripsLinkedEntity(entity, entities),
-    [entity, entities],
-  );
-  const subsEntity = useMemo(
-    () => findSubcontractorsLinkedEntity(entity, entities),
-    [entity, entities],
-  );
 
   const deptRecords = useMemo(() => {
     if (!deptEntity) return [];
@@ -111,30 +89,6 @@ export function TkpReviewHardcodeSlot({
     return deptEntity.records.filter((item) => idSet.has(item.id));
   }, [deptEntity, entity, record.id]);
 
-  const tripRecords = useMemo(() => {
-    if (!tripsEntity) return [];
-    const ids = collectRecordsLinkedToParent({
-      childEntity: tripsEntity,
-      parentEntityId: entity.id,
-      parentRecordId: record.id,
-      host: entity,
-    });
-    const idSet = new Set(ids);
-    return tripsEntity.records.filter((item) => idSet.has(item.id));
-  }, [tripsEntity, entity, record.id]);
-
-  const subRecords = useMemo(() => {
-    if (!subsEntity) return [];
-    const ids = collectRecordsLinkedToParent({
-      childEntity: subsEntity,
-      parentEntityId: entity.id,
-      parentRecordId: record.id,
-      host: entity,
-    });
-    const idSet = new Set(ids);
-    return subsEntity.records.filter((item) => idSet.has(item.id));
-  }, [subsEntity, entity, record.id]);
-
   const gipBreakdown = useMemo(() => {
     if (!deptEntity) {
       return calculateReviewCostBreakdown({ departments: [] });
@@ -145,46 +99,8 @@ export function TkpReviewHardcodeSlot({
       records: deptRecords,
       entities,
     });
-    const tripFields = tripsEntity
-      ? resolveTkpRelatedMoneyFields(tripsEntity)
-      : null;
-    const subFields = subsEntity
-      ? resolveTkpRelatedMoneyFields(subsEntity)
-      : null;
-    const trips = tripsEntity
-      ? adaptTripRecords({
-          ctx,
-          entity: tripsEntity,
-          records: tripRecords,
-          amountFieldId: tripFields?.amount?.id ?? null,
-          titleFieldId: tripFields?.title?.id ?? null,
-        })
-      : [];
-    const subcontractors = subsEntity
-      ? adaptSubcontractorRecords({
-          ctx,
-          entity: subsEntity,
-          records: subRecords,
-          amountFieldId: subFields?.amount?.id ?? null,
-          titleFieldId: subFields?.title?.id ?? null,
-          counterpartyFieldId: subFields?.counterparty?.id ?? null,
-        })
-      : [];
-    return calculateReviewCostBreakdown({
-      departments,
-      trips,
-      subcontractors,
-    });
-  }, [
-    ctx,
-    deptEntity,
-    deptRecords,
-    entities,
-    tripsEntity,
-    tripRecords,
-    subsEntity,
-    subRecords,
-  ]);
+    return calculateReviewCostBreakdown({ departments });
+  }, [ctx, deptEntity, deptRecords, entities]);
 
   const gipCalculation =
     gipBreakdown.gipCalculation as ReviewGipCostCalculation;
@@ -226,13 +142,6 @@ export function TkpReviewHardcodeSlot({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [reloadHistory, visibility.showCommercialPricing]);
-
-  const tripsLinkFieldId = tripsEntity
-    ? (resolveHostChildParentLinkField(entity, tripsEntity)?.field.id ?? null)
-    : null;
-  const subsLinkFieldId = subsEntity
-    ? (resolveHostChildParentLinkField(entity, subsEntity)?.field.id ?? null)
-    : null;
 
   async function handleSaveDuration(days: number) {
     const patch = writeTkpGipExecutionDurationPatch(entity, days);
@@ -284,7 +193,6 @@ export function TkpReviewHardcodeSlot({
 
   const wantGip = sections.includes("gip");
   const wantCommercial = sections.includes("commercial");
-  const wantRelated = sections.includes("related") && showRelatedTables;
 
   const showGipBlock =
     wantGip &&
@@ -298,7 +206,7 @@ export function TkpReviewHardcodeSlot({
     !readOnly &&
     (visibility.showGipCalculation || visibility.showCommercialPricing);
 
-  if (!showGipBlock && !showCommercialBlock && !wantRelated) {
+  if (!showGipBlock && !showCommercialBlock) {
     return null;
   }
 
@@ -339,29 +247,6 @@ export function TkpReviewHardcodeSlot({
               Загрузка истории цен…
             </p>
           ) : null}
-        </div>
-      ) : null}
-
-      {wantRelated ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <TkpRelatedMoneyTable
-            title="Командировки"
-            emptyText="Командировки не добавлены."
-            entity={tripsEntity}
-            records={tripRecords}
-            parentRecordId={record.id}
-            parentLinkFieldId={tripsLinkFieldId}
-            readOnly={readOnly}
-          />
-          <TkpRelatedMoneyTable
-            title="Подрядчики"
-            emptyText="Подрядные работы не добавлены."
-            entity={subsEntity}
-            records={subRecords}
-            parentRecordId={record.id}
-            parentLinkFieldId={subsLinkFieldId}
-            readOnly={readOnly}
-          />
         </div>
       ) : null}
     </div>

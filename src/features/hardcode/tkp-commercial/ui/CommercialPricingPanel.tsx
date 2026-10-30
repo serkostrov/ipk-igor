@@ -112,7 +112,7 @@ export function CommercialCalculationMetrics({
 }) {
   return (
     <div
-      className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"
+      className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
       data-testid="review-commercial-price-metrics"
     >
       <CommercialMetricDetails
@@ -172,11 +172,11 @@ export function CommercialCalculationMetrics({
         <FormulaBreakdown rows={baseBeforeRetroRows(calculation)} />
       </CommercialMetricDetails>
       <PricingValue
-        label="Сумма РЭТРО-бонуса"
+        label="РЭТРО-бонус"
         value={fmtMoney(calculation.retroAmount)}
       />
       <PricingValue
-        label="РЭТРО с коэффициентом 1,2"
+        label="РЭТРО × 1,2"
         value={fmtMoney(calculation.retroWithFactor)}
       />
       <CommercialMetricDetails
@@ -190,6 +190,7 @@ export function CommercialCalculationMetrics({
         metricKey="total-before-vat"
         label="Цена без НДС"
         value={fmtMoney(calculation.totalBeforeVat)}
+        strong
       >
         <FormulaBreakdown rows={totalBeforeVatRows(calculation)} />
       </CommercialMetricDetails>
@@ -217,6 +218,7 @@ export function CommercialCalculationMetrics({
         label="Цена с НДС"
         value={fmtMoney(calculation.totalWithVat)}
         strong
+        wide
       >
         <FormulaBreakdown
           rows={[
@@ -243,82 +245,87 @@ export function CommercialPriceHistoryTable({
 }) {
   if (entries.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground">Ревизий цены пока нет.</p>
+      <p className="rounded-lg border border-dashed border-border/70 bg-muted/15 px-3 py-4 text-center text-xs text-muted-foreground">
+        Ревизий цены пока нет.
+      </p>
     );
   }
 
   return (
     <div
-      className="overflow-x-auto rounded-md border"
+      className="overflow-x-auto rounded-xl border border-border/70"
       data-testid="review-price-history-table"
     >
       <table className="w-full min-w-[1200px] text-xs">
-        <thead className="bg-muted/40 text-left">
+        <thead className="bg-muted/40 text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
           <tr>
-            <th className="p-2">Ревизия</th>
-            <th className="p-2">Дата и автор</th>
-            <th className="p-2">Режим</th>
-            <th className="p-2 text-right">База</th>
-            <th className="p-2 text-right">Эфф. коэффициент</th>
-            <th className="p-2 text-right">Чистая прибыль</th>
-            <th className="p-2 text-right">Рентабельность</th>
-            <th className="p-2 text-right">Налог</th>
-            <th className="p-2 text-right">РЭТРО</th>
-            <th className="p-2 text-right">РЭТРО × 1,2</th>
-            <th className="p-2 text-right">Без НДС</th>
-            <th className="p-2 text-right">НДС</th>
-            <th className="p-2 text-right">С НДС</th>
+            <th className="px-3 py-2.5">Ревизия</th>
+            <th className="px-3 py-2.5">Дата и автор</th>
+            <th className="px-3 py-2.5">Режим</th>
+            <th className="px-3 py-2.5 text-right">База</th>
+            <th className="px-3 py-2.5 text-right">Эфф. коэфф.</th>
+            <th className="px-3 py-2.5 text-right">Чистая прибыль</th>
+            <th className="px-3 py-2.5 text-right">Рентабельность</th>
+            <th className="px-3 py-2.5 text-right">Налог</th>
+            <th className="px-3 py-2.5 text-right">РЭТРО</th>
+            <th className="px-3 py-2.5 text-right">РЭТРО × 1,2</th>
+            <th className="px-3 py-2.5 text-right">Без НДС</th>
+            <th className="px-3 py-2.5 text-right">НДС</th>
+            <th className="px-3 py-2.5 text-right">С НДС</th>
           </tr>
         </thead>
         <tbody>
           {entries.map((entry) => {
             const calculation = entry.calculation;
             return (
-              <tr key={entry.id} className="border-t align-top">
-                <td className="p-2 font-medium">
+              <tr
+                key={entry.id}
+                className="border-t border-border/60 align-top hover:bg-muted/20"
+              >
+                <td className="px-3 py-2.5 font-medium">
                   {entry.revisionNumber == null
                     ? "—"
                     : `#${entry.revisionNumber}`}
                 </td>
-                <td className="p-2">
+                <td className="px-3 py-2.5">
                   {fmtDateTime(entry.createdAt)}
                   <div className="text-muted-foreground">
                     {entry.createdByName ?? "—"}
                   </div>
                 </td>
-                <td className="p-2">
+                <td className="px-3 py-2.5">
                   {tkpSalePriceModeLabel(entry.priceMode)}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation ? fmtMoney(calculation.costWithFixed) : "—"}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation?.effectiveCoefficient ?? "—"}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation ? fmtMoney(calculation.netProfit) : "—"}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation
                     ? `${calculation.profitabilityPercent.toLocaleString("ru-RU")}%`
                     : "—"}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation ? fmtMoney(calculation.profitTaxAmount) : "—"}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation ? fmtMoney(calculation.retroAmount) : "—"}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation ? fmtMoney(calculation.retroWithFactor) : "—"}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation ? fmtMoney(calculation.totalBeforeVat) : "—"}
                 </td>
-                <td className="p-2 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {calculation ? fmtMoney(calculation.vatAmount) : "—"}
                 </td>
-                <td className="p-2 text-right font-medium tabular-nums">
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                   {calculation ? fmtMoney(calculation.totalWithVat) : "—"}
                 </td>
               </tr>
@@ -440,21 +447,23 @@ export function CommercialPricingPanel({
   return (
     <section
       id="review-sale-price"
-      className="scroll-mt-4 space-y-4 rounded-md border bg-card p-4"
+      className="scroll-mt-4 overflow-hidden rounded-xl border border-border bg-card shadow-xs"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold">Цена ТКП</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Предпросмотр считается на клиенте. Каждое сохранение создаёт
-            отдельную неизменяемую ревизию; НДС всегда {TKP_COMMERCIAL_VAT_RATE}
-            %.
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-4 py-3.5 sm:px-5">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold tracking-tight text-foreground">
+            Цена ТКП
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Предпросмотр на клиенте · каждое сохранение — новая ревизия · НДС{" "}
+            {TKP_COMMERCIAL_VAT_RATE}%
           </p>
         </div>
         {onStartNewPriceVersion && !pendingNewPriceVersion ? (
           <Button
             type="button"
             size="sm"
+            className="h-8 shrink-0"
             onClick={() => void handleStartNewPriceVersion()}
             disabled={startingVersion || !canEdit}
             data-testid="start-customer-price-revision"
@@ -462,20 +471,38 @@ export function CommercialPricingPanel({
             {startingVersion ? "Создание…" : "Новая версия цены"}
           </Button>
         ) : null}
-      </div>
+      </header>
 
       {pendingNewPriceVersion ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground sm:px-5">
           Сохранение создаст цену N+1. Перед финализацией убедитесь, что
           комплекты файлов ТКП соответствуют новой цене.
         </p>
       ) : null}
 
+      <div className="space-y-4 p-3 sm:p-4">
+        {visibleCalculation ? (
+          <CommercialCalculationMetrics calculation={visibleCalculation} />
+        ) : (
+          <div className="rounded-xl border border-dashed border-border/70 bg-muted/15 px-3 py-6 text-center text-xs text-muted-foreground">
+            {priceEditorVisible
+              ? "Укажите параметры цены ниже — расчёт появится здесь."
+              : "Сохранённый расчёт цены отсутствует."}
+          </div>
+        )}
+      </div>
+
       {priceEditorVisible ? (
-        <div className="space-y-3 rounded-md border bg-muted/20 p-3">
-          <div className="grid gap-3 md:grid-cols-3">
+        <footer className="space-y-3 border-t border-border/70 bg-muted/25 px-4 py-3.5 sm:px-5">
+          <div className="flex flex-col gap-0.5">
+            <p className="text-sm font-medium text-foreground">
+              Параметры цены
+            </p>
+            <SalePriceModeFields mode={mode} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-1.5">
-              <Label className="text-xs">Режим цены</Label>
+              <Label className="text-xs font-medium">Режим</Label>
               <Select
                 value={mode}
                 onValueChange={(next) => {
@@ -486,7 +513,10 @@ export function CommercialPricingPanel({
                   }
                 }}
               >
-                <SelectTrigger aria-label="Режим цены" className="w-full">
+                <SelectTrigger
+                  aria-label="Режим цены"
+                  className="h-9 w-full bg-background"
+                >
                   <SelectValue>{modeLabel}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -501,7 +531,10 @@ export function CommercialPricingPanel({
             </div>
             {mode === "coefficient" ? (
               <div className="space-y-1.5">
-                <Label htmlFor="tkp-price-coefficient" className="text-xs">
+                <Label
+                  htmlFor="tkp-price-coefficient"
+                  className="text-xs font-medium"
+                >
                   Коммерческий коэффициент
                 </Label>
                 <Input
@@ -510,14 +543,19 @@ export function CommercialPricingPanel({
                   type="number"
                   min="0.0001"
                   step="0.0001"
+                  inputMode="decimal"
+                  className="h-9 bg-background tabular-nums"
                   value={coefficient}
                   onChange={(event) => setCoefficient(event.target.value)}
                 />
               </div>
             ) : (
               <div className="space-y-1.5">
-                <Label htmlFor="tkp-price-manual" className="text-xs">
-                  Базовая цена без НДС (без РЭТРО), ₽
+                <Label
+                  htmlFor="tkp-price-manual"
+                  className="text-xs font-medium"
+                >
+                  Базовая цена без НДС, ₽
                 </Label>
                 <Input
                   id="tkp-price-manual"
@@ -525,6 +563,8 @@ export function CommercialPricingPanel({
                   type="number"
                   min="0"
                   step="0.01"
+                  inputMode="decimal"
+                  className="h-9 bg-background tabular-nums"
                   value={manualTotalBeforeVat}
                   onChange={(event) =>
                     setManualTotalBeforeVat(event.target.value)
@@ -533,8 +573,8 @@ export function CommercialPricingPanel({
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="tkp-price-retro" className="text-xs">
-                Сумма РЭТРО-бонуса, ₽
+              <Label htmlFor="tkp-price-retro" className="text-xs font-medium">
+                РЭТРО-бонус, ₽
               </Label>
               <Input
                 id="tkp-price-retro"
@@ -543,12 +583,13 @@ export function CommercialPricingPanel({
                 min="0"
                 max={TKP_COMMERCIAL_MAX_MONEY}
                 step="0.01"
+                inputMode="decimal"
+                className="h-9 bg-background tabular-nums"
                 value={retroAmount}
                 onChange={(event) => setRetroAmount(event.target.value)}
               />
             </div>
           </div>
-          <SalePriceModeFields mode={mode} />
           {input === null ? (
             <p className="text-xs text-destructive">
               Укажите корректные значения цены и РЭТРО-бонуса.
@@ -562,6 +603,8 @@ export function CommercialPricingPanel({
           <div className="flex justify-end">
             <Button
               type="button"
+              size="sm"
+              className="h-9"
               onClick={() => void handleSave()}
               disabled={input === null || !preview.calculation || saving}
             >
@@ -569,24 +612,14 @@ export function CommercialPricingPanel({
                 ? "Сохранение…"
                 : pendingNewPriceVersion
                   ? "Создать версию цены"
-                  : "Сохранить новую ревизию"}
+                  : "Сохранить ревизию"}
             </Button>
           </div>
-        </div>
+        </footer>
       ) : null}
 
-      {visibleCalculation ? (
-        <CommercialCalculationMetrics calculation={visibleCalculation} />
-      ) : (
-        <div className="rounded-md border border-dashed bg-muted/20 px-3 py-4 text-xs text-muted-foreground">
-          {priceEditorVisible
-            ? "Укажите цену, чтобы получить расчёт."
-            : "Сохранённый расчёт цены отсутствует."}
-        </div>
-      )}
-
-      <div className="space-y-2">
-        <h3 className="text-xs font-medium">История цен</h3>
+      <div className="space-y-2.5 border-t border-border/70 px-4 py-3.5 sm:px-5">
+        <h3 className="text-sm font-medium text-foreground">История цен</h3>
         <CommercialPriceHistoryTable entries={history} />
       </div>
     </section>

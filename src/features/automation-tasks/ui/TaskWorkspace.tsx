@@ -56,9 +56,12 @@ import {
   automationOutcomeNeedsInput,
   automationTaskShowsFormUpfront,
   automationTaskShowsViewBeforeOutcomes,
+  automationTemplateHasFillFields,
+  automationTemplateHasViewContext,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
+  getAutomationTemplateAskFields,
   getDefaultSelectedOutcomeId,
   getOutcomeCreateAskSlots,
   validateCreateAskRequired,
@@ -86,10 +89,6 @@ import {
   resolveTaskLeadManagerName,
 } from "../lib/task-people";
 import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
-import {
-  isTkpAnalysisEntity,
-  TkpReviewHardcodeSlot,
-} from "@/features/hardcode";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewContextFields } from "./TaskViewContextFields";
@@ -230,10 +229,11 @@ function TaskWorkspaceBody({
   const previewContext = getEntityPreviewValueContext(valueContext);
 
   const taskAsk = getAutomationTaskAskFields(task);
+  const templateAsk = getAutomationTemplateAskFields(task);
   const formUpfront = automationTaskShowsFormUpfront(task);
   const showViewBefore = automationTaskShowsViewBeforeOutcomes(task);
-  const viewFieldsPlacement =
-    task.config.viewFieldsPlacement ?? "beforeOutcomes";
+  const hasTemplateFill = automationTemplateHasFillFields(task);
+  const hasTemplateView = automationTemplateHasViewContext(task);
   const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(
     () => getDefaultSelectedOutcomeId(task),
   );
@@ -253,25 +253,42 @@ function TaskWorkspaceBody({
   const ask = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
-  const createAskSlotsRaw = selectedOutcome
-    ? getOutcomeCreateAskSlots(selectedOutcome, entities, {
-        sourceEntity: entity,
-        triggerRecordId: record?.id ?? task.recordId,
-        triggerValues: record?.values ?? {},
-        getRecordTitle: (parentEntity, parentRecordId) => {
-          const parentRecord = parentEntity.records.find(
-            (item) => item.id === parentRecordId,
-          );
-          if (!parentRecord) return "Запись";
-          return getEntityRecordTitle(
-            previewContext,
-            parentEntity,
-            parentRecord,
-          );
-        },
-      })
-    : [];
-  const requiredIds = new Set(ask?.requiredFieldIds ?? []);
+  const createAskTitle = (parentEntity: Entity, parentRecordId: string) => {
+    const parentRecord = parentEntity.records.find(
+      (item) => item.id === parentRecordId,
+    );
+    if (!parentRecord) return "Запись";
+    return getEntityRecordTitle(previewContext, parentEntity, parentRecord);
+  };
+  const templateCreateOutcome = {
+    id: "__template__",
+    label: "",
+    color: null as string | null,
+    actions: task.config.actions ?? [],
+    fieldAccess: task.config.fieldAccess,
+    conditions: { version: 1 as const, match: "all" as const, rules: [] },
+    buttonMode: "auto" as const,
+  };
+  const createAskSlotsRaw = [
+    ...getOutcomeCreateAskSlots(templateCreateOutcome, entities, {
+      sourceEntity: entity,
+      triggerRecordId: record?.id ?? task.recordId,
+      triggerValues: record?.values ?? {},
+      getRecordTitle: createAskTitle,
+    }),
+    ...(selectedOutcome
+      ? getOutcomeCreateAskSlots(selectedOutcome, entities, {
+          sourceEntity: entity,
+          triggerRecordId: record?.id ?? task.recordId,
+          triggerValues: record?.values ?? {},
+          getRecordTitle: createAskTitle,
+        })
+      : []),
+  ];
+  const requiredIds = new Set([
+    ...templateAsk.requiredFieldIds,
+    ...(ask?.requiredFieldIds ?? []),
+  ]);
 
   const [values, setValues] = useState<Record<string, string>>(() => {
     if (!entity || !record) return {};
@@ -311,10 +328,15 @@ function TaskWorkspaceBody({
   });
   const autosaveLabel = taskFormAutosaveLabel(autosave.status);
 
-  // Only the selected outcome — never the union of all outcomes (that leaked
-  // later-step related / create asks onto early sequential tasks).
-  const relatedFieldsForForm = ask?.relatedVisibleFields ?? [];
-  const relatedRequiredForForm = ask?.relatedRequiredIds ?? [];
+  // Template fields always; outcome fields only after select (or single upfront).
+  const relatedFieldsForForm = [
+    ...templateAsk.relatedVisibleFields,
+    ...(ask?.relatedVisibleFields ?? []),
+  ];
+  const relatedRequiredForForm = [
+    ...templateAsk.relatedRequiredIds,
+    ...(ask?.relatedRequiredIds ?? []),
+  ];
 
   const relatedLayout =
     entity && relatedFieldsForForm.length > 0
@@ -334,10 +356,19 @@ function TaskWorkspaceBody({
     relatedLayout.groups,
   );
 
-  // View context: union before buttons, or selected outcome when «после выбора».
-  const viewSourceAsk = showViewBefore ? taskAsk : ask;
-  const viewRelatedFieldsForForm = viewSourceAsk?.viewRelatedFields ?? [];
-  const viewEntityFieldsForForm = viewSourceAsk?.viewEntityFields ?? [];
+  // Template view always before buttons; outcome view after select (or single).
+  const viewRelatedFieldsForForm = [
+    ...templateAsk.viewRelatedFields,
+    ...((selectedOutcome || formUpfront || showViewBefore) && ask
+      ? ask.viewRelatedFields
+      : []),
+  ];
+  const viewEntityFieldsForForm = [
+    ...templateAsk.viewEntityFields,
+    ...((selectedOutcome || formUpfront || showViewBefore) && ask
+      ? ask.viewEntityFields
+      : []),
+  ];
   const viewRelatedLayout =
     entity && viewRelatedFieldsForForm.length > 0
       ? resolveRelatedAskLayout({
@@ -413,38 +444,54 @@ function TaskWorkspaceBody({
     [mergedValues, record?.id, task.recordId],
   );
 
-  const fields =
-    !entity || !ask
-      ? []
-      : ask.visibleFieldIds
-          .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-          .filter((field): field is EntityField => field != null)
-          .filter((field) =>
-            isEntityFieldVisibleByConditions(
-              previewContext,
-              entity,
-              formDraft,
-              field,
-            ),
-          );
+  const formVisibleFieldIds = (() => {
+    const ids = [...templateAsk.visibleFieldIds];
+    if ((selectedOutcome || formUpfront) && ask) {
+      for (const id of ask.visibleFieldIds) {
+        if (!ids.includes(id)) ids.push(id);
+      }
+    }
+    return ids;
+  })();
+  const fields = !entity
+    ? []
+    : formVisibleFieldIds
+        .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+        .filter((field): field is EntityField => field != null)
+        .filter((field) =>
+          isEntityFieldVisibleByConditions(
+            previewContext,
+            entity,
+            formDraft,
+            field,
+          ),
+        );
 
-  const viewFields =
-    !entity || !viewSourceAsk
-      ? []
-      : viewSourceAsk.viewFieldIds
-          .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
-          .filter((field): field is EntityField => field != null)
-          .filter((field) =>
-            isEntityFieldVisibleByConditions(
-              previewContext,
-              entity,
-              formDraft,
-              field,
-            ),
-          );
+  const formViewFieldIds = (() => {
+    const ids = [...templateAsk.viewFieldIds];
+    if ((selectedOutcome || formUpfront || showViewBefore) && ask) {
+      for (const id of ask.viewFieldIds) {
+        if (!ids.includes(id)) ids.push(id);
+      }
+    }
+    return ids;
+  })();
+  const viewFields = !entity
+    ? []
+    : formViewFieldIds
+        .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
+        .filter((field): field is EntityField => field != null)
+        .filter((field) =>
+          isEntityFieldVisibleByConditions(
+            previewContext,
+            entity,
+            formDraft,
+            field,
+          ),
+        );
 
   const title = recordTitle(valueContext, entity, record);
-  /** View tabs from any outcome — shown before a result is chosen. */
+  /** Template view tabs + union across outcomes for early preview. */
   const earlyViewTabIds = taskAsk.viewTabIds;
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
@@ -456,36 +503,38 @@ function TaskWorkspaceBody({
     viewEntityLayout.empty.length > 0;
   const hasCreateAsk = createAskSlots.length > 0;
   const hasEditableFill =
-    ask != null && (fields.length > 0 || hasRelatedAsk || hasCreateAsk);
-  /** After-select view rides with the fill slot; before-outomes view is early. */
+    fields.length > 0 || hasRelatedAsk || hasCreateAsk || hasTemplateFill;
+  /** After-select view rides with the fill slot; template fill/view is always early. */
   const hasFillForm =
     hasEditableFill || (!showViewBefore && ask != null && hasViewContext);
-  const hasEarlyView = showViewBefore && hasViewContext;
-  const missingLocalRequiredCount = ask
-    ? ask.requiredFieldIds.filter((fieldId) => {
-        const field = entity?.fields.find((item) => item.id === fieldId);
-        if (!field) return false;
-        if (!entity || !record) return true;
-        if (
-          !isEntityFieldVisibleByConditions(
-            previewContext,
-            entity,
-            formDraft,
-            field,
-          )
-        ) {
-          return false;
-        }
-        return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
-          ctx: previewContext,
-          entity,
-          values: mergedValues,
-          recordId: record.id,
-          relationGroupsMode:
-            ask.fieldAskOptions[fieldId]?.relationGroupsMode ?? "full",
-        });
-      }).length
-    : 0;
+  const hasEarlyView =
+    (showViewBefore && hasViewContext) || (hasTemplateView && !formUpfront);
+  const hasEarlyFill = hasTemplateFill && !formUpfront;
+  const missingLocalRequiredCount = [...requiredIds].filter((fieldId) => {
+    const field = entity?.fields.find((item) => item.id === fieldId);
+    if (!field) return false;
+    if (!entity || !record) return true;
+    if (
+      !isEntityFieldVisibleByConditions(
+        previewContext,
+        entity,
+        formDraft,
+        field,
+      )
+    ) {
+      return false;
+    }
+    return !isTaskAskFieldFilled(field, values[fieldId] ?? "", {
+      ctx: previewContext,
+      entity,
+      values: mergedValues,
+      recordId: record.id,
+      relationGroupsMode:
+        ask?.fieldAskOptions[fieldId]?.relationGroupsMode ??
+        templateAsk.fieldAskOptions[fieldId]?.relationGroupsMode ??
+        "full",
+    });
+  }).length;
   const missingRelatedRequiredCount =
     entity && relatedFieldsForForm.length > 0
       ? countMissingRelatedRequired({
@@ -612,6 +661,7 @@ function TaskWorkspaceBody({
       outcomes,
       values,
       excludeFieldIds: [processTriggerFieldId(task.processId)],
+      templateFieldAccess: task.config.fieldAccess,
     });
     if (patch) {
       // Partial patch — store merges into current values (keeps files tabs etc.).
@@ -779,7 +829,7 @@ function TaskWorkspaceBody({
   }
 
   function outcomeNeedsInput(outcome: (typeof task.config.outcomes)[number]) {
-    return automationOutcomeNeedsInput(outcome, { viewFieldsPlacement });
+    return automationOutcomeNeedsInput(outcome);
   }
 
   function handleOutcomeClick(outcomeId: string) {
@@ -901,21 +951,14 @@ function TaskWorkspaceBody({
         />
       ) : null}
 
-      {entity && record && isTkpAnalysisEntity(entity) ? (
-        <TkpReviewHardcodeSlot
-          entity={entity}
-          record={{ ...record, values: mergedValues }}
-          readOnly={busy}
-          showRelatedTables
-          sections={["related"]}
-        />
-      ) : null}
-
       {!entity || !record ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           Запись ещё не загружена. Обновите страницу.
         </p>
-      ) : earlyViewTabIds.length > 0 || hasFillForm || hasEarlyView ? (
+      ) : earlyViewTabIds.length > 0 ||
+        hasFillForm ||
+        hasEarlyView ||
+        hasEarlyFill ? (
         <TaskViewTabsPreview
           entity={entity}
           record={{ ...record, values: mergedValues }}
@@ -924,14 +967,14 @@ function TaskWorkspaceBody({
           filesTabAllowMove={taskAsk.viewFilesTabAllowMove}
           readOnly={busy}
           fillBadge={
-            hasFillForm && missingRequiredCount > 0 ? (
+            (hasFillForm || hasEarlyFill) && missingRequiredCount > 0 ? (
               <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">
                 {missingRequiredCount}
               </span>
             ) : null
           }
           fillSlot={
-            hasFillForm || hasEarlyView ? (
+            hasFillForm || hasEarlyView || hasEarlyFill ? (
               <div className="flex flex-col gap-4">
                 {autosaveLabel || autosave.error ? (
                   <p
@@ -1025,7 +1068,10 @@ function TaskWorkspaceBody({
                             required={required}
                             relationGroupsMode={
                               ask?.fieldAskOptions[field.id]
-                                ?.relationGroupsMode ?? "full"
+                                ?.relationGroupsMode ??
+                              templateAsk.fieldAskOptions[field.id]
+                                ?.relationGroupsMode ??
+                              "full"
                             }
                           />
                         </div>

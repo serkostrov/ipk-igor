@@ -31,6 +31,7 @@ import {
   defaultDecisionOutcomes,
   emptyAutomationCanvasLayout,
   emptyAutomationConditions,
+  emptyAutomationOutcomeFieldAccess,
   findStageTransition,
   type AutomationStageTaskRelease,
   removeScenario,
@@ -890,7 +891,9 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         outcomes,
         sla: null,
         materials: [],
-        viewFieldsPlacement: "beforeOutcomes",
+        fieldAccess: emptyAutomationOutcomeFieldAccess(),
+        actions: [],
+        viewFieldsPlacement: "afterSelect",
       };
       phaseList.splice(at, 0, template);
       const reorderedIds = new Set(phaseList.map((item) => item.id));

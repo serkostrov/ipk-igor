@@ -24,20 +24,34 @@ export function processTriggerFieldId(processId: string): string {
  */
 export function collectTaskFormPersistFieldIds(
   outcomes: AutomationOutcome[],
-  options?: { excludeFieldIds?: string[] },
+  options?: {
+    excludeFieldIds?: string[];
+    templateFieldAccess?: AutomationOutcome["fieldAccess"] | null;
+  },
 ): Set<string> {
   const exclude = new Set(
     (options?.excludeFieldIds ?? []).map((id) => id.trim()).filter(Boolean),
   );
   const fieldIds = new Set<string>();
-  for (const item of outcomes) {
-    const ids = [
-      ...item.fieldAccess.recordFieldIds,
-      ...item.fieldAccess.requiredFieldIds,
-      ...getOutcomeSetFieldActions(item).map((action) => action.fieldId),
-    ];
-    for (const fieldId of ids) {
+  const pushAccess = (
+    access: AutomationOutcome["fieldAccess"] | null | undefined,
+  ) => {
+    if (!access) return;
+    for (const fieldId of [
+      ...access.recordFieldIds,
+      ...access.requiredFieldIds,
+      ...access.visibleFieldIds,
+    ]) {
       const id = fieldId.trim();
+      if (!id || exclude.has(id)) continue;
+      fieldIds.add(id);
+    }
+  };
+  pushAccess(options?.templateFieldAccess);
+  for (const item of outcomes) {
+    pushAccess(item.fieldAccess);
+    for (const action of getOutcomeSetFieldActions(item)) {
+      const id = action.fieldId.trim();
       if (!id || exclude.has(id)) continue;
       fieldIds.add(id);
     }
@@ -55,9 +69,11 @@ export function buildTaskFormPersistPatch(options: {
   values: Record<string, string>;
   excludeFieldIds?: string[];
   recordValues?: Record<string, string | undefined>;
+  templateFieldAccess?: AutomationOutcome["fieldAccess"] | null;
 }): Record<string, string> | null {
   const fieldIds = collectTaskFormPersistFieldIds(options.outcomes, {
     excludeFieldIds: options.excludeFieldIds,
+    templateFieldAccess: options.templateFieldAccess,
   });
   const patch: Record<string, string> = {};
   for (const fieldId of fieldIds) {

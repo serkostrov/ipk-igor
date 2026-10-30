@@ -1650,7 +1650,7 @@ function EntityFieldForm({
         </DialogTitle>
         <DialogDescription>
           {isNameField
-            ? "Системное поле заголовка — название, подсказка и общий шаблон для всех записей."
+            ? "Системное поле заголовка — название, шаблон и позиция колонки в таблице."
             : systemBindingLocked
               ? "Системное поле — тип зафиксирован, можно изменить название и отображение."
               : relationBindingLocked
@@ -1697,6 +1697,31 @@ function EntityFieldForm({
               Если задан — подставляется в поле «Название» (можно изменить или
               дописать). Пусто — название вводится вручную.
             </p>
+          </div>
+        ) : null}
+
+        {isNameField ? (
+          <div className="overflow-hidden rounded-md border border-border">
+            <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <Label htmlFor="entity-field-show-in-table-name">
+                  В таблице
+                </Label>
+                <span className="text-xs text-muted-foreground">
+                  Показывать как колонку
+                </span>
+              </div>
+              <Switch id="entity-field-show-in-table-name" checked disabled />
+            </div>
+            <TablePositionControl
+              position={Math.min(
+                columnTotal,
+                Math.max(minPosition, tablePosition),
+              )}
+              total={columnTotal}
+              min={minPosition}
+              onChange={handleTablePositionChange}
+            />
           </div>
         ) : null}
 

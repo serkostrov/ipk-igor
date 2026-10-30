@@ -54,11 +54,7 @@ export {
   resolveReviewGipExecutionDurationHighlight,
 } from "./model/execution-duration";
 
-export {
-  adaptDeptRecordsToGipDepartments,
-  adaptSubcontractorRecords,
-  adaptTripRecords,
-} from "./model/adapt-departments";
+export { adaptDeptRecordsToGipDepartments } from "./model/adapt-departments";
 
 export type { ReviewCostSubcontractor, ReviewCostTrip } from "./model/gip-cost";
 

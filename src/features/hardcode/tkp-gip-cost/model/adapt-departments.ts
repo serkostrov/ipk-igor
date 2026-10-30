@@ -26,8 +26,6 @@ import { resolveDeptCalculationDepartmentLabel } from "../../dept-calculations/m
 import type {
   ReviewCostBreakdownDepartment,
   ReviewCostBreakdownLine,
-  ReviewCostSubcontractor,
-  ReviewCostTrip,
   ReviewLineCalculationType,
 } from "./gip-cost";
 import { normalizeReviewExpenseCategory } from "./expense-category";
@@ -158,68 +156,4 @@ export function adaptDeptRecordsToGipDepartments(options: {
       lines: breakdownLines.length > 0 ? breakdownLines : null,
     };
   });
-}
-
-export function adaptTripRecords(options: {
-  ctx: EntityValueContext;
-  entity: Entity;
-  records: readonly EntityRecord[];
-  amountFieldId: string | null;
-  titleFieldId: string | null;
-}): ReviewCostTrip[] {
-  const { ctx, entity, records, amountFieldId, titleFieldId } = options;
-  const amountField = amountFieldId
-    ? (entity.fields.find((f) => f.id === amountFieldId) ?? null)
-    : null;
-  const titleField = titleFieldId
-    ? (entity.fields.find((f) => f.id === titleFieldId) ?? null)
-    : null;
-  return records.map((record) => ({
-    id: record.id,
-    title: titleField
-      ? (record.values[titleField.id] ?? "").trim() || "Командировка"
-      : "Командировка",
-    amount: amountField
-      ? (getRecordFieldNumber(ctx, entity, record, amountField) ?? 0)
-      : 0,
-  }));
-}
-
-export function adaptSubcontractorRecords(options: {
-  ctx: EntityValueContext;
-  entity: Entity;
-  records: readonly EntityRecord[];
-  amountFieldId: string | null;
-  titleFieldId: string | null;
-  counterpartyFieldId: string | null;
-}): ReviewCostSubcontractor[] {
-  const {
-    ctx,
-    entity,
-    records,
-    amountFieldId,
-    titleFieldId,
-    counterpartyFieldId,
-  } = options;
-  const amountField = amountFieldId
-    ? (entity.fields.find((f) => f.id === amountFieldId) ?? null)
-    : null;
-  const titleField = titleFieldId
-    ? (entity.fields.find((f) => f.id === titleFieldId) ?? null)
-    : null;
-  const counterpartyField = counterpartyFieldId
-    ? (entity.fields.find((f) => f.id === counterpartyFieldId) ?? null)
-    : null;
-  return records.map((record) => ({
-    id: record.id,
-    title: titleField
-      ? (record.values[titleField.id] ?? "").trim() || "Подряд"
-      : "Подряд",
-    counterparty_name: counterpartyField
-      ? (record.values[counterpartyField.id] ?? "").trim() || null
-      : null,
-    amount: amountField
-      ? (getRecordFieldNumber(ctx, entity, record, amountField) ?? 0)
-      : 0,
-  }));
 }

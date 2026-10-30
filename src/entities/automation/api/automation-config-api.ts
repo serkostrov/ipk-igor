@@ -92,6 +92,8 @@ function mapTemplateRow(row: Record<string, unknown>) {
     outcomes: row.outcomes,
     sla: row.sla,
     materials: row.materials,
+    fieldAccess: row.field_access,
+    actions: row.actions,
     viewFieldsPlacement: row.view_fields_placement,
   };
 }
@@ -188,7 +190,9 @@ export async function upsertAutomationTemplate(
     outcomes: template.outcomes,
     sla: template.sla,
     materials: template.materials,
-    view_fields_placement: template.viewFieldsPlacement ?? "beforeOutcomes",
+    field_access: template.fieldAccess,
+    actions: template.actions ?? [],
+    view_fields_placement: template.viewFieldsPlacement ?? "afterSelect",
     updated_at: new Date().toISOString(),
   });
   if (error) throw error;
