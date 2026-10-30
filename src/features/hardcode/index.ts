@@ -13,6 +13,7 @@ export {
   buildTkpGipSoftFillParentRecord,
   collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,
+  collectTkpStageRootIds,
   ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,

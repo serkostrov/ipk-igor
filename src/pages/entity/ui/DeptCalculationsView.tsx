@@ -34,8 +34,10 @@ import { cn } from "@/shared/lib/cn";
 import {
   addEntityRecord,
   applyTkpGipDepartmentUsers,
+  collectDeptCalculationSiblingRecords,
   formatEntityDecimalTotal,
   formatRecordFieldValue,
+  getEntityConfig,
   getEntityListOption,
   getRecordFieldNumber,
   removeEntityRecord,
@@ -236,9 +238,18 @@ export function DeptCalculationsView({
         parentRecord: leadParent?.record ?? null,
       });
       if (cancelled || !leadParent) return;
-      const live =
-        entities.find((item) => item.id === entity.id)?.records ?? records;
-      for (const record of live) {
+      const liveEntity =
+        getEntityConfig().entities.find((item) => item.id === entity.id) ??
+        entity;
+      const siblings = collectDeptCalculationSiblingRecords(
+        liveEntity,
+        records.map((record) => record.id),
+        {
+          entity: leadParent.entity,
+          recordId: leadParent.record.id,
+        },
+      );
+      for (const record of siblings) {
         const next = applyTkpGipDepartmentUsers({
           childEntity: entity,
           childValues: { ...record.values },

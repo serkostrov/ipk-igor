@@ -8,6 +8,7 @@ import {
   applyTkpGipDepartmentUsers,
   collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,
+  collectTkpStageRootIds,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
   ensureTkpGipDepartmentInGroupsValue,
@@ -21,6 +22,7 @@ import {
   getEntityRelationTargetId,
   isDeptCalculationsEntity,
   isGipDepartmentRecord,
+  isTkpAnalysisEntity,
   parseEntityRelationIds,
   removeEntityRecord,
   resolveDepartmentEntity,
@@ -309,9 +311,54 @@ function userFieldPatch(
 }
 
 /**
- * Heal missing «ГИП» fan-out rows: every stage that already has at least one
- * department calculation must also have a «ГИП» sibling (lead GIP users).
- * Safe to call from the view — no-op when already complete.
+ * Sibling «Расчёты отделов» for this parent (or the passed record set).
+ * Prefer parent-scoped discovery so ГИП heal never confuses other ТКП.
+ */
+function resolveDeptCalculationHealSiblings(options: {
+  entity: Entity;
+  records: readonly EntityRecord[];
+  parentEntity?: Entity | null;
+  parentRecord?: EntityRecord | null;
+}): EntityRecord[] {
+  const { entity, records, parentEntity, parentRecord } = options;
+  const live =
+    getEntityConfig().entities.find((item) => item.id === entity.id) ?? entity;
+  const parentRef =
+    parentEntity && parentRecord
+      ? { entity: parentEntity, recordId: parentRecord.id }
+      : null;
+
+  if (records.length > 0) {
+    return collectDeptCalculationSiblingRecords(
+      live,
+      records.map((record) => record.id),
+      parentRef,
+    );
+  }
+
+  if (!parentRef) return [];
+
+  const linked: EntityRecord[] = [];
+  const seen = new Set<string>();
+  for (const field of parentEntity!.fields) {
+    if (field.type !== "relation" && field.type !== "dependencies") continue;
+    if (getEntityRelationTargetId(field) !== entity.id) continue;
+    for (const id of parseEntityRelationIds(
+      parentRecord!.values[field.id] ?? "",
+    )) {
+      const record = live.records.find((item) => item.id === id);
+      if (!record || seen.has(record.id)) continue;
+      seen.add(record.id);
+      linked.push(record);
+    }
+  }
+  return linked;
+}
+
+/**
+ * Heal missing «ГИП» fan-out rows for every selected stage of this parent
+ * («Разбор ТКП»). Existence is checked among siblings of this parent only —
+ * another ТКП already having ПД×ГИП must not block creating it here.
  */
 export async function ensureDeptCalculationGipRows(options: {
   entity: Entity;
@@ -321,7 +368,8 @@ export async function ensureDeptCalculationGipRows(options: {
   parentRecord?: EntityRecord | null;
 }): Promise<void> {
   const { entity, records, entities, parentEntity, parentRecord } = options;
-  if (!isDeptCalculationsEntity(entity) || records.length === 0) return;
+  if (!isDeptCalculationsEntity(entity)) return;
+  if (records.length === 0 && !(parentEntity && parentRecord)) return;
 
   const groupsField = findDeptCalculationsGroupsField(entity);
   const departmentEntity = resolveDepartmentEntity(entity, entities);
@@ -329,9 +377,16 @@ export async function ensureDeptCalculationGipRows(options: {
   const gipId = findGipDepartmentRecordId(departmentEntity, entities);
   if (!gipId) return;
 
+  const siblings = resolveDeptCalculationHealSiblings({
+    entity,
+    records,
+    parentEntity,
+    parentRecord,
+  });
+
   const stages = new Set<string>();
   const gipStages = new Set<string>();
-  for (const record of records) {
+  for (const record of siblings) {
     for (const pair of collectTkpStageDepartmentPairs(
       record.values[groupsField.id],
     )) {
@@ -343,17 +398,39 @@ export async function ensureDeptCalculationGipRows(options: {
     }
   }
 
+  // Stages selected on the parent tree (incl. empty roots) must get ГИП too.
+  if (parentEntity && parentRecord && isTkpAnalysisEntity(parentEntity)) {
+    const parentGroups =
+      findDeptCalculationsGroupsField(parentEntity) ??
+      parentEntity.fields.find(
+        (field) =>
+          field.type === "relationGroups" &&
+          Boolean(field.relationGroups?.levels.length),
+      ) ??
+      null;
+    if (parentGroups) {
+      for (const stageId of collectTkpStageRootIds(
+        parentRecord.values[parentGroups.id],
+      )) {
+        stages.add(stageId);
+      }
+    }
+  }
+
   const missingStages = [...stages].filter(
     (stageId) => !gipStages.has(stageId),
   );
   if (missingStages.length === 0) return;
 
   const linkFields = parentLinkFields(entity);
-  const template = records[0]!;
+  const template = siblings[0] ?? records[0] ?? null;
   const { manager, performer } = findDeptCalculationUserFields(entity);
+  const templateLinks = template
+    ? collectParentLinksFromValues(linkFields, template.values)
+    : [];
   const ensuredParentLinks =
-    collectParentLinksFromValues(linkFields, template.values).length > 0
-      ? collectParentLinksFromValues(linkFields, template.values)
+    templateLinks.length > 0
+      ? templateLinks
       : parentEntity && parentRecord
         ? [{ parentEntityId: parentEntity.id, parentRecordId: parentRecord.id }]
         : [];
@@ -382,7 +459,13 @@ export async function ensureDeptCalculationGipRows(options: {
     const live =
       getEntityConfig().entities.find((item) => item.id === entity.id) ??
       entity;
-    const already = live.records.some((record) =>
+    const liveSiblings = resolveDeptCalculationHealSiblings({
+      entity: live,
+      records: siblings.length > 0 ? siblings : records,
+      parentEntity,
+      parentRecord,
+    });
+    const already = liveSiblings.some((record) =>
       deptCalculationValuesMatchStagePair(record.values[groupsField.id], {
         stageId,
         departmentId: gipId,
@@ -396,9 +479,11 @@ export async function ensureDeptCalculationGipRows(options: {
     });
     // Only parent links — never copy nested lines / costs from a sibling.
     const seed: Record<string, string> = { [groupsField.id]: encoded };
-    for (const field of linkFields) {
-      const value = (template.values[field.id] ?? "").trim();
-      if (value) seed[field.id] = value;
+    if (template) {
+      for (const field of linkFields) {
+        const value = (template.values[field.id] ?? "").trim();
+        if (value) seed[field.id] = value;
+      }
     }
     for (const field of [manager, performer]) {
       if (!field) continue;

@@ -625,6 +625,22 @@ export function collectTkpStageDepartmentPairs(
   return pairs;
 }
 
+/** Stage root ids from «Стадия/отделы», including roots with no departments. */
+export function collectTkpStageRootIds(
+  groupsValue: string | undefined,
+): string[] {
+  const roots = parseEntityRelationGroups(groupsValue);
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const root of roots) {
+    const stageId = root.id.trim();
+    if (!stageId || seen.has(stageId)) continue;
+    seen.add(stageId);
+    ids.push(stageId);
+  }
+  return ids;
+}
+
 /**
  * When creating «Расчёты отделов» from «Разбор ТКП», fan out to one child
  * per selected nested department under each stage — not one row with the
@@ -668,25 +684,25 @@ export function resolveDeptCalculationsCreateFanOut(options: {
     triggerGroupsField ? triggerValues[triggerGroupsField.id] : undefined,
   ];
 
-  let pairs: TkpStageDepartmentPair[] = [];
+  // Union mapped + trigger trees so a partial ask/mapping never drops stages.
+  const pairByKey = new Map<string, TkpStageDepartmentPair>();
+  const stageIds = new Set<string>();
   for (const source of sources) {
-    const next = collectTkpStageDepartmentPairs(source);
-    if (next.length > 0) {
-      pairs = next;
-      break;
+    if (!source) continue;
+    for (const stageId of collectTkpStageRootIds(source)) {
+      stageIds.add(stageId);
+    }
+    for (const pair of collectTkpStageDepartmentPairs(source)) {
+      const key = `${pair.stageId}\0${pair.departmentId}`;
+      if (!pairByKey.has(key)) pairByKey.set(key, pair);
     }
   }
-  // Stages with no nested depts yet still need a «ГИП» row.
-  if (pairs.length === 0) {
-    for (const source of sources) {
-      if (!source) continue;
-      for (const root of parseEntityRelationGroups(source)) {
-        const stageId = root.id.trim();
-        if (!stageId) continue;
-        pairs.push({ stageId, departmentId: "" });
-      }
-      if (pairs.length > 0) break;
-    }
+
+  let pairs: TkpStageDepartmentPair[] = [...pairByKey.values()];
+  // Empty stage roots (no nested depts yet) still need a «ГИП» row.
+  for (const stageId of stageIds) {
+    if (pairs.some((pair) => pair.stageId === stageId)) continue;
+    pairs.push({ stageId, departmentId: "" });
   }
 
   const catalog =

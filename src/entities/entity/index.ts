@@ -536,6 +536,7 @@ export {
   buildTkpGipSoftFillParentRecord,
   childValuesSelectGipDepartment,
   collectTkpStageDepartmentPairs,
+  collectTkpStageRootIds,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
   collectDeptCalculationSiblingRecords,
