@@ -15,6 +15,7 @@ import {
   type AutomationFieldAskOptions,
   type AutomationOutcome,
   type AutomationTask,
+  type AutomationTaskTemplate,
   type AutomationViewEntityField,
 } from "@/entities/automation";
 import {
@@ -1093,28 +1094,72 @@ export function validateCreateAskRequired(options: {
   return `Заполните: ${missingLabels.join(", ")}`;
 }
 
-export function automationOutcomeNeedsInput(outcome: AutomationOutcome) {
+/** Editable / attachment / create-ask — something the assignee must fill. */
+export function automationOutcomeHasFillFields(outcome: AutomationOutcome) {
   const ask = getAutomationOutcomeAskFields(outcome);
   return (
     ask.visibleFieldIds.length > 0 ||
     ask.requiredFieldIds.length > 0 ||
-    ask.viewFieldIds.length > 0 ||
-    ask.viewTabIds.length > 0 ||
     ask.relatedVisibleFields.length > 0 ||
-    ask.viewRelatedFields.length > 0 ||
-    ask.viewEntityFields.length > 0 ||
     ask.requireAttachment ||
     outcomeHasCreateAsk(outcome)
   );
 }
 
-export function automationTaskNeedsFillDialog(task: AutomationTask) {
-  return task.config.outcomes.some(automationOutcomeNeedsInput);
+/** Read-only view context configured on the outcome. */
+export function automationOutcomeHasViewContext(outcome: AutomationOutcome) {
+  const ask = getAutomationOutcomeAskFields(outcome);
+  return (
+    ask.viewFieldIds.length > 0 ||
+    ask.viewTabIds.length > 0 ||
+    ask.viewRelatedFields.length > 0 ||
+    ask.viewEntityFields.length > 0
+  );
 }
 
-/** «Одна кнопка» — форма сразу; «Решение» — поля после выбора результата. */
+/**
+ * Whether the first click should open a form instead of completing.
+ * Honours `buttonMode`; `auto` opens a form only when there is something to fill
+ * (or view context that appears only after select).
+ */
+export function automationOutcomeNeedsInput(
+  outcome: AutomationOutcome,
+  options?: {
+    viewFieldsPlacement?: AutomationTaskTemplate["viewFieldsPlacement"];
+  },
+) {
+  const mode = outcome.buttonMode ?? "auto";
+  if (mode === "immediate") return false;
+  if (mode === "withForm") return true;
+
+  if (automationOutcomeHasFillFields(outcome)) return true;
+
+  const placement = options?.viewFieldsPlacement ?? "beforeOutcomes";
+  // View-only after select still needs a first click to reveal context.
+  if (placement === "afterSelect" && automationOutcomeHasViewContext(outcome)) {
+    return true;
+  }
+  return false;
+}
+
+export function automationTaskNeedsFillDialog(task: AutomationTask) {
+  const placement = task.config.viewFieldsPlacement ?? "beforeOutcomes";
+  return task.config.outcomes.some((outcome) =>
+    automationOutcomeNeedsInput(outcome, { viewFieldsPlacement: placement }),
+  );
+}
+
+/** «Одна кнопка» — форма сразу; «Решение» — поля после выбора (если нужны). */
 export function automationTaskShowsFormUpfront(task: AutomationTask) {
   return task.config.kind === "single";
+}
+
+/** Show «Для просмотра» above outcome buttons (union across outcomes). */
+export function automationTaskShowsViewBeforeOutcomes(task: AutomationTask) {
+  if (task.config.kind === "single") return true;
+  return (
+    (task.config.viewFieldsPlacement ?? "beforeOutcomes") === "beforeOutcomes"
+  );
 }
 
 /** Preselect the sole outcome for single-button tasks. */

@@ -65,11 +65,11 @@ import {
   PRIMARY_ENTITY_FIELD_GROUP,
   RecordValue,
   removeEntityRecord,
+  EntityFileViewer,
   formatEntityFieldFilesSummary,
   parseEntityFieldFileValue,
   parseEntityListValueIds,
   parseEntityRelationIds,
-  getEntityFileDownloadUrl,
   filterEntityFieldGroupsForTab,
   resolveRelationRecordLabel,
   resolveEntityListFieldPresentation,
@@ -82,6 +82,10 @@ import {
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+import {
+  isTkpAnalysisEntity,
+  TkpReviewHardcodeSlot,
+} from "@/features/hardcode";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { RecordEntityTabPanel } from "./RecordEntityTabPanel";
 import { useRecordListChange } from "./use-record-list-change";
@@ -150,32 +154,39 @@ function RecordFileValue({
   value: string | undefined;
   className?: string;
 }) {
+  const [viewerOpen, setViewerOpen] = useState(false);
   const summary = formatEntityFieldFilesSummary(value);
   const file = parseEntityFieldFileValue(value);
   if (!file || summary === "—") {
     return <span className={cn("text-muted-foreground/70", className)}>—</span>;
   }
   const attached = file;
-
-  async function openFile() {
-    if (attached.dataUrl) {
-      window.open(attached.dataUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (!attached.storagePath) return;
-    const url = await getEntityFileDownloadUrl(attached.storagePath);
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
+  const viewerFile = {
+    id: "field-file",
+    name: attached.name,
+    mimeType: attached.mimeType,
+    size: attached.size,
+    storagePath: attached.storagePath,
+    dataUrl: attached.dataUrl,
+  };
 
   return (
-    <button
-      type="button"
-      className={cn(CONTACT_LINK_CLASS, "text-left", className)}
-      title={summary}
-      onClick={() => void openFile()}
-    >
-      {summary}
-    </button>
+    <>
+      <button
+        type="button"
+        className={cn(CONTACT_LINK_CLASS, "text-left", className)}
+        title={summary}
+        onClick={() => setViewerOpen(true)}
+      >
+        {summary}
+      </button>
+      <EntityFileViewer
+        open={viewerOpen}
+        onOpenChange={setViewerOpen}
+        files={[viewerFile]}
+        activeId={viewerFile.id}
+      />
+    </>
   );
 }
 
@@ -1251,6 +1262,14 @@ export function EntityRecordPage({
               onListChange={handleListChange}
               onOpenRelation={onOpenRelation}
               emptyLabel=""
+            />
+          ) : null}
+
+          {isTkpAnalysisEntity(entity) ? (
+            <TkpReviewHardcodeSlot
+              entity={entity}
+              record={record}
+              readOnly={!canUpdate}
             />
           ) : null}
 

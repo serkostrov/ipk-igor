@@ -264,6 +264,7 @@ export function createSystemUsersEntity(): Entity {
     headerFieldId: SYSTEM_USERS_FIELD_EMAIL_ID,
     kanbanFieldId: null,
     kanbanCardFieldIds: null,
+    kanbanShowFilters: true,
     tableMassSelection: false,
     tableParentFieldId: null,
     tableSubgroupFieldId: null,

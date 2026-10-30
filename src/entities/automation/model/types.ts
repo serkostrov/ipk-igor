@@ -419,6 +419,21 @@ export function parseRelatedAskValueKey(key: string): {
   return { relationFieldId, relatedRecordId, fieldId };
 }
 
+/**
+ * Where read-only «Для просмотра» appears relative to outcome buttons.
+ * - `beforeOutcomes` — visible immediately, before choosing a result
+ * - `afterSelect` — only after the assignee picks a button
+ */
+export type AutomationViewFieldsPlacement = "beforeOutcomes" | "afterSelect";
+
+/**
+ * How an outcome button behaves on first click.
+ * - `auto` — finish immediately when there is nothing to fill; else open the form
+ * - `immediate` — one click completes the task
+ * - `withForm` — first click opens the form, second confirms
+ */
+export type AutomationOutcomeButtonMode = "auto" | "immediate" | "withForm";
+
 export type AutomationOutcome = {
   id: string;
   label: string;
@@ -435,6 +450,8 @@ export type AutomationOutcome = {
    * Autofill evaluates outcomes in order and applies the first match.
    */
   conditions: AutomationConditions;
+  /** Click behaviour for interactive decision / single buttons. */
+  buttonMode: AutomationOutcomeButtonMode;
 };
 
 export type AutomationSla = {
@@ -518,6 +535,11 @@ export type AutomationTaskTemplate = {
   outcomes: AutomationOutcome[];
   sla: AutomationSla | null;
   materials: string[];
+  /**
+   * Where «Для просмотра» (viewField / view entity) is shown for decision
+   * tasks. Single-button tasks always show the form upfront.
+   */
+  viewFieldsPlacement: AutomationViewFieldsPlacement;
 };
 
 /** Free-form flow canvas positions keyed by React Flow node id. */
@@ -707,6 +729,8 @@ export type AutomationScenario = {
   stageTransitions: AutomationStageTransition[];
   /** Per-stage task release: parallel (default) or sequential by stepOrder. */
   stageTaskRelease: AutomationStageTaskReleaseMap;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type AutomationProcess = {
@@ -790,6 +814,22 @@ export function createAutomationNotificationRuleId() {
   return `anr-${crypto.randomUUID()}`;
 }
 
+export function normalizeAutomationOutcomeButtonMode(
+  value: unknown,
+): AutomationOutcomeButtonMode {
+  if (value === "immediate" || value === "withForm" || value === "auto") {
+    return value;
+  }
+  return "auto";
+}
+
+export function normalizeAutomationViewFieldsPlacement(
+  value: unknown,
+): AutomationViewFieldsPlacement {
+  if (value === "afterSelect" || value === "beforeOutcomes") return value;
+  return "beforeOutcomes";
+}
+
 function normalizeOutcome(
   raw: unknown,
   index: number,
@@ -812,6 +852,9 @@ function normalizeOutcome(
     actions: normalizeAutomationActions(item.actions),
     fieldAccess: normalizeAutomationOutcomeFieldAccess(item.fieldAccess),
     conditions: normalizeAutomationConditions(item.conditions),
+    buttonMode: normalizeAutomationOutcomeButtonMode(
+      item.buttonMode ?? item.button_mode,
+    ),
   };
 }
 
@@ -831,6 +874,7 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
+      buttonMode: "auto",
     },
     {
       id: createAutomationOutcomeId(),
@@ -839,6 +883,7 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
+      buttonMode: "auto",
     },
   ];
 }
@@ -856,6 +901,7 @@ export function defaultAutofillOutcomes(): AutomationOutcome[] {
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
+      buttonMode: "auto",
     },
   ];
 }
@@ -870,6 +916,7 @@ export function defaultActionsOutcomes(): AutomationOutcome[] {
       actions: [],
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
+      buttonMode: "auto",
     },
   ];
 }
@@ -965,6 +1012,7 @@ export function normalizeAutomationTaskTemplate(
                     actions: [],
                     fieldAccess: emptyAutomationOutcomeFieldAccess(),
                     conditions: emptyAutomationConditions(),
+                    buttonMode: "auto",
                   },
                 ]
               : defaultDecisionOutcomes(),
@@ -978,6 +1026,9 @@ export function normalizeAutomationTaskTemplate(
     materials: Array.isArray(raw.materials)
       ? raw.materials.filter((item): item is string => typeof item === "string")
       : [],
+    viewFieldsPlacement: normalizeAutomationViewFieldsPlacement(
+      raw.viewFieldsPlacement ?? raw.view_fields_placement,
+    ),
   };
 }
 
@@ -1024,6 +1075,19 @@ export function normalizeAutomationScenario(
   const processId =
     typeof raw.processId === "string" ? raw.processId.trim() : "";
   if (!id || !processId) return null;
+  const now = new Date().toISOString();
+  const createdAt =
+    typeof raw.createdAt === "string" && raw.createdAt.trim()
+      ? raw.createdAt.trim()
+      : typeof raw.created_at === "string" && raw.created_at.trim()
+        ? raw.created_at.trim()
+        : now;
+  const updatedAt =
+    typeof raw.updatedAt === "string" && raw.updatedAt.trim()
+      ? raw.updatedAt.trim()
+      : typeof raw.updated_at === "string" && raw.updated_at.trim()
+        ? raw.updated_at.trim()
+        : createdAt;
   return {
     id,
     processId,
@@ -1048,6 +1112,8 @@ export function normalizeAutomationScenario(
     stageTaskRelease: normalizeAutomationStageTaskReleaseMap(
       raw.stageTaskRelease ?? raw.stage_task_release,
     ),
+    createdAt,
+    updatedAt,
   };
 }
 
@@ -1171,6 +1237,8 @@ export function createDefaultProcess(input: {
       canvasLayout: emptyAutomationCanvasLayout(),
       stageTransitions: [],
       stageTaskRelease: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
   };
 }

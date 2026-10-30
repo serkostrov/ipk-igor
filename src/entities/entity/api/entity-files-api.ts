@@ -60,6 +60,27 @@ export function buildEntityFieldFileStoragePath(params: {
   ].join("/");
 }
 
+/** Note attachment path: `{entity}/{record}/{tab}/notes/{noteId}/{entryId}/{name}`. */
+export function buildEntityNoteAttachmentStoragePath(params: {
+  entityId: string;
+  recordId: string;
+  tabId: string;
+  noteId: string;
+  entryId: string;
+  fileName: string;
+}) {
+  const safeName = sanitizeStorageFileName(params.fileName);
+  return [
+    params.entityId,
+    params.recordId,
+    params.tabId,
+    "notes",
+    params.noteId,
+    params.entryId,
+    safeName,
+  ].join("/");
+}
+
 async function uploadToEntityFilesBucket(
   storagePath: string,
   file: File,
@@ -108,6 +129,25 @@ export async function uploadEntityFieldFile(params: {
     entityId: params.entityId,
     recordId: params.recordId,
     fieldId: params.fieldId,
+    entryId: params.entryId,
+    fileName: params.file.name,
+  });
+  return uploadToEntityFilesBucket(storagePath, params.file);
+}
+
+export async function uploadEntityNoteAttachment(params: {
+  entityId: string;
+  recordId: string;
+  tabId: string;
+  noteId: string;
+  entryId: string;
+  file: File;
+}): Promise<{ storagePath?: string; dataUrl?: string }> {
+  const storagePath = buildEntityNoteAttachmentStoragePath({
+    entityId: params.entityId,
+    recordId: params.recordId,
+    tabId: params.tabId,
+    noteId: params.noteId,
     entryId: params.entryId,
     fileName: params.file.name,
   });

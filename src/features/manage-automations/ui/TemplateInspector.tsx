@@ -67,11 +67,13 @@ import {
   type AutomationLaunchPhase,
   type AutomationNotificationRule,
   type AutomationOutcome,
+  type AutomationOutcomeButtonMode,
   type AutomationOutcomeFieldAccess,
   type AutomationRelationGroupsAskMode,
   type AutomationTaskKind,
   type AutomationTaskTemplate,
   type AutomationTaskUploadTarget,
+  type AutomationViewFieldsPlacement,
 } from "@/entities/automation";
 import { AssigneeEditor } from "@/entities/automation/ui/AssigneeEditor";
 import {
@@ -462,6 +464,7 @@ function outcomesForKind(
             actions: [],
             fieldAccess: emptyAutomationOutcomeFieldAccess(),
             conditions: emptyAutomationConditions(),
+            buttonMode: "auto",
           },
         ];
   }
@@ -469,6 +472,7 @@ function outcomesForKind(
     ? current.map((item) => ({
         ...item,
         conditions: item.conditions ?? emptyAutomationConditions(),
+        buttonMode: item.buttonMode ?? "auto",
       }))
     : defaultDecisionOutcomes();
 }
@@ -1987,6 +1991,7 @@ export function TemplateInspector({
           actions: [],
           fieldAccess: emptyAutomationOutcomeFieldAccess(),
           conditions: emptyAutomationConditions(),
+          buttonMode: "auto",
         },
       ],
     });
@@ -2389,76 +2394,141 @@ export function TemplateInspector({
                 );
               })()
             ) : (
-              <InspectorSection
-                title="Кнопки результата"
-                action={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7"
-                    onClick={addOutcome}
-                  >
-                    <Plus className="size-3.5" />
-                    Кнопка
-                  </Button>
-                }
-              >
-                {draft.outcomes.length === 0 ? (
-                  <InspectorEmpty>Нет кнопок</InspectorEmpty>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap gap-1.5">
-                      {draft.outcomes.map((outcome, index) => (
-                        <OutcomeButtonChip
-                          key={outcome.id}
-                          outcome={outcome}
-                          selected={outcome.id === activeOutcomeId}
-                          onSelect={() => setSelectedOutcomeId(outcome.id)}
-                          onChange={(patch) => patchOutcome(index, patch)}
-                        />
-                      ))}
-                    </div>
+              <>
+                {(draft.kind === "decision" || draft.kind === "single") && (
+                  <InspectorSection title="Просмотр полей">
+                    <Field
+                      title="Где показывать «Для просмотра»"
+                      description="Поля и вкладки только для чтения — до выбора кнопки или после."
+                    >
+                      <Select
+                        value={draft.viewFieldsPlacement ?? "beforeOutcomes"}
+                        onValueChange={(next) => {
+                          if (next == null) return;
+                          patch({
+                            viewFieldsPlacement:
+                              next as AutomationViewFieldsPlacement,
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="beforeOutcomes">
+                            Перед кнопками
+                          </SelectItem>
+                          <SelectItem value="afterSelect">
+                            После выбора кнопки
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </InspectorSection>
+                )}
 
-                    {selectedOutcome && selectedOutcomeIndex >= 0 ? (
-                      <div className="flex flex-col gap-3 border-t border-border/50">
-                        <div className="flex items-center justify-between gap-2">
-                          {draft.outcomes.length > 1 ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 shrink-0 text-destructive"
-                              onClick={() => {
-                                const next = draft.outcomes.filter(
-                                  (item) => item.id !== selectedOutcome.id,
-                                );
-                                patch({ outcomes: next });
-                                setSelectedOutcomeId(next[0]?.id ?? null);
+                <InspectorSection
+                  title="Кнопки результата"
+                  action={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      onClick={addOutcome}
+                    >
+                      <Plus className="size-3.5" />
+                      Кнопка
+                    </Button>
+                  }
+                >
+                  {draft.outcomes.length === 0 ? (
+                    <InspectorEmpty>Нет кнопок</InspectorEmpty>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {draft.outcomes.map((outcome, index) => (
+                          <OutcomeButtonChip
+                            key={outcome.id}
+                            outcome={outcome}
+                            selected={outcome.id === activeOutcomeId}
+                            onSelect={() => setSelectedOutcomeId(outcome.id)}
+                            onChange={(chipPatch) =>
+                              patchOutcome(index, chipPatch)
+                            }
+                          />
+                        ))}
+                      </div>
+
+                      {selectedOutcome && selectedOutcomeIndex >= 0 ? (
+                        <div className="flex flex-col gap-3 border-t border-border/50">
+                          <div className="flex items-center justify-between gap-2">
+                            {draft.outcomes.length > 1 ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 shrink-0 text-destructive"
+                                onClick={() => {
+                                  const next = draft.outcomes.filter(
+                                    (item) => item.id !== selectedOutcome.id,
+                                  );
+                                  patch({ outcomes: next });
+                                  setSelectedOutcomeId(next[0]?.id ?? null);
+                                }}
+                              >
+                                Удалить
+                              </Button>
+                            ) : null}
+                          </div>
+
+                          <Field
+                            title="Поведение кнопки"
+                            description="Финальная — один клик завершает. С заполнением — сначала форма, потом подтверждение."
+                          >
+                            <Select
+                              value={selectedOutcome.buttonMode ?? "auto"}
+                              onValueChange={(next) => {
+                                if (next == null) return;
+                                patchOutcome(selectedOutcomeIndex, {
+                                  buttonMode:
+                                    next as AutomationOutcomeButtonMode,
+                                });
                               }}
                             >
-                              Удалить
-                            </Button>
-                          ) : null}
-                        </div>
+                              <SelectTrigger className="h-9">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="auto">
+                                  Авто — сразу, если нечего заполнять
+                                </SelectItem>
+                                <SelectItem value="immediate">
+                                  Сразу завершить
+                                </SelectItem>
+                                <SelectItem value="withForm">
+                                  Сначала заполнить
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
 
-                        <OutcomeStageSelect
-                          compact
-                          value={selectedStageId}
-                          stages={options}
-                          triggerFieldId={triggerFieldId}
-                          onChange={(nextStageId) =>
-                            patchOutcome(selectedOutcomeIndex, {
-                              actions: withOutcomeStageAction(
-                                selectedActionsWithoutStage,
-                                triggerFieldId,
-                                nextStageId,
-                              ),
-                            })
-                          }
-                        />
+                          <OutcomeStageSelect
+                            compact
+                            value={selectedStageId}
+                            stages={options}
+                            triggerFieldId={triggerFieldId}
+                            onChange={(nextStageId) =>
+                              patchOutcome(selectedOutcomeIndex, {
+                                actions: withOutcomeStageAction(
+                                  selectedActionsWithoutStage,
+                                  triggerFieldId,
+                                  nextStageId,
+                                ),
+                              })
+                            }
+                          />
 
-                        {selectedOutcome && selectedOutcomeIndex >= 0 ? (
                           <OutcomeActionsPanel
                             outcome={selectedOutcome}
                             actions={selectedActionsWithoutStage}
@@ -2485,12 +2555,12 @@ export function TemplateInspector({
                               patchOutcome(selectedOutcomeIndex, next)
                             }
                           />
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </InspectorSection>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </InspectorSection>
+              </>
             )}
           </TabsContent>
 

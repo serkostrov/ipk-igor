@@ -84,6 +84,8 @@ async function appendOutcomeFieldComments(
     createdAt: new Date().toISOString(),
     authorId: getCurrentUserRecordId(),
     editedAt: null,
+    attachments: [],
+    links: [],
   };
   await updateEntityRecord(entity.id, record.id, {
     ...record.values,
@@ -189,6 +191,8 @@ async function appendRelatedOutcomeFieldComments(
       createdAt: new Date().toISOString(),
       authorId: getCurrentUserRecordId(),
       editedAt: null,
+      attachments: [],
+      links: [],
     };
     await updateEntityRecord(bucket.entity.id, bucket.record.id, {
       ...bucket.record.values,

@@ -3844,8 +3844,10 @@ export function EntityFieldsEditor({
           name: data.name,
           hint: data.hint,
           showInFilters: data.showInFilters,
+          showInTable: true,
         });
         updateEntity(entity.id, { nameTemplate: data.nameTemplate });
+        placeEntityFieldInTable(entity.id, dialog.field.id, data.tablePosition);
         return dialog.field.id;
       }
       if (
@@ -3862,6 +3864,7 @@ export function EntityFieldsEditor({
           showInTable: data.showInTable,
           showInFilters: data.showInFilters,
           showOnCreate: data.showOnCreate,
+          visibilityConditions: data.visibilityConditions,
           lookup: data.settings.lookup,
         });
         if (pinToHeader) {
@@ -3887,7 +3890,7 @@ export function EntityFieldsEditor({
         showInTable: data.showInTable,
         showInFilters: data.showInFilters,
         showOnCreate: data.showOnCreate,
-        visibilityConditions: isTabLink ? [] : data.visibilityConditions,
+        visibilityConditions: data.visibilityConditions,
         includeInTotal: isTabLink ? false : data.includeInTotal,
         relationEntityId: isTabLink
           ? dialog.field.relationEntityId
@@ -4098,15 +4101,12 @@ export function EntityFieldsEditor({
       ? resolveEntityListFieldOptions(dialogListField, entities).length
       : 0;
   const tableColumns = getEntityTableFields(entity.fields);
-  const hasTitleColumn = tableColumns.some((field) => isEntityNameField(field));
   const editingInTable =
-    editingField != null &&
-    !isEntityNameField(editingField) &&
-    editingField.showInTable !== false;
+    editingField != null && editingField.showInTable !== false;
   const tableColumnCount = editingInTable
     ? tableColumns.length
     : tableColumns.length + 1;
-  const tablePositionMin = hasTitleColumn ? 2 : 1;
+  const tablePositionMin = 1;
   const tablePosition = editingInTable
     ? Math.max(
         tablePositionMin,

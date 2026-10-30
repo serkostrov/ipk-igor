@@ -2,7 +2,6 @@ import { useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   Download,
-  File,
   Folder,
   FolderUp,
   Trash2,
@@ -13,9 +12,12 @@ import { Button } from "@/shared/ui/button";
 import {
   countEntityFieldFiles,
   deleteEntityFileObject,
+  downloadEntityFileFromUrl,
+  EntityFileThumb,
+  EntityFileViewer,
   formatEntityFileSize,
-  getEntityFileDownloadUrl,
   parseEntityFieldFileEntries,
+  resolveEntityFileUrl,
   serializeEntityFieldFileEntries,
   uploadEntityFieldFile,
   type EntityTabFileEntry,
@@ -94,6 +96,7 @@ export function FileFieldControl({
   const [error, setError] = useState<string | null>(null);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [viewerId, setViewerId] = useState<string | null>(null);
 
   const entries = useMemo(() => parseEntityFieldFileEntries(value), [value]);
   const fileCount = countEntityFieldFiles(entries);
@@ -130,6 +133,11 @@ export function FileFieldControl({
         return a.name.localeCompare(b.name, "ru");
       });
   }, [entries, resolvedFolderId]);
+
+  const viewerFiles = useMemo(
+    () => visibleEntries.filter((entry) => entry.kind === "file"),
+    [visibleEntries],
+  );
 
   function persist(next: EntityTabFileEntry[]) {
     onChange(serializeEntityFieldFileEntries(next));
@@ -235,41 +243,21 @@ export function FileFieldControl({
     }
   }
 
-  async function handleOpen(entry: EntityTabFileEntry) {
+  function handleOpen(entry: EntityTabFileEntry) {
     if (entry.kind === "folder") {
       setFolderId(entry.id);
       return;
     }
     setError(null);
-    try {
-      if (entry.dataUrl) {
-        window.open(entry.dataUrl, "_blank", "noopener,noreferrer");
-        return;
-      }
-      if (!entry.storagePath) throw new Error("Файл недоступен");
-      const url = await getEntityFileDownloadUrl(entry.storagePath);
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось открыть файл");
-    }
+    setViewerId(entry.id);
   }
 
   async function handleDownload(entry: EntityTabFileEntry) {
     if (entry.kind !== "file") return;
     setError(null);
     try {
-      let href = entry.dataUrl ?? "";
-      if (!href) {
-        if (!entry.storagePath) throw new Error("Файл недоступен");
-        href = await getEntityFileDownloadUrl(entry.storagePath);
-      }
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = entry.name;
-      link.rel = "noopener";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const href = await resolveEntityFileUrl(entry);
+      downloadEntityFileFromUrl(href, entry.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось скачать файл");
     }
@@ -476,23 +464,21 @@ export function FileFieldControl({
                     type="button"
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     disabled={busy || disabled}
-                    onClick={() => void handleOpen(entry)}
+                    onClick={() => handleOpen(entry)}
                     title={entry.name}
                   >
-                    <span
-                      className={cn(
-                        "flex size-8 shrink-0 items-center justify-center rounded-md",
-                        isFolder
-                          ? "bg-amber-500/10 text-amber-600"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {isFolder ? (
+                    {isFolder ? (
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600">
                         <Folder className="size-4" />
-                      ) : (
-                        <File className="size-4" />
-                      )}
-                    </span>
+                      </span>
+                    ) : (
+                      <EntityFileThumb
+                        name={entry.name}
+                        mimeType={entry.mimeType}
+                        storagePath={entry.storagePath}
+                        dataUrl={entry.dataUrl}
+                      />
+                    )}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">
                         {entry.name}
@@ -574,6 +560,16 @@ export function FileFieldControl({
       />
 
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
+
+      <EntityFileViewer
+        open={viewerId != null}
+        onOpenChange={(open) => {
+          if (!open) setViewerId(null);
+        }}
+        files={viewerFiles}
+        activeId={viewerId}
+        onActiveIdChange={setViewerId}
+      />
     </div>
   );
 }

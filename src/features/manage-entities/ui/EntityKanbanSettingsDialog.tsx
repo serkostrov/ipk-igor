@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { SettingSwitch } from "@/shared/ui/setting-controls";
 import { cn } from "@/shared/lib/cn";
 import {
   ENTITY_KANBAN_CARD_FIELD_LIMIT,
@@ -30,6 +31,7 @@ import {
   resolveEntityKanbanFieldId,
   setEntityKanbanCardFields,
   setEntityKanbanField,
+  setEntityKanbanShowFilters,
   type Entity,
 } from "@/entities/entity";
 
@@ -57,6 +59,9 @@ function KanbanSettingsForm({
   );
   const [cardFieldIds, setCardFieldIds] = useState<string[] | null>(
     entity.kanbanCardFieldIds,
+  );
+  const [showFilters, setShowFilters] = useState(
+    entity.kanbanShowFilters !== false,
   );
   const [cardFieldQuery, setCardFieldQuery] = useState("");
 
@@ -110,6 +115,7 @@ function KanbanSettingsForm({
     if (!groupFieldId) return;
     setEntityKanbanField(entity.id, groupFieldId);
     setEntityKanbanCardFields(entity.id, cardFieldIds);
+    setEntityKanbanShowFilters(entity.id, showFilters);
     onClose();
   }
 
@@ -142,11 +148,19 @@ function KanbanSettingsForm({
       <DialogHeader className="gap-1">
         <DialogTitle>Настройки канбана</DialogTitle>
         <DialogDescription>
-          Колонки доски и поля на карточке записи.
+          Колонки доски, фильтры и поля на карточке записи.
         </DialogDescription>
       </DialogHeader>
 
       <div className="flex flex-col gap-3.5">
+        <SettingSwitch
+          id="kanban-show-filters"
+          title="Фильтры"
+          description="Поиск и фильтры над колонками канбана"
+          checked={showFilters}
+          onCheckedChange={setShowFilters}
+        />
+
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="kanban-column-field">Поле колонок</Label>
           <Select

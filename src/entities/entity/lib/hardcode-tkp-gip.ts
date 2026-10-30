@@ -280,20 +280,30 @@ export function findTkpLeadRelationField(
   return null;
 }
 
-/** People field on Lead that identifies the GIP («руководитель», else «ГИП»). */
-function findLeadGipPeopleField(
+/**
+ * People fields on Lead that identify the GIP, in product order:
+ * «руководитель» → catalog manager → «ГИП». Never «Главный инженер».
+ */
+function leadGipPeopleFieldCandidates(
   leadEntity: Entity,
   entities: readonly Entity[],
-): EntityField | null {
-  // Product rule: GIP of the lead = Lead.«руководитель» (not «Главный инженер»).
-  const manager = leadEntity.fields.find(
-    (field) =>
-      isUsersRelationField(field) && fieldNameMatches(field, MANAGER_KEYS),
+): EntityField[] {
+  const out: EntityField[] = [];
+  const seen = new Set<string>();
+  const push = (field: EntityField | null | undefined) => {
+    if (!field || seen.has(field.id)) return;
+    seen.add(field.id);
+    out.push(field);
+  };
+  push(
+    leadEntity.fields.find(
+      (field) =>
+        isUsersRelationField(field) && fieldNameMatches(field, MANAGER_KEYS),
+    ),
   );
-  if (manager) return manager;
-  const catalogManager = findEntityManagerUserField(leadEntity);
-  if (catalogManager) return catalogManager;
-  return findTkpGipUserField(leadEntity, entities);
+  push(findEntityManagerUserField(leadEntity));
+  push(findTkpGipUserField(leadEntity, entities));
+  return out;
 }
 
 /**
@@ -326,9 +336,15 @@ export function resolveTkpGipUserIdsFromHost(options: {
   );
   if (!leadRecord) return [];
 
-  const peopleField = findLeadGipPeopleField(leadEntity, entities);
-  if (!peopleField) return [];
-  return parseEntityRelationIds(leadRecord.values[peopleField.id]);
+  // Prefer filled «руководитель»; empty must not block fallback to «ГИП».
+  for (const peopleField of leadGipPeopleFieldCandidates(
+    leadEntity,
+    entities,
+  )) {
+    const ids = parseEntityRelationIds(leadRecord.values[peopleField.id]);
+    if (ids.length > 0) return ids;
+  }
+  return [];
 }
 
 /** Whether `userId` is the lead GIP for this TKP host. */

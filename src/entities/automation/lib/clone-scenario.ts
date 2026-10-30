@@ -102,6 +102,7 @@ export function cloneAutomationScenario(input: {
       templateId: templateIdMap.get(rule.templateId) ?? rule.templateId,
     }));
 
+  const now = new Date().toISOString();
   const scenario: AutomationScenario = {
     ...structuredClone(input.source),
     id: scenarioId,
@@ -112,6 +113,8 @@ export function cloneAutomationScenario(input: {
       ...structuredClone(transition),
       id: createAutomationStageTransitionId(),
     })),
+    createdAt: now,
+    updatedAt: now,
   };
 
   return { scenario, templates, notificationRules };

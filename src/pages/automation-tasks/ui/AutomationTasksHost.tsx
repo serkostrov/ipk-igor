@@ -10,10 +10,12 @@ import {
 import { findSystemUserByAuthId, useEntityConfig } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import {
+  clearMyOpenAutomationTaskCount,
   closeAutomationTaskFillDialog,
   getActiveAutomationTaskDialogId,
   isAutomationTaskFillDialogDismissed,
   openAutomationTaskFillDialog,
+  setMyOpenAutomationTaskCount,
   subscribeAutomationTaskDialog,
 } from "@/features/automation-tasks";
 import { pickEarliestAutomationTask } from "@/features/automation-tasks/lib/task-open-order";
@@ -23,6 +25,11 @@ import { TaskFillFieldsDialog } from "./TaskFillFieldsDialog";
 function isAssignedToUser(task: AutomationTask, userIds: Set<string>) {
   if (!task.assigneeUserId) return true;
   return userIds.has(task.assigneeUserId);
+}
+
+/** Strict: only tasks explicitly assigned to this account (menu counter). */
+function isAssignedToMe(task: AutomationTask, userIds: Set<string>) {
+  return task.assigneeUserId != null && userIds.has(task.assigneeUserId);
 }
 
 const SILENT_ERROR_TOAST_ID = "automation-silent-complete-error";
@@ -73,6 +80,7 @@ export function AutomationTasksHost() {
     if (!sessionUser?.id) {
       knownTaskIdsRef.current = null;
       lastSilentErrorKeyRef.current = null;
+      clearMyOpenAutomationTaskCount();
       return;
     }
 
@@ -114,6 +122,9 @@ export function AutomationTasksHost() {
 
         const interactiveTasks = tasks.filter(
           (task) => !isAutomationSilentTaskKind(task.config.kind),
+        );
+        setMyOpenAutomationTaskCount(
+          interactiveTasks.filter((task) => isAssignedToMe(task, ids)).length,
         );
         const mine = interactiveTasks.filter((task) =>
           isAssignedToUser(task, ids),

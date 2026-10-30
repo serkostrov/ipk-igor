@@ -12,7 +12,10 @@ type RecordMentionTextProps = {
   className?: string;
 };
 
-/** Renders note text with `@имя` mentions highlighted. */
+const NOTE_LINK_CLASS =
+  "break-all font-medium text-primary underline-offset-2 hover:underline";
+
+/** Renders note text with `@имя` mentions and clickable URLs. */
 export function RecordMentionText({
   text,
   entities,
@@ -26,18 +29,32 @@ export function RecordMentionText({
 
   return (
     <p className={cn("whitespace-pre-wrap", className)}>
-      {segments.map((segment, index) =>
-        segment.kind === "mention" ? (
-          <span
-            key={`${segment.userId}-${index}`}
-            className="rounded-sm bg-primary/10 px-0.5 font-medium text-primary"
-          >
-            {segment.value}
-          </span>
-        ) : (
-          <span key={`t-${index}`}>{segment.value}</span>
-        ),
-      )}
+      {segments.map((segment, index) => {
+        if (segment.kind === "mention") {
+          return (
+            <span
+              key={`${segment.userId}-${index}`}
+              className="rounded-sm bg-primary/10 px-0.5 font-medium text-primary"
+            >
+              {segment.value}
+            </span>
+          );
+        }
+        if (segment.kind === "link") {
+          return (
+            <a
+              key={`l-${index}`}
+              href={segment.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={NOTE_LINK_CLASS}
+            >
+              {segment.value}
+            </a>
+          );
+        }
+        return <span key={`t-${index}`}>{segment.value}</span>;
+      })}
     </p>
   );
 }

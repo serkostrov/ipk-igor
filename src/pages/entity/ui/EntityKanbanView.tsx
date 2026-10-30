@@ -1,4 +1,10 @@
-import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import { Columns3, Play, Square } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import {
@@ -25,6 +31,13 @@ import {
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+import {
+  EntityBrowseFilters,
+  getEntityBrowseFilterFields,
+  recordMatchesFilters,
+  recordMatchesSearch,
+  type EntityFiltersState,
+} from "./EntityBrowseFilters";
 import { useRecordListChange } from "./use-record-list-change";
 import { useRecordTimers, type RecordTimers } from "./use-record-timers";
 import { TimerElapsed } from "./RecordTimer";
@@ -482,20 +495,51 @@ export function EntityKanbanView({
   );
   const groupField =
     groupFields.find((field) => field.id === activeFieldId) ?? null;
+  const showFilters = entity.kanbanShowFilters !== false;
 
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<EntityFiltersState>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropColumnId, setDropColumnId] = useState<string | null>(null);
+
+  const filterFields = useMemo(
+    () => getEntityBrowseFilterFields(entity),
+    [entity],
+  );
+
+  const filteredRecords = useMemo(() => {
+    if (!showFilters) return records;
+    return records.filter(
+      (record) =>
+        recordMatchesSearch(valueContext, entity, record, search) &&
+        recordMatchesFilters(
+          valueContext,
+          entity,
+          record,
+          filterFields,
+          filters,
+        ),
+    );
+  }, [
+    entity,
+    filterFields,
+    filters,
+    records,
+    search,
+    showFilters,
+    valueContext,
+  ]);
 
   const hiddenColumnIds = groupField
     ? hiddenOptionIds?.get(groupField.id)
     : undefined;
   const columns = groupField
-    ? buildKanbanColumns(groupField, records, entities).filter(
+    ? buildKanbanColumns(groupField, filteredRecords, entities).filter(
         (column) => !hiddenColumnIds?.has(column.id),
       )
     : [];
   const recordsByColumn = groupField
-    ? groupRecordsByColumn(columns, groupField, records)
+    ? groupRecordsByColumn(columns, groupField, filteredRecords)
     : new Map<string, EntityRecord[]>();
   const previewFields = groupField
     ? resolveEntityKanbanCardFields(entity, groupField.id)
@@ -534,6 +578,18 @@ export function EntityKanbanView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {showFilters ? (
+        <div className="shrink-0">
+          <EntityBrowseFilters
+            fields={filterFields}
+            entities={entities}
+            search={search}
+            onSearchChange={setSearch}
+            filters={filters}
+            onFiltersChange={setFilters}
+          />
+        </div>
+      ) : null}
       <div className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-1">
         {columns.map((column) => (
           <KanbanColumn

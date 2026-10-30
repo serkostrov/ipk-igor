@@ -151,57 +151,105 @@ export function extractNewMentionedUserIds(
 
 export type RecordMentionSegment =
   | { kind: "text"; value: string }
-  | { kind: "mention"; value: string; userId: string };
+  | { kind: "mention"; value: string; userId: string }
+  | { kind: "link"; value: string; href: string };
 
-/** Split note text into plain + mention segments for rendering. */
+const NOTE_URL_RE = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+const NOTE_URL_TRAIL_PUNCT_RE = /[.,;:!?)\]»]+$/;
+
+/** Split plain text into text + auto-detected URL segments. */
+export function splitRecordTextLinkSegments(
+  text: string,
+): Array<Extract<RecordMentionSegment, { kind: "text" | "link" }>> {
+  if (!text) return [];
+  const segments: Array<
+    Extract<RecordMentionSegment, { kind: "text" | "link" }>
+  > = [];
+  let cursor = 0;
+  NOTE_URL_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = NOTE_URL_RE.exec(text)) != null) {
+    const raw = match[0] ?? "";
+    const start = match.index;
+    const trail = NOTE_URL_TRAIL_PUNCT_RE.exec(raw)?.[0] ?? "";
+    const url = trail ? raw.slice(0, -trail.length) : raw;
+    if (!url) continue;
+    if (start > cursor) {
+      segments.push({ kind: "text", value: text.slice(cursor, start) });
+    }
+    segments.push({
+      kind: "link",
+      value: url,
+      href: /^https?:\/\//i.test(url) ? url : `https://${url}`,
+    });
+    cursor = start + url.length;
+    NOTE_URL_RE.lastIndex = cursor;
+  }
+  if (cursor < text.length) {
+    segments.push({ kind: "text", value: text.slice(cursor) });
+  }
+  return segments.length > 0 ? segments : [{ kind: "text", value: text }];
+}
+
+/** Split note text into plain + mention + auto-link segments for rendering. */
 export function splitRecordMentionSegments(
   text: string,
   users: readonly MentionableUser[],
 ): RecordMentionSegment[] {
   if (!text) return [];
+
+  const withMentions: RecordMentionSegment[] = [];
   if (!text.includes("@") || users.length === 0) {
-    return [{ kind: "text", value: text }];
+    withMentions.push({ kind: "text", value: text });
+  } else {
+    let cursor = 0;
+    const lower = text.toLocaleLowerCase("ru");
+
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== "@") continue;
+      if (i > 0) {
+        const prev = text[i - 1]!;
+        if (!/\s/.test(prev) && prev !== "(" && prev !== "[" && prev !== "«") {
+          continue;
+        }
+      }
+      const restLower = lower.slice(i + 1);
+      let matched: MentionableUser | null = null;
+      for (const user of users) {
+        const needle = normalizeForMatch(user.name);
+        if (!needle || !restLower.startsWith(needle)) continue;
+        const end = i + 1 + user.name.length;
+        const next = text[end];
+        if (next != null && !/\s|[.,;:!?)\]»]/.test(next)) continue;
+        matched = user;
+        break;
+      }
+      if (!matched) continue;
+      if (i > cursor) {
+        withMentions.push({ kind: "text", value: text.slice(cursor, i) });
+      }
+      const end = i + 1 + matched.name.length;
+      withMentions.push({
+        kind: "mention",
+        value: text.slice(i, end),
+        userId: matched.id,
+      });
+      cursor = end;
+      i = end - 1;
+    }
+
+    if (cursor < text.length) {
+      withMentions.push({ kind: "text", value: text.slice(cursor) });
+    }
   }
 
   const segments: RecordMentionSegment[] = [];
-  let cursor = 0;
-  const lower = text.toLocaleLowerCase("ru");
-
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] !== "@") continue;
-    if (i > 0) {
-      const prev = text[i - 1]!;
-      if (!/\s/.test(prev) && prev !== "(" && prev !== "[" && prev !== "«") {
-        continue;
-      }
+  for (const segment of withMentions) {
+    if (segment.kind !== "text") {
+      segments.push(segment);
+      continue;
     }
-    const restLower = lower.slice(i + 1);
-    let matched: MentionableUser | null = null;
-    for (const user of users) {
-      const needle = normalizeForMatch(user.name);
-      if (!needle || !restLower.startsWith(needle)) continue;
-      const end = i + 1 + user.name.length;
-      const next = text[end];
-      if (next != null && !/\s|[.,;:!?)\]»]/.test(next)) continue;
-      matched = user;
-      break;
-    }
-    if (!matched) continue;
-    if (i > cursor) {
-      segments.push({ kind: "text", value: text.slice(cursor, i) });
-    }
-    const end = i + 1 + matched.name.length;
-    segments.push({
-      kind: "mention",
-      value: text.slice(i, end),
-      userId: matched.id,
-    });
-    cursor = end;
-    i = end - 1;
-  }
-
-  if (cursor < text.length) {
-    segments.push({ kind: "text", value: text.slice(cursor) });
+    segments.push(...splitRecordTextLinkSegments(segment.value));
   }
   return segments.length > 0 ? segments : [{ kind: "text", value: text }];
 }

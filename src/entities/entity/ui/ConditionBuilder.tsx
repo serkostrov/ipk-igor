@@ -101,6 +101,7 @@ function getOperandKind(operator: EntityConditionOperator): OperandKind {
     case "contains":
       return "text";
     case "equalsCurrentUserField":
+    case "notEqualsCurrentUserField":
       return "userField";
     case "equalsRecordField":
       return "recordField";
@@ -291,7 +292,7 @@ function ConditionValueEditor({
         >
           <SelectValue>
             {selected
-              ? `Как у меня: ${getEntityFieldDisplayName(selected)}`
+              ? getEntityFieldDisplayName(selected)
               : "Поле пользователя"}
           </SelectValue>
         </SelectTrigger>
@@ -439,9 +440,17 @@ export function ConditionBuilder({
     const base = getEntityConditionOperators(
       fieldKind(entity, field, entities),
     );
-    // Name is the record identity — allow «один из» / «не из» by catalog id.
+    // Name is the record identity — allow catalog id / current-user matches.
     const operators = isEntityNameField(field)
-      ? Array.from(new Set<EntityConditionOperator>([...base, "in", "notIn"]))
+      ? Array.from(
+          new Set<EntityConditionOperator>([
+            ...base,
+            "in",
+            "notIn",
+            "equalsCurrentUserField",
+            "notEqualsCurrentUserField",
+          ]),
+        )
       : base;
     if (sourceEntity) return operators;
     return operators.filter((item) => item !== "equalsRecordField");

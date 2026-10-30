@@ -1,10 +1,20 @@
 export { TaskInbox } from "./ui/TaskInbox";
 export { TaskTableView } from "./ui/TaskTableView";
 export { TaskWorkspace } from "./ui/TaskWorkspace";
+export { useMyOpenAutomationTaskCount } from "./hooks/use-my-open-tasks-count";
 export {
+  clearMyOpenAutomationTaskCount,
+  getMyOpenAutomationTaskCount,
+  setMyOpenAutomationTaskCount,
+  subscribeMyOpenAutomationTaskCount,
+} from "./model/my-open-tasks-count-store";
+export {
+  automationOutcomeHasFillFields,
+  automationOutcomeHasViewContext,
   automationOutcomeNeedsInput,
   automationTaskNeedsFillDialog,
   automationTaskShowsFormUpfront,
+  automationTaskShowsViewBeforeOutcomes,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,

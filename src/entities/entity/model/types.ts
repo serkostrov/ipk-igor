@@ -360,7 +360,7 @@ export type EntityField = {
   visibilityConditions: EntityCondition[];
   /** Number / numberSum fields: include column in the table totals row. */
   includeInTotal: boolean;
-  /** Lower values appear earlier among non-title table columns. */
+  /** Lower values appear earlier among table columns. */
   tableOrder: number;
   /** Target entity id for `relation` fields; otherwise null. */
   relationEntityId: string | null;
@@ -676,6 +676,11 @@ export type Entity = {
    */
   kanbanCardFieldIds: string[] | null;
   /**
+   * Kanban view: show the browse filter bar (search + field filters).
+   * Default `true`; can be turned off in kanban settings.
+   */
+  kanbanShowFilters: boolean;
+  /**
    * Table view: show row checkboxes for bulk actions.
    * Selection is kept across pagination while the setting is on.
    */
@@ -828,6 +833,25 @@ export type EntityTab = {
   singleRecord: boolean;
 };
 
+/** File attached to a note on a `kind: "records"` tab. */
+export type EntityTabRecordAttachment = {
+  id: string;
+  name: string;
+  storagePath?: string;
+  mimeType?: string;
+  size?: number;
+  /** Local fallback when Storage is unavailable (small files only). */
+  dataUrl?: string;
+};
+
+/** Explicit URL chip on a note (separate from auto-linkified text). */
+export type EntityTabRecordLink = {
+  id: string;
+  url: string;
+  /** Optional display label; empty → show the URL. */
+  title: string | null;
+};
+
 /** Free-form entries on a `kind: "records"` tab (stored on the parent record). */
 export type EntityTabRecordEntry = {
   id: string;
@@ -836,6 +860,8 @@ export type EntityTabRecordEntry = {
   /** Users record of the author (`null` for entries written before authors). */
   authorId: string | null;
   editedAt: string | null;
+  attachments: EntityTabRecordAttachment[];
+  links: EntityTabRecordLink[];
 };
 
 /** Folder/file entries on a `kind: "files"` tab (metadata on the parent record). */
@@ -854,6 +880,11 @@ export type EntityTabFileEntry = {
   size?: number;
   /** Local fallback when Storage is unavailable (small files only). */
   dataUrl?: string;
+  /**
+   * Bound `tkp_price_revisions.id` for customer TKP document versions
+   * (files under a «ТКП» folder on «Разбор ТКП»).
+   */
+  priceHistoryId?: string | null;
 };
 
 export function getEntityTabRecordsValueKey(tabId: string) {
@@ -894,6 +925,44 @@ export function isEntityContentTab(tab: Pick<EntityTab, "kind">) {
   );
 }
 
+function parseEntityTabRecordAttachment(
+  value: unknown,
+): EntityTabRecordAttachment | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!id || !name) return null;
+  const attachment: EntityTabRecordAttachment = { id, name };
+  if (typeof record.storagePath === "string" && record.storagePath.trim()) {
+    attachment.storagePath = record.storagePath.trim();
+  }
+  if (typeof record.mimeType === "string" && record.mimeType.trim()) {
+    attachment.mimeType = record.mimeType.trim();
+  }
+  if (typeof record.size === "number" && Number.isFinite(record.size)) {
+    attachment.size = Math.max(0, Math.floor(record.size));
+  }
+  if (typeof record.dataUrl === "string" && record.dataUrl.trim()) {
+    attachment.dataUrl = record.dataUrl.trim();
+  }
+  if (!attachment.storagePath && !attachment.dataUrl) return null;
+  return attachment;
+}
+
+function parseEntityTabRecordLink(value: unknown): EntityTabRecordLink | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const url = typeof record.url === "string" ? record.url.trim() : "";
+  if (!id || !url) return null;
+  const title =
+    typeof record.title === "string" && record.title.trim()
+      ? record.title.trim()
+      : null;
+  return { id, url, title };
+}
+
 export function parseEntityTabRecordEntries(
   value: string | undefined,
 ): EntityTabRecordEntry[] {
@@ -910,7 +979,21 @@ export function parseEntityTabRecordEntries(
         const text = typeof record.text === "string" ? record.text.trim() : "";
         const createdAt =
           typeof record.createdAt === "string" ? record.createdAt.trim() : "";
-        if (!id || !text || !createdAt) return null;
+        if (!id || !createdAt) return null;
+        const attachments = Array.isArray(record.attachments)
+          ? record.attachments
+              .map(parseEntityTabRecordAttachment)
+              .filter(
+                (entry): entry is EntityTabRecordAttachment => entry != null,
+              )
+          : [];
+        const links = Array.isArray(record.links)
+          ? record.links
+              .map(parseEntityTabRecordLink)
+              .filter((entry): entry is EntityTabRecordLink => entry != null)
+          : [];
+        if (!text && attachments.length === 0 && links.length === 0)
+          return null;
         const authorId =
           typeof record.authorId === "string" && record.authorId.trim()
             ? record.authorId.trim()
@@ -919,7 +1002,7 @@ export function parseEntityTabRecordEntries(
           typeof record.editedAt === "string" && record.editedAt.trim()
             ? record.editedAt.trim()
             : null;
-        return { id, text, createdAt, authorId, editedAt };
+        return { id, text, createdAt, authorId, editedAt, attachments, links };
       })
       .filter((item): item is EntityTabRecordEntry => item != null);
   } catch {
@@ -930,7 +1013,20 @@ export function parseEntityTabRecordEntries(
 export function serializeEntityTabRecordEntries(
   entries: readonly EntityTabRecordEntry[],
 ) {
-  return JSON.stringify(entries);
+  return JSON.stringify(
+    entries.map((entry) => {
+      const next: Record<string, unknown> = {
+        id: entry.id,
+        text: entry.text,
+        createdAt: entry.createdAt,
+        authorId: entry.authorId,
+        editedAt: entry.editedAt,
+      };
+      if (entry.attachments.length > 0) next.attachments = entry.attachments;
+      if (entry.links.length > 0) next.links = entry.links;
+      return next;
+    }),
+  );
 }
 
 export function parseEntityTabFileEntries(
@@ -987,6 +1083,14 @@ export function parseEntityTabFileEntries(
           }
           if (typeof record.dataUrl === "string" && record.dataUrl) {
             entry.dataUrl = record.dataUrl;
+          }
+          if (
+            typeof record.priceHistoryId === "string" &&
+            record.priceHistoryId.trim()
+          ) {
+            entry.priceHistoryId = record.priceHistoryId.trim();
+          } else if (record.priceHistoryId === null) {
+            entry.priceHistoryId = null;
           }
         }
 
@@ -2200,8 +2304,8 @@ export function resolveEntityListDependencies(
 }
 
 /**
- * Table columns: title field first, then other visible fields.
- * Default: by `tableOrder`, then array index.
+ * Table columns among fields with `showInTable`.
+ * Default: by `tableOrder`, then array index (name is not pinned).
  * `preferArrayOrder` — settings list order (service / internal entities).
  */
 export function getEntityTableFields(
@@ -2209,18 +2313,13 @@ export function getEntityTableFields(
   options?: { preferArrayOrder?: boolean },
 ): EntityField[] {
   const visible = fields.filter((field) => field.showInTable !== false);
-  const title = visible.filter((field) => isEntityNameField(field));
   const indexById = new Map(fields.map((field, index) => [field.id, index]));
-  const rest = visible
-    .filter((field) => !isEntityNameField(field))
-    .slice()
-    .sort((a, b) => {
-      if (!options?.preferArrayOrder && a.tableOrder !== b.tableOrder) {
-        return a.tableOrder - b.tableOrder;
-      }
-      return (indexById.get(a.id) ?? 0) - (indexById.get(b.id) ?? 0);
-    });
-  return [...title, ...rest];
+  return visible.slice().sort((a, b) => {
+    if (!options?.preferArrayOrder && a.tableOrder !== b.tableOrder) {
+      return a.tableOrder - b.tableOrder;
+    }
+    return (indexById.get(a.id) ?? 0) - (indexById.get(b.id) ?? 0);
+  });
 }
 
 export const ENTITY_VIEW_OPTIONS: Array<{

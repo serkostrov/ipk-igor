@@ -47,6 +47,7 @@ import { useSessionUser } from "@/entities/session";
 import {
   automationOutcomeNeedsInput,
   automationTaskShowsFormUpfront,
+  automationTaskShowsViewBeforeOutcomes,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
@@ -239,6 +240,11 @@ function TaskFillFieldsDialogBody({
   const record =
     entity?.records.find((item) => item.id === task?.recordId) ?? null;
   const formUpfront = task != null && automationTaskShowsFormUpfront(task);
+  const showViewBefore =
+    task != null && automationTaskShowsViewBeforeOutcomes(task);
+  const viewFieldsPlacement =
+    task?.config.viewFieldsPlacement ?? "beforeOutcomes";
+  const taskAsk = task ? getAutomationTaskAskFields(task) : null;
   const selectedOutcome: AutomationOutcome | null =
     task?.config.outcomes.find((item) => item.id === selectedOutcomeId) ?? null;
   const autofillOutcomeId =
@@ -280,10 +286,11 @@ function TaskFillFieldsDialogBody({
       : ask.visibleFieldIds
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
           .filter((field): field is EntityField => field != null);
+  const viewSourceAsk = showViewBefore ? taskAsk : ask;
   const viewFields =
-    !entity || !ask
+    !entity || !viewSourceAsk
       ? []
-      : ask.viewFieldIds
+      : viewSourceAsk.viewFieldIds
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
           .filter((field): field is EntityField => field != null);
 
@@ -308,8 +315,8 @@ function TaskFillFieldsDialogBody({
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
 
-  const viewRelatedFieldsForForm = ask?.viewRelatedFields ?? [];
-  const viewEntityFieldsForForm = ask?.viewEntityFields ?? [];
+  const viewRelatedFieldsForForm = viewSourceAsk?.viewRelatedFields ?? [];
+  const viewEntityFieldsForForm = viewSourceAsk?.viewEntityFields ?? [];
   const viewRelatedLayout =
     entity && viewRelatedFieldsForForm.length > 0
       ? resolveRelatedAskLayout({
@@ -384,13 +391,17 @@ function TaskFillFieldsDialogBody({
   );
 
   const hasCreateAsk = createAskSlots.length > 0;
+  const hasEditableFill =
+    ask != null && (fields.length > 0 || hasRelatedAsk || hasCreateAsk);
+  const hasEarlyView = showViewBefore && hasViewContext;
+  const earlyViewTabIds = taskAsk?.viewTabIds ?? [];
   const hasOutcomeForm =
-    ask != null &&
-    (fields.length > 0 ||
-      hasViewContext ||
-      ask.viewTabIds.length > 0 ||
-      hasRelatedAsk ||
-      hasCreateAsk);
+    hasEditableFill ||
+    (!showViewBefore &&
+      ask != null &&
+      (hasViewContext || (ask.viewTabIds.length ?? 0) > 0)) ||
+    hasEarlyView ||
+    earlyViewTabIds.length > 0;
 
   const autosave = useTaskFormAutosave({
     enabled: Boolean(task && entity && record),
@@ -652,9 +663,13 @@ function TaskFillFieldsDialogBody({
     }
   }
 
+  function outcomeNeedsInput(outcome: AutomationOutcome) {
+    return automationOutcomeNeedsInput(outcome, { viewFieldsPlacement });
+  }
+
   function handleOutcomeClick(outcome: AutomationOutcome) {
     setError(null);
-    if (!automationOutcomeNeedsInput(outcome)) {
+    if (!outcomeNeedsInput(outcome)) {
       void handleComplete(outcome.id);
       return;
     }
@@ -705,14 +720,18 @@ function TaskFillFieldsDialogBody({
         </DialogTitle>
         <DialogDescription>
           {formUpfront && selectedOutcome
-            ? hasOutcomeForm
-              ? "Заполните поля и подтвердите выполнение."
+            ? hasEditableFill
+              ? "Заполните поля и подтвердите результат."
               : `Нажмите «${selectedOutcome.label}», чтобы завершить.`
             : selectedOutcome
-              ? `Заполните поля для результата «${selectedOutcome.label}».`
-              : entity
-                ? `Выберите результат, чтобы продолжить процесс «${entity.name}».`
-                : "Выберите результат и при необходимости заполните поля."}
+              ? hasEditableFill
+                ? `Заполните поля для результата «${selectedOutcome.label}».`
+                : `Подтвердите результат «${selectedOutcome.label}».`
+              : hasEarlyView
+                ? "Просмотрите данные и выберите результат."
+                : entity
+                  ? `Выберите результат для процесса «${entity.name}».`
+                  : "Выберите результат и при необходимости заполните поля."}
         </DialogDescription>
       </DialogHeader>
 
@@ -729,20 +748,30 @@ function TaskFillFieldsDialogBody({
         </p>
       ) : (
         <div className="flex flex-col gap-4">
-          {!selectedOutcome ? (
+          {!selectedOutcome && !hasEarlyView && earlyViewTabIds.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-              Нажмите кнопку результата — поля формы появятся, если они заданы
-              для этого варианта.
+              Просмотрите данные и выберите результат. Поля для заполнения
+              откроются, если они заданы для кнопки.
             </p>
           ) : hasOutcomeForm ? (
             <TaskViewTabsPreview
               entity={entity}
               record={{ ...record, values: { ...record.values, ...values } }}
-              tabIds={ask?.viewTabIds ?? []}
-              filesTabEntryIds={ask?.viewFilesTabEntryIds}
-              filesTabAllowMove={ask?.viewFilesTabAllowMove === true}
+              tabIds={
+                showViewBefore ? earlyViewTabIds : (ask?.viewTabIds ?? [])
+              }
+              filesTabEntryIds={
+                showViewBefore
+                  ? taskAsk?.viewFilesTabEntryIds
+                  : ask?.viewFilesTabEntryIds
+              }
+              filesTabAllowMove={
+                showViewBefore
+                  ? taskAsk?.viewFilesTabAllowMove === true
+                  : ask?.viewFilesTabAllowMove === true
+              }
               fillBadge={
-                missingRequiredCount > 0 ? (
+                hasEditableFill && missingRequiredCount > 0 ? (
                   <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">
                     {missingRequiredCount}
                   </span>
@@ -962,8 +991,7 @@ function TaskFillFieldsDialogBody({
                   loading ||
                   !task ||
                   !record ||
-                  (uploadBlocksComplete &&
-                    !automationOutcomeNeedsInput(outcome))
+                  (uploadBlocksComplete && !outcomeNeedsInput(outcome))
                 }
                 className={cn(outcome.color && "hover:opacity-90")}
                 style={automationOutcomeButtonStyle(outcome.color)}

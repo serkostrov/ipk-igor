@@ -60,6 +60,7 @@ import {
   useEntityValueContext,
   usePrefetchEntitySchemaVersions,
   type EntityValueContext,
+  EntityFileViewer,
   formatEntityFieldFilesSummary,
   parseEntityFieldFileValue,
   parseEntityListValueIds,
@@ -68,8 +69,8 @@ import {
   removeEntityRecord,
   resolveEntityTableDisplayColumnField,
   resolveRelationRecordLabel,
-  getEntityFileDownloadUrl,
   countEntityTableNestedChildren,
+  type EntityFieldFileValue,
   findEntityManagerUserField,
   flattenEntityTableHierarchyRows,
   getSystemUserName,
@@ -114,6 +115,46 @@ import {
   recordMatchesSearch,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
+
+function EntityTableFileButton({
+  file,
+  summary,
+}: {
+  file: EntityFieldFileValue;
+  summary: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const viewerFile = {
+    id: "table-file",
+    name: file.name,
+    mimeType: file.mimeType,
+    size: file.size,
+    storagePath: file.storagePath,
+    dataUrl: file.dataUrl,
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="block w-full truncate text-left font-medium text-primary underline-offset-2 hover:underline"
+        title={summary}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        {summary}
+      </button>
+      <EntityFileViewer
+        open={open}
+        onOpenChange={setOpen}
+        files={[viewerFile]}
+        activeId={viewerFile.id}
+      />
+    </>
+  );
+}
 
 function getVisiblePages(current: number, total: number) {
   if (total <= 7) {
@@ -1638,36 +1679,10 @@ function EntityTableViewInner({
                                 ) : fileValue &&
                                   fileSummary &&
                                   fileSummary !== "—" ? (
-                                  <button
-                                    type="button"
-                                    className="block w-full truncate text-left font-medium text-primary underline-offset-2 hover:underline"
-                                    title={fileSummary}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      void (async () => {
-                                        if (fileValue.dataUrl) {
-                                          window.open(
-                                            fileValue.dataUrl,
-                                            "_blank",
-                                            "noopener,noreferrer",
-                                          );
-                                          return;
-                                        }
-                                        if (!fileValue.storagePath) return;
-                                        const url =
-                                          await getEntityFileDownloadUrl(
-                                            fileValue.storagePath,
-                                          );
-                                        window.open(
-                                          url,
-                                          "_blank",
-                                          "noopener,noreferrer",
-                                        );
-                                      })();
-                                    }}
-                                  >
-                                    {fileSummary}
-                                  </button>
+                                  <EntityTableFileButton
+                                    file={fileValue}
+                                    summary={fileSummary}
+                                  />
                                 ) : (
                                   <span className="block truncate">
                                     {cellTitle}

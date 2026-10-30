@@ -843,6 +843,7 @@ export function addEntity(data: {
     headerFieldId: null,
     kanbanFieldId: null,
     kanbanCardFieldIds: null,
+    kanbanShowFilters: true,
     tableMassSelection: false,
     tableParentFieldId: null,
     tableSubgroupFieldId: null,
@@ -1321,6 +1322,11 @@ export function updateEntityField(
         if (patch.colSpan !== undefined) layoutOnly.colSpan = patch.colSpan;
         if (patch.rowSpan !== undefined) layoutOnly.rowSpan = patch.rowSpan;
         if (patch.tabId !== undefined) layoutOnly.tabId = patch.tabId;
+        // Tab-link binding stays locked, but «Показывать если» is layout-level
+        // (e.g. show «Лид» / «Сделка» only when «Тип связи» matches).
+        if (isTabLinkField && patch.visibilityConditions !== undefined) {
+          layoutOnly.visibilityConditions = patch.visibilityConditions;
+        }
         // System «Роль» (list): allow presentation toggles — otherwise switches
         // in list settings appear stuck (patch was silently dropped).
         if (field.type === "list" && isSystemEntityField(field)) {
@@ -1480,6 +1486,7 @@ export function convertTabLinkRelationFieldToLookup(
     colSpan?: number;
     rowSpan?: number;
     tabId?: string | null;
+    visibilityConditions?: EntityField["visibilityConditions"];
     lookup: EntityLookupConfig;
   },
 ): { bridgeFieldId: string } | null {
@@ -1533,7 +1540,8 @@ export function convertTabLinkRelationFieldToLookup(
     showInFilters: patch.showInFilters,
     showOnCreate: patch.showOnCreate,
     showOnRecord: patch.showOnRecord ?? field.showOnRecord,
-    visibilityConditions: [],
+    visibilityConditions:
+      patch.visibilityConditions ?? field.visibilityConditions,
     includeInTotal: false,
     tableOrder: patch.tableOrder ?? field.tableOrder,
     colSpan: patch.colSpan ?? field.colSpan,
@@ -1738,6 +1746,13 @@ export function setEntityKanbanCardFields(
       ),
     };
   });
+}
+
+export function setEntityKanbanShowFilters(entityId: string, enabled: boolean) {
+  mapEntity(entityId, (entity) => ({
+    ...entity,
+    kanbanShowFilters: enabled,
+  }));
 }
 
 export function setEntityTableMassSelection(
@@ -2042,6 +2057,7 @@ export function addEntityTabWithLinkedEntity(
     headerFieldId: null,
     kanbanFieldId: null,
     kanbanCardFieldIds: null,
+    kanbanShowFilters: true,
     tableMassSelection: false,
     tableParentFieldId: null,
     tableSubgroupFieldId: null,
@@ -3016,8 +3032,8 @@ export function moveEntityListOption(
 }
 
 /**
- * Places a non-title field at a 1-based column index among table columns.
- * Title field always stays first when present.
+ * Places a field at a 1-based column index among table columns
+ * (including the name field).
  */
 export function placeEntityFieldInTable(
   entityId: string,
@@ -3026,19 +3042,15 @@ export function placeEntityFieldInTable(
 ) {
   mapEntity(entityId, (entity) => {
     const target = entity.fields.find((field) => field.id === fieldId);
-    if (!target || isEntityNameField(target)) return entity;
+    if (!target) return entity;
 
-    const hasTitle = entity.fields.some(
-      (field) => isEntityNameField(field) && field.showInTable !== false,
-    );
     const withoutTarget = getEntityTableFields(entity.fields).filter(
       (field) => field.id !== fieldId,
     );
-    const minPosition = hasTitle ? 2 : 1;
     const maxPosition = withoutTarget.length + 1;
     const nextPosition = Math.min(
       maxPosition,
-      Math.max(minPosition, Math.round(position)),
+      Math.max(1, Math.round(position)),
     );
 
     const placed = normalizeEntityField({ ...target, showInTable: true });
@@ -3051,7 +3063,6 @@ export function placeEntityFieldInTable(
     let order = 1;
     const orderById = new Map<string, number>();
     for (const column of columns) {
-      if (isEntityNameField(column)) continue;
       orderById.set(column.id, order);
       order += 1;
     }

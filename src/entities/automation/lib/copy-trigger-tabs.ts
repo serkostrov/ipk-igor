@@ -5,6 +5,7 @@
 
 import {
   buildEntityFileStoragePath,
+  buildEntityNoteAttachmentStoragePath,
   copyEntityFileObject,
   getEntityTabFilesValueKey,
   getEntityTabRecordsValueKey,
@@ -18,6 +19,7 @@ import {
   type Entity,
   type EntityTab,
   type EntityTabFileEntry,
+  type EntityTabRecordAttachment,
   type EntityTabRecordEntry,
 } from "@/entities/entity";
 
@@ -58,13 +60,53 @@ export function pairEntityContentTabs(
   return pairs;
 }
 
-function cloneRecordEntries(
-  entries: readonly EntityTabRecordEntry[],
-): EntityTabRecordEntry[] {
-  return entries.map((entry) => ({
-    ...entry,
-    id: crypto.randomUUID(),
-  }));
+async function cloneRecordEntries(options: {
+  entries: readonly EntityTabRecordEntry[];
+  targetEntityId: string;
+  targetRecordId: string;
+  targetTabId: string;
+}): Promise<EntityTabRecordEntry[]> {
+  const { entries, targetEntityId, targetRecordId, targetTabId } = options;
+  const next: EntityTabRecordEntry[] = [];
+
+  for (const entry of entries) {
+    const noteId = crypto.randomUUID();
+    const attachments: EntityTabRecordAttachment[] = [];
+    for (const file of entry.attachments) {
+      const attachmentId = crypto.randomUUID();
+      const cloned: EntityTabRecordAttachment = {
+        ...file,
+        id: attachmentId,
+        storagePath: undefined,
+        dataUrl: file.dataUrl,
+      };
+      if (file.storagePath?.trim()) {
+        const storagePath = buildEntityNoteAttachmentStoragePath({
+          entityId: targetEntityId,
+          recordId: targetRecordId,
+          tabId: targetTabId,
+          noteId,
+          entryId: attachmentId,
+          fileName: file.name,
+        });
+        await copyEntityFileObject(file.storagePath, storagePath);
+        cloned.storagePath = storagePath;
+        cloned.dataUrl = undefined;
+      }
+      attachments.push(cloned);
+    }
+    next.push({
+      ...entry,
+      id: noteId,
+      attachments,
+      links: entry.links.map((link) => ({
+        ...link,
+        id: crypto.randomUUID(),
+      })),
+    });
+  }
+
+  return next;
 }
 
 async function cloneFileEntries(options: {
@@ -161,7 +203,12 @@ export async function copyTriggerTabsOntoRecord(options: {
       if (entries.length === 0) continue;
       const targetKey = getEntityTabRecordsValueKey(targetTab.id);
       patch[targetKey] = serializeEntityTabRecordEntries(
-        cloneRecordEntries(entries),
+        await cloneRecordEntries({
+          entries,
+          targetEntityId: targetEntity.id,
+          targetRecordId,
+          targetTabId: targetTab.id,
+        }),
       );
       recordsTabs += 1;
     }

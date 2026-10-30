@@ -55,6 +55,7 @@ import {
 import {
   automationOutcomeNeedsInput,
   automationTaskShowsFormUpfront,
+  automationTaskShowsViewBeforeOutcomes,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
@@ -85,6 +86,10 @@ import {
   resolveTaskLeadManagerName,
 } from "../lib/task-people";
 import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
+import {
+  isTkpAnalysisEntity,
+  TkpReviewHardcodeSlot,
+} from "@/features/hardcode";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewContextFields } from "./TaskViewContextFields";
@@ -226,6 +231,9 @@ function TaskWorkspaceBody({
 
   const taskAsk = getAutomationTaskAskFields(task);
   const formUpfront = automationTaskShowsFormUpfront(task);
+  const showViewBefore = automationTaskShowsViewBeforeOutcomes(task);
+  const viewFieldsPlacement =
+    task.config.viewFieldsPlacement ?? "beforeOutcomes";
   const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(
     () => getDefaultSelectedOutcomeId(task),
   );
@@ -326,8 +334,10 @@ function TaskWorkspaceBody({
     relatedLayout.groups,
   );
 
-  const viewRelatedFieldsForForm = ask?.viewRelatedFields ?? [];
-  const viewEntityFieldsForForm = ask?.viewEntityFields ?? [];
+  // View context: union before buttons, or selected outcome when «после выбора».
+  const viewSourceAsk = showViewBefore ? taskAsk : ask;
+  const viewRelatedFieldsForForm = viewSourceAsk?.viewRelatedFields ?? [];
+  const viewEntityFieldsForForm = viewSourceAsk?.viewEntityFields ?? [];
   const viewRelatedLayout =
     entity && viewRelatedFieldsForForm.length > 0
       ? resolveRelatedAskLayout({
@@ -419,9 +429,9 @@ function TaskWorkspaceBody({
           );
 
   const viewFields =
-    !entity || !ask
+    !entity || !viewSourceAsk
       ? []
-      : ask.viewFieldIds
+      : viewSourceAsk.viewFieldIds
           .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
           .filter((field): field is EntityField => field != null)
           .filter((field) =>
@@ -445,9 +455,12 @@ function TaskWorkspaceBody({
     viewEntityLayout.groups.length > 0 ||
     viewEntityLayout.empty.length > 0;
   const hasCreateAsk = createAskSlots.length > 0;
+  const hasEditableFill =
+    ask != null && (fields.length > 0 || hasRelatedAsk || hasCreateAsk);
+  /** After-select view rides with the fill slot; before-outomes view is early. */
   const hasFillForm =
-    ask != null &&
-    (fields.length > 0 || hasViewContext || hasRelatedAsk || hasCreateAsk);
+    hasEditableFill || (!showViewBefore && ask != null && hasViewContext);
+  const hasEarlyView = showViewBefore && hasViewContext;
   const missingLocalRequiredCount = ask
     ? ask.requiredFieldIds.filter((fieldId) => {
         const field = entity?.fields.find((item) => item.id === fieldId);
@@ -765,11 +778,15 @@ function TaskWorkspaceBody({
     }
   }
 
+  function outcomeNeedsInput(outcome: (typeof task.config.outcomes)[number]) {
+    return automationOutcomeNeedsInput(outcome, { viewFieldsPlacement });
+  }
+
   function handleOutcomeClick(outcomeId: string) {
     const outcome = task.config.outcomes.find((item) => item.id === outcomeId);
     if (!outcome) return;
     setError(null);
-    if (!automationOutcomeNeedsInput(outcome)) {
+    if (!outcomeNeedsInput(outcome)) {
       void run(outcomeId);
       return;
     }
@@ -884,11 +901,20 @@ function TaskWorkspaceBody({
         />
       ) : null}
 
+      {entity && record && isTkpAnalysisEntity(entity) ? (
+        <TkpReviewHardcodeSlot
+          entity={entity}
+          record={{ ...record, values: mergedValues }}
+          readOnly={busy}
+          showRelatedTables
+        />
+      ) : null}
+
       {!entity || !record ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           Запись ещё не загружена. Обновите страницу.
         </p>
-      ) : earlyViewTabIds.length > 0 || hasFillForm ? (
+      ) : earlyViewTabIds.length > 0 || hasFillForm || hasEarlyView ? (
         <TaskViewTabsPreview
           entity={entity}
           record={{ ...record, values: mergedValues }}
@@ -903,7 +929,7 @@ function TaskWorkspaceBody({
             ) : null
           }
           fillSlot={
-            hasFillForm ? (
+            hasFillForm || hasEarlyView ? (
               <div className="flex flex-col gap-4">
                 {autosaveLabel || autosave.error ? (
                   <p
@@ -1100,8 +1126,7 @@ function TaskWorkspaceBody({
                 disabled={
                   busy ||
                   !record ||
-                  (uploadBlocksComplete &&
-                    !automationOutcomeNeedsInput(outcome))
+                  (uploadBlocksComplete && !outcomeNeedsInput(outcome))
                 }
                 className={cn(outcome.color && "hover:opacity-90")}
                 style={automationOutcomeButtonStyle(outcome.color)}

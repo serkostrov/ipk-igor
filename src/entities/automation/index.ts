@@ -156,7 +156,9 @@ export {
   normalizeAutomationCanvasLayout,
   normalizeAutomationConfig,
   normalizeAutomationNotificationRule,
+  normalizeAutomationOutcomeButtonMode,
   normalizeAutomationOutcomeFieldAccess,
+  normalizeAutomationViewFieldsPlacement,
   parseRelatedAskValueKey,
   relatedAskValueKey,
   normalizeAutomationProcess,
@@ -176,6 +178,7 @@ export {
   normalizeAskRelatedFields,
   normalizeViewEntityFields,
   type AutomationOutcome,
+  type AutomationOutcomeButtonMode,
   type AutomationOutcomeFieldAccess,
   type AutomationRelationGroupsAskMode,
   AUTOMATION_RELATION_GROUPS_ASK_MODE_LABELS,
@@ -194,6 +197,7 @@ export {
   type AutomationTaskStatus,
   type AutomationTaskTemplate,
   type AutomationTriggerKind,
+  type AutomationViewFieldsPlacement,
 } from "./model/types";
 export {
   matchAutomationConditions,

@@ -12,6 +12,7 @@ import {
   ENTITY_LIST_OTHER_OPTION_ID,
   formatEntityDependencyLag,
   formatEntityFieldScalarValue,
+  formatEntityNumberDisplay,
   formatEntityNumberSumDisplay,
   getEntityFieldDisplayName,
   getEntityFieldNumericValue,
@@ -887,11 +888,8 @@ export function formatEntityComputedNumber(
   unitSuffix?: string | null,
 ): string {
   if (value == null || !Number.isFinite(value)) return "—";
-  const digits = normalizeEntityNumberDecimals(decimals);
-  const formatted = new Intl.NumberFormat("ru-RU", {
-    maximumFractionDigits: digits,
-    minimumFractionDigits: digits,
-  }).format(value);
+  const formatted = formatEntityNumberDisplay(String(value), decimals);
+  if (!formatted) return "—";
   const unit = unitSuffix?.trim() ?? "";
   return unit ? `${formatted} ${unit}` : formatted;
 }
@@ -1334,23 +1332,30 @@ function matchesEntityCondition(
           ctx.currentUserRecordId,
         )
       );
-    case "equalsCurrentUserField": {
+    case "equalsCurrentUserField":
+    case "notEqualsCurrentUserField": {
       const user = ctx.currentUserRecordId
         ? ctx.recordById.get(ctx.currentUserRecordId)
         : null;
       const userField = user
         ? findField(user.entity, condition.value ?? null)
         : null;
-      if (!user || !userField) return false;
+      if (!user || !userField) {
+        // No user / field — equality fails; exclusion stays open.
+        return condition.operator === "notEqualsCurrentUserField";
+      }
       const userIds = getRecordFieldIds(
         ctx,
         user.entity,
         user.record,
         userField,
       );
-      return getRecordFieldIds(ctx, entity, record, field).some((id) =>
-        userIds.includes(id),
-      );
+      // Title field: compare the record itself (catalog id), like `in` / `notIn`.
+      const ids = isEntityNameField(field)
+        ? [record.id]
+        : getRecordFieldIds(ctx, entity, record, field);
+      const hit = ids.some((id) => userIds.includes(id));
+      return condition.operator === "equalsCurrentUserField" ? hit : !hit;
     }
     case "equalsRecordField": {
       if (!source) return true;
@@ -1707,10 +1712,14 @@ function softFillRelationFromIds(
       field.id !== bridgeId &&
       getEntityRelationTargetId(field) === relatedTargetId,
   );
-  // Prefer relations filtered by this bridge, then fields present on the form.
+  // Only soft-fill a sibling that is explicitly tied to this bridge
+  // (match / equalsRecordField). Falling back to «the only relation to this
+  // target» incorrectly filled unrelated fields (e.g. Author→department
+  // lookup → «Принимающий отдел»).
+  if (!bridgeId) return next;
   const filtered = candidates.filter((field) => {
     const filter = field.relationFilter;
-    if (!bridgeId || !filter) return false;
+    if (!filter) return false;
     if (filter.matches.some((match) => match.sourceFieldId === bridgeId)) {
       return true;
     }
@@ -1720,19 +1729,8 @@ function softFillRelationFromIds(
         condition.value === bridgeId,
     );
   });
-  const onForm = candidates.filter((field) =>
-    Object.prototype.hasOwnProperty.call(values, field.id),
-  );
-  const pool =
-    filtered.length === 1
-      ? filtered
-      : onForm.length === 1
-        ? onForm
-        : candidates.length === 1
-          ? candidates
-          : [];
-  if (pool.length !== 1) return next;
-  const dest = pool[0]!;
+  if (filtered.length !== 1) return next;
+  const dest = filtered[0]!;
 
   const existing = parseEntityRelationIds(next[dest.id]);
   // Form open / sanitize: only seed empty destinations.
@@ -1804,9 +1802,9 @@ function softFillRelationGroupsFromRaw(
 }
 
 /**
- * Soft-fill a sibling relation from a lookup (e.g. «Отдел» → Users.Руководитель
- * → «Руководители»). Prefills / adds ids from the lookup; never wipes values the
- * user already chose — they can keep editing and add more.
+ * Soft-fill a sibling relation from a lookup when that sibling is filtered by
+ * the lookup bridge (e.g. «Отдел» → Users.Руководитель → «Руководители» with a
+ * match on Отдел). Prefills / adds ids; never wipes values the user chose.
  *
  * Also: lookup via `relationGroups` soft-fills a relation to the nested entity
  * with the nested ids selected in the groups.

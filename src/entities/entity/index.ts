@@ -42,7 +42,9 @@ export type {
   EntityTabFileEntry,
   EntityTabKind,
   EntityMirrorTabResolution,
+  EntityTabRecordAttachment,
   EntityTabRecordEntry,
+  EntityTabRecordLink,
   EntityBrowseView,
   EntityView,
   RelationRecordOption,
@@ -386,11 +388,13 @@ export {
 export {
   buildEntityFieldFileStoragePath,
   buildEntityFileStoragePath,
+  buildEntityNoteAttachmentStoragePath,
   copyEntityFileObject,
   deleteEntityFileObject,
   getEntityFileDownloadUrl,
   uploadEntityFieldFile,
   uploadEntityFile,
+  uploadEntityNoteAttachment,
   ENTITY_FILES_BUCKET,
 } from "./api/entity-files-api";
 export {
@@ -492,6 +496,17 @@ export { SchemaChangeList } from "./ui/SchemaChangeList";
 export { RecordMentionText } from "./ui/RecordMentionText";
 export { RecordMentionTextarea } from "./ui/RecordMentionTextarea";
 export { RecordNotesEditor } from "./ui/RecordNotesEditor";
+export { EntityFileViewer } from "./ui/EntityFileViewer";
+export { EntityFileIcon } from "./ui/EntityFileIcon";
+export { EntityFileThumb } from "./ui/EntityFileThumb";
+export {
+  downloadEntityFileFromUrl,
+  getEntityFilePreviewKind,
+  isEntityFilePreviewable,
+  resolveEntityFileUrl,
+  type EntityFilePreviewKind,
+  type EntityFileViewerItem,
+} from "./lib/file-preview";
 export {
   applyMentionInsertion,
   extractMentionedUserIds,
@@ -609,6 +624,7 @@ export {
   setEntityHeaderField,
   setEntityKanbanCardFields,
   setEntityKanbanField,
+  setEntityKanbanShowFilters,
   setEntityTableMassSelection,
   setEntityTableParentField,
   setEntityTableSettings,

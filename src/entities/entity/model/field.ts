@@ -843,7 +843,8 @@ export function getEntityUrlHref(value: string | undefined): string | null {
 
 /**
  * Group thousands with spaces; decimal separator is comma (ru-RU).
- * Always shows exactly `decimals` fraction digits (pad with zeros, no trim).
+ * `decimals` caps fraction length; trailing zeros are not shown
+ * (1,5 with decimals=3 → «1,5», not «1,500»).
  */
 export function formatEntityNumberDisplay(
   value: string,
@@ -857,7 +858,7 @@ export function formatEntityNumberDisplay(
   const digits = normalizeEntityNumberDecimals(decimals);
   return new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: digits,
-    minimumFractionDigits: digits,
+    minimumFractionDigits: 0,
   }).format(numeric);
 }
 

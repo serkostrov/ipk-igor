@@ -31,6 +31,7 @@ function mapTaskRow(row: Record<string, unknown>): AutomationTask | null {
     outcomes: [],
     sla: null,
     materials: [],
+    viewFieldsPlacement: "beforeOutcomes",
   };
 
   const status = String(row.status ?? "pending") as AutomationTaskStatus;

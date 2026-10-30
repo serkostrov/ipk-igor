@@ -37,6 +37,7 @@ import {
 } from "@/entities/menu";
 import { canMenuItem, roleMenuFlat, useCurrentRole } from "@/entities/access";
 import { signOut, useSessionUser } from "@/entities/session";
+import { useMyOpenAutomationTaskCount } from "@/features/automation-tasks";
 import { NotificationBell } from "@/features/notification-inbox";
 import { SidebarNavSkeleton } from "./SidebarNavSkeleton";
 
@@ -107,6 +108,34 @@ function NavLabel({
   );
 }
 
+/** Open-task count chip: inline when expanded, absolute pill when collapsed. */
+function NavCountBadge({
+  count,
+  collapsed,
+}: {
+  count: number;
+  collapsed: boolean;
+}) {
+  if (count <= 0) return null;
+  const label = count > 99 ? "99+" : String(count);
+  return (
+    <span
+      className={cn(
+        "flex items-center justify-center rounded-full bg-primary font-semibold text-primary-foreground",
+        collapsed
+          ? "absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 text-[9px]"
+          : "ml-auto h-5 min-w-5 shrink-0 px-1.5 text-[10px]",
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+function menuItemBadgeCount(itemId: string, openTaskCount: number) {
+  return itemId === AUTOMATION_TASKS_ITEM_ID ? openTaskCount : 0;
+}
+
 function SidebarTreeRow({
   isFirst = false,
   isLast = false,
@@ -137,6 +166,7 @@ type SidebarTreeProps = {
   onNavigate?: (id: string) => void;
   pathLabel?: string;
   nested?: boolean;
+  openTaskCount?: number;
 };
 
 function renderNestedEntries({
@@ -146,6 +176,7 @@ function renderNestedEntries({
   onToggleGroup,
   onNavigate,
   pathLabel,
+  openTaskCount = 0,
 }: {
   entries: MenuEntry[];
   activeId: string;
@@ -153,10 +184,12 @@ function renderNestedEntries({
   onToggleGroup: (groupId: string) => void;
   onNavigate?: (id: string) => void;
   pathLabel?: string;
+  openTaskCount?: number;
 }) {
   return entries.map((entry, entryIndex) => {
     const isFirst = entryIndex === 0;
     const isLast = entryIndex === entries.length - 1;
+    const badge = menuItemBadgeCount(entry.id, openTaskCount);
     return (
       <SidebarTreeRow key={entry.id} isFirst={isFirst} isLast={isLast}>
         <div className="min-w-0 flex-1">
@@ -171,26 +204,35 @@ function renderNestedEntries({
                 onNavigate={onNavigate}
                 pathLabel={pathLabel}
                 nested
+                openTaskCount={openTaskCount}
               />
             ) : (
               <Button
                 type="button"
                 variant="ghost"
                 aria-current={entry.id === activeId ? "page" : undefined}
+                aria-label={
+                  badge > 0
+                    ? `${entry.label}, невыполненных: ${badge}`
+                    : undefined
+                }
                 onClick={() => onNavigate?.(entry.id)}
                 className={cn(
                   navItemClass({
                     collapsed: false,
                     isActive: entry.id === activeId,
                   }),
-                  "h-9 min-w-0 w-full px-2 py-0",
+                  "relative h-9 min-w-0 w-full px-2 py-0",
                 )}
               >
                 <SidebarMenuIcon
                   name={entry.icon}
                   className="size-4 shrink-0"
                 />
-                <span className="truncate text-sm">{entry.label}</span>
+                <span className="min-w-0 flex-1 truncate text-left text-sm">
+                  {entry.label}
+                </span>
+                <NavCountBadge count={badge} collapsed={false} />
               </Button>
             )
           ) : (
@@ -203,6 +245,7 @@ function renderNestedEntries({
               onNavigate={onNavigate}
               pathLabel={pathLabel}
               nested
+              openTaskCount={openTaskCount}
             />
           )}
         </div>
@@ -216,11 +259,13 @@ function SidebarCollapsedLeaves({
   activeId,
   pathLabel,
   onNavigate,
+  openTaskCount = 0,
 }: {
   leaves: Array<{ id: string; label: string; icon: MenuIconName }>;
   activeId: string;
   pathLabel: string;
   onNavigate?: (id: string) => void;
+  openTaskCount?: number;
 }) {
   return (
     <div className="flex flex-col">
@@ -230,12 +275,16 @@ function SidebarCollapsedLeaves({
       />
       {leaves.map((item) => {
         const isActive = item.id === activeId;
+        const badge = menuItemBadgeCount(item.id, openTaskCount);
         return (
           <Button
             key={item.id}
             type="button"
             variant="ghost"
             aria-current={isActive ? "page" : undefined}
+            aria-label={
+              badge > 0 ? `${item.label}, невыполненных: ${badge}` : undefined
+            }
             title={`${pathLabel} → ${item.label}`}
             onClick={() => onNavigate?.(item.id)}
             className={cn(
@@ -243,11 +292,12 @@ function SidebarCollapsedLeaves({
                 collapsed: true,
                 isActive,
               }),
-              "rounded-md",
+              "relative rounded-md",
             )}
           >
             <SidebarMenuIcon name={item.icon} className="size-4 shrink-0" />
             <NavLabel collapsed>{item.label}</NavLabel>
+            <NavCountBadge count={badge} collapsed />
           </Button>
         );
       })}
@@ -264,6 +314,7 @@ function SidebarItemFolder({
   onNavigate,
   pathLabel,
   nested = false,
+  openTaskCount = 0,
 }: SidebarTreeProps & { item: MenuItemEntry }) {
   const childEntries = item.entries ?? [];
   const isExpanded = !collapsedGroupIds.has(item.id);
@@ -344,6 +395,7 @@ function SidebarItemFolder({
                 activeId={activeId}
                 pathLabel={titlePath}
                 onNavigate={onNavigate}
+                openTaskCount={openTaskCount}
               />
             ) : (
               <div className="flex flex-col">
@@ -354,6 +406,7 @@ function SidebarItemFolder({
                   onToggleGroup,
                   onNavigate,
                   pathLabel: titlePath,
+                  openTaskCount,
                 })}
               </div>
             )}
@@ -373,6 +426,7 @@ function SidebarGroupTree({
   onNavigate,
   pathLabel,
   nested = false,
+  openTaskCount = 0,
 }: SidebarTreeProps & { group: MenuGroupEntry }) {
   const isExpanded = !collapsedGroupIds.has(group.id);
   const leafItems = flattenMenuGroupItems(group);
@@ -432,6 +486,7 @@ function SidebarGroupTree({
                 activeId={activeId}
                 pathLabel={titlePath}
                 onNavigate={onNavigate}
+                openTaskCount={openTaskCount}
               />
             ) : (
               <div className="flex flex-col">
@@ -442,6 +497,7 @@ function SidebarGroupTree({
                   onToggleGroup,
                   onNavigate,
                   pathLabel: titlePath,
+                  openTaskCount,
                 })}
               </div>
             )}
@@ -459,6 +515,7 @@ function renderSidebarEntries({
   collapsedGroupIds,
   onToggleGroup,
   onNavigate,
+  openTaskCount = 0,
 }: {
   entries: MenuEntry[];
   collapsed: boolean;
@@ -466,6 +523,7 @@ function renderSidebarEntries({
   collapsedGroupIds: Set<string>;
   onToggleGroup: (groupId: string) => void;
   onNavigate?: (id: string) => void;
+  openTaskCount?: number;
 }) {
   return entries.map((entry) => {
     if (entry.type === "item") {
@@ -479,22 +537,28 @@ function renderSidebarEntries({
             collapsedGroupIds={collapsedGroupIds}
             onToggleGroup={onToggleGroup}
             onNavigate={onNavigate}
+            openTaskCount={openTaskCount}
           />
         );
       }
       const isActive = entry.id === activeId;
+      const badge = menuItemBadgeCount(entry.id, openTaskCount);
       return (
         <Button
           key={entry.id}
           type="button"
           variant="ghost"
           aria-current={isActive ? "page" : undefined}
+          aria-label={
+            badge > 0 ? `${entry.label}, невыполненных: ${badge}` : undefined
+          }
           title={entry.label}
           onClick={() => onNavigate?.(entry.id)}
-          className={navItemClass({ collapsed, isActive })}
+          className={cn(navItemClass({ collapsed, isActive }), "relative")}
         >
           <SidebarMenuIcon name={entry.icon} className="size-4 shrink-0" />
           <NavLabel collapsed={collapsed}>{entry.label}</NavLabel>
+          <NavCountBadge count={badge} collapsed={collapsed} />
         </Button>
       );
     }
@@ -508,6 +572,7 @@ function renderSidebarEntries({
         collapsedGroupIds={collapsedGroupIds}
         onToggleGroup={onToggleGroup}
         onNavigate={onNavigate}
+        openTaskCount={openTaskCount}
       />
     );
   });
@@ -546,6 +611,7 @@ export function Sidebar({
   const sessionUser = useSessionUser();
   const { entities } = useEntityConfig();
   const role = useCurrentRole();
+  const openTaskCount = useMyOpenAutomationTaskCount();
 
   const navEntries = useMemo(() => {
     const internalIds = new Set(
@@ -652,6 +718,7 @@ export function Sidebar({
               collapsedGroupIds,
               onToggleGroup: toggleGroup,
               onNavigate,
+              openTaskCount,
             })}
           </div>
         )}

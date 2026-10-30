@@ -3,7 +3,6 @@ import {
   Check,
   ChevronRight,
   Download,
-  File,
   Folder,
   FolderPlus,
   LayoutGrid,
@@ -32,11 +31,14 @@ import {
   DEFAULT_ENTITY_FOLDER_COLOR,
   DEFAULT_ENTITY_LIST_COLORS,
   deleteEntityFileObject,
+  downloadEntityFileFromUrl,
+  EntityFileThumb,
+  EntityFileViewer,
   formatEntityFileSize,
-  getEntityFileDownloadUrl,
   getEntityTabFilesValueKey,
   normalizeListColor,
   parseEntityTabFileEntries,
+  resolveEntityFileUrl,
   serializeEntityTabFileEntries,
   updateEntityRecord,
   uploadEntityFile,
@@ -47,6 +49,11 @@ import {
 } from "@/entities/entity";
 import { formatDatetimeDisplay } from "@/shared/lib/format-date";
 import { cn } from "@/shared/lib/cn";
+import { isTkpAnalysisEntity } from "@/features/hardcode";
+import {
+  clearTkpPriceBindKeys,
+  resolveTkpFilePriceHistoryId,
+} from "@/features/hardcode/tkp-review/lib/tkp-file-bind";
 
 type RecordFilesTabPanelProps = {
   entity: Entity;
@@ -185,6 +192,7 @@ export function RecordFilesTabPanel({
   const [dragOver, setDragOver] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [folderQuery, setFolderQuery] = useState("");
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const seededRef = useRef(false);
@@ -273,6 +281,11 @@ export function RecordFilesTabPanel({
     });
   }, [entries, resolvedFolderId]);
 
+  const viewerFiles = useMemo(
+    () => visibleEntries.filter((entry) => entry.kind === "file"),
+    [visibleEntries],
+  );
+
   const siblingNames = visibleEntries.map((entry) => entry.name);
 
   const childCounts = useMemo(() => {
@@ -344,6 +357,14 @@ export function RecordFilesTabPanel({
     try {
       const next = [...entries];
       const names = siblingNames.slice();
+      const bindPriceHistoryId = isTkpAnalysisEntity(entity)
+        ? resolveTkpFilePriceHistoryId({
+            entries,
+            parentId: resolvedFolderId,
+            recordValues: record.values,
+          })
+        : null;
+      let boundAny = false;
 
       for (const file of Array.from(files)) {
         const entryId = crypto.randomUUID();
@@ -358,7 +379,7 @@ export function RecordFilesTabPanel({
           file,
         });
 
-        next.push({
+        const fileEntry: EntityTabFileEntry = {
           id: entryId,
           name,
           kind: "file",
@@ -368,10 +389,22 @@ export function RecordFilesTabPanel({
           size: file.size,
           storagePath: uploaded.storagePath,
           dataUrl: uploaded.dataUrl,
-        });
+        };
+        if (bindPriceHistoryId) {
+          fileEntry.priceHistoryId = bindPriceHistoryId;
+          boundAny = true;
+        }
+        next.push(fileEntry);
       }
 
-      persist(next);
+      if (boundAny) {
+        updateEntityRecord(entity.id, record.id, {
+          ...clearTkpPriceBindKeys(record.values),
+          [valueKey]: serializeEntityTabFileEntries(next),
+        });
+      } else {
+        persist(next);
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Не удалось загрузить файл",
@@ -382,38 +415,17 @@ export function RecordFilesTabPanel({
     }
   }
 
-  async function handleOpenFile(entry: EntityTabFileEntry) {
+  function handleOpenFile(entry: EntityTabFileEntry) {
+    if (entry.kind !== "file") return;
     setError(null);
-    try {
-      if (entry.dataUrl) {
-        window.open(entry.dataUrl, "_blank", "noopener,noreferrer");
-        return;
-      }
-      if (!entry.storagePath) {
-        throw new Error("Файл недоступен");
-      }
-      const url = await getEntityFileDownloadUrl(entry.storagePath);
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось открыть файл");
-    }
+    setViewerId(entry.id);
   }
 
   async function handleDownload(entry: EntityTabFileEntry) {
     setError(null);
     try {
-      let href = entry.dataUrl ?? "";
-      if (!href) {
-        if (!entry.storagePath) throw new Error("Файл недоступен");
-        href = await getEntityFileDownloadUrl(entry.storagePath);
-      }
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = entry.name;
-      link.rel = "noopener";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const href = await resolveEntityFileUrl(entry);
+      downloadEntityFileFromUrl(href, entry.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось скачать файл");
     }
@@ -589,7 +601,7 @@ export function RecordFilesTabPanel({
       navigateToFolder(entry.id);
       return;
     }
-    void handleOpenFile(entry);
+    handleOpenFile(entry);
   }
 
   return (
@@ -1007,26 +1019,29 @@ export function RecordFilesTabPanel({
                           className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
                           onClick={(event) => activateEntry(entry, event)}
                         >
-                          <span
-                            className={cn(
-                              "flex size-8 shrink-0 items-center justify-center rounded-md",
-                              !isFolder && "bg-muted/70 text-muted-foreground",
-                            )}
-                            style={
-                              folderAccent
-                                ? {
-                                    backgroundColor: `color-mix(in srgb, ${folderAccent} 14%, transparent)`,
-                                    color: folderAccent,
-                                  }
-                                : undefined
-                            }
-                          >
-                            {isFolder ? (
+                          {isFolder ? (
+                            <span
+                              className="flex size-8 shrink-0 items-center justify-center rounded-md"
+                              style={
+                                folderAccent
+                                  ? {
+                                      backgroundColor: `color-mix(in srgb, ${folderAccent} 14%, transparent)`,
+                                      color: folderAccent,
+                                    }
+                                  : undefined
+                              }
+                            >
                               <Folder className="size-4 stroke-[1.5]" />
-                            ) : (
-                              <File className="size-4 stroke-[1.5]" />
-                            )}
-                          </span>
+                            </span>
+                          ) : (
+                            <EntityFileThumb
+                              key={entry.id}
+                              name={entry.name}
+                              mimeType={entry.mimeType}
+                              storagePath={entry.storagePath}
+                              dataUrl={entry.dataUrl}
+                            />
+                          )}
                           <span className="min-w-0 flex-1">
                             <span
                               className="block truncate text-sm font-medium text-foreground"
@@ -1107,21 +1122,28 @@ export function RecordFilesTabPanel({
                           className="flex flex-1 flex-col items-center justify-center gap-1.5 px-3 py-4 text-center"
                           onClick={(event) => activateEntry(entry, event)}
                         >
-                          <span
-                            className={cn(
-                              "flex size-10 items-center justify-center",
-                              !isFolder && "text-muted-foreground",
-                            )}
-                            style={
-                              folderAccent ? { color: folderAccent } : undefined
-                            }
-                          >
-                            {isFolder ? (
+                          {isFolder ? (
+                            <span
+                              className="flex size-10 items-center justify-center"
+                              style={
+                                folderAccent
+                                  ? { color: folderAccent }
+                                  : undefined
+                              }
+                            >
                               <Folder className="size-8 stroke-[1.4]" />
-                            ) : (
-                              <File className="size-8 stroke-[1.4]" />
-                            )}
-                          </span>
+                            </span>
+                          ) : (
+                            <EntityFileThumb
+                              key={entry.id}
+                              name={entry.name}
+                              mimeType={entry.mimeType}
+                              storagePath={entry.storagePath}
+                              dataUrl={entry.dataUrl}
+                              className="size-14 rounded-lg"
+                              iconClassName="size-7"
+                            />
+                          )}
                           <span
                             className="line-clamp-2 text-xs font-medium break-all"
                             title={entry.name}
@@ -1281,6 +1303,16 @@ export function RecordFilesTabPanel({
               : `Файл «${pendingDeleteEntries[0]?.name ?? ""}» будет удалён безвозвратно.`
         }
         onConfirm={() => void handleConfirmDelete()}
+      />
+
+      <EntityFileViewer
+        open={viewerId != null}
+        onOpenChange={(open) => {
+          if (!open) setViewerId(null);
+        }}
+        files={viewerFiles}
+        activeId={viewerId}
+        onActiveIdChange={setViewerId}
       />
     </section>
   );

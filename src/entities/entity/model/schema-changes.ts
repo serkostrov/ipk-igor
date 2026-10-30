@@ -292,10 +292,12 @@ export function describeEntitySchemaChanges(
     {
       kanbanFieldId: before.kanbanFieldId,
       kanbanCardFieldIds: before.kanbanCardFieldIds,
+      kanbanShowFilters: before.kanbanShowFilters,
     },
     {
       kanbanFieldId: after.kanbanFieldId,
       kanbanCardFieldIds: after.kanbanCardFieldIds,
+      kanbanShowFilters: after.kanbanShowFilters,
     },
   );
   pushChange(

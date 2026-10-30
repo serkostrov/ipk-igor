@@ -76,6 +76,12 @@ const AUTOMATION_ENTITY_ID_KEY = "settings.automations.selectedEntityId";
 const AUTOMATION_TRIGGER_FIELD_ID_KEY =
   "settings.automations.selectedTriggerFieldId";
 
+/** Prevents parallel ensureProcess seeds from creating duplicate «Основной». */
+const ensureProcessInflight = new Map<
+  string,
+  Promise<{ process: AutomationProcess; scenario: AutomationScenario } | null>
+>();
+
 function parseStoredId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -209,16 +215,43 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
             .sort(
               (a, b) =>
                 Number(b.isDefault) - Number(a.isDefault) ||
-                b.priority - a.priority,
+                b.priority - a.priority ||
+                a.createdAt.localeCompare(b.createdAt),
             )
         : [],
     [scenarios, process],
   );
 
+  const processTemplateCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const template of templates) {
+      counts.set(
+        template.scenarioId,
+        (counts.get(template.scenarioId) ?? 0) + 1,
+      );
+    }
+    return counts;
+  }, [templates]);
+
+  const preferredDefaultScenario = useMemo(() => {
+    const defaults = processScenarios.filter((item) => item.isDefault);
+    if (defaults.length === 0) return null;
+    return (
+      defaults
+        .slice()
+        .sort(
+          (a, b) =>
+            (processTemplateCount.get(b.id) ?? 0) -
+              (processTemplateCount.get(a.id) ?? 0) ||
+            a.createdAt.localeCompare(b.createdAt),
+        )[0] ?? null
+    );
+  }, [processScenarios, processTemplateCount]);
+
   const [scenarioId, setScenarioId] = useState<string | null>(null);
   const storeScenario =
     processScenarios.find((item) => item.id === scenarioId) ??
-    processScenarios.find((item) => item.isDefault) ??
+    preferredDefaultScenario ??
     processScenarios[0] ??
     null;
 
@@ -500,59 +533,126 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
     scenario: AutomationScenario;
   } | null> {
     if (!resolvedEntityId || !resolvedTriggerFieldId) return null;
+    const inflightKey = `${resolvedEntityId}\0${resolvedTriggerFieldId}`;
+    const pending = ensureProcessInflight.get(inflightKey);
+    if (pending) return pending;
 
-    // Prefer the store scenario (not draft-derived `scenario`, which is null
-    // until a draft is seeded — that blocked Save/Undo on entities without a
-    // prior edit session).
-    if (process && storeScenario) {
-      if (!draft || draft.scenario.id !== storeScenario.id) {
-        const snap = makeSnap(storeScenario, templates);
+    const run = (async (): Promise<{
+      process: AutomationProcess;
+      scenario: AutomationScenario;
+    } | null> => {
+      // Prefer the store scenario (not draft-derived `scenario`, which is null
+      // until a draft is seeded — that blocked Save/Undo on entities without a
+      // prior edit session).
+      if (process && storeScenario) {
+        if (!draft || draft.scenario.id !== storeScenario.id) {
+          const snap = makeSnap(storeScenario, templates);
+          setDraft(snap);
+          setSaved(cloneSnap(snap));
+          setUndoStack([]);
+          setSeededScenarioId(storeScenario.id);
+        }
+        return { process, scenario: storeScenario };
+      }
+
+      if (process && !storeScenario) {
+        // Scenarios may still be hydrating — never create a second «Основной».
+        const existingForProcess = scenarios.filter(
+          (item) => item.processId === process.id,
+        );
+        if (existingForProcess.length > 0) {
+          const defaults = existingForProcess.filter((item) => item.isDefault);
+          const existing =
+            (defaults.length > 0
+              ? defaults
+                  .slice()
+                  .sort(
+                    (a, b) =>
+                      (processTemplateCount.get(b.id) ?? 0) -
+                        (processTemplateCount.get(a.id) ?? 0) ||
+                      a.createdAt.localeCompare(b.createdAt),
+                  )[0]
+              : null) ?? existingForProcess[0]!;
+          setScenarioId(existing.id);
+          const snap = makeSnap(
+            existing,
+            templates.filter((item) => item.scenarioId === existing.id),
+          );
+          setDraft(snap);
+          setSaved(cloneSnap(snap));
+          setUndoStack([]);
+          setSeededScenarioId(existing.id);
+          return { process, scenario: existing };
+        }
+        const next: AutomationScenario = {
+          id: createAutomationScenarioId(),
+          processId: process.id,
+          name: "Основной",
+          isDefault: true,
+          entryConditions: emptyAutomationConditions(),
+          priority: 0,
+          canvasLayout: emptyAutomationCanvasLayout(),
+          stageTransitions: [],
+          stageTaskRelease: {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        try {
+          await saveScenario(next);
+        } catch (error: unknown) {
+          // Unique default index / parallel seed — reload and use the winner.
+          const message =
+            error instanceof Error ? error.message : String(error ?? "");
+          if (!/duplicate|unique|23505/i.test(message)) throw error;
+          const fallback =
+            scenarios.find(
+              (item) => item.processId === process.id && item.isDefault,
+            ) ?? scenarios.find((item) => item.processId === process.id);
+          if (!fallback) throw error;
+          setScenarioId(fallback.id);
+          const snap = makeSnap(
+            fallback,
+            templates.filter((item) => item.scenarioId === fallback.id),
+          );
+          setDraft(snap);
+          setSaved(cloneSnap(snap));
+          setUndoStack([]);
+          setSeededScenarioId(fallback.id);
+          return { process, scenario: fallback };
+        }
+        setScenarioId(next.id);
+        const snap = makeSnap(next, []);
         setDraft(snap);
         setSaved(cloneSnap(snap));
         setUndoStack([]);
-        setSeededScenarioId(storeScenario.id);
+        setSeededScenarioId(next.id);
+        return { process, scenario: next };
       }
-      return { process, scenario: storeScenario };
-    }
 
-    if (process && !storeScenario) {
-      const next: AutomationScenario = {
-        id: createAutomationScenarioId(),
-        processId: process.id,
-        name: "Основной",
-        isDefault: true,
-        entryConditions: emptyAutomationConditions(),
-        priority: 0,
-        canvasLayout: emptyAutomationCanvasLayout(),
-        stageTransitions: [],
-        stageTaskRelease: {},
-      };
-      await saveScenario(next);
-      setScenarioId(next.id);
-      const snap = makeSnap(next, []);
+      const created = createDefaultProcess({
+        name: `${entity?.name ?? "Сущность"} · автоматизация`,
+        entityId: resolvedEntityId,
+        triggerFieldId: resolvedTriggerFieldId,
+      });
+      await saveProcess(created.process);
+      await saveScenario(created.scenario);
+      setStoredEntityId(resolvedEntityId);
+      setStoredTriggerFieldId(resolvedTriggerFieldId || null);
+      setScenarioId(created.scenario.id);
+      const snap = makeSnap(created.scenario, []);
       setDraft(snap);
       setSaved(cloneSnap(snap));
       setUndoStack([]);
-      setSeededScenarioId(next.id);
-      return { process, scenario: next };
-    }
+      setSeededScenarioId(created.scenario.id);
+      return created;
+    })();
 
-    const created = createDefaultProcess({
-      name: `${entity?.name ?? "Сущность"} · автоматизация`,
-      entityId: resolvedEntityId,
-      triggerFieldId: resolvedTriggerFieldId,
-    });
-    await saveProcess(created.process);
-    await saveScenario(created.scenario);
-    setStoredEntityId(resolvedEntityId);
-    setStoredTriggerFieldId(resolvedTriggerFieldId || null);
-    setScenarioId(created.scenario.id);
-    const snap = makeSnap(created.scenario, []);
-    setDraft(snap);
-    setSaved(cloneSnap(snap));
-    setUndoStack([]);
-    setSeededScenarioId(created.scenario.id);
-    return created;
+    ensureProcessInflight.set(inflightKey, run);
+    try {
+      return await run;
+    } finally {
+      ensureProcessInflight.delete(inflightKey);
+    }
   }
 
   // Seed a process/scenario as soon as the stage map is shown so canvas drags
@@ -598,6 +698,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
       const nextName = `Сценарий ${processScenarios.length + 1}`;
 
       if (createScenarioSourceId === "new") {
+        const now = new Date().toISOString();
         const next: AutomationScenario = {
           id: createAutomationScenarioId(),
           processId: ensured.process.id,
@@ -608,6 +709,8 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
           canvasLayout: emptyAutomationCanvasLayout(),
           stageTransitions: [],
           stageTaskRelease: {},
+          createdAt: now,
+          updatedAt: now,
         };
         await saveScenario(next);
         setScenarioId(next.id);
@@ -787,6 +890,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
         outcomes,
         sla: null,
         materials: [],
+        viewFieldsPlacement: "beforeOutcomes",
       };
       phaseList.splice(at, 0, template);
       const reorderedIds = new Set(phaseList.map((item) => item.id));

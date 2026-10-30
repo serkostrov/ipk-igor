@@ -68,6 +68,8 @@ function mapScenarioRow(row: Record<string, unknown>) {
     canvasLayout: row.canvas_layout,
     stageTransitions: row.stage_transitions,
     stageTaskRelease: row.stage_task_release,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -90,6 +92,7 @@ function mapTemplateRow(row: Record<string, unknown>) {
     outcomes: row.outcomes,
     sla: row.sla,
     materials: row.materials,
+    viewFieldsPlacement: row.view_fields_placement,
   };
 }
 
@@ -185,6 +188,7 @@ export async function upsertAutomationTemplate(
     outcomes: template.outcomes,
     sla: template.sla,
     materials: template.materials,
+    view_fields_placement: template.viewFieldsPlacement ?? "beforeOutcomes",
     updated_at: new Date().toISOString(),
   });
   if (error) throw error;

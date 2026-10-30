@@ -25,10 +25,12 @@ function overlayLiveListCatalog(
 }
 
 /**
- * Entity structure used for a record: fields/formulas/tabs from the
- * published schema version the record was created on.
- * Live `records`, `publishedVersion`, and list option catalogs always come
- * from the current entity (draft/published working copy).
+ * Entity structure used for a record: fields/formulas from the published
+ * schema version the record was created on.
+ *
+ * Presentation that should follow current settings for every record comes
+ * from the live entity: tabs (files / notes / history / time / …), time
+ * tracking, header field, records, and list option catalogs.
  */
 export function resolveEntityForRecord(
   liveEntity: Entity,
@@ -45,6 +47,8 @@ export function resolveEntityForRecord(
     records: liveEntity.records,
     publishedVersion: liveEntity.publishedVersion,
     headerFieldId: liveEntity.headerFieldId,
+    tabs: liveEntity.tabs,
+    timeTracking: liveEntity.timeTracking,
     fields: versionDefinition.fields.map((field) =>
       overlayLiveListCatalog(field, liveFieldById.get(field.id)),
     ),

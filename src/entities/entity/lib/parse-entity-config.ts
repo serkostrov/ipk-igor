@@ -916,6 +916,7 @@ export function normalizeEntity(
       resolveKanbanFieldId(resolvedFields, entity.kanbanFieldId),
       (entity as { kanbanCardFieldIds?: unknown }).kanbanCardFieldIds,
     ),
+    kanbanShowFilters: entity.kanbanShowFilters !== false,
     tableMassSelection: entity.tableMassSelection === true,
     tableParentFieldId,
     tableSubgroupFieldId: resolveTableSubgroupFieldId(
@@ -982,6 +983,7 @@ export function toEntityStructure(entity: Entity) {
       resolveKanbanFieldId(entity.fields, entity.kanbanFieldId),
       entity.kanbanCardFieldIds,
     ),
+    kanbanShowFilters: entity.kanbanShowFilters !== false,
     tableMassSelection: entity.tableMassSelection === true,
     tableParentFieldId,
     tableSubgroupFieldId: resolveTableSubgroupFieldId(
@@ -1072,6 +1074,7 @@ export function parseEntityConfig(value: unknown): EntityConfig {
         kanbanCardFieldIds: Array.isArray(item.kanbanCardFieldIds)
           ? item.kanbanCardFieldIds
           : null,
+        kanbanShowFilters: item.kanbanShowFilters !== false,
         tableMassSelection: item.tableMassSelection === true,
         tableParentFieldId:
           typeof item.tableParentFieldId === "string"

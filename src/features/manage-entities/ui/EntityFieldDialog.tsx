@@ -1124,6 +1124,8 @@ function buildEntityFieldFormData({
   isNameField: boolean;
 }): EntityFieldFormData {
   if (isNameField) {
+    const columnTotal = Math.max(1, tableColumnCount);
+    const minPosition = Math.min(tablePositionMin, columnTotal);
     return {
       name: name.trim(),
       type: "text",
@@ -1135,7 +1137,10 @@ function buildEntityFieldFormData({
       showOnCreate: true,
       visibilityConditions: [],
       includeInTotal: false,
-      tablePosition: 1,
+      tablePosition: Math.min(
+        columnTotal,
+        Math.max(minPosition, tablePosition),
+      ),
       relationEntityId: null,
       relationMultiple: false,
       listSourceFieldId: null,
@@ -2053,11 +2058,12 @@ function EntityFieldForm({
                     </div>
                     <Switch
                       id="entity-field-show-in-table"
-                      checked={showInTable}
+                      checked={isNameField || showInTable}
+                      disabled={isNameField}
                       onCheckedChange={handleShowInTableChange}
                     />
                   </div>
-                  {showInTable ? (
+                  {isNameField || showInTable ? (
                     <TablePositionControl
                       position={Math.min(
                         columnTotal,

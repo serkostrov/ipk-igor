@@ -12,6 +12,7 @@ export type EntityConditionOperator =
   | "problem"
   | "isCurrentUser"
   | "equalsCurrentUserField"
+  | "notEqualsCurrentUserField"
   | "equalsRecordField"
   | "true"
   | "false"
@@ -36,7 +37,7 @@ export type EntityCondition = {
   /**
    * Scalar operand: number for `gt` / `lt` / `eq`, days for `withinDays`,
    * ISO date for `on` / `before` / `after`, text for `contains`,
-   * Users field id for `equalsCurrentUserField`,
+   * Users field id for `equalsCurrentUserField` / `notEqualsCurrentUserField`,
    * source-entity field id for `equalsRecordField`.
    */
   value?: string;
@@ -55,6 +56,7 @@ export const ENTITY_CONDITION_OPERATOR_LABELS: Record<
   problem: "проблемный",
   isCurrentUser: "текущий пользователь",
   equalsCurrentUserField: "как у текущего пользователя",
+  notEqualsCurrentUserField: "не как у текущего пользователя",
   equalsRecordField: "как в этой записи",
   true: "да",
   false: "нет",
@@ -87,6 +89,7 @@ export const ENTITY_CONDITION_OPERATOR_GROUPS: Array<{
       "problem",
       "isCurrentUser",
       "equalsCurrentUserField",
+      "notEqualsCurrentUserField",
       "equalsRecordField",
     ],
   },
@@ -122,6 +125,7 @@ const OPERATORS_BY_KIND: Record<EntityValueKind, EntityConditionOperator[]> = {
     "notIn",
     "isCurrentUser",
     "equalsCurrentUserField",
+    "notEqualsCurrentUserField",
     "equalsRecordField",
     "empty",
     "notEmpty",
@@ -162,6 +166,7 @@ export function entityConditionNeedsValue(operator: EntityConditionOperator) {
     operator === "in" ||
     operator === "notIn" ||
     operator === "equalsCurrentUserField" ||
+    operator === "notEqualsCurrentUserField" ||
     operator === "equalsRecordField" ||
     operator === "gt" ||
     operator === "lt" ||

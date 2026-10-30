@@ -617,6 +617,7 @@ function cloneEntityStructure(
     kanbanCardFieldIds: source.kanbanCardFieldIds
       ? mapIdList(maps.fieldIdMap, source.kanbanCardFieldIds)
       : null,
+    kanbanShowFilters: source.kanbanShowFilters !== false,
     tableMassSelection: source.tableMassSelection,
     tableParentFieldId: source.tableParentFieldId
       ? (mapId(maps.fieldIdMap, source.tableParentFieldId) ?? null)
