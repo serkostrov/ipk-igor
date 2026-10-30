@@ -9,6 +9,7 @@ import {
   isDeptCalculationsEntity,
   isTkpAnalysisEntity,
   isTkpGipFillingOptionId,
+  isTkpGipFillingStageName,
   isTkpGipFillingStageOption,
   isTkpHostOnGipFillingStage,
   type Entity,
@@ -29,22 +30,47 @@ function shouldEnsureGipRows(options: {
   entities: readonly Entity[];
   /** Task / template trigger option — preferred signal for «задание ГИПа». */
   triggerOptionId?: string | null;
+  /** Process list field that owns triggerOptionId. */
+  triggerFieldId?: string | null;
+  /** Rendered task / template name («На заполнении ГИПа»). */
+  taskName?: string | null;
   force?: boolean;
 }): boolean {
-  const { parentEntity, parentValues, entities, triggerOptionId, force } =
-    options;
+  const {
+    parentEntity,
+    parentValues,
+    entities,
+    triggerOptionId,
+    triggerFieldId,
+    taskName,
+    force,
+  } = options;
   if (force) return true;
   if (!isTkpAnalysisEntity(parentEntity)) return false;
+  if (isTkpGipFillingStageName(taskName ?? "")) return true;
+
   const optionId = (triggerOptionId ?? "").trim();
-  if (optionId && isTkpGipFillingOptionId(parentEntity, optionId, entities)) {
-    return true;
+  if (optionId) {
+    const fieldId = (triggerFieldId ?? "").trim();
+    if (fieldId) {
+      const field = parentEntity.fields.find((item) => item.id === fieldId);
+      if (
+        field &&
+        isTkpGipFillingStageOption(parentEntity, field, optionId, entities)
+      ) {
+        return true;
+      }
+    }
+    if (isTkpGipFillingOptionId(parentEntity, optionId, entities)) {
+      return true;
+    }
   }
   return isTkpHostOnGipFillingStage(parentEntity, parentValues, entities);
 }
 
 /**
- * Create missing stage×ГИП calculation rows for this «Разбор ТКП» parent.
- * Runs only for «На заполнении ГИПа» (host stage and/or task trigger option).
+ * Create missing stage×department + stage×ГИП calculation rows for this
+ * «Разбор ТКП» parent. Runs only for «На заполнении ГИПа».
  */
 export async function maybeEnsureDeptCalculationGipForParent(options: {
   parentEntity: Entity;
@@ -52,6 +78,8 @@ export async function maybeEnsureDeptCalculationGipForParent(options: {
   entities?: readonly Entity[];
   /** Task.triggerOptionId / template option — add ГИП for that assignment. */
   triggerOptionId?: string | null;
+  triggerFieldId?: string | null;
+  taskName?: string | null;
   /** Force ensure even if stage name does not match. */
   force?: boolean;
 }): Promise<boolean> {
@@ -60,6 +88,8 @@ export async function maybeEnsureDeptCalculationGipForParent(options: {
     parentRecord,
     entities = getEntityConfig().entities,
     triggerOptionId = null,
+    triggerFieldId = null,
+    taskName = null,
     force = false,
   } = options;
   if (!isTkpAnalysisEntity(parentEntity)) return false;
@@ -69,6 +99,8 @@ export async function maybeEnsureDeptCalculationGipForParent(options: {
       parentValues: parentRecord.values,
       entities,
       triggerOptionId,
+      triggerFieldId,
+      taskName,
       force,
     })
   ) {
@@ -114,24 +146,29 @@ export async function maybeEnsureDeptCalculationGipAfterStageChange(options: {
     parentRecord: { ...record, values: nextValues },
     entities,
     triggerOptionId: toOptionId,
+    triggerFieldId: field.id,
     force: true,
   });
 }
 
 /**
- * When opening the «На заполнении ГИПа» task UI — create ГИП rows for every
- * selected stage before the assignee works on related «Расчёты отделов».
+ * When opening the «На заполнении ГИПа» task UI — restore selected department
+ * rows and create ГИП rows before the assignee works on related asks.
  */
 export async function maybeEnsureDeptCalculationGipForTask(options: {
   hostEntity: Entity;
   hostRecord: EntityRecord;
   triggerOptionId: string;
+  triggerFieldId?: string | null;
+  taskName?: string | null;
   entities?: readonly Entity[];
 }): Promise<boolean> {
   const {
     hostEntity,
     hostRecord,
     triggerOptionId,
+    triggerFieldId = null,
+    taskName = null,
     entities = getEntityConfig().entities,
   } = options;
   return maybeEnsureDeptCalculationGipForParent({
@@ -139,6 +176,8 @@ export async function maybeEnsureDeptCalculationGipForTask(options: {
     parentRecord: hostRecord,
     entities,
     triggerOptionId,
+    triggerFieldId,
+    taskName,
   });
 }
 

@@ -229,11 +229,12 @@ function TaskWorkspaceBody({
   const valueContext = useEntityValueContext();
   const previewContext = getEntityPreviewValueContext(valueContext);
 
-  // Deferred ГИП: create stage×ГИП rows when this assignment is «На заполнении ГИПа».
+  // Deferred ГИП: restore dept rows + create ГИП on «На заполнении ГИПа».
   useEffect(() => {
     if (!entity || !record) return;
     const triggerOptionId = (task.triggerOptionId ?? "").trim();
-    if (!triggerOptionId) return;
+    const taskName = (task.name || task.config.name || "").trim();
+    if (!triggerOptionId && !taskName) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -241,6 +242,8 @@ function TaskWorkspaceBody({
           hostEntity: entity,
           hostRecord: record,
           triggerOptionId,
+          triggerFieldId: task.triggerFieldId,
+          taskName,
           entities,
         });
       } catch (error: unknown) {
@@ -252,7 +255,16 @@ function TaskWorkspaceBody({
     return () => {
       cancelled = true;
     };
-  }, [entity, entities, record, task.id, task.triggerOptionId]);
+  }, [
+    entity,
+    entities,
+    record,
+    task.config.name,
+    task.id,
+    task.name,
+    task.triggerFieldId,
+    task.triggerOptionId,
+  ]);
 
   const taskAsk = getAutomationTaskAskFields(task);
   const templateAsk = getAutomationTemplateAskFields(task);

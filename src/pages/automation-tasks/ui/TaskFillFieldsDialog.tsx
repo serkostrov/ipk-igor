@@ -176,13 +176,16 @@ function TaskFillFieldsDialogBody({
         const record = entity?.records.find(
           (item) => item.id === next.recordId,
         );
-        // Deferred ГИП rows for «На заполнении ГИПа» assignment.
-        if (entity && record && next.triggerOptionId.trim()) {
+        // Deferred ГИП: restore selected departments + ГИП for this assignment.
+        const taskName = (next.name || next.config.name || "").trim();
+        if (entity && record && (next.triggerOptionId.trim() || taskName)) {
           try {
             await maybeEnsureDeptCalculationGipForTask({
               hostEntity: entity,
               hostRecord: record,
               triggerOptionId: next.triggerOptionId,
+              triggerFieldId: next.triggerFieldId,
+              taskName,
               entities: entitiesNow,
             });
           } catch (ensureError: unknown) {
@@ -193,19 +196,31 @@ function TaskFillFieldsDialogBody({
           }
           if (cancelled) return;
         }
+        // Re-read after ensure — new «Расчёты отделов» rows must seed related ask.
+        const entitiesAfterEnsure = getEntityConfig().entities;
+        const entityAfter =
+          entitiesAfterEnsure.find((item) => item.id === next.entityId) ??
+          entity;
+        const recordAfter =
+          entityAfter?.records.find((item) => item.id === next.recordId) ??
+          record;
         const ask = getAutomationTaskAskFields(next);
         const draft: Record<string, string> = {};
         for (const fieldId of ask.visibleFieldIds) {
-          const field = entity?.fields.find((item) => item.id === fieldId);
-          const raw = record?.values[fieldId] ?? "";
+          const field = entityAfter?.fields.find((item) => item.id === fieldId);
+          const raw = recordAfter?.values[fieldId] ?? "";
           draft[fieldId] = field
             ? normalizeEntityFieldInputValue(field, raw)
             : raw;
         }
-        let nextValues = entity
-          ? sanitizeEntityRelationDependencies(entity, draft, entitiesNow)
+        let nextValues = entityAfter
+          ? sanitizeEntityRelationDependencies(
+              entityAfter,
+              draft,
+              entitiesAfterEnsure,
+            )
           : draft;
-        if (entity && record) {
+        if (entityAfter && recordAfter) {
           const outcome =
             next.config.outcomes.find((item) => item.id === defaultOutcomeId) ??
             next.config.outcomes[0] ??
@@ -213,27 +228,27 @@ function TaskFillFieldsDialogBody({
           const actions = getOutcomeSetFieldActions(outcome);
           if (actions.length > 0) {
             const filled = applyAutomationSetFieldAutofill({
-              entity,
-              entities: entitiesNow,
-              values: { ...record.values, ...nextValues },
+              entity: entityAfter,
+              entities: entitiesAfterEnsure,
+              values: { ...recordAfter.values, ...nextValues },
               actions,
               actorUserId: getCurrentUserRecordId(),
-              triggerRecordId: record.id,
+              triggerRecordId: recordAfter.id,
             });
             nextValues = mergeAutofillIntoFormValues(
               nextValues,
-              record.values,
+              recordAfter.values,
               filled,
               actions,
             );
           }
           if (ask.relatedVisibleFields.length > 0) {
             nextValues = seedRelatedAskValues({
-              triggerEntity: entity,
-              entities: entitiesNow,
+              triggerEntity: entityAfter,
+              entities: entitiesAfterEnsure,
               relatedFields: ask.relatedVisibleFields,
-              triggerValues: { ...record.values, ...nextValues },
-              triggerRecordId: record.id,
+              triggerValues: { ...recordAfter.values, ...nextValues },
+              triggerRecordId: recordAfter.id,
               currentValues: nextValues,
             });
           }
