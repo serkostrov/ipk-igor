@@ -14,7 +14,6 @@ import {
   isEntityParentLinkField,
   parseEntityListValueIds,
   parseEntityRelationIds,
-  isTkpHostOnGipFillingStage,
   resolveDeptCalculationsCreateFanOut,
   resolveEntityFieldLabel,
   serializeEntityRelationIds,
@@ -587,8 +586,8 @@ async function tryCreateDeptCalculationsFanOut(
     triggerValues: ctx.values,
     createValues: preview,
     entities: ctx.entities,
-    // ГИП only when the host is already on «На заполнении ГИПа».
-    includeGip: isTkpHostOnGipFillingStage(trigger, ctx.values, ctx.entities),
+    // Always fan out «ГИП» under every selected stage.
+    includeGip: true,
   });
   if (!fanOut) return null;
 

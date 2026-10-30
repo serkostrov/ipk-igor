@@ -356,9 +356,12 @@ function resolveDeptCalculationHealSiblings(options: {
 }
 
 /**
- * Heal missing «ГИП» fan-out rows for every selected stage of this parent
- * («Разбор ТКП»). Existence is checked among siblings of this parent only —
- * another ТКП already having ПД×ГИП must not block creating it here.
+ * Heal missing fan-out rows for this «Разбор ТКП» parent:
+ * 1) stage×department pairs already selected on the parent tree
+ * 2) stage×ГИП for every selected stage
+ *
+ * Existence is checked among siblings of this parent only — another ТКП
+ * already having ПД×ГИП must not block creating it here.
  */
 export async function ensureDeptCalculationGipRows(options: {
   entity: Entity;
@@ -375,7 +378,12 @@ export async function ensureDeptCalculationGipRows(options: {
   const departmentEntity = resolveDepartmentEntity(entity, entities);
   if (!groupsField || !departmentEntity) return;
   const gipId = findGipDepartmentRecordId(departmentEntity, entities);
-  if (!gipId) return;
+  if (!gipId) {
+    console.warn(
+      "[dept-calc] GIP catalog department not found — cannot ensure ГИП rows",
+    );
+    return;
+  }
 
   const siblings = resolveDeptCalculationHealSiblings({
     entity,
@@ -384,21 +392,30 @@ export async function ensureDeptCalculationGipRows(options: {
     parentRecord,
   });
 
+  const existingKeys = new Set<string>();
   const stages = new Set<string>();
-  const gipStages = new Set<string>();
   for (const record of siblings) {
     for (const pair of collectTkpStageDepartmentPairs(
       record.values[groupsField.id],
     )) {
       const stageId = pair.stageId.trim();
       const departmentId = pair.departmentId.trim();
-      if (!stageId) continue;
+      if (!stageId || !departmentId) continue;
       stages.add(stageId);
-      if (departmentId === gipId) gipStages.add(stageId);
+      existingKeys.add(`${stageId}\0${departmentId}`);
     }
   }
 
-  // Stages selected on the parent tree (incl. empty roots) must get ГИП too.
+  // Parent «Стадия/отделы»: restore selected departments + stage roots for ГИП.
+  const missingPairs: Array<{ stageId: string; departmentId: string }> = [];
+  const missingPairKeys = new Set<string>();
+  const pushMissing = (stageId: string, departmentId: string) => {
+    const key = `${stageId}\0${departmentId}`;
+    if (existingKeys.has(key) || missingPairKeys.has(key)) return;
+    missingPairKeys.add(key);
+    missingPairs.push({ stageId, departmentId });
+  };
+
   if (parentEntity && parentRecord && isTkpAnalysisEntity(parentEntity)) {
     const parentGroups =
       findDeptCalculationsGroupsField(parentEntity) ??
@@ -409,18 +426,24 @@ export async function ensureDeptCalculationGipRows(options: {
       ) ??
       null;
     if (parentGroups) {
-      for (const stageId of collectTkpStageRootIds(
-        parentRecord.values[parentGroups.id],
-      )) {
+      const parentValue = parentRecord.values[parentGroups.id];
+      for (const stageId of collectTkpStageRootIds(parentValue)) {
         stages.add(stageId);
+      }
+      for (const pair of collectTkpStageDepartmentPairs(parentValue)) {
+        const stageId = pair.stageId.trim();
+        const departmentId = pair.departmentId.trim();
+        if (!stageId || !departmentId || departmentId === gipId) continue;
+        stages.add(stageId);
+        pushMissing(stageId, departmentId);
       }
     }
   }
 
-  const missingStages = [...stages].filter(
-    (stageId) => !gipStages.has(stageId),
-  );
-  if (missingStages.length === 0) return;
+  for (const stageId of stages) {
+    pushMissing(stageId, gipId);
+  }
+  if (missingPairs.length === 0) return;
 
   const linkFields = parentLinkFields(entity);
   const template = siblings[0] ?? records[0] ?? null;
@@ -455,53 +478,63 @@ export async function ensureDeptCalculationGipRows(options: {
     return next;
   };
 
-  for (const stageId of missingStages) {
-    const live =
-      getEntityConfig().entities.find((item) => item.id === entity.id) ??
-      entity;
-    const liveSiblings = resolveDeptCalculationHealSiblings({
-      entity: live,
-      records: siblings.length > 0 ? siblings : records,
-      parentEntity,
-      parentRecord,
-    });
-    const already = liveSiblings.some((record) =>
-      deptCalculationValuesMatchStagePair(record.values[groupsField.id], {
-        stageId,
-        departmentId: gipId,
-      }),
-    );
-    if (already) continue;
+  for (const pair of missingPairs) {
+    try {
+      const live =
+        getEntityConfig().entities.find((item) => item.id === entity.id) ??
+        entity;
+      const liveSiblings = resolveDeptCalculationHealSiblings({
+        entity: live,
+        records: siblings.length > 0 ? siblings : records,
+        parentEntity,
+        parentRecord,
+      });
+      const already = liveSiblings.some((record) =>
+        deptCalculationValuesMatchStagePair(
+          record.values[groupsField.id],
+          pair,
+        ),
+      );
+      if (already) continue;
 
-    const encoded = encodeTkpStageDepartmentPair({
-      stageId,
-      departmentId: gipId,
-    });
-    // Only parent links — never copy nested lines / costs from a sibling.
-    const seed: Record<string, string> = { [groupsField.id]: encoded };
-    if (template) {
-      for (const field of linkFields) {
-        const value = (template.values[field.id] ?? "").trim();
-        if (value) seed[field.id] = value;
+      const encoded = encodeTkpStageDepartmentPair(pair);
+      if (!encoded) continue;
+      // Only parent links — never copy nested lines / costs from a sibling.
+      const seed: Record<string, string> = { [groupsField.id]: encoded };
+      if (template) {
+        for (const field of linkFields) {
+          const value = (template.values[field.id] ?? "").trim();
+          if (value) seed[field.id] = value;
+        }
       }
-    }
-    for (const field of [manager, performer]) {
-      if (!field) continue;
-      seed[field.id] = "";
-    }
-    const createBase = withParentLinks(seed);
-    const createValues = withGipUsers({
-      entity,
-      values: createBase,
-      entities,
-      groupsFieldId: groupsField.id,
-      parentEntity,
-      parentRecord,
-    });
-    const created = addEntityRecord(entity.id, createValues);
-    await waitForEntityRecordInsert(created.id);
-    if (ensuredParentLinks.length > 0) {
-      await writeBackChildToParents(entity.id, created.id, ensuredParentLinks);
+      for (const field of [manager, performer]) {
+        if (!field) continue;
+        seed[field.id] = "";
+      }
+      const createBase = withParentLinks(seed);
+      const createValues = withGipUsers({
+        entity,
+        values: createBase,
+        entities,
+        groupsFieldId: groupsField.id,
+        parentEntity,
+        parentRecord,
+      });
+      const created = addEntityRecord(entity.id, createValues);
+      await waitForEntityRecordInsert(created.id);
+      if (ensuredParentLinks.length > 0) {
+        await writeBackChildToParents(
+          entity.id,
+          created.id,
+          ensuredParentLinks,
+        );
+      }
+    } catch (error: unknown) {
+      console.warn(
+        "[dept-calc] failed to ensure stage×department row",
+        pair,
+        error,
+      );
     }
   }
 }

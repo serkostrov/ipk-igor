@@ -1,6 +1,5 @@
 /**
- * Deferred «ГИП» rows: create only on task/stage «На заполнении ГИПа»,
- * never while the user is still picking departments.
+ * Ensure «ГИП» (+ selected departments) under every stage of «Разбор ТКП».
  */
 
 import { registerAfterAutomationTaskCompleteHook } from "@/entities/automation/lib/hardcode-hooks";
@@ -8,10 +7,6 @@ import {
   getEntityConfig,
   isDeptCalculationsEntity,
   isTkpAnalysisEntity,
-  isTkpGipFillingOptionId,
-  isTkpGipFillingStageName,
-  isTkpGipFillingStageOption,
-  isTkpHostOnGipFillingStage,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -24,88 +19,26 @@ function findDeptCalculationsEntity(
   return entities.find((entity) => isDeptCalculationsEntity(entity)) ?? null;
 }
 
-function shouldEnsureGipRows(options: {
-  parentEntity: Entity;
-  parentValues: Record<string, string | undefined>;
-  entities: readonly Entity[];
-  /** Task / template trigger option — preferred signal for «задание ГИПа». */
-  triggerOptionId?: string | null;
-  /** Process list field that owns triggerOptionId. */
-  triggerFieldId?: string | null;
-  /** Rendered task / template name («На заполнении ГИПа»). */
-  taskName?: string | null;
-  force?: boolean;
-}): boolean {
-  const {
-    parentEntity,
-    parentValues,
-    entities,
-    triggerOptionId,
-    triggerFieldId,
-    taskName,
-    force,
-  } = options;
-  if (force) return true;
-  if (!isTkpAnalysisEntity(parentEntity)) return false;
-  if (isTkpGipFillingStageName(taskName ?? "")) return true;
-
-  const optionId = (triggerOptionId ?? "").trim();
-  if (optionId) {
-    const fieldId = (triggerFieldId ?? "").trim();
-    if (fieldId) {
-      const field = parentEntity.fields.find((item) => item.id === fieldId);
-      if (
-        field &&
-        isTkpGipFillingStageOption(parentEntity, field, optionId, entities)
-      ) {
-        return true;
-      }
-    }
-    if (isTkpGipFillingOptionId(parentEntity, optionId, entities)) {
-      return true;
-    }
-  }
-  return isTkpHostOnGipFillingStage(parentEntity, parentValues, entities);
-}
-
 /**
  * Create missing stage×department + stage×ГИП calculation rows for this
- * «Разбор ТКП» parent. Runs only for «На заполнении ГИПа».
+ * «Разбор ТКП» parent.
  */
 export async function maybeEnsureDeptCalculationGipForParent(options: {
   parentEntity: Entity;
   parentRecord: EntityRecord;
   entities?: readonly Entity[];
-  /** Task.triggerOptionId / template option — add ГИП for that assignment. */
+  /** Kept for callers; ensure always runs for TKP analysis hosts. */
   triggerOptionId?: string | null;
   triggerFieldId?: string | null;
   taskName?: string | null;
-  /** Force ensure even if stage name does not match. */
   force?: boolean;
 }): Promise<boolean> {
   const {
     parentEntity,
     parentRecord,
     entities = getEntityConfig().entities,
-    triggerOptionId = null,
-    triggerFieldId = null,
-    taskName = null,
-    force = false,
   } = options;
   if (!isTkpAnalysisEntity(parentEntity)) return false;
-  if (
-    !shouldEnsureGipRows({
-      parentEntity,
-      parentValues: parentRecord.values,
-      entities,
-      triggerOptionId,
-      triggerFieldId,
-      taskName,
-      force,
-    })
-  ) {
-    return false;
-  }
 
   const deptEntity = findDeptCalculationsEntity(entities);
   if (!deptEntity) return false;
@@ -125,7 +58,7 @@ export async function maybeEnsureDeptCalculationGipForParent(options: {
   return true;
 }
 
-/** After a list-stage change on «Разбор ТКП» — ensure ГИП when entering GIP stage. */
+/** After a list-stage change on «Разбор ТКП» — ensure ГИП under all stages. */
 export async function maybeEnsureDeptCalculationGipAfterStageChange(options: {
   entity: Entity;
   record: EntityRecord;
@@ -134,9 +67,7 @@ export async function maybeEnsureDeptCalculationGipAfterStageChange(options: {
   entities: readonly Entity[];
 }): Promise<void> {
   const { entity, record, field, toOptionId, entities } = options;
-  if (!isTkpGipFillingStageOption(entity, field, toOptionId, entities)) {
-    return;
-  }
+  if (!isTkpAnalysisEntity(entity)) return;
   const nextValues = {
     ...record.values,
     [field.id]: toOptionId,

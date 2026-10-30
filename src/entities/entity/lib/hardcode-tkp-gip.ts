@@ -765,8 +765,7 @@ export function resolveDeptCalculationsCreateFanOut(options: {
   entities?: readonly Entity[];
   /**
    * When true — also create «ГИП» under every selected stage.
-   * Default false: departments are chosen on «На заполнении отделами»;
-   * ГИП rows appear later on «На заполнении ГИПа».
+   * Default true: every stage×department fan-out includes «ГИП».
    */
   includeGip?: boolean;
 }): {
@@ -779,7 +778,7 @@ export function resolveDeptCalculationsCreateFanOut(options: {
     triggerValues,
     createValues,
     entities = [],
-    includeGip = false,
+    includeGip = true,
   } = options;
   if (!isTkpAnalysisEntity(triggerEntity)) return null;
   if (!isDeptCalculationsEntity(targetEntity)) return null;

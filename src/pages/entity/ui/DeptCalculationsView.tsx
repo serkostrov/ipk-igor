@@ -230,20 +230,29 @@ export function DeptCalculationsView({
 
     let cancelled = false;
     void (async () => {
-      await ensureDeptCalculationGipRows({
-        entity,
-        records,
-        entities,
-        parentEntity: leadParent?.entity ?? null,
-        parentRecord: leadParent?.record ?? null,
-      });
+      try {
+        await ensureDeptCalculationGipRows({
+          entity,
+          records,
+          entities,
+          parentEntity: leadParent?.entity ?? null,
+          parentRecord: leadParent?.record ?? null,
+        });
+      } catch (error: unknown) {
+        console.warn("[dept-calc] ensure GIP rows failed", error);
+      }
       if (cancelled || !leadParent) return;
       const liveEntity =
         getEntityConfig().entities.find((item) => item.id === entity.id) ??
         entity;
+      const seedIds =
+        records.length > 0
+          ? records.map((record) => record.id)
+          : liveEntity.records.map((record) => record.id);
+      if (seedIds.length === 0) return;
       const siblings = collectDeptCalculationSiblingRecords(
         liveEntity,
-        records.map((record) => record.id),
+        seedIds,
         {
           entity: leadParent.entity,
           recordId: leadParent.record.id,
