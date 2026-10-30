@@ -392,7 +392,9 @@ export function findTkpLeadRelationField(
 
 /**
  * People fields on Lead that identify the GIP, in product order:
- * «руководитель» → catalog manager → «ГИП». Never «Главный инженер».
+ * «ГИП» → «руководитель» → catalog manager. Never «Главный инженер».
+ *
+ * «Руководитель» often defaults to currentUser — it must not win over «ГИП».
  */
 function leadGipPeopleFieldCandidates(
   leadEntity: Entity,
@@ -405,6 +407,7 @@ function leadGipPeopleFieldCandidates(
     seen.add(field.id);
     out.push(field);
   };
+  push(findTkpGipUserField(leadEntity, entities));
   push(
     leadEntity.fields.find(
       (field) =>
@@ -412,13 +415,12 @@ function leadGipPeopleFieldCandidates(
     ),
   );
   push(findEntityManagerUserField(leadEntity));
-  push(findTkpGipUserField(leadEntity, entities));
   return out;
 }
 
 /**
  * «ГИП» user ids for a TKP host: field «ГИП» on the host, else hop via «лид»
- * to the Lead and read «руководитель» (fallback «ГИП»). Never «Главный инженер».
+ * to the Lead and read «ГИП» (fallback «руководитель» if «ГИП» is empty).
  */
 export function resolveTkpGipUserIdsFromHost(options: {
   hostEntity: Entity;
@@ -446,7 +448,7 @@ export function resolveTkpGipUserIdsFromHost(options: {
   );
   if (!leadRecord) return [];
 
-  // Prefer filled «руководитель»; empty must not block fallback to «ГИП».
+  // Prefer filled «ГИП»; empty «ГИП» may fall back to «руководитель».
   for (const peopleField of leadGipPeopleFieldCandidates(
     leadEntity,
     entities,
