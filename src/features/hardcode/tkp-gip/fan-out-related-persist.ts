@@ -355,9 +355,21 @@ function resolveDeptCalculationHealSiblings(options: {
   return linked;
 }
 
+/** Do not retry the same stage×dept create after a failed persist (avoids UI hang). */
+const failedEnsurePairKeys = new Set<string>();
+
+function ensurePairFailKey(
+  entityId: string,
+  parentRecordId: string | null | undefined,
+  stageId: string,
+  departmentId: string,
+) {
+  return `${entityId}:${parentRecordId ?? ""}:${stageId}\0${departmentId}`;
+}
+
 /**
  * Heal missing fan-out rows for this «Разбор ТКП» parent:
- * 1) stage×department pairs already selected on the parent tree
+ * 1) stage×department pairs already selected on the parent tree (unless gipOnly)
  * 2) stage×ГИП for every selected stage
  *
  * Existence is checked among siblings of this parent only — another ТКП
@@ -369,8 +381,17 @@ export async function ensureDeptCalculationGipRows(options: {
   entities: readonly Entity[];
   parentEntity?: Entity | null;
   parentRecord?: EntityRecord | null;
+  /** View heal: only create missing «ГИП» rows, not other departments. */
+  gipOnly?: boolean;
 }): Promise<void> {
-  const { entity, records, entities, parentEntity, parentRecord } = options;
+  const {
+    entity,
+    records,
+    entities,
+    parentEntity,
+    parentRecord,
+    gipOnly = false,
+  } = options;
   if (!isDeptCalculationsEntity(entity)) return;
   if (records.length === 0 && !(parentEntity && parentRecord)) return;
 
@@ -406,12 +427,20 @@ export async function ensureDeptCalculationGipRows(options: {
     }
   }
 
-  // Parent «Стадия/отделы»: restore selected departments + stage roots for ГИП.
+  // Parent «Стадия/отделы»: stage roots (+ optional restore of selected depts).
   const missingPairs: Array<{ stageId: string; departmentId: string }> = [];
   const missingPairKeys = new Set<string>();
+  const parentRecordId = parentRecord?.id ?? null;
   const pushMissing = (stageId: string, departmentId: string) => {
     const key = `${stageId}\0${departmentId}`;
     if (existingKeys.has(key) || missingPairKeys.has(key)) return;
+    if (
+      failedEnsurePairKeys.has(
+        ensurePairFailKey(entity.id, parentRecordId, stageId, departmentId),
+      )
+    ) {
+      return;
+    }
     missingPairKeys.add(key);
     missingPairs.push({ stageId, departmentId });
   };
@@ -430,12 +459,14 @@ export async function ensureDeptCalculationGipRows(options: {
       for (const stageId of collectTkpStageRootIds(parentValue)) {
         stages.add(stageId);
       }
-      for (const pair of collectTkpStageDepartmentPairs(parentValue)) {
-        const stageId = pair.stageId.trim();
-        const departmentId = pair.departmentId.trim();
-        if (!stageId || !departmentId || departmentId === gipId) continue;
-        stages.add(stageId);
-        pushMissing(stageId, departmentId);
+      if (!gipOnly) {
+        for (const pair of collectTkpStageDepartmentPairs(parentValue)) {
+          const stageId = pair.stageId.trim();
+          const departmentId = pair.departmentId.trim();
+          if (!stageId || !departmentId || departmentId === gipId) continue;
+          stages.add(stageId);
+          pushMissing(stageId, departmentId);
+        }
       }
     }
   }
@@ -530,6 +561,14 @@ export async function ensureDeptCalculationGipRows(options: {
         );
       }
     } catch (error: unknown) {
+      failedEnsurePairKeys.add(
+        ensurePairFailKey(
+          entity.id,
+          parentRecordId,
+          pair.stageId,
+          pair.departmentId,
+        ),
+      );
       console.warn(
         "[dept-calc] failed to ensure stage×department row",
         pair,

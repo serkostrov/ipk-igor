@@ -3,7 +3,7 @@
  * stage group → department summary row → expand «Работы отдела» + nested lines.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -43,6 +43,7 @@ import {
   removeEntityRecord,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
+  resolveTkpHostStageOptionId,
   serializeEntityRelationIds,
   updateEntityRecord,
   useEntityConfig,
@@ -224,9 +225,48 @@ export function DeptCalculationsView({
     [entity, records, entities],
   );
 
-  // Hardcode: ГИП under every stage + managers from catalog / lead.
+  const recordIdsKey = useMemo(
+    () =>
+      records
+        .map((record) => record.id)
+        .sort()
+        .join(","),
+    [records],
+  );
+  const leadParentEntityId = leadParent?.entity.id ?? "";
+  const leadParentRecordId = leadParent?.record.id ?? "";
+  const leadParentStageKey = leadParent
+    ? resolveTkpHostStageOptionId(leadParent.entity, leadParent.record.values)
+    : "";
+  const healedParentKeysRef = useRef(new Set<string>());
+  const healInFlightRef = useRef(new Set<string>());
+
+  // Soft-fill empty managers — skips rows that already have a value.
   useEffect(() => {
     syncDeptCalculationCatalogManagers({ entity, records, entities });
+  }, [entity, entities, recordIdsKey, records]);
+
+  // Ensure «ГИП» once per parent (not on every records mutate — that hangs UI).
+  useEffect(() => {
+    if (!leadParentEntityId || !leadParentRecordId) return;
+    const healKey = `${entity.id}:${leadParentEntityId}:${leadParentRecordId}:${leadParentStageKey}`;
+    if (
+      healedParentKeysRef.current.has(healKey) ||
+      healInFlightRef.current.has(healKey)
+    ) {
+      return;
+    }
+    healInFlightRef.current.add(healKey);
+
+    const parentEntity =
+      entities.find((item) => item.id === leadParentEntityId) ?? null;
+    const parentRecord =
+      parentEntity?.records.find((item) => item.id === leadParentRecordId) ??
+      null;
+    if (!parentEntity || !parentRecord) {
+      healInFlightRef.current.delete(healKey);
+      return;
+    }
 
     let cancelled = false;
     void (async () => {
@@ -235,57 +275,70 @@ export function DeptCalculationsView({
           entity,
           records,
           entities,
-          parentEntity: leadParent?.entity ?? null,
-          parentRecord: leadParent?.record ?? null,
+          parentEntity,
+          parentRecord,
+          gipOnly: true,
         });
+        if (cancelled) return;
+
+        const liveEntity =
+          getEntityConfig().entities.find((item) => item.id === entity.id) ??
+          entity;
+        const seedIds =
+          recordIdsKey.length > 0
+            ? recordIdsKey.split(",")
+            : liveEntity.records.map((record) => record.id);
+        if (seedIds.length === 0) return;
+
+        const siblings = collectDeptCalculationSiblingRecords(
+          liveEntity,
+          seedIds,
+          { entity: parentEntity, recordId: parentRecord.id },
+        );
+        for (const record of siblings) {
+          const next = applyTkpGipDepartmentUsers({
+            childEntity: entity,
+            childValues: { ...record.values },
+            entities,
+            parentEntity,
+            parentRecord,
+            changedFieldId: null,
+          });
+          if (!next.applied || next.overriddenFieldIds.length === 0) continue;
+          const patch: Record<string, string> = {};
+          for (const fieldId of next.overriddenFieldIds) {
+            const value = next.values[fieldId] ?? "";
+            if ((record.values[fieldId] ?? "") === value) continue;
+            patch[fieldId] = value;
+          }
+          if (Object.keys(patch).length === 0) continue;
+          updateEntityRecord(entity.id, record.id, {
+            ...record.values,
+            ...patch,
+          });
+        }
       } catch (error: unknown) {
         console.warn("[dept-calc] ensure GIP rows failed", error);
-      }
-      if (cancelled || !leadParent) return;
-      const liveEntity =
-        getEntityConfig().entities.find((item) => item.id === entity.id) ??
-        entity;
-      const seedIds =
-        records.length > 0
-          ? records.map((record) => record.id)
-          : liveEntity.records.map((record) => record.id);
-      if (seedIds.length === 0) return;
-      const siblings = collectDeptCalculationSiblingRecords(
-        liveEntity,
-        seedIds,
-        {
-          entity: leadParent.entity,
-          recordId: leadParent.record.id,
-        },
-      );
-      for (const record of siblings) {
-        const next = applyTkpGipDepartmentUsers({
-          childEntity: entity,
-          childValues: { ...record.values },
-          entities,
-          parentEntity: leadParent.entity,
-          parentRecord: leadParent.record,
-          changedFieldId: null,
-        });
-        if (!next.applied || next.overriddenFieldIds.length === 0) continue;
-        const patch: Record<string, string> = {};
-        for (const fieldId of next.overriddenFieldIds) {
-          const value = next.values[fieldId] ?? "";
-          if ((record.values[fieldId] ?? "") === value) continue;
-          patch[fieldId] = value;
-        }
-        if (Object.keys(patch).length === 0) continue;
-        updateEntityRecord(entity.id, record.id, {
-          ...record.values,
-          ...patch,
-        });
+      } finally {
+        healInFlightRef.current.delete(healKey);
+        // Always mark done — even if cancelled mid-flight by a remount —
+        // so a failed/partial ensure cannot restart an infinite create loop.
+        healedParentKeysRef.current.add(healKey);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [entity, entities, leadParent, records]);
+    // Heal once per parent/stage — do not depend on `records` (creates hang).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- heal-once gate
+  }, [
+    entity.id,
+    entities,
+    leadParentEntityId,
+    leadParentRecordId,
+    leadParentStageKey,
+  ]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deadlineDrafts, setDeadlineDrafts] = useState<Record<string, string>>(
