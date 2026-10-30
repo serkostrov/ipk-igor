@@ -20,6 +20,8 @@ import {
 } from "@/features/automation-tasks";
 import { pickEarliestAutomationTask } from "@/features/automation-tasks/lib/task-open-order";
 import { useAppLocation, useAppNavigate } from "@/shared/lib/navigation";
+// Registers after-complete hook for deferred «ГИП» fan-out.
+import "@/features/hardcode/tkp-gip/gip-filling-phase";
 import { TaskFillFieldsDialog } from "./TaskFillFieldsDialog";
 
 function isAssignedToUser(task: AutomationTask, userIds: Set<string>) {

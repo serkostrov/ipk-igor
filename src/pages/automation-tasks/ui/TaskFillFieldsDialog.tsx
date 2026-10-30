@@ -91,6 +91,7 @@ import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabs
 import { automationUploadTargetBlocksComplete } from "@/features/automation-tasks/lib/upload-to-files-tab";
 import { TaskUploadPanel } from "@/features/automation-tasks/ui/TaskUploadPanel";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
+import { maybeEnsureDeptCalculationGipForTask } from "@/features/hardcode/tkp-gip/gip-filling-phase";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 
 type TaskFillFieldsDialogProps = {
@@ -175,6 +176,23 @@ function TaskFillFieldsDialogBody({
         const record = entity?.records.find(
           (item) => item.id === next.recordId,
         );
+        // Deferred ГИП rows for «На заполнении ГИПа» assignment.
+        if (entity && record && next.triggerOptionId.trim()) {
+          try {
+            await maybeEnsureDeptCalculationGipForTask({
+              hostEntity: entity,
+              hostRecord: record,
+              triggerOptionId: next.triggerOptionId,
+              entities: entitiesNow,
+            });
+          } catch (ensureError: unknown) {
+            console.error(
+              "[tkp-gip] ensure on fill dialog open failed",
+              ensureError,
+            );
+          }
+          if (cancelled) return;
+        }
         const ask = getAutomationTaskAskFields(next);
         const draft: Record<string, string> = {};
         for (const fieldId of ask.visibleFieldIds) {

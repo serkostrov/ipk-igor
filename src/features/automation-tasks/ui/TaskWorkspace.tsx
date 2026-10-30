@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import {
   automationOutcomeButtonStyle,
@@ -89,6 +89,7 @@ import {
   resolveTaskLeadManagerName,
 } from "../lib/task-people";
 import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
+import { maybeEnsureDeptCalculationGipForTask } from "@/features/hardcode/tkp-gip/gip-filling-phase";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewContextFields } from "./TaskViewContextFields";
@@ -227,6 +228,31 @@ function TaskWorkspaceBody({
   const sessionUser = useSessionUser();
   const valueContext = useEntityValueContext();
   const previewContext = getEntityPreviewValueContext(valueContext);
+
+  // Deferred ГИП: create stage×ГИП rows when this assignment is «На заполнении ГИПа».
+  useEffect(() => {
+    if (!entity || !record) return;
+    const triggerOptionId = (task.triggerOptionId ?? "").trim();
+    if (!triggerOptionId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await maybeEnsureDeptCalculationGipForTask({
+          hostEntity: entity,
+          hostRecord: record,
+          triggerOptionId,
+          entities,
+        });
+      } catch (error: unknown) {
+        if (!cancelled) {
+          console.error("[tkp-gip] ensure on task open failed", error);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entity, entities, record, task.id, task.triggerOptionId]);
 
   const taskAsk = getAutomationTaskAskFields(task);
   const templateAsk = getAutomationTemplateAskFields(task);

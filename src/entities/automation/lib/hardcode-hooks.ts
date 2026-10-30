@@ -8,6 +8,8 @@ export type AfterAutomationTaskCompleteHook = (args: {
   entityId: string;
   recordId: string;
   values: Record<string, string>;
+  /** Completed task template option — may be «На заполнении ГИПа» before stage moves. */
+  triggerOptionId?: string | null;
 }) => void | Promise<void>;
 
 let afterTaskCompleteHook: AfterAutomationTaskCompleteHook | null = null;
@@ -22,6 +24,7 @@ export async function runAfterAutomationTaskCompleteHook(args: {
   entityId: string;
   recordId: string;
   values: Record<string, string>;
+  triggerOptionId?: string | null;
 }): Promise<void> {
   if (!afterTaskCompleteHook) return;
   try {

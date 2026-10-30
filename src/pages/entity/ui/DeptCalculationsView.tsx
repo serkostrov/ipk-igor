@@ -3,13 +3,7 @@
  * stage group → department summary row → expand «Работы отдела» + nested lines.
  */
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -49,6 +43,7 @@ import {
   removeEntityRecord,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
+  resolveTkpHostStageOptionId,
   serializeEntityRelationIds,
   updateEntityRecord,
   useEntityConfig,
@@ -234,6 +229,9 @@ export function DeptCalculationsView({
     .join(",");
   const leadParentEntityId = leadParent?.entity.id ?? "";
   const leadParentRecordId = leadParent?.record.id ?? "";
+  const leadParentStageKey = leadParent
+    ? resolveTkpHostStageOptionId(leadParent.entity, leadParent.record.values)
+    : "";
   const healedParentKeysRef = useRef(new Set<string>());
   const healInFlightRef = useRef(new Set<string>());
 
@@ -242,11 +240,11 @@ export function DeptCalculationsView({
     syncDeptCalculationCatalogManagers({ entity, records, entities });
   }, [entity, entities, recordIdsKey, records]);
 
-  // Deferred ГИП rows + lead GIP users — once per parent (not on every
-  // records refresh / inline leadParent object identity change).
+  // Deferred ГИП rows + lead GIP users. Key includes host stage so entering
+  // «На заполнении ГИПа» re-runs after a no-op on the departments stage.
   useEffect(() => {
     if (!leadParentEntityId || !leadParentRecordId) return;
-    const healKey = `${entity.id}:${leadParentEntityId}:${leadParentRecordId}`;
+    const healKey = `${entity.id}:${leadParentEntityId}:${leadParentRecordId}:${leadParentStageKey}`;
     if (
       healedParentKeysRef.current.has(healKey) ||
       healInFlightRef.current.has(healKey)
@@ -268,12 +266,18 @@ export function DeptCalculationsView({
     let cancelled = false;
     void (async () => {
       try {
-        await maybeEnsureDeptCalculationGipForParent({
+        const ensured = await maybeEnsureDeptCalculationGipForParent({
           parentEntity,
           parentRecord,
           entities,
         });
         if (cancelled) return;
+
+        // Only fill GIP users after we actually ensured (GIP-filling stage).
+        if (!ensured) {
+          healedParentKeysRef.current.add(healKey);
+          return;
+        }
 
         const liveEntity =
           getEntityConfig().entities.find((item) => item.id === entity.id) ??
@@ -323,7 +327,14 @@ export function DeptCalculationsView({
     return () => {
       cancelled = true;
     };
-  }, [entity, entities, leadParentEntityId, leadParentRecordId, recordIdsKey]);
+  }, [
+    entity,
+    entities,
+    leadParentEntityId,
+    leadParentRecordId,
+    leadParentStageKey,
+    recordIdsKey,
+  ]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deadlineDrafts, setDeadlineDrafts] = useState<Record<string, string>>(

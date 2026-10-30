@@ -1,5 +1,6 @@
 /**
- * Deferred «ГИП» rows: create only on process stage «На заполнении ГИПа».
+ * Deferred «ГИП» rows: create only on task/stage «На заполнении ГИПа»,
+ * never while the user is still picking departments.
  */
 
 import { registerAfterAutomationTaskCompleteHook } from "@/entities/automation/lib/hardcode-hooks";
@@ -7,6 +8,7 @@ import {
   getEntityConfig,
   isDeptCalculationsEntity,
   isTkpAnalysisEntity,
+  isTkpGipFillingOptionId,
   isTkpGipFillingStageOption,
   isTkpHostOnGipFillingStage,
   type Entity,
@@ -21,33 +23,60 @@ function findDeptCalculationsEntity(
   return entities.find((entity) => isDeptCalculationsEntity(entity)) ?? null;
 }
 
+function shouldEnsureGipRows(options: {
+  parentEntity: Entity;
+  parentValues: Record<string, string | undefined>;
+  entities: readonly Entity[];
+  /** Task / template trigger option — preferred signal for «задание ГИПа». */
+  triggerOptionId?: string | null;
+  force?: boolean;
+}): boolean {
+  const { parentEntity, parentValues, entities, triggerOptionId, force } =
+    options;
+  if (force) return true;
+  if (!isTkpAnalysisEntity(parentEntity)) return false;
+  const optionId = (triggerOptionId ?? "").trim();
+  if (optionId && isTkpGipFillingOptionId(parentEntity, optionId, entities)) {
+    return true;
+  }
+  return isTkpHostOnGipFillingStage(parentEntity, parentValues, entities);
+}
+
 /**
- * Create missing stage×ГИП calculation rows for this «Разбор ТКП» parent
- * when (and only when) the host is on «На заполнении ГИПа».
+ * Create missing stage×ГИП calculation rows for this «Разбор ТКП» parent.
+ * Runs only for «На заполнении ГИПа» (host stage and/or task trigger option).
  */
 export async function maybeEnsureDeptCalculationGipForParent(options: {
   parentEntity: Entity;
   parentRecord: EntityRecord;
   entities?: readonly Entity[];
-  /** Force ensure even if stage name does not match (e.g. explicit enter). */
+  /** Task.triggerOptionId / template option — add ГИП for that assignment. */
+  triggerOptionId?: string | null;
+  /** Force ensure even if stage name does not match. */
   force?: boolean;
-}): Promise<void> {
+}): Promise<boolean> {
   const {
     parentEntity,
     parentRecord,
     entities = getEntityConfig().entities,
+    triggerOptionId = null,
     force = false,
   } = options;
-  if (!isTkpAnalysisEntity(parentEntity)) return;
+  if (!isTkpAnalysisEntity(parentEntity)) return false;
   if (
-    !force &&
-    !isTkpHostOnGipFillingStage(parentEntity, parentRecord.values, entities)
+    !shouldEnsureGipRows({
+      parentEntity,
+      parentValues: parentRecord.values,
+      entities,
+      triggerOptionId,
+      force,
+    })
   ) {
-    return;
+    return false;
   }
 
   const deptEntity = findDeptCalculationsEntity(entities);
-  if (!deptEntity) return;
+  if (!deptEntity) return false;
 
   const liveParent =
     entities
@@ -61,6 +90,7 @@ export async function maybeEnsureDeptCalculationGipForParent(options: {
     parentEntity,
     parentRecord: { ...liveParent, values: parentRecord.values },
   });
+  return true;
 }
 
 /** After a list-stage change on «Разбор ТКП» — ensure ГИП when entering GIP stage. */
@@ -83,13 +113,38 @@ export async function maybeEnsureDeptCalculationGipAfterStageChange(options: {
     parentEntity: entity,
     parentRecord: { ...record, values: nextValues },
     entities,
+    triggerOptionId: toOptionId,
     force: true,
+  });
+}
+
+/**
+ * When opening the «На заполнении ГИПа» task UI — create ГИП rows for every
+ * selected stage before the assignee works on related «Расчёты отделов».
+ */
+export async function maybeEnsureDeptCalculationGipForTask(options: {
+  hostEntity: Entity;
+  hostRecord: EntityRecord;
+  triggerOptionId: string;
+  entities?: readonly Entity[];
+}): Promise<boolean> {
+  const {
+    hostEntity,
+    hostRecord,
+    triggerOptionId,
+    entities = getEntityConfig().entities,
+  } = options;
+  return maybeEnsureDeptCalculationGipForParent({
+    parentEntity: hostEntity,
+    parentRecord: hostRecord,
+    entities,
+    triggerOptionId,
   });
 }
 
 /** Wire task-complete → ensure ГИП (FSD: feature registers into entity hook). */
 registerAfterAutomationTaskCompleteHook(
-  async ({ entityId, recordId, values }) => {
+  async ({ entityId, recordId, values, triggerOptionId }) => {
     const entities = getEntityConfig().entities;
     const parentEntity = entities.find((item) => item.id === entityId) ?? null;
     if (!parentEntity || !isTkpAnalysisEntity(parentEntity)) return;
@@ -108,6 +163,7 @@ registerAfterAutomationTaskCompleteHook(
       parentEntity,
       parentRecord: record,
       entities,
+      triggerOptionId,
     });
   },
 );

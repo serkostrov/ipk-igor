@@ -12,6 +12,7 @@ export {
 export {
   maybeEnsureDeptCalculationGipAfterStageChange,
   maybeEnsureDeptCalculationGipForParent,
+  maybeEnsureDeptCalculationGipForTask,
 } from "./tkp-gip/gip-filling-phase";
 export {
   isTkpGipFillingStageName,

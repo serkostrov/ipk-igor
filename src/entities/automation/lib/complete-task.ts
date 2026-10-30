@@ -604,6 +604,7 @@ export async function completeAutomationTask(
       entityId: entity.id,
       recordId: task.recordId,
       values: patchedValues,
+      triggerOptionId: task.triggerOptionId,
     });
   }
 

@@ -226,6 +226,43 @@ export function isTkpGipFillingStageOption(
   return isTkpGipFillingStageName(name);
 }
 
+/**
+ * True when `optionId` is the «На заполнении ГИПа» option on any list field
+ * of the TKP host (used for task.triggerOptionId before the record stage moves).
+ */
+export function isTkpGipFillingOptionId(
+  hostEntity: Entity,
+  optionId: string,
+  entities: readonly Entity[],
+): boolean {
+  const id = optionId.trim();
+  if (!id || !isTkpAnalysisEntity(hostEntity)) return false;
+  for (const field of hostEntity.fields) {
+    if (field.type !== "list") continue;
+    if (isTkpGipFillingStageOption(hostEntity, field, id, entities)) {
+      return true;
+    }
+  }
+  // Fallback: raw label stored as the option id / value.
+  return isTkpGipFillingStageName(id);
+}
+
+/** Current process-stage option id from the first matching list field value. */
+export function resolveTkpHostStageOptionId(
+  hostEntity: Entity,
+  hostValues: Record<string, string | undefined>,
+): string {
+  if (!isTkpAnalysisEntity(hostEntity)) return "";
+  for (const field of hostEntity.fields) {
+    if (field.type !== "list") continue;
+    const raw = hostValues[field.id];
+    const optionId =
+      parseEntityListValueIds(raw ?? "")[0] ?? (raw ?? "").trim();
+    if (optionId) return optionId;
+  }
+  return "";
+}
+
 function departmentRecordLabel(
   departmentEntity: Entity,
   record: EntityRecord,
