@@ -40,7 +40,9 @@ import {
   saveProcess,
   saveScenario,
   saveTemplate,
+  initAutomationConfig,
   useAutomationConfig,
+  useAutomationError,
   useAutomationStatus,
   withOutcomeStageAction,
   type AutomationCanvasLayout,
@@ -152,6 +154,7 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
   const { processes, scenarios, templates, notificationRules } =
     useAutomationConfig();
   const status = useAutomationStatus();
+  const automationError = useAutomationError();
 
   const entitiesWithList = useMemo(
     () =>
@@ -1517,13 +1520,32 @@ export function AutomationBuilder({ leading }: { leading?: ReactNode }) {
             {leading}
           </div>
         </div>
-        <div className="h-64 animate-pulse rounded-xl border border-border bg-muted/30" />
+        <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 text-sm text-muted-foreground">
+          <span>Загрузка автоматизаций…</span>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {status === "error" ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+          <span className="text-destructive">
+            {automationError?.trim() || "Не удалось загрузить автоматизации"}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void initAutomationConfig();
+            }}
+          >
+            Повторить
+          </Button>
+        </div>
+      ) : null}
       <Dialog
         open={createScenarioOpen}
         onOpenChange={(open) => {

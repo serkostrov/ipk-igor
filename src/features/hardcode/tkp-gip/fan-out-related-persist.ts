@@ -11,7 +11,6 @@ import {
   collectTkpStageRootIds,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
-  ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
   findEntityManagerUserField,
@@ -31,7 +30,6 @@ import {
   updateEntityRecord,
   waitForEntityRecordDelete,
   waitForEntityRecordInsert,
-  withGipDepartmentPairs,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -600,12 +598,10 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     return;
   }
 
-  const ensuredGroups = ensureTkpGipDepartmentInGroupsValue({
-    value: patch[groupsField.id] ?? "",
-    hostEntity: entity,
-    entities,
-  });
-  let pairs = collectTkpStageDepartmentPairs(ensuredGroups);
+  // Do not inject «ГИП» into the picker tree — it is created later on
+  // «На заполнении ГИПа». Keep the user's department selection as-is.
+  const groupsValueRaw = patch[groupsField.id] ?? "";
+  let pairs = collectTkpStageDepartmentPairs(groupsValueRaw);
   const leafEntityId =
     groupsField.relationGroups?.levels[1]?.source.kind === "entity"
       ? groupsField.relationGroups.levels[1].source.entityId
@@ -616,7 +612,10 @@ export async function persistDeptCalculationRelatedUpdate(options: {
   const gipId = departmentEntity
     ? findGipDepartmentRecordId(departmentEntity, entities)
     : null;
-  if (gipId) pairs = withGipDepartmentPairs(pairs, gipId);
+  // Never fan-out ГИП from department-filling edits.
+  if (gipId) {
+    pairs = pairs.filter((pair) => pair.departmentId.trim() !== gipId);
+  }
 
   const liveEntity =
     getEntityConfig().entities.find((item) => item.id === entity.id) ?? entity;
@@ -673,6 +672,31 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     parentEntity && parentRecord
       ? { entity: parentEntity, recordId: parentRecord.id }
       : null;
+
+  // Preserve already-created ГИП siblings so orphan cleanup does not delete
+  // them when the user re-saves departments on «На заполнении отделами».
+  if (gipId) {
+    const siblings = collectDeptCalculationSiblingRecords(
+      liveEntity,
+      [recordId],
+      parentRef,
+    );
+    const keepKeys = new Set(
+      pairs.map((pair) => `${pair.stageId}\0${pair.departmentId}`),
+    );
+    for (const sibling of siblings) {
+      for (const pair of collectTkpStageDepartmentPairs(
+        sibling.values[groupsField.id],
+      )) {
+        if (pair.departmentId.trim() !== gipId) continue;
+        const key = `${pair.stageId}\0${pair.departmentId}`;
+        if (keepKeys.has(key)) continue;
+        keepKeys.add(key);
+        pairs.push(pair);
+      }
+    }
+  }
+
   // Never copy the merged multi-dept tree onto fan-out sibling rows.
   const siblingPatch = { ...patch };
   delete siblingPatch[groupsField.id];
@@ -681,7 +705,7 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     const groupsValue =
       pairs.length === 1
         ? encodeTkpStageDepartmentPair(pairs[0]!)
-        : ensuredGroups;
+        : groupsValueRaw;
     const merged = withGipUsers({
       entity,
       values: withParentLinks({

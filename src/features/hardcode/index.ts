@@ -10,6 +10,15 @@ export {
   syncDeptCalculationCatalogManagers,
 } from "./tkp-gip/fan-out-related-persist";
 export {
+  maybeEnsureDeptCalculationGipAfterStageChange,
+  maybeEnsureDeptCalculationGipForParent,
+} from "./tkp-gip/gip-filling-phase";
+export {
+  isTkpGipFillingStageName,
+  isTkpGipFillingStageOption,
+  isTkpHostOnGipFillingStage,
+} from "@/entities/entity";
+export {
   buildTkpGipSoftFillParentRecord,
   collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,

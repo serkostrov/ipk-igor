@@ -59,12 +59,21 @@ export function subscribeAutomationConfig(listener: Listener) {
   return () => listeners.delete(listener);
 }
 
+const AUTOMATION_CONFIG_FETCH_TIMEOUT_MS = 12_000;
+
 export async function initAutomationConfig() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
     setStatus("loading");
     try {
-      config = await fetchAutomationConfig();
+      config = await Promise.race([
+        fetchAutomationConfig(),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => {
+            reject(new Error("Таймаут загрузки автоматизаций"));
+          }, AUTOMATION_CONFIG_FETCH_TIMEOUT_MS);
+        }),
+      ]);
       setStatus("ready");
     } catch (error: unknown) {
       const message =
@@ -73,6 +82,8 @@ export async function initAutomationConfig() {
           : "Не удалось загрузить автоматизации";
       console.error("[automation] load failed", error);
       config = emptyAutomationConfig();
+      // Allow a later retry (HMR / reconnect) instead of sticking forever.
+      initPromise = null;
       setStatus("error", message);
     }
   })();

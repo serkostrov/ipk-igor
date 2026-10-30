@@ -3,7 +3,13 @@
  * stage group → department summary row → expand «Работы отдела» + nested lines.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -75,10 +81,8 @@ import {
   resolveDeptCalculationDepartmentLabel,
   resolveDeptCalculationManagerName,
 } from "@/features/hardcode/dept-calculations/model/stage-groups";
-import {
-  ensureDeptCalculationGipRows,
-  syncDeptCalculationCatalogManagers,
-} from "@/features/hardcode/tkp-gip/fan-out-related-persist";
+import { syncDeptCalculationCatalogManagers } from "@/features/hardcode/tkp-gip/fan-out-related-persist";
+import { maybeEnsureDeptCalculationGipForParent } from "@/features/hardcode/tkp-gip/gip-filling-phase";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 
@@ -224,59 +228,102 @@ export function DeptCalculationsView({
     [entity, records, entities],
   );
 
-  // Hardcode: ГИП under every stage + managers from catalog / lead.
+  const recordIdsKey = records
+    .map((record) => record.id)
+    .sort()
+    .join(",");
+  const leadParentEntityId = leadParent?.entity.id ?? "";
+  const leadParentRecordId = leadParent?.record.id ?? "";
+  const healedParentKeysRef = useRef(new Set<string>());
+  const healInFlightRef = useRef(new Set<string>());
+
+  // Soft-fill empty managers — skips rows that already have a value.
   useEffect(() => {
     syncDeptCalculationCatalogManagers({ entity, records, entities });
+  }, [entity, entities, recordIdsKey, records]);
+
+  // Deferred ГИП rows + lead GIP users — once per parent (not on every
+  // records refresh / inline leadParent object identity change).
+  useEffect(() => {
+    if (!leadParentEntityId || !leadParentRecordId) return;
+    const healKey = `${entity.id}:${leadParentEntityId}:${leadParentRecordId}`;
+    if (
+      healedParentKeysRef.current.has(healKey) ||
+      healInFlightRef.current.has(healKey)
+    ) {
+      return;
+    }
+    healInFlightRef.current.add(healKey);
+
+    const parentEntity =
+      entities.find((item) => item.id === leadParentEntityId) ?? null;
+    const parentRecord =
+      parentEntity?.records.find((item) => item.id === leadParentRecordId) ??
+      null;
+    if (!parentEntity || !parentRecord) {
+      healInFlightRef.current.delete(healKey);
+      return;
+    }
 
     let cancelled = false;
     void (async () => {
-      await ensureDeptCalculationGipRows({
-        entity,
-        records,
-        entities,
-        parentEntity: leadParent?.entity ?? null,
-        parentRecord: leadParent?.record ?? null,
-      });
-      if (cancelled || !leadParent) return;
-      const liveEntity =
-        getEntityConfig().entities.find((item) => item.id === entity.id) ??
-        entity;
-      const siblings = collectDeptCalculationSiblingRecords(
-        liveEntity,
-        records.map((record) => record.id),
-        {
-          entity: leadParent.entity,
-          recordId: leadParent.record.id,
-        },
-      );
-      for (const record of siblings) {
-        const next = applyTkpGipDepartmentUsers({
-          childEntity: entity,
-          childValues: { ...record.values },
+      try {
+        await maybeEnsureDeptCalculationGipForParent({
+          parentEntity,
+          parentRecord,
           entities,
-          parentEntity: leadParent.entity,
-          parentRecord: leadParent.record,
-          changedFieldId: null,
         });
-        if (!next.applied || next.overriddenFieldIds.length === 0) continue;
-        const patch: Record<string, string> = {};
-        for (const fieldId of next.overriddenFieldIds) {
-          const value = next.values[fieldId] ?? "";
-          if ((record.values[fieldId] ?? "") === value) continue;
-          patch[fieldId] = value;
+        if (cancelled) return;
+
+        const liveEntity =
+          getEntityConfig().entities.find((item) => item.id === entity.id) ??
+          entity;
+        const seedIds =
+          recordIdsKey.length > 0
+            ? recordIdsKey.split(",")
+            : liveEntity.records.map((record) => record.id);
+        if (seedIds.length === 0) {
+          healedParentKeysRef.current.add(healKey);
+          return;
         }
-        if (Object.keys(patch).length === 0) continue;
-        updateEntityRecord(entity.id, record.id, {
-          ...record.values,
-          ...patch,
-        });
+
+        const siblings = collectDeptCalculationSiblingRecords(
+          liveEntity,
+          seedIds,
+          { entity: parentEntity, recordId: parentRecord.id },
+        );
+        for (const record of siblings) {
+          const next = applyTkpGipDepartmentUsers({
+            childEntity: entity,
+            childValues: { ...record.values },
+            entities,
+            parentEntity,
+            parentRecord,
+            changedFieldId: null,
+          });
+          if (!next.applied || next.overriddenFieldIds.length === 0) continue;
+          const patch: Record<string, string> = {};
+          for (const fieldId of next.overriddenFieldIds) {
+            const value = next.values[fieldId] ?? "";
+            if ((record.values[fieldId] ?? "") === value) continue;
+            patch[fieldId] = value;
+          }
+          if (Object.keys(patch).length === 0) continue;
+          updateEntityRecord(entity.id, record.id, {
+            ...record.values,
+            ...patch,
+          });
+        }
+        if (!cancelled) healedParentKeysRef.current.add(healKey);
+      } finally {
+        healInFlightRef.current.delete(healKey);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [entity, entities, leadParent, records]);
+  }, [entity, entities, leadParentEntityId, leadParentRecordId, recordIdsKey]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deadlineDrafts, setDeadlineDrafts] = useState<Record<string, string>>(

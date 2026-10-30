@@ -1775,6 +1775,14 @@ export function RecordEntityTabPanel({
     setDialogRecord("new");
   }
 
+  const deptCalcLeadParent = useMemo(
+    () =>
+      hostEntity && parentRecord
+        ? { entity: hostEntity, record: parentRecord }
+        : null,
+    [hostEntity, parentRecord],
+  );
+
   /** Hardcode: GIP cost summary lives at the end of «Расчёты отделов» on TKP. */
   const tkpGipFooter =
     isDeptCalculationsEntity(linkedEntity) &&
@@ -1847,11 +1855,7 @@ export function RecordEntityTabPanel({
             <DeptCalculationsView
               entity={linkedEntity}
               records={records}
-              leadParent={
-                hostEntity && parentRecord
-                  ? { entity: hostEntity, record: parentRecord }
-                  : null
-              }
+              leadParent={deptCalcLeadParent}
               onEditRecord={
                 readOnly ? undefined : (record) => setDialogRecord(record)
               }

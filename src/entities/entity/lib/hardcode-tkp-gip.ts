@@ -10,9 +10,14 @@
 import {
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
+  parseEntityListValueIds,
   parseEntityRelationIds,
   serializeEntityRelationIds,
 } from "../model/field";
+import {
+  getEntityListOption,
+  resolveEntityListFieldOptions,
+} from "../model/types";
 import {
   collectRelationGroupsLeafIds,
   getRelationGroupsLeafEntityId,
@@ -132,6 +137,12 @@ const DEPT_CALC_KEYS = [
   "Расчеты отдела",
 ] as const;
 const GIP_KEYS = ["ГИП", "Гип"] as const;
+/**
+ * Process stage «На заполнении ГИПа» — when ГИП rows should appear.
+ * Must not match «На заполнении отделами».
+ */
+const GIP_FILLING_STAGE_MARKERS = ["гип"] as const;
+const GIP_FILLING_STAGE_CONTEXT = ["заполн"] as const;
 /** Exact «лид» / «лиды» — not «Главный инженер» or other people fields. */
 const LEAD_FIELD_KEYS = ["Лид", "Лиды"] as const;
 const MANAGER_KEYS = ["Руководитель", "Руководители"] as const;
@@ -151,6 +162,68 @@ export function isDeptCalculationsEntity(
   if (entityMatchesLoose(entity, DEPT_CALC_KEYS)) return true;
   const text = normalizeName(`${entity.name} ${entity.namePlural}`);
   return text.includes("отдел") && text.includes("расчет");
+}
+
+/**
+ * True for stage option names like «На заполнении ГИПа».
+ * False for «На заполнении отделами» (has «заполн» but not «гип»).
+ */
+export function isTkpGipFillingStageName(name: string): boolean {
+  const normalized = normalizeName(name);
+  if (!normalized) return false;
+  const hasGip = GIP_FILLING_STAGE_MARKERS.some((marker) =>
+    normalized.includes(marker),
+  );
+  if (!hasGip) return false;
+  return GIP_FILLING_STAGE_CONTEXT.some((marker) =>
+    normalized.includes(marker),
+  );
+}
+
+/** Resolve list option display name from a raw field value. */
+export function resolveEntityListOptionName(
+  field: EntityField,
+  raw: string | undefined,
+  entities: readonly Entity[],
+): string {
+  const optionId = parseEntityListValueIds(raw ?? "")[0] ?? (raw ?? "").trim();
+  if (!optionId) return "";
+  const options = resolveEntityListFieldOptions(field, entities);
+  const option = getEntityListOption(options, optionId);
+  return (option?.name ?? "").trim() || optionId;
+}
+
+/**
+ * True when any list field on the host is currently on «На заполнении ГИПа».
+ */
+export function isTkpHostOnGipFillingStage(
+  hostEntity: Entity,
+  hostValues: Record<string, string | undefined>,
+  entities: readonly Entity[],
+): boolean {
+  if (!isTkpAnalysisEntity(hostEntity)) return false;
+  for (const field of hostEntity.fields) {
+    if (field.type !== "list") continue;
+    const name = resolveEntityListOptionName(
+      field,
+      hostValues[field.id],
+      entities,
+    );
+    if (isTkpGipFillingStageName(name)) return true;
+  }
+  return false;
+}
+
+/** True when the given list option id/name is the GIP-filling stage. */
+export function isTkpGipFillingStageOption(
+  hostEntity: Entity,
+  field: EntityField,
+  optionId: string,
+  entities: readonly Entity[],
+): boolean {
+  if (!isTkpAnalysisEntity(hostEntity) || field.type !== "list") return false;
+  const name = resolveEntityListOptionName(field, optionId, entities);
+  return isTkpGipFillingStageName(name);
 }
 
 function departmentRecordLabel(
@@ -653,6 +726,12 @@ export function resolveDeptCalculationsCreateFanOut(options: {
   /** Mapped / ask values for the child (may already copy the full tree). */
   createValues?: Record<string, string | undefined>;
   entities?: readonly Entity[];
+  /**
+   * When true — also create «ГИП» under every selected stage.
+   * Default false: departments are chosen on «На заполнении отделами»;
+   * ГИП rows appear later on «На заполнении ГИПа».
+   */
+  includeGip?: boolean;
 }): {
   groupsField: EntityField;
   pairs: TkpStageDepartmentPair[];
@@ -663,6 +742,7 @@ export function resolveDeptCalculationsCreateFanOut(options: {
     triggerValues,
     createValues,
     entities = [],
+    includeGip = false,
   } = options;
   if (!isTkpAnalysisEntity(triggerEntity)) return null;
   if (!isDeptCalculationsEntity(targetEntity)) return null;
@@ -699,19 +779,29 @@ export function resolveDeptCalculationsCreateFanOut(options: {
   }
 
   let pairs: TkpStageDepartmentPair[] = [...pairByKey.values()];
-  // Empty stage roots (no nested depts yet) still need a «ГИП» row.
-  for (const stageId of stageIds) {
-    if (pairs.some((pair) => pair.stageId === stageId)) continue;
-    pairs.push({ stageId, departmentId: "" });
-  }
-
   const catalog =
     entities.length > 0 ? entities : [triggerEntity, targetEntity];
   const gipId = findGipDepartmentRecordIdFromHost(targetEntity, catalog);
-  if (gipId) {
-    pairs = withGipDepartmentPairs(pairs, gipId);
+
+  if (includeGip) {
+    // Empty stage roots (no nested depts yet) still need a «ГИП» row.
+    for (const stageId of stageIds) {
+      if (pairs.some((pair) => pair.stageId === stageId)) continue;
+      pairs.push({ stageId, departmentId: "" });
+    }
+    if (gipId) {
+      pairs = withGipDepartmentPairs(pairs, gipId);
+    } else {
+      pairs = pairs.filter((pair) => Boolean(pair.departmentId.trim()));
+    }
   } else {
-    pairs = pairs.filter((pair) => Boolean(pair.departmentId.trim()));
+    // Department-filling: only explicitly selected departments — never ГИП.
+    pairs = pairs.filter((pair) => {
+      const departmentId = pair.departmentId.trim();
+      if (!departmentId) return false;
+      if (gipId && departmentId === gipId) return false;
+      return true;
+    });
   }
   if (pairs.length === 0) return null;
   return { groupsField, pairs };

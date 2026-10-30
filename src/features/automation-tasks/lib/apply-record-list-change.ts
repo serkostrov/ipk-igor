@@ -33,6 +33,7 @@ import {
   isAutomationTaskFillDialogDismissed,
   openAutomationTaskFillDialog,
 } from "../model/fill-dialog-store";
+import { maybeEnsureDeptCalculationGipAfterStageChange } from "@/features/hardcode/tkp-gip/gip-filling-phase";
 import {
   clearPendingRecordListChange,
   queuePendingRecordListChange,
@@ -634,6 +635,24 @@ export async function applyRecordListChange(
     recordId: record.id,
     fieldId: field.id,
   });
+
+  // «На заполнении ГИПа»: create stage×ГИП calculation rows for selected stages.
+  if (toOptionId) {
+    try {
+      await maybeEnsureDeptCalculationGipAfterStageChange({
+        entity,
+        record,
+        field,
+        toOptionId,
+        entities,
+      });
+    } catch (error: unknown) {
+      console.error(
+        "[hardcode] ensure GIP rows after stage change failed",
+        error,
+      );
+    }
+  }
 
   if (isSupabaseConfigured && toOptionId) {
     try {
