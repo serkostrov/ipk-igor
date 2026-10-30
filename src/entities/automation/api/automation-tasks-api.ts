@@ -371,7 +371,11 @@ export function subscribeAutomationTasks(onChange: () => void): () => void {
       )
       .subscribe((status, err) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.error("[automation] tasks realtime", status, err);
+          console.warn(
+            "[automation] tasks realtime",
+            status,
+            err?.message ?? err,
+          );
         }
       });
     automationTasksShared = { channel, listeners };

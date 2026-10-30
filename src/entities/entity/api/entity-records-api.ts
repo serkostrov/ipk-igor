@@ -4,9 +4,6 @@ import type { EntityRecord } from "../model/types";
 import { normalizeEntityRecord } from "../lib/parse-entity-config";
 import { normalizeEntitySchemaVersion } from "../lib/parse-entity-config";
 import {
-  ENTITY_RECORD_SELECT,
-  ENTITY_RECORD_SELECT_LEGACY,
-  ENTITY_RECORD_SELECT_NO_SCHEMA_VERSION,
   entityRecordsSelect,
   entityRecordsSupportsCreatedBy,
   entityRecordsSupportsSchemaVersion,
@@ -93,7 +90,8 @@ export function subscribeEntityRecordChanges(handlers: {
     )
     .subscribe((status, err) => {
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error("[entity] records realtime", status, err);
+        // Realtime may be down on the host; REST still works — don't alarm.
+        console.warn("[entity] records realtime", status, err?.message ?? err);
       }
     });
 
@@ -157,40 +155,29 @@ export async function fetchEntityRecords(
 ): Promise<EntityRecordRow[]> {
   if (!isSupabaseConfigured || !supabase) return [];
 
-  if (
-    entityRecordsSupportsCreatedBy() &&
-    entityRecordsSupportsSchemaVersion()
-  ) {
-    const result = await fetchEntityRecordsPages(
-      ENTITY_RECORD_SELECT,
-      entityId,
-    );
+  // Walk down optional columns independently: created_by and schema_version
+  // may land on different migration timelines.
+  for (;;) {
+    const select = entityRecordsSelect();
+    const result = await fetchEntityRecordsPages(select, entityId);
     if (!result.error) return result.rows;
-    if (isMissingSchemaVersionColumn(result.error)) {
+
+    if (
+      entityRecordsSupportsSchemaVersion() &&
+      isMissingSchemaVersionColumn(result.error)
+    ) {
       markEntityRecordsSchemaVersionUnsupported();
-    } else if (isMissingCreatedByColumn(result.error)) {
-      markEntityRecordsCreatedByUnsupported();
-    } else {
-      throw result.error;
+      continue;
     }
+    if (
+      entityRecordsSupportsCreatedBy() &&
+      isMissingCreatedByColumn(result.error)
+    ) {
+      markEntityRecordsCreatedByUnsupported();
+      continue;
+    }
+    throw result.error;
   }
-
-  if (entityRecordsSupportsCreatedBy()) {
-    const result = await fetchEntityRecordsPages(
-      ENTITY_RECORD_SELECT_NO_SCHEMA_VERSION,
-      entityId,
-    );
-    if (!result.error) return result.rows;
-    if (!isMissingCreatedByColumn(result.error)) throw result.error;
-    markEntityRecordsCreatedByUnsupported();
-  }
-
-  const legacy = await fetchEntityRecordsPages(
-    ENTITY_RECORD_SELECT_LEGACY,
-    entityId,
-  );
-  if (legacy.error) throw legacy.error;
-  return legacy.rows;
 }
 
 export async function fetchRecordsByEntityId(): Promise<
@@ -244,9 +231,7 @@ export async function insertEntityRecord(
   if (isMissingSchemaVersionColumn(error)) {
     markEntityRecordsSchemaVersionUnsupported();
     delete row.schema_version;
-    select = withOwner
-      ? ENTITY_RECORD_SELECT_NO_SCHEMA_VERSION
-      : ENTITY_RECORD_SELECT_LEGACY;
+    select = entityRecordsSelect();
     ({ data, error } = await supabase
       .from("entity_records")
       .insert(row)
@@ -257,11 +242,11 @@ export async function insertEntityRecord(
   if (isMissingCreatedByColumn(error)) {
     markEntityRecordsCreatedByUnsupported();
     delete row.created_by;
-    delete row.schema_version;
+    select = entityRecordsSelect();
     ({ data, error } = await supabase
       .from("entity_records")
       .insert(row)
-      .select(ENTITY_RECORD_SELECT_LEGACY)
+      .select(select)
       .single());
   }
 
@@ -341,9 +326,7 @@ export async function updateEntityRecordValues(
     if (!isMissingRpcError(rpcError)) throw rpcError;
   }
 
-  const select = entityRecordsSupportsCreatedBy()
-    ? ENTITY_RECORD_SELECT
-    : ENTITY_RECORD_SELECT_LEGACY;
+  let select = entityRecordsSelect();
 
   let { data, error } = await supabase
     .from("entity_records")
@@ -355,8 +338,9 @@ export async function updateEntityRecordValues(
     .select(select)
     .single();
 
-  if (isMissingCreatedByColumn(error)) {
-    markEntityRecordsCreatedByUnsupported();
+  if (isMissingSchemaVersionColumn(error)) {
+    markEntityRecordsSchemaVersionUnsupported();
+    select = entityRecordsSelect();
     ({ data, error } = await supabase
       .from("entity_records")
       .update({
@@ -364,7 +348,21 @@ export async function updateEntityRecordValues(
         updated_at: new Date().toISOString(),
       })
       .eq("id", recordId)
-      .select(ENTITY_RECORD_SELECT_LEGACY)
+      .select(select)
+      .single());
+  }
+
+  if (isMissingCreatedByColumn(error)) {
+    markEntityRecordsCreatedByUnsupported();
+    select = entityRecordsSelect();
+    ({ data, error } = await supabase
+      .from("entity_records")
+      .update({
+        field_values: normalized.values,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", recordId)
+      .select(select)
       .single());
   }
 

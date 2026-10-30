@@ -9,11 +9,12 @@ import {
   SYSTEM_USERS_FIELD_ROLE_ID,
 } from "../model/system-entities";
 import {
-  ENTITY_RECORD_SELECT,
-  ENTITY_RECORD_SELECT_LEGACY,
+  entityRecordsSelect,
   entityRecordsSupportsCreatedBy,
   isMissingCreatedByColumn,
+  isMissingSchemaVersionColumn,
   markEntityRecordsCreatedByUnsupported,
+  markEntityRecordsSchemaVersionUnsupported,
 } from "./entity-record-columns";
 
 /** Keep in sync with `ROLE_ADMIN_ID` in entities/access. */
@@ -53,9 +54,7 @@ function rowToRecord(row: EntityRecordRow): EntityRecord {
 }
 
 function recordSelect() {
-  return entityRecordsSupportsCreatedBy()
-    ? ENTITY_RECORD_SELECT
-    : ENTITY_RECORD_SELECT_LEGACY;
+  return entityRecordsSelect();
 }
 
 /**
@@ -78,11 +77,19 @@ export async function ensureCurrentUserProfile(input: {
     .eq("auth_user_id", input.authUserId)
     .maybeSingle();
 
+  if (isMissingSchemaVersionColumn(existingError)) {
+    markEntityRecordsSchemaVersionUnsupported();
+    ({ data: existing, error: existingError } = await supabase
+      .from("entity_records")
+      .select(recordSelect())
+      .eq("auth_user_id", input.authUserId)
+      .maybeSingle());
+  }
   if (isMissingCreatedByColumn(existingError)) {
     markEntityRecordsCreatedByUnsupported();
     ({ data: existing, error: existingError } = await supabase
       .from("entity_records")
-      .select(ENTITY_RECORD_SELECT_LEGACY)
+      .select(recordSelect())
       .eq("auth_user_id", input.authUserId)
       .maybeSingle());
   }
@@ -105,6 +112,18 @@ export async function ensureCurrentUserProfile(input: {
         .eq("id", record.id)
         .select(recordSelect())
         .single();
+      if (isMissingSchemaVersionColumn(updateError)) {
+        markEntityRecordsSchemaVersionUnsupported();
+        ({ data: updated, error: updateError } = await supabase
+          .from("entity_records")
+          .update({
+            field_values: nextValues,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", record.id)
+          .select(recordSelect())
+          .single());
+      }
       if (isMissingCreatedByColumn(updateError)) {
         markEntityRecordsCreatedByUnsupported();
         ({ data: updated, error: updateError } = await supabase
@@ -114,7 +133,7 @@ export async function ensureCurrentUserProfile(input: {
             updated_at: new Date().toISOString(),
           })
           .eq("id", record.id)
-          .select(ENTITY_RECORD_SELECT_LEGACY)
+          .select(recordSelect())
           .single());
       }
       if (updateError) throw updateError;
@@ -153,13 +172,22 @@ export async function ensureCurrentUserProfile(input: {
     .select(recordSelect())
     .single();
 
+  if (isMissingSchemaVersionColumn(error)) {
+    markEntityRecordsSchemaVersionUnsupported();
+    delete row.schema_version;
+    ({ data, error } = await supabase
+      .from("entity_records")
+      .insert(row)
+      .select(recordSelect())
+      .single());
+  }
   if (isMissingCreatedByColumn(error)) {
     markEntityRecordsCreatedByUnsupported();
     delete row.created_by;
     ({ data, error } = await supabase
       .from("entity_records")
       .insert(row)
-      .select(ENTITY_RECORD_SELECT_LEGACY)
+      .select(recordSelect())
       .single());
   }
 

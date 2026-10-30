@@ -36,7 +36,6 @@ import { getAutomationConfig } from "../store/automation-store";
 import { resolveAskRelatedTarget } from "./ask-related";
 import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
-import { runAfterAutomationTaskCompleteHook } from "./hardcode-hooks";
 import { pickAutomationOutcome } from "./pick-outcome";
 import {
   isAutomationSilentTaskKind,
@@ -600,12 +599,6 @@ export async function completeAutomationTask(
 
   if (entity) {
     setEntityRecordValuesLocal(entity.id, task.recordId, patchedValues);
-    await runAfterAutomationTaskCompleteHook({
-      entityId: entity.id,
-      recordId: task.recordId,
-      values: patchedValues,
-      triggerOptionId: task.triggerOptionId,
-    });
   }
 
   return rpcResult;

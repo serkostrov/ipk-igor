@@ -11,6 +11,7 @@ import {
   collectTkpStageRootIds,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
+  ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
   findEntityManagerUserField,
@@ -30,6 +31,7 @@ import {
   updateEntityRecord,
   waitForEntityRecordDelete,
   waitForEntityRecordInsert,
+  withGipDepartmentPairs,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -354,12 +356,9 @@ function resolveDeptCalculationHealSiblings(options: {
 }
 
 /**
- * Heal missing fan-out rows for this «Разбор ТКП» parent on «На заполнении ГИПа»:
- * 1) stage×department pairs already selected on the parent tree
- * 2) stage×ГИП for every selected stage
- *
- * Existence is checked among siblings of this parent only — another ТКП
- * already having ПД×ГИП must not block creating it here.
+ * Heal missing «ГИП» fan-out rows for every selected stage of this parent
+ * («Разбор ТКП»). Existence is checked among siblings of this parent only —
+ * another ТКП already having ПД×ГИП must not block creating it here.
  */
 export async function ensureDeptCalculationGipRows(options: {
   entity: Entity;
@@ -385,30 +384,21 @@ export async function ensureDeptCalculationGipRows(options: {
     parentRecord,
   });
 
-  const existingKeys = new Set<string>();
   const stages = new Set<string>();
+  const gipStages = new Set<string>();
   for (const record of siblings) {
     for (const pair of collectTkpStageDepartmentPairs(
       record.values[groupsField.id],
     )) {
       const stageId = pair.stageId.trim();
       const departmentId = pair.departmentId.trim();
-      if (!stageId || !departmentId) continue;
+      if (!stageId) continue;
       stages.add(stageId);
-      existingKeys.add(`${stageId}\0${departmentId}`);
+      if (departmentId === gipId) gipStages.add(stageId);
     }
   }
 
-  // Parent «Стадия/отделы»: restore selected departments + stage roots for ГИП.
-  const missingPairs: Array<{ stageId: string; departmentId: string }> = [];
-  const missingPairKeys = new Set<string>();
-  const pushMissing = (stageId: string, departmentId: string) => {
-    const key = `${stageId}\0${departmentId}`;
-    if (existingKeys.has(key) || missingPairKeys.has(key)) return;
-    missingPairKeys.add(key);
-    missingPairs.push({ stageId, departmentId });
-  };
-
+  // Stages selected on the parent tree (incl. empty roots) must get ГИП too.
   if (parentEntity && parentRecord && isTkpAnalysisEntity(parentEntity)) {
     const parentGroups =
       findDeptCalculationsGroupsField(parentEntity) ??
@@ -419,24 +409,18 @@ export async function ensureDeptCalculationGipRows(options: {
       ) ??
       null;
     if (parentGroups) {
-      const parentValue = parentRecord.values[parentGroups.id];
-      for (const stageId of collectTkpStageRootIds(parentValue)) {
+      for (const stageId of collectTkpStageRootIds(
+        parentRecord.values[parentGroups.id],
+      )) {
         stages.add(stageId);
-      }
-      for (const pair of collectTkpStageDepartmentPairs(parentValue)) {
-        const stageId = pair.stageId.trim();
-        const departmentId = pair.departmentId.trim();
-        if (!stageId || !departmentId || departmentId === gipId) continue;
-        stages.add(stageId);
-        pushMissing(stageId, departmentId);
       }
     }
   }
 
-  for (const stageId of stages) {
-    pushMissing(stageId, gipId);
-  }
-  if (missingPairs.length === 0) return;
+  const missingStages = [...stages].filter(
+    (stageId) => !gipStages.has(stageId),
+  );
+  if (missingStages.length === 0) return;
 
   const linkFields = parentLinkFields(entity);
   const template = siblings[0] ?? records[0] ?? null;
@@ -471,7 +455,7 @@ export async function ensureDeptCalculationGipRows(options: {
     return next;
   };
 
-  for (const pair of missingPairs) {
+  for (const stageId of missingStages) {
     const live =
       getEntityConfig().entities.find((item) => item.id === entity.id) ??
       entity;
@@ -482,11 +466,17 @@ export async function ensureDeptCalculationGipRows(options: {
       parentRecord,
     });
     const already = liveSiblings.some((record) =>
-      deptCalculationValuesMatchStagePair(record.values[groupsField.id], pair),
+      deptCalculationValuesMatchStagePair(record.values[groupsField.id], {
+        stageId,
+        departmentId: gipId,
+      }),
     );
     if (already) continue;
 
-    const encoded = encodeTkpStageDepartmentPair(pair);
+    const encoded = encodeTkpStageDepartmentPair({
+      stageId,
+      departmentId: gipId,
+    });
     // Only parent links — never copy nested lines / costs from a sibling.
     const seed: Record<string, string> = { [groupsField.id]: encoded };
     if (template) {
@@ -610,10 +600,12 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     return;
   }
 
-  // Do not inject «ГИП» into the picker tree — it is created later on
-  // «На заполнении ГИПа». Keep the user's department selection as-is.
-  const groupsValueRaw = patch[groupsField.id] ?? "";
-  let pairs = collectTkpStageDepartmentPairs(groupsValueRaw);
+  const ensuredGroups = ensureTkpGipDepartmentInGroupsValue({
+    value: patch[groupsField.id] ?? "",
+    hostEntity: entity,
+    entities,
+  });
+  let pairs = collectTkpStageDepartmentPairs(ensuredGroups);
   const leafEntityId =
     groupsField.relationGroups?.levels[1]?.source.kind === "entity"
       ? groupsField.relationGroups.levels[1].source.entityId
@@ -624,10 +616,7 @@ export async function persistDeptCalculationRelatedUpdate(options: {
   const gipId = departmentEntity
     ? findGipDepartmentRecordId(departmentEntity, entities)
     : null;
-  // Never fan-out ГИП from department-filling edits.
-  if (gipId) {
-    pairs = pairs.filter((pair) => pair.departmentId.trim() !== gipId);
-  }
+  if (gipId) pairs = withGipDepartmentPairs(pairs, gipId);
 
   const liveEntity =
     getEntityConfig().entities.find((item) => item.id === entity.id) ?? entity;
@@ -684,31 +673,6 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     parentEntity && parentRecord
       ? { entity: parentEntity, recordId: parentRecord.id }
       : null;
-
-  // Preserve already-created ГИП siblings so orphan cleanup does not delete
-  // them when the user re-saves departments on «На заполнении отделами».
-  if (gipId) {
-    const siblings = collectDeptCalculationSiblingRecords(
-      liveEntity,
-      [recordId],
-      parentRef,
-    );
-    const keepKeys = new Set(
-      pairs.map((pair) => `${pair.stageId}\0${pair.departmentId}`),
-    );
-    for (const sibling of siblings) {
-      for (const pair of collectTkpStageDepartmentPairs(
-        sibling.values[groupsField.id],
-      )) {
-        if (pair.departmentId.trim() !== gipId) continue;
-        const key = `${pair.stageId}\0${pair.departmentId}`;
-        if (keepKeys.has(key)) continue;
-        keepKeys.add(key);
-        pairs.push(pair);
-      }
-    }
-  }
-
   // Never copy the merged multi-dept tree onto fan-out sibling rows.
   const siblingPatch = { ...patch };
   delete siblingPatch[groupsField.id];
@@ -717,7 +681,7 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     const groupsValue =
       pairs.length === 1
         ? encodeTkpStageDepartmentPair(pairs[0]!)
-        : groupsValueRaw;
+        : ensuredGroups;
     const merged = withGipUsers({
       entity,
       values: withParentLinks({

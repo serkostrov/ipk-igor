@@ -217,7 +217,11 @@ export function subscribeEntityStructureChanges(handlers: {
     )
     .subscribe((status, err) => {
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error("[entity] structure realtime", status, err);
+        console.warn(
+          "[entity] structure realtime",
+          status,
+          err?.message ?? err,
+        );
       }
     });
 

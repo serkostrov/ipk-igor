@@ -3,7 +3,7 @@
  * stage group → department summary row → expand «Работы отдела» + nested lines.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -43,7 +43,6 @@ import {
   removeEntityRecord,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
-  resolveTkpHostStageOptionId,
   serializeEntityRelationIds,
   updateEntityRecord,
   useEntityConfig,
@@ -76,8 +75,10 @@ import {
   resolveDeptCalculationDepartmentLabel,
   resolveDeptCalculationManagerName,
 } from "@/features/hardcode/dept-calculations/model/stage-groups";
-import { syncDeptCalculationCatalogManagers } from "@/features/hardcode/tkp-gip/fan-out-related-persist";
-import { maybeEnsureDeptCalculationGipForParent } from "@/features/hardcode/tkp-gip/gip-filling-phase";
+import {
+  ensureDeptCalculationGipRows,
+  syncDeptCalculationCatalogManagers,
+} from "@/features/hardcode/tkp-gip/fan-out-related-persist";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 
@@ -223,118 +224,59 @@ export function DeptCalculationsView({
     [entity, records, entities],
   );
 
-  const recordIdsKey = records
-    .map((record) => record.id)
-    .sort()
-    .join(",");
-  const leadParentEntityId = leadParent?.entity.id ?? "";
-  const leadParentRecordId = leadParent?.record.id ?? "";
-  const leadParentStageKey = leadParent
-    ? resolveTkpHostStageOptionId(leadParent.entity, leadParent.record.values)
-    : "";
-  const healedParentKeysRef = useRef(new Set<string>());
-  const healInFlightRef = useRef(new Set<string>());
-
-  // Soft-fill empty managers — skips rows that already have a value.
+  // Hardcode: ГИП under every stage + managers from catalog / lead.
   useEffect(() => {
     syncDeptCalculationCatalogManagers({ entity, records, entities });
-  }, [entity, entities, recordIdsKey, records]);
-
-  // Deferred ГИП rows + lead GIP users. Key includes host stage so entering
-  // «На заполнении ГИПа» re-runs after a no-op on the departments stage.
-  useEffect(() => {
-    if (!leadParentEntityId || !leadParentRecordId) return;
-    const healKey = `${entity.id}:${leadParentEntityId}:${leadParentRecordId}:${leadParentStageKey}`;
-    if (
-      healedParentKeysRef.current.has(healKey) ||
-      healInFlightRef.current.has(healKey)
-    ) {
-      return;
-    }
-    healInFlightRef.current.add(healKey);
-
-    const parentEntity =
-      entities.find((item) => item.id === leadParentEntityId) ?? null;
-    const parentRecord =
-      parentEntity?.records.find((item) => item.id === leadParentRecordId) ??
-      null;
-    if (!parentEntity || !parentRecord) {
-      healInFlightRef.current.delete(healKey);
-      return;
-    }
 
     let cancelled = false;
     void (async () => {
-      try {
-        const ensured = await maybeEnsureDeptCalculationGipForParent({
-          parentEntity,
-          parentRecord,
+      await ensureDeptCalculationGipRows({
+        entity,
+        records,
+        entities,
+        parentEntity: leadParent?.entity ?? null,
+        parentRecord: leadParent?.record ?? null,
+      });
+      if (cancelled || !leadParent) return;
+      const liveEntity =
+        getEntityConfig().entities.find((item) => item.id === entity.id) ??
+        entity;
+      const siblings = collectDeptCalculationSiblingRecords(
+        liveEntity,
+        records.map((record) => record.id),
+        {
+          entity: leadParent.entity,
+          recordId: leadParent.record.id,
+        },
+      );
+      for (const record of siblings) {
+        const next = applyTkpGipDepartmentUsers({
+          childEntity: entity,
+          childValues: { ...record.values },
           entities,
+          parentEntity: leadParent.entity,
+          parentRecord: leadParent.record,
+          changedFieldId: null,
         });
-        if (cancelled) return;
-
-        // Only fill GIP users after we actually ensured (GIP-filling stage).
-        if (!ensured) {
-          healedParentKeysRef.current.add(healKey);
-          return;
+        if (!next.applied || next.overriddenFieldIds.length === 0) continue;
+        const patch: Record<string, string> = {};
+        for (const fieldId of next.overriddenFieldIds) {
+          const value = next.values[fieldId] ?? "";
+          if ((record.values[fieldId] ?? "") === value) continue;
+          patch[fieldId] = value;
         }
-
-        const liveEntity =
-          getEntityConfig().entities.find((item) => item.id === entity.id) ??
-          entity;
-        const seedIds =
-          recordIdsKey.length > 0
-            ? recordIdsKey.split(",")
-            : liveEntity.records.map((record) => record.id);
-        if (seedIds.length === 0) {
-          healedParentKeysRef.current.add(healKey);
-          return;
-        }
-
-        const siblings = collectDeptCalculationSiblingRecords(
-          liveEntity,
-          seedIds,
-          { entity: parentEntity, recordId: parentRecord.id },
-        );
-        for (const record of siblings) {
-          const next = applyTkpGipDepartmentUsers({
-            childEntity: entity,
-            childValues: { ...record.values },
-            entities,
-            parentEntity,
-            parentRecord,
-            changedFieldId: null,
-          });
-          if (!next.applied || next.overriddenFieldIds.length === 0) continue;
-          const patch: Record<string, string> = {};
-          for (const fieldId of next.overriddenFieldIds) {
-            const value = next.values[fieldId] ?? "";
-            if ((record.values[fieldId] ?? "") === value) continue;
-            patch[fieldId] = value;
-          }
-          if (Object.keys(patch).length === 0) continue;
-          updateEntityRecord(entity.id, record.id, {
-            ...record.values,
-            ...patch,
-          });
-        }
-        if (!cancelled) healedParentKeysRef.current.add(healKey);
-      } finally {
-        healInFlightRef.current.delete(healKey);
+        if (Object.keys(patch).length === 0) continue;
+        updateEntityRecord(entity.id, record.id, {
+          ...record.values,
+          ...patch,
+        });
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [
-    entity,
-    entities,
-    leadParentEntityId,
-    leadParentRecordId,
-    leadParentStageKey,
-    recordIdsKey,
-  ]);
+  }, [entity, entities, leadParent, records]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deadlineDrafts, setDeadlineDrafts] = useState<Record<string, string>>(

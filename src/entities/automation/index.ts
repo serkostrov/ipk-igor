@@ -246,10 +246,6 @@ export {
   returnAutomationTaskForRevision,
 } from "./lib/complete-task";
 export {
-  registerAfterAutomationTaskCompleteHook,
-  runAfterAutomationTaskCompleteHook,
-} from "./lib/hardcode-hooks";
-export {
   describeBlockingTasks,
   resolveAutomationGateError,
   type AutomationGateContext,
