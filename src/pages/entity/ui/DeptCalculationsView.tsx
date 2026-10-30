@@ -78,6 +78,7 @@ import {
 } from "@/features/hardcode/dept-calculations/model/stage-groups";
 import {
   ensureDeptCalculationGipRows,
+  missingDeptCalculationGipStageIds,
   syncDeptCalculationCatalogManagers,
 } from "@/features/hardcode/tkp-gip/fan-out-related-persist";
 import { EntityRecordDialog } from "./EntityRecordDialog";
@@ -238,7 +239,16 @@ export function DeptCalculationsView({
   const leadParentStageKey = leadParent
     ? resolveTkpHostStageOptionId(leadParent.entity, leadParent.record.values)
     : "";
-  const healedParentKeysRef = useRef(new Set<string>());
+  const missingGipStagesKey = useMemo(() => {
+    if (!leadParent) return "";
+    return missingDeptCalculationGipStageIds({
+      entity,
+      entities,
+      parentEntity: leadParent.entity,
+      parentRecord: leadParent.record,
+    }).join(",");
+  }, [entity, entities, leadParent, recordIdsKey]);
+  const attemptedMissingKeysRef = useRef(new Set<string>());
   const healInFlightRef = useRef(new Set<string>());
 
   // Soft-fill empty managers — skips rows that already have a value.
@@ -246,12 +256,15 @@ export function DeptCalculationsView({
     syncDeptCalculationCatalogManagers({ entity, records, entities });
   }, [entity, entities, recordIdsKey, records]);
 
-  // Ensure «ГИП» once per parent (not on every records mutate — that hangs UI).
+  // Ensure «ГИП» under every parent stage. Retries only when the missing-set
+  // changes — never on every records mutate (that hung the UI).
   useEffect(() => {
     if (!leadParentEntityId || !leadParentRecordId) return;
-    const healKey = `${entity.id}:${leadParentEntityId}:${leadParentRecordId}:${leadParentStageKey}`;
+    if (!missingGipStagesKey) return;
+
+    const healKey = `${entity.id}:${leadParentEntityId}:${leadParentRecordId}:${leadParentStageKey}:${missingGipStagesKey}`;
     if (
-      healedParentKeysRef.current.has(healKey) ||
+      attemptedMissingKeysRef.current.has(healKey) ||
       healInFlightRef.current.has(healKey)
     ) {
       return;
@@ -271,9 +284,11 @@ export function DeptCalculationsView({
     let cancelled = false;
     void (async () => {
       try {
+        // Empty records → discover all siblings via parent forward links,
+        // not the assignee-filtered table list (that dropped other stages).
         await ensureDeptCalculationGipRows({
           entity,
-          records,
+          records: [],
           entities,
           parentEntity,
           parentRecord,
@@ -284,15 +299,9 @@ export function DeptCalculationsView({
         const liveEntity =
           getEntityConfig().entities.find((item) => item.id === entity.id) ??
           entity;
-        const seedIds =
-          recordIdsKey.length > 0
-            ? recordIdsKey.split(",")
-            : liveEntity.records.map((record) => record.id);
-        if (seedIds.length === 0) return;
-
         const siblings = collectDeptCalculationSiblingRecords(
           liveEntity,
-          seedIds,
+          liveEntity.records.map((record) => record.id),
           { entity: parentEntity, recordId: parentRecord.id },
         );
         for (const record of siblings) {
@@ -321,23 +330,20 @@ export function DeptCalculationsView({
         console.warn("[dept-calc] ensure GIP rows failed", error);
       } finally {
         healInFlightRef.current.delete(healKey);
-        // Always mark done — even if cancelled mid-flight by a remount —
-        // so a failed/partial ensure cannot restart an infinite create loop.
-        healedParentKeysRef.current.add(healKey);
+        attemptedMissingKeysRef.current.add(healKey);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-    // Heal once per parent/stage — do not depend on `records` (creates hang).
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- heal-once gate
   }, [
-    entity.id,
+    entity,
     entities,
     leadParentEntityId,
     leadParentRecordId,
     leadParentStageKey,
+    missingGipStagesKey,
   ]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);

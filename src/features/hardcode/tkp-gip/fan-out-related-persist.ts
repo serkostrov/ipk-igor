@@ -367,6 +367,81 @@ function ensurePairFailKey(
   return `${entityId}:${parentRecordId ?? ""}:${stageId}\0${departmentId}`;
 }
 
+/** Clear failed GIP creates for this parent so a new heal can finish all stages. */
+function clearFailedGipEnsureKeys(
+  entityId: string,
+  parentRecordId: string | null | undefined,
+  gipId: string,
+) {
+  const prefix = `${entityId}:${parentRecordId ?? ""}:`;
+  const suffix = `\0${gipId}`;
+  for (const key of [...failedEnsurePairKeys]) {
+    if (key.startsWith(prefix) && key.endsWith(suffix)) {
+      failedEnsurePairKeys.delete(key);
+    }
+  }
+}
+
+/**
+ * Stage ids that still need a «ГИП» calculation row for this parent.
+ * Uses parent «Стадия/отделы» roots + all linked siblings (not a filtered UI list).
+ */
+export function missingDeptCalculationGipStageIds(options: {
+  entity: Entity;
+  entities: readonly Entity[];
+  parentEntity: Entity;
+  parentRecord: EntityRecord;
+}): string[] {
+  const { entity, entities, parentEntity, parentRecord } = options;
+  if (!isDeptCalculationsEntity(entity) || !isTkpAnalysisEntity(parentEntity)) {
+    return [];
+  }
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  const departmentEntity = resolveDepartmentEntity(entity, entities);
+  if (!groupsField || !departmentEntity) return [];
+  const gipId = findGipDepartmentRecordId(departmentEntity, entities);
+  if (!gipId) return [];
+
+  const siblings = resolveDeptCalculationHealSiblings({
+    entity,
+    records: [],
+    parentEntity,
+    parentRecord,
+  });
+
+  const stages = new Set<string>();
+  const gipStages = new Set<string>();
+  for (const record of siblings) {
+    for (const pair of collectTkpStageDepartmentPairs(
+      record.values[groupsField.id],
+    )) {
+      const stageId = pair.stageId.trim();
+      const departmentId = pair.departmentId.trim();
+      if (!stageId) continue;
+      stages.add(stageId);
+      if (departmentId === gipId) gipStages.add(stageId);
+    }
+  }
+
+  const parentGroups =
+    findDeptCalculationsGroupsField(parentEntity) ??
+    parentEntity.fields.find(
+      (field) =>
+        field.type === "relationGroups" &&
+        Boolean(field.relationGroups?.levels.length),
+    ) ??
+    null;
+  if (parentGroups) {
+    for (const stageId of collectTkpStageRootIds(
+      parentRecord.values[parentGroups.id],
+    )) {
+      stages.add(stageId);
+    }
+  }
+
+  return [...stages].filter((stageId) => !gipStages.has(stageId)).sort();
+}
+
 /**
  * Heal missing fan-out rows for this «Разбор ТКП» parent:
  * 1) stage×department pairs already selected on the parent tree (unless gipOnly)
@@ -406,9 +481,16 @@ export async function ensureDeptCalculationGipRows(options: {
     return;
   }
 
+  // Fresh view/task heal: allow another attempt at ГИП for every stage.
+  if (gipOnly) {
+    clearFailedGipEnsureKeys(entity.id, parentRecord?.id, gipId);
+  }
+
+  // gipOnly + parent: discover ALL linked children via the parent forward
+  // relation — never trust a filtered UI record list (drops other stages).
   const siblings = resolveDeptCalculationHealSiblings({
     entity,
-    records,
+    records: gipOnly && parentEntity && parentRecord ? [] : records,
     parentEntity,
     parentRecord,
   });
@@ -516,7 +598,12 @@ export async function ensureDeptCalculationGipRows(options: {
         entity;
       const liveSiblings = resolveDeptCalculationHealSiblings({
         entity: live,
-        records: siblings.length > 0 ? siblings : records,
+        records:
+          gipOnly && parentEntity && parentRecord
+            ? []
+            : siblings.length > 0
+              ? siblings
+              : records,
         parentEntity,
         parentRecord,
       });
