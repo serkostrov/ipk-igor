@@ -39,6 +39,36 @@ function findField(
   );
 }
 
+/**
+ * Prefer an editable `number` with an exact name, then any `number` match,
+ * then other numeric types (formula / rollup / numberSum).
+ */
+function findNumericInputField(
+  entity: Entity,
+  keys: readonly string[],
+  options?: { excludeFieldIds?: ReadonlySet<string> },
+): EntityField | null {
+  const exclude = options?.excludeFieldIds;
+  const candidates = entity.fields.filter((field) => {
+    if (exclude?.has(field.id)) return false;
+    if (!isEntityNumericFieldType(field.type)) return false;
+    return fieldNameMatches(field, keys);
+  });
+  if (candidates.length === 0) return null;
+
+  const exactNumber = candidates.find((field) => {
+    if (field.type !== "number") return false;
+    const name = normalizeName(getEntityFieldDisplayName(field));
+    return keys.some((key) => name === normalizeName(key));
+  });
+  if (exactNumber) return exactNumber;
+
+  const numberMatch = candidates.find((field) => field.type === "number");
+  if (numberMatch) return numberMatch;
+
+  return candidates[0] ?? null;
+}
+
 const DEADLINE_KEYS = [
   "общий срок выполнения работ",
   "срок выполнения работы",
@@ -59,8 +89,14 @@ const FIXED_KEYS = [
 ] as const;
 const LABOR_KEYS = ["стоимость трудозатрат", "стоимость труда"] as const;
 const TOTAL_KEYS = ["итог отдела", "итог"] as const;
-const HOURS_KEYS = ["часы", "общие часы"] as const;
-const SUM_KEYS = ["сумма"] as const;
+const HOURS_KEYS = ["часы", "общие часы", "hours"] as const;
+const SUM_KEYS = [
+  "сумма",
+  "сумма расходов",
+  "фикс. сумма",
+  "фикс сумма",
+  "amount",
+] as const;
 const CALC_TYPE_KEYS = [
   "тип расчета",
   "тип расчёта",
@@ -152,19 +188,24 @@ export function resolveDeptCalculationsSubtaskFields(
       return n === "тип" || n.startsWith("тип ");
     }) ??
     null;
-  const hours = findField(entity, HOURS_KEYS, (field) =>
-    isEntityNumericFieldType(field.type),
-  );
-  const sum = findField(entity, SUM_KEYS, (field) =>
-    isEntityNumericFieldType(field.type),
-  );
+  // Prefer real number inputs over formula/rollup with the same name —
+  // «Сумма» formula that mirrors cost often stays empty while the number
+  // input holds the amount for type «Сумма».
+  const hours = findNumericInputField(entity, HOURS_KEYS);
+  const sum = findNumericInputField(entity, SUM_KEYS, {
+    excludeFieldIds: hours ? new Set([hours.id]) : undefined,
+  });
   const cost =
-    findField(entity, COST_KEYS, (field) =>
-      isEntityNumericFieldType(field.type),
-    ) ??
-    findField(entity, LABOR_KEYS, (field) =>
-      isEntityNumericFieldType(field.type),
-    );
+    findNumericInputField(entity, COST_KEYS, {
+      excludeFieldIds: new Set(
+        [hours?.id, sum?.id].filter((id): id is string => Boolean(id)),
+      ),
+    }) ??
+    findNumericInputField(entity, LABOR_KEYS, {
+      excludeFieldIds: new Set(
+        [hours?.id, sum?.id].filter((id): id is string => Boolean(id)),
+      ),
+    });
   const comment = findField(
     entity,
     COMMENT_KEYS,

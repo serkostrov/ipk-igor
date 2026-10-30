@@ -13,14 +13,19 @@ import {
   ensureTkpGipDepartmentInGroupsValue,
   findDeptCalculationUserFields,
   findDeptCalculationsGroupsField,
+  findEntityManagerUserField,
   findGipDepartmentRecordId,
   getEntityConfig,
+  getEntityFieldDisplayName,
   getEntityParentLinkField,
   getEntityRelationTargetId,
   isDeptCalculationsEntity,
+  isGipDepartmentRecord,
   parseEntityRelationIds,
   removeEntityRecord,
+  resolveDepartmentEntity,
   serializeEntityRelationIds,
+  SYSTEM_USERS_ENTITY_ID,
   updateEntityRecord,
   waitForEntityRecordDelete,
   waitForEntityRecordInsert,
@@ -301,6 +306,187 @@ function userFieldPatch(
     patch[field.id] = values[field.id]!;
   }
   return patch;
+}
+
+/**
+ * Heal missing «ГИП» fan-out rows: every stage that already has at least one
+ * department calculation must also have a «ГИП» sibling (lead GIP users).
+ * Safe to call from the view — no-op when already complete.
+ */
+export async function ensureDeptCalculationGipRows(options: {
+  entity: Entity;
+  records: readonly EntityRecord[];
+  entities: readonly Entity[];
+  parentEntity?: Entity | null;
+  parentRecord?: EntityRecord | null;
+}): Promise<void> {
+  const { entity, records, entities, parentEntity, parentRecord } = options;
+  if (!isDeptCalculationsEntity(entity) || records.length === 0) return;
+
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  const departmentEntity = resolveDepartmentEntity(entity, entities);
+  if (!groupsField || !departmentEntity) return;
+  const gipId = findGipDepartmentRecordId(departmentEntity, entities);
+  if (!gipId) return;
+
+  const stages = new Set<string>();
+  const gipStages = new Set<string>();
+  for (const record of records) {
+    for (const pair of collectTkpStageDepartmentPairs(
+      record.values[groupsField.id],
+    )) {
+      const stageId = pair.stageId.trim();
+      const departmentId = pair.departmentId.trim();
+      if (!stageId) continue;
+      stages.add(stageId);
+      if (departmentId === gipId) gipStages.add(stageId);
+    }
+  }
+
+  const missingStages = [...stages].filter(
+    (stageId) => !gipStages.has(stageId),
+  );
+  if (missingStages.length === 0) return;
+
+  const linkFields = parentLinkFields(entity);
+  const template = records[0]!;
+  const { manager, performer } = findDeptCalculationUserFields(entity);
+  const ensuredParentLinks =
+    collectParentLinksFromValues(linkFields, template.values).length > 0
+      ? collectParentLinksFromValues(linkFields, template.values)
+      : parentEntity && parentRecord
+        ? [{ parentEntityId: parentEntity.id, parentRecordId: parentRecord.id }]
+        : [];
+
+  const withParentLinks = (
+    values: Record<string, string>,
+  ): Record<string, string> => {
+    if (!parentEntity || !parentRecord || linkFields.length === 0) {
+      return values;
+    }
+    let next = values;
+    for (const field of linkFields) {
+      if (getEntityRelationTargetId(field) !== parentEntity.id) continue;
+      const existing = parseEntityRelationIds(next[field.id]);
+      if (existing.includes(parentRecord.id)) continue;
+      if (next === values) next = { ...values };
+      next[field.id] = serializeEntityRelationIds([
+        ...existing,
+        parentRecord.id,
+      ]);
+    }
+    return next;
+  };
+
+  for (const stageId of missingStages) {
+    const live =
+      getEntityConfig().entities.find((item) => item.id === entity.id) ??
+      entity;
+    const already = live.records.some((record) =>
+      deptCalculationValuesMatchStagePair(record.values[groupsField.id], {
+        stageId,
+        departmentId: gipId,
+      }),
+    );
+    if (already) continue;
+
+    const encoded = encodeTkpStageDepartmentPair({
+      stageId,
+      departmentId: gipId,
+    });
+    // Only parent links — never copy nested lines / costs from a sibling.
+    const seed: Record<string, string> = { [groupsField.id]: encoded };
+    for (const field of linkFields) {
+      const value = (template.values[field.id] ?? "").trim();
+      if (value) seed[field.id] = value;
+    }
+    for (const field of [manager, performer]) {
+      if (!field) continue;
+      seed[field.id] = "";
+    }
+    const createBase = withParentLinks(seed);
+    const createValues = withGipUsers({
+      entity,
+      values: createBase,
+      entities,
+      groupsFieldId: groupsField.id,
+      parentEntity,
+      parentRecord,
+    });
+    const created = addEntityRecord(entity.id, createValues);
+    await waitForEntityRecordInsert(created.id);
+    if (ensuredParentLinks.length > 0) {
+      await writeBackChildToParents(entity.id, created.id, ensuredParentLinks);
+    }
+  }
+}
+
+/**
+ * Soft-fill empty «Руководитель» on non-ГИП calc rows from the department
+ * catalog (users relation only). Display still resolves from catalog even
+ * when this cannot write (custom people target).
+ */
+export function syncDeptCalculationCatalogManagers(options: {
+  entity: Entity;
+  records: readonly EntityRecord[];
+  entities: readonly Entity[];
+}): void {
+  const { entity, records, entities } = options;
+  if (!isDeptCalculationsEntity(entity)) return;
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  const { manager } = findDeptCalculationUserFields(entity);
+  const departmentEntity = resolveDepartmentEntity(entity, entities);
+  if (!groupsField || !manager || !departmentEntity) return;
+
+  // Prefer a field literally named «Руководитель» that targets users.
+  let deptManager =
+    departmentEntity.fields.find((field) => {
+      if (field.type !== "relation" && field.type !== "belonging") return false;
+      if (getEntityRelationTargetId(field) !== SYSTEM_USERS_ENTITY_ID) {
+        return false;
+      }
+      const name = getEntityFieldDisplayName(field)
+        .trim()
+        .toLocaleLowerCase("ru")
+        .replaceAll("ё", "е");
+      return name === "руководитель" || name.startsWith("руководитель ");
+    }) ?? null;
+  if (!deptManager) {
+    deptManager = findEntityManagerUserField(departmentEntity);
+  }
+  if (!deptManager) return;
+  if (getEntityRelationTargetId(deptManager) !== SYSTEM_USERS_ENTITY_ID) {
+    return;
+  }
+
+  for (const record of records) {
+    const existing = parseEntityRelationIds(record.values[manager.id]);
+    if (existing.length > 0) continue;
+    let catalogIds: string[] = [];
+    for (const pair of collectTkpStageDepartmentPairs(
+      record.values[groupsField.id],
+    )) {
+      if (!pair.departmentId.trim()) continue;
+      const deptRecord = departmentEntity.records.find(
+        (item) => item.id === pair.departmentId,
+      );
+      if (!deptRecord) continue;
+      if (isGipDepartmentRecord(departmentEntity, deptRecord, entities)) {
+        continue;
+      }
+      catalogIds = parseEntityRelationIds(deptRecord.values[deptManager.id]);
+      if (catalogIds.length > 0) break;
+    }
+    if (catalogIds.length === 0) continue;
+    const value =
+      manager.relationMultiple === true
+        ? serializeEntityRelationIds(catalogIds)
+        : serializeEntityRelationIds(catalogIds.slice(0, 1));
+    updateEntityRecord(entity.id, record.id, {
+      ...record.values,
+      [manager.id]: value,
+    });
+  }
 }
 
 /**

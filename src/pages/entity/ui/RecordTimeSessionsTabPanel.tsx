@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
-import { ClockPlus, Pencil, Play, Square, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Clock, ClockPlus, Pencil, Play, Square, Trash2 } from "lucide-react";
 import { useCanEntity } from "@/entities/access";
 import { useNow } from "@/shared/hooks/use-now";
+import { cn } from "@/shared/lib/cn";
 import { formatElapsed, toLocalDatetime } from "@/shared/lib/datetime";
 import { formatDatetimeDisplay } from "@/shared/lib/format-date";
 import { pluralRu } from "@/shared/lib/plural";
@@ -16,6 +17,7 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import {
+  ensureEntityTimeTracking,
   formatEntityComputedNumber,
   getEntityTimeTracking,
   getSystemUserName,
@@ -70,19 +72,17 @@ function DurationCell({
       </span>
     );
   }
-  if (row.hours != null) {
-    return (
-      <span className="font-medium tabular-nums text-foreground">
-        {formatEntityComputedNumber(row.hours)} ч
-        <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-          ({formatElapsed(entryDurationMs(row, nowMs))})
-        </span>
-      </span>
-    );
-  }
+  const ms = entryDurationMs(row, nowMs);
+  if (ms <= 0 && row.hours == null)
+    return <span className="text-muted-foreground">—</span>;
   return (
     <span className="font-medium tabular-nums text-foreground">
-      {formatElapsed(entryDurationMs(row, nowMs))}
+      {formatElapsed(ms)}
+      {row.hours != null ? (
+        <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+          · {formatEntityComputedNumber(row.hours)} ч
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -98,6 +98,11 @@ export function RecordTimeSessionsTabPanel({
   const [manualOpen, setManualOpen] = useState(false);
   const [editRow, setEditRow] = useState<EntityTimeEntryRow | null>(null);
   const [deleteRow, setDeleteRow] = useState<EntityTimeEntryRow | null>(null);
+
+  useEffect(() => {
+    if (getEntityTimeTracking(entity, entities)) return;
+    ensureEntityTimeTracking(entity.id);
+  }, [entity, entities]);
 
   const setup = getEntityTimeTracking(entity, entities);
   const entryEntityId = setup?.entryEntity.id ?? "";
@@ -117,17 +122,25 @@ export function RecordTimeSessionsTabPanel({
   const count = entries?.length ?? 0;
   const running = timers.runningRecordId === record.id ? timers.running : null;
   const canStart = timers.canStart(record);
-  const showActions = canEdit || canDelete;
+  const showActions = Boolean(setup) && (canEdit || canDelete);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="min-w-0 flex flex-col gap-0.5">
-          <h2 className="text-base font-semibold tracking-tight text-foreground">
-            {tab.name}
-          </h2>
+    <section
+      aria-label={tab.name}
+      className="flex flex-col gap-3 rounded-xl border border-border/80 bg-muted/15 p-4 shadow-xs"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Clock className="size-3.5" />
+            </span>
+            <h2 className="text-sm font-semibold tracking-tight text-foreground">
+              {tab.name}
+            </h2>
+          </div>
           {entries ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {count > 0 ? (
                 <>
                   {count} {pluralRu(count, "сессия", "сессии", "сессий")} ·
@@ -136,7 +149,7 @@ export function RecordTimeSessionsTabPanel({
                     {formatElapsed(totalMs)}
                   </span>
                   {totalMs > 0 ? (
-                    <span className="text-muted-foreground">
+                    <span>
                       {" "}
                       ({formatEntityComputedNumber(totalMs / 3_600_000)} ч)
                     </span>
@@ -150,7 +163,7 @@ export function RecordTimeSessionsTabPanel({
         </div>
 
         {timers.enabled ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Button
               type="button"
               size="sm"
@@ -169,7 +182,9 @@ export function RecordTimeSessionsTabPanel({
               {running ? (
                 <>
                   <Square className="size-3 fill-current" />
-                  <TimerElapsed startedAt={running.startedAt} />
+                  <span className="tabular-nums">
+                    <TimerElapsed startedAt={running.startedAt} />
+                  </span>
                 </>
               ) : (
                 <>
@@ -190,30 +205,34 @@ export function RecordTimeSessionsTabPanel({
             </Button>
           </div>
         ) : null}
-      </header>
+      </div>
 
-      <div className="p-0">
-        {!entries ? (
-          <p className="m-4 rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-            Учёт времени для этой сущности не настроен. Включите его в
-            настройках сущности («Работа с записями» → «Учёт времени»), затем
-            сессии появятся здесь.
-          </p>
-        ) : count === 0 ? (
-          <p className="m-4 rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-            Сессий пока нет — запустите таймер или добавьте время вручную.
-          </p>
-        ) : (
+      {!entries ? (
+        <p className="rounded-lg border border-dashed border-border/70 px-3 py-8 text-center text-sm text-muted-foreground">
+          Подготавливаем учёт времени…
+        </p>
+      ) : count === 0 ? (
+        <p className="rounded-lg border border-dashed border-border/70 px-3 py-8 text-center text-sm text-muted-foreground">
+          Сессий пока нет — запустите таймер или добавьте время вручную.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-border/60 bg-card/80">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-4">Исполнитель</TableHead>
-                <TableHead>Начало</TableHead>
-                <TableHead>Окончание</TableHead>
-                <TableHead>Длительность</TableHead>
-                <TableHead>Комментарий</TableHead>
+                <TableHead className="h-9 pl-3 text-xs">Исполнитель</TableHead>
+                <TableHead className="h-9 text-xs">
+                  Дата и время начала
+                </TableHead>
+                <TableHead className="h-9 text-xs">
+                  Дата и время конца
+                </TableHead>
+                <TableHead className="h-9 text-xs">Длительность</TableHead>
+                <TableHead className="h-9 text-xs">Комментарий</TableHead>
                 {showActions ? (
-                  <TableHead className="w-24 pr-4 text-right"> </TableHead>
+                  <TableHead className="h-9 w-[4.5rem] pr-2 text-right text-xs">
+                    <span className="sr-only">Действия</span>
+                  </TableHead>
                 ) : null}
               </TableRow>
             </TableHeader>
@@ -223,38 +242,46 @@ export function RecordTimeSessionsTabPanel({
                   ? getSystemUserName(entities, row.employeeId)
                   : null;
                 return (
-                  <TableRow key={row.entry.id}>
-                    <TableCell className="pl-4 font-medium text-foreground">
+                  <TableRow
+                    key={row.entry.id}
+                    className={cn(row.running && "bg-primary/[0.03]")}
+                  >
+                    <TableCell className="pl-3 text-sm font-medium text-foreground">
                       {employeeName || "—"}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
+                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
                       {formatCellDatetime(row.startedAt)}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
+                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
                       {row.running ? (
-                        <span className="font-medium text-foreground">
+                        <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                          <span
+                            aria-hidden
+                            className="size-1.5 rounded-full bg-primary"
+                          />
                           идёт
                         </span>
                       ) : (
                         formatCellDatetime(row.endedAt)
                       )}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">
+                    <TableCell className="whitespace-nowrap text-sm">
                       <DurationCell row={row} nowMs={now} />
                     </TableCell>
-                    <TableCell className="max-w-[14rem] truncate text-muted-foreground">
+                    <TableCell className="max-w-[16rem] truncate text-sm text-muted-foreground">
                       {row.comment || "—"}
                     </TableCell>
                     {showActions ? (
-                      <TableCell className="pr-4">
+                      <TableCell className="pr-2">
                         <div className="flex items-center justify-end gap-0.5">
                           {canEdit && !row.running ? (
                             <Button
                               type="button"
-                              size="icon-sm"
+                              size="icon-xs"
                               variant="ghost"
-                              className="size-7 text-muted-foreground hover:text-foreground"
+                              className="text-muted-foreground hover:text-foreground"
                               title="Редактировать"
+                              aria-label="Редактировать сессию"
                               onClick={() => setEditRow(row)}
                             >
                               <Pencil className="size-3.5" />
@@ -263,10 +290,11 @@ export function RecordTimeSessionsTabPanel({
                           {canDelete ? (
                             <Button
                               type="button"
-                              size="icon-sm"
+                              size="icon-xs"
                               variant="ghost"
-                              className="size-7 text-muted-foreground hover:text-destructive"
+                              className="text-muted-foreground hover:text-destructive"
                               title="Удалить"
+                              aria-label="Удалить сессию"
                               onClick={() => setDeleteRow(row)}
                             >
                               <Trash2 className="size-3.5" />
@@ -280,8 +308,8 @@ export function RecordTimeSessionsTabPanel({
               })}
             </TableBody>
           </Table>
-        )}
-      </div>
+        </div>
+      )}
 
       {timers.dialog}
       <TimeEntryDialog

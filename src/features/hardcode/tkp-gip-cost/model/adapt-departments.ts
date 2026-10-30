@@ -15,6 +15,7 @@ import {
 import {
   getDeptNestedLines,
   resolveDeptCalcTypeLabelForRecord,
+  resolveDeptLineHoursOrSum,
   resolveDeptLineTitle,
 } from "../../dept-calculations/model/aggregation";
 import {
@@ -106,12 +107,13 @@ export function adaptDeptRecordsToGipDepartments(options: {
           lineFields,
         );
         const calculationType = calcTypeToLineType(calcLabel);
-        const hours = lineFields.hours
-          ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.hours)
-          : null;
-        const sum = lineFields.sum
-          ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.sum)
-          : null;
+        const hoursOrSum = resolveDeptLineHoursOrSum(
+          ctx,
+          nested.entity,
+          line,
+          entities,
+          lineFields,
+        );
         const cost = lineFields.cost
           ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.cost)
           : null;
@@ -121,6 +123,7 @@ export function adaptDeptRecordsToGipDepartments(options: {
           line,
           lineFields,
         );
+        const amount = hoursOrSum.value;
         breakdownLines.push({
           id: line.id,
           title,
@@ -128,8 +131,12 @@ export function adaptDeptRecordsToGipDepartments(options: {
           department_name: departmentName,
           project_stage_name: projectStageName,
           calculation_type: calculationType,
-          planned_hours: calculationType === "hours" ? (hours ?? 0) : 0,
-          cost: calculationType === "hours" ? (cost ?? 0) : (cost ?? sum ?? 0),
+          planned_hours:
+            calculationType === "hours" ? (amount ?? 0) : 0,
+          cost:
+            calculationType === "hours"
+              ? (cost ?? 0)
+              : (amount ?? cost ?? 0),
           expense_category_snapshot:
             calculationType === "amount"
               ? normalizeReviewExpenseCategory("other_without_coefficient")

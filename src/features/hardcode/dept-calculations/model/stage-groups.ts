@@ -12,6 +12,7 @@ import {
   getEntityFieldDisplayName,
   getEntityRecordTitle,
   getEntityRelationTargetId,
+  getRecordFieldIds,
   getSystemUserName,
   isEntityTableRelationGroupsNestedSubgroup,
   isGipDepartmentRecord,
@@ -26,6 +27,7 @@ import {
   resolveEntityTableSubgroupField,
   resolveRelationRecordLabel,
   resolveTkpGipUserIdsFromHost,
+  SYSTEM_USERS_ENTITY_ID,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -33,12 +35,39 @@ import {
 } from "@/entities/entity";
 import { findDeptCalculationUserFields } from "../../tkp-gip/match";
 
-function looksLikeManagerField(field: EntityField): boolean {
-  const name = getEntityFieldDisplayName(field)
+function normalizeFieldName(field: EntityField): string {
+  return getEntityFieldDisplayName(field)
     .trim()
     .toLocaleLowerCase("ru")
     .replaceAll("ё", "е");
-  return name.includes("руководитель") || name.includes("менеджер");
+}
+
+function looksLikeManagerField(field: EntityField): boolean {
+  const name = normalizeFieldName(field);
+  return (
+    name.includes("руководитель") ||
+    name.includes("менеджер") ||
+    name.includes("начальник") ||
+    name.includes("ответственный")
+  );
+}
+
+function isPeopleRelationField(field: EntityField): boolean {
+  if (
+    field.type !== "relation" &&
+    field.type !== "belonging" &&
+    field.type !== "lookup"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function departmentLeafDisplayFieldIds(entity: Entity): string[] {
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  const levels = groupsField?.relationGroups?.levels ?? [];
+  if (levels.length < 2) return [];
+  return [...(levels[1]?.displayFieldIds ?? [])];
 }
 
 export type DeptCalculationsStageGroup = {
@@ -280,33 +309,50 @@ function namesFromUserIds(
 }
 
 /**
- * «Руководитель» on a department catalog entity — users relation first,
- * else any relation / belonging / lookup named like a manager.
+ * «Руководитель» on a department catalog entity.
+ * Prefer configured chip extras (displayFieldIds), then a field literally
+ * named «Руководитель» (any people target), then users-manager, then soft name
+ * matches. Never prefer an empty «Менеджер» users field over a filled
+ * «Руководитель» on a custom people catalog.
  */
 function findDepartmentManagerField(
   departmentEntity: Entity,
+  preferredFieldIds: readonly string[] = [],
 ): EntityField | null {
-  const users = findEntityManagerUserField(departmentEntity);
-  if (users) return users;
-  let fallback: EntityField | null = null;
+  const byId = (id: string) =>
+    departmentEntity.fields.find((field) => field.id === id) ?? null;
+
+  let preferredPeople: EntityField | null = null;
+  for (const fieldId of preferredFieldIds) {
+    const field = byId(fieldId);
+    if (!field || !isPeopleRelationField(field)) continue;
+    if (looksLikeManagerField(field)) return field;
+    preferredPeople ??= field;
+  }
+  if (preferredPeople) return preferredPeople;
+
+  let namedRukovoditel: EntityField | null = null;
+  let softMatch: EntityField | null = null;
   for (const field of departmentEntity.fields) {
     if (!looksLikeManagerField(field)) continue;
-    if (
-      field.type === "relation" ||
-      field.type === "belonging" ||
-      field.type === "lookup"
-    ) {
-      if (
-        getEntityFieldDisplayName(field)
-          .toLocaleLowerCase("ru")
-          .includes("руководитель")
-      ) {
+    const isPeople = isPeopleRelationField(field) || field.type === "text";
+    if (!isPeople) continue;
+    const name = normalizeFieldName(field);
+    if (name === "руководитель" || name.startsWith("руководитель ")) {
+      // Prefer users-target when several «Руководитель» exist.
+      if (getEntityRelationTargetId(field) === SYSTEM_USERS_ENTITY_ID) {
         return field;
       }
-      if (!fallback) fallback = field;
+      namedRukovoditel ??= field;
+      continue;
     }
+    softMatch ??= field;
   }
-  return fallback;
+  if (namedRukovoditel) return namedRukovoditel;
+
+  const users = findEntityManagerUserField(departmentEntity);
+  if (users) return users;
+  return softMatch;
 }
 
 function formatDepartmentManagerName(
@@ -316,26 +362,39 @@ function formatDepartmentManagerName(
   deptManager: EntityField,
   entities: readonly Entity[],
 ): string | null {
-  if (deptManager.type === "lookup") {
-    const label = formatRecordFieldValue(
-      ctx,
-      departmentEntity,
-      deptRecord,
-      deptManager,
-    ).trim();
-    return label && label !== "—" ? label : null;
+  // Primary: same formatter as relationGroups chip extras.
+  const formatted = formatRecordFieldValue(
+    ctx,
+    departmentEntity,
+    deptRecord,
+    deptManager,
+  ).trim();
+  if (formatted && formatted !== "—") return formatted;
+
+  if (deptManager.type === "text") {
+    const raw = (deptRecord.values[deptManager.id] ?? "").trim();
+    return raw || null;
   }
 
-  const raw = deptRecord.values[deptManager.id];
-  const ids = parseEntityRelationIds(raw);
+  const ids = getRecordFieldIds(ctx, departmentEntity, deptRecord, deptManager);
   const fromUsers = namesFromUserIds(entities, ids);
   if (fromUsers) return fromUsers;
+
+  if (ids.length === 0) {
+    const parsed = parseEntityRelationIds(deptRecord.values[deptManager.id]);
+    const fromParsed = namesFromUserIds(entities, parsed);
+    if (fromParsed) return fromParsed;
+  }
 
   const targetId = getEntityRelationTargetId(deptManager);
   const target = targetId
     ? (entities.find((item) => item.id === targetId) ?? null)
     : null;
-  const label = resolveRelationRecordLabel(target, raw, entities)?.trim();
+  const label = resolveRelationRecordLabel(
+    target,
+    ids[0] ?? deptRecord.values[deptManager.id],
+    entities,
+  )?.trim();
   return label && label !== "Без названия" ? label : null;
 }
 
@@ -479,7 +538,10 @@ function resolveManagerNameFromDepartment(
   if (isGipDepartmentRecord(resolved.entity, resolved.record, entities)) {
     return null;
   }
-  const deptManager = findDepartmentManagerField(resolved.entity);
+  const deptManager = findDepartmentManagerField(
+    resolved.entity,
+    departmentLeafDisplayFieldIds(entity),
+  );
   if (!deptManager) return null;
   return formatDepartmentManagerName(
     ctx,
@@ -523,11 +585,13 @@ export function resolveDeptCalculationManagerName(
   if (!isDeptCalcGipRow(entity, record, entities)) {
     const { manager } = findDeptCalculationUserFields(entity);
     if (manager) {
-      const userId = parseEntityRelationIds(record.values[manager.id])[0];
-      if (userId) {
-        const name = getSystemUserName(entities, userId)?.trim();
-        if (name) return name;
-      }
+      const label = formatRecordFieldValue(ctx, entity, record, manager).trim();
+      if (label && label !== "—") return label;
+      const fromUsers = namesFromUserIds(
+        entities,
+        getRecordFieldIds(ctx, entity, record, manager),
+      );
+      if (fromUsers) return fromUsers;
     }
 
     const managerLookup = entity.fields.find(

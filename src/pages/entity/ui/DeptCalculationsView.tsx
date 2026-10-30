@@ -72,6 +72,10 @@ import {
   resolveDeptCalculationDepartmentLabel,
   resolveDeptCalculationManagerName,
 } from "@/features/hardcode/dept-calculations/model/stage-groups";
+import {
+  ensureDeptCalculationGipRows,
+  syncDeptCalculationCatalogManagers,
+} from "@/features/hardcode/tkp-gip/fan-out-related-persist";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 
@@ -217,31 +221,49 @@ export function DeptCalculationsView({
     [entity, records, entities],
   );
 
-  // Hardcode: keep «ГИП» row manager/performer in sync with the lead.
+  // Hardcode: ГИП under every stage + managers from catalog / lead.
   useEffect(() => {
-    if (!leadParent) return;
-    for (const record of records) {
-      const next = applyTkpGipDepartmentUsers({
-        childEntity: entity,
-        childValues: { ...record.values },
+    syncDeptCalculationCatalogManagers({ entity, records, entities });
+
+    let cancelled = false;
+    void (async () => {
+      await ensureDeptCalculationGipRows({
+        entity,
+        records,
         entities,
-        parentEntity: leadParent.entity,
-        parentRecord: leadParent.record,
-        changedFieldId: null,
+        parentEntity: leadParent?.entity ?? null,
+        parentRecord: leadParent?.record ?? null,
       });
-      if (!next.applied || next.overriddenFieldIds.length === 0) continue;
-      const patch: Record<string, string> = {};
-      for (const fieldId of next.overriddenFieldIds) {
-        const value = next.values[fieldId] ?? "";
-        if ((record.values[fieldId] ?? "") === value) continue;
-        patch[fieldId] = value;
+      if (cancelled || !leadParent) return;
+      const live =
+        entities.find((item) => item.id === entity.id)?.records ?? records;
+      for (const record of live) {
+        const next = applyTkpGipDepartmentUsers({
+          childEntity: entity,
+          childValues: { ...record.values },
+          entities,
+          parentEntity: leadParent.entity,
+          parentRecord: leadParent.record,
+          changedFieldId: null,
+        });
+        if (!next.applied || next.overriddenFieldIds.length === 0) continue;
+        const patch: Record<string, string> = {};
+        for (const fieldId of next.overriddenFieldIds) {
+          const value = next.values[fieldId] ?? "";
+          if ((record.values[fieldId] ?? "") === value) continue;
+          patch[fieldId] = value;
+        }
+        if (Object.keys(patch).length === 0) continue;
+        updateEntityRecord(entity.id, record.id, {
+          ...record.values,
+          ...patch,
+        });
       }
-      if (Object.keys(patch).length === 0) continue;
-      updateEntityRecord(entity.id, record.id, {
-        ...record.values,
-        ...patch,
-      });
-    }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [entity, entities, leadParent, records]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -282,6 +304,19 @@ export function DeptCalculationsView({
         "";
     }
     await updateEntityRecord(entity.id, record.id, next);
+    // Drop drafts so the form reflects the saved record.
+    setDeadlineDrafts((prev) => {
+      if (!(record.id in prev)) return prev;
+      const copy = { ...prev };
+      delete copy[record.id];
+      return copy;
+    });
+    setDescriptionDrafts((prev) => {
+      if (!(record.id in prev)) return prev;
+      const copy = { ...prev };
+      delete copy[record.id];
+      return copy;
+    });
   }
 
   return (
@@ -404,6 +439,12 @@ export function DeptCalculationsView({
                     const comment = hostFields.comment
                       ? (record.values[hostFields.comment.id] ?? "").trim()
                       : "";
+                    const savedDeadline = hostFields.deadline
+                      ? (record.values[hostFields.deadline.id] ?? "").trim()
+                      : "";
+                    const savedDescription = hostFields.description
+                      ? (record.values[hostFields.description.id] ?? "").trim()
+                      : "";
                     const deadlineInput =
                       deadlineDrafts[record.id] ??
                       (hostFields.deadline
@@ -414,6 +455,11 @@ export function DeptCalculationsView({
                       (hostFields.description
                         ? (record.values[hostFields.description.id] ?? "")
                         : "");
+                    // Form open/close uses persisted values — drafts must not
+                    // collapse the editor on first keystroke (looks like autosave).
+                    const contextSaved =
+                      (!hostFields.deadline || savedDeadline.length > 0) &&
+                      (!hostFields.description || savedDescription.length > 0);
                     const lines = getDeptNestedLines(record, nested);
 
                     return (
@@ -436,6 +482,10 @@ export function DeptCalculationsView({
                         }
                         onAddLine={() => {
                           setExpandedId(record.id);
+                          const deadlineOk =
+                            !hostFields.deadline ||
+                            deadlineInput.trim().length > 0;
+                          if (!deadlineOk) return;
                           setLineDialog({ mode: "create", hostId: record.id });
                         }}
                         onEdit={
@@ -448,6 +498,7 @@ export function DeptCalculationsView({
                         }
                         deadlineField={Boolean(hostFields.deadline)}
                         deadlineInput={deadlineInput}
+                        contextSaved={contextSaved}
                         onDeadlineChange={(value) =>
                           setDeadlineDrafts((prev) => ({
                             ...prev,
@@ -644,6 +695,7 @@ function DepartmentBlock({
   onDelete,
   deadlineField,
   deadlineInput,
+  contextSaved,
   onDeadlineChange,
   descriptionField,
   descriptionInput,
@@ -678,6 +730,8 @@ function DepartmentBlock({
   onDelete: () => void;
   deadlineField: boolean;
   deadlineInput: string;
+  /** Persisted deadline+description — not draft keystrokes. */
+  contextSaved: boolean;
   onDeadlineChange: (value: string) => void;
   descriptionField: boolean;
   descriptionInput: string;
@@ -695,11 +749,12 @@ function DepartmentBlock({
   onDeleteLine: (line: EntityRecord) => void;
 }) {
   const showContextPanel = deadlineField || descriptionField;
-  const contextFilled =
-    (!deadlineField || deadlineInput.trim().length > 0) &&
-    (!descriptionField || descriptionInput.trim().length > 0);
+  const deadlineFilled = !deadlineField || deadlineInput.trim().length > 0;
+  /** Подзадачи нельзя добавлять без срока выполнения работы. */
+  const canAddLines = deadlineFilled;
   const [editingContext, setEditingContext] = useState(false);
-  const showContextForm = canEdit && (!contextFilled || editingContext);
+  // Stay in the editor until Save/Cancel — drafts must not auto-collapse.
+  const showContextForm = canEdit && (!contextSaved || editingContext);
 
   async function handleSaveContext() {
     await onSaveContext();
@@ -709,6 +764,15 @@ function DepartmentBlock({
   function handleCancelContext() {
     onCancelContext();
     setEditingContext(false);
+  }
+
+  function handleAddLineClick() {
+    if (!canAddLines) {
+      setEditingContext(true);
+      onAddLine();
+      return;
+    }
+    onAddLine();
   }
 
   return (
@@ -771,8 +835,17 @@ function DepartmentBlock({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 gap-1 px-2 text-[11px]"
-                  onClick={onAddLine}
+                  className={cn(
+                    "h-7 gap-1 px-2 text-[11px]",
+                    !canAddLines && "opacity-60",
+                  )}
+                  title={
+                    canAddLines
+                      ? "Добавить подзадачу"
+                      : "Сначала укажите срок выполнения работы"
+                  }
+                  aria-disabled={!canAddLines}
+                  onClick={handleAddLineClick}
                 >
                   <Plus className="size-3.5" data-icon="inline-start" />
                   Строка
@@ -836,6 +909,10 @@ function DepartmentBlock({
                           <div className="grid gap-1.5">
                             <Label htmlFor={`deadline-${deptLabel}`}>
                               Срок выполнения работы, раб. дни
+                              <span className="text-destructive" aria-hidden>
+                                {" "}
+                                *
+                              </span>
                             </Label>
                             <Input
                               id={`deadline-${deptLabel}`}
@@ -843,20 +920,35 @@ function DepartmentBlock({
                               min="0.5"
                               step="0.5"
                               value={deadlineInput}
+                              required
+                              aria-required
+                              aria-invalid={
+                                !deadlineFilled ? true : undefined
+                              }
+                              className={cn(
+                                !deadlineFilled &&
+                                  "border-destructive/60 focus-visible:ring-destructive/30",
+                              )}
                               onChange={(event) =>
                                 onDeadlineChange(event.target.value)
                               }
                             />
+                            {!deadlineFilled ? (
+                              <p className="text-[11px] text-destructive/90">
+                                Укажите срок, чтобы добавлять подзадачи
+                              </p>
+                            ) : null}
                           </div>
                           {!descriptionField ? (
                             <div className="flex items-center gap-2">
                               <Button
                                 type="button"
+                                disabled={!deadlineFilled}
                                 onClick={() => void handleSaveContext()}
                               >
                                 Сохранить срок
                               </Button>
-                              {contextFilled && editingContext ? (
+                              {contextSaved && editingContext ? (
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -891,13 +983,14 @@ function DepartmentBlock({
                         <div className="flex items-center justify-start gap-2">
                           <Button
                             type="button"
+                            disabled={deadlineField && !deadlineFilled}
                             onClick={() => void handleSaveContext()}
                           >
                             {deadlineField
                               ? "Сохранить срок и описание"
                               : "Сохранить описание"}
                           </Button>
-                          {contextFilled && editingContext ? (
+                          {contextSaved && editingContext ? (
                             <Button
                               type="button"
                               variant="ghost"

@@ -1089,6 +1089,9 @@ export function EntityRecordPage({
   const entity = useEntityForRecord(liveEntity.id, record) ?? liveEntity;
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
   const timers = useRecordTimers(entity);
+  const hasTimeSessionsTab = entity.tabs.some((tab) =>
+    isEntityTimeSessionsTab(tab),
+  );
   const canUpdate = useCanEntity(entity.id, "update");
   const canDelete = useCanEntity(entity.id, "delete");
   const canCreate = useCanEntity(entity.id, "create");
@@ -1219,7 +1222,9 @@ export function EntityRecordPage({
         onBack={onBack}
         title={isUsersEntity ? undefined : title}
         actions={
-          <RecordTimer entity={entity} record={record} timers={timers} />
+          hasTimeSessionsTab ? null : (
+            <RecordTimer entity={entity} record={record} timers={timers} />
+          )
         }
         extra={
           headerField ? (
@@ -1459,7 +1464,7 @@ export function EntityRecordPage({
       />
 
       {listChangeDialog}
-      {timers.dialog}
+      {hasTimeSessionsTab ? null : timers.dialog}
     </div>
   );
 }

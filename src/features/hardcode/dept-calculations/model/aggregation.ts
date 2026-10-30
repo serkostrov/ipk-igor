@@ -4,6 +4,7 @@
  */
 
 import {
+  canMergeEntityTableFields,
   entityRelationIncludesId,
   formatEntityDecimalTotal,
   formatEntityListFieldValue,
@@ -12,12 +13,16 @@ import {
   getEntityListOptions,
   getEntityRecordTitle,
   getRecordFieldNumber,
+  isEntityFieldVisibleByConditions,
   isEntityNameField,
+  isEntityNumericFieldType,
   parseEntityListValueIds,
   resolveEntityListFieldOptions,
+  resolveEntityTableDisplayColumnField,
   type Entity,
   type EntityField,
   type EntityRecord,
+  type EntityTableDisplayColumn,
   type EntityTableNestedTarget,
   type EntityValueContext,
 } from "@/entities/entity";
@@ -116,6 +121,107 @@ function calcTypeIsHours(
   return calcTypeNameIsHours(name);
 }
 
+/**
+ * «Часы» / «Сумма» and any numeric siblings merged by the same visibility
+ * controller + table position (same rule as entity table columns).
+ */
+function collectHoursSumAlternatives(
+  entity: Entity,
+  fields: DeptCalculationsSubtaskFields,
+): EntityField[] {
+  const seeds = [fields.hours, fields.sum].filter(
+    (field): field is EntityField => field != null,
+  );
+  if (seeds.length === 0) return [];
+  const seen = new Set(seeds.map((field) => field.id));
+  const out = [...seeds];
+  for (const seed of seeds) {
+    for (const field of entity.fields) {
+      if (seen.has(field.id)) continue;
+      if (!isEntityNumericFieldType(field.type)) continue;
+      if (!canMergeEntityTableFields(seed, field)) continue;
+      seen.add(field.id);
+      out.push(field);
+    }
+  }
+  return out;
+}
+
+function firstNumericValue(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  candidates: readonly (EntityField | null | undefined)[],
+): number | null {
+  for (const field of candidates) {
+    if (!field) continue;
+    const value = getRecordFieldNumber(ctx, entity, record, field);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+/**
+ * Value for the «Часы / сумма» column: visible field of the hours↔sum pair
+ * first (visibilityConditions on тип расчёта), then coalesce across the pair
+ * and «Стоимость» so a filled amount is never shown as «—».
+ */
+function readDeptLineHoursOrSumValue(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  fields: DeptCalculationsSubtaskFields,
+  isHours: boolean,
+): number | null {
+  const alternatives = collectHoursSumAlternatives(entity, fields);
+  if (alternatives.length > 0) {
+    const column: EntityTableDisplayColumn = {
+      id: "dept-hours-sum",
+      label: "Часы/Сумма",
+      fields: alternatives,
+    };
+    const active = resolveEntityTableDisplayColumnField(
+      ctx,
+      entity,
+      record,
+      column,
+    );
+    const visible = alternatives.filter((field) =>
+      isEntityFieldVisibleByConditions(ctx, entity, record, field),
+    );
+    const preferred = isHours
+      ? (visible.find((field) => field.id === fields.hours?.id) ??
+        visible[0] ??
+        active)
+      : (visible.find((field) => field.id === fields.sum?.id) ??
+        visible[0] ??
+        active);
+
+    const fromPreferred = preferred
+      ? getRecordFieldNumber(ctx, entity, record, preferred)
+      : null;
+    if (fromPreferred != null) return fromPreferred;
+
+    const fromVisible = firstNumericValue(ctx, entity, record, visible);
+    if (fromVisible != null) return fromVisible;
+
+    const fromPair = firstNumericValue(ctx, entity, record, alternatives);
+    if (fromPair != null) return fromPair;
+  }
+
+  if (isHours) {
+    return firstNumericValue(ctx, entity, record, [fields.hours]);
+  }
+
+  // Sum type: «Сумма» → paired/visible → «Стоимость» → «Часы» (value often
+  // landed in hours when only that input was filled).
+  return firstNumericValue(ctx, entity, record, [
+    fields.sum,
+    fields.cost,
+    fields.hours,
+  ]);
+}
+
 function nestedLinesForHost(
   host: EntityRecord,
   nested: EntityTableNestedTarget | null,
@@ -158,21 +264,23 @@ export function calculateDeptCalculationsBreakdown(
         lineFields.calcType,
         line.values[lineFields.calcType?.id ?? ""],
       );
-      const hoursValue = lineFields.hours
-        ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.hours)
-        : null;
-      const sumValue = lineFields.sum
-        ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.sum)
-        : null;
+      const amountValue = readDeptLineHoursOrSumValue(
+        ctx,
+        nested.entity,
+        line,
+        lineFields,
+        isHours,
+      );
       const costValue = lineFields.cost
         ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.cost)
         : null;
 
       if (isHours) {
-        hours += nonNegative(hoursValue);
+        hours += nonNegative(amountValue);
         laborCost += nonNegative(costValue);
       } else {
-        fixedExpenses += nonNegative(costValue != null ? costValue : sumValue);
+        // Amount from «Сумма» / paired field; cost only if amount is empty.
+        fixedExpenses += nonNegative(amountValue ?? costValue);
       }
     }
 
@@ -257,18 +365,18 @@ export function resolveDeptLineHoursOrSum(
     fields.calcType,
     record.values[fields.calcType?.id ?? ""],
   );
-  if (isHours) {
-    const value = fields.hours
-      ? getRecordFieldNumber(ctx, entity, record, fields.hours)
-      : null;
-    return { label: "Часы", value, isHours: true };
-  }
-  const value = fields.sum
-    ? getRecordFieldNumber(ctx, entity, record, fields.sum)
-    : fields.cost
-      ? getRecordFieldNumber(ctx, entity, record, fields.cost)
-      : null;
-  return { label: "Сумма", value, isHours: false };
+  const value = readDeptLineHoursOrSumValue(
+    ctx,
+    entity,
+    record,
+    fields,
+    isHours,
+  );
+  return {
+    label: isHours ? "Часы" : "Сумма",
+    value,
+    isHours,
+  };
 }
 
 /**

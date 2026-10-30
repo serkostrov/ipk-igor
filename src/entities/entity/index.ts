@@ -648,6 +648,7 @@ export {
   isEntitySchemaEditDirty,
   setEntityTimeTracking,
   createEntityTimeTrackingJournal,
+  ensureEntityTimeTracking,
   setEntityTimeline,
   setEntityPageLayout,
   rescheduleEntityRecord,

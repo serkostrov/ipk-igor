@@ -529,7 +529,8 @@ export function normalizeEntityField(field: EntityField): EntityField {
     showOnCreate: true,
     visibilityConditions: [],
     includeInTotal: false,
-    tableOrder: 0,
+    // Keep column position from `base` / placeEntityFieldInTable —
+    // forcing 0 pinned «Название» as the first table column forever.
     relationEntityId: null,
     relationMultiple: false,
     unitSuffix: null,

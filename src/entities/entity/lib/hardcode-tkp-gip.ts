@@ -1202,26 +1202,36 @@ function recordManagerUserIds(
   // often walks the catalog even when the calc row manager is still empty).
   if (ids.length === 0) {
     const departmentEntity = resolveDepartmentEntity(entity, entities);
-    const deptManager = departmentEntity
-      ? findEntityManagerUserField(departmentEntity)
-      : null;
-    if (departmentEntity && deptManager) {
-      const groupsField = findDeptCalculationsGroupsField(entity);
-      for (const pair of collectTkpStageDepartmentPairs(
-        groupsField ? record.values[groupsField.id] : undefined,
-      )) {
-        if (!pair.departmentId.trim()) continue;
-        const deptRecord = departmentEntity.records.find(
-          (item) => item.id === pair.departmentId,
-        );
-        if (!deptRecord) continue;
-        if (isGipDepartmentRecord(departmentEntity, deptRecord, entities)) {
-          continue;
-        }
-        for (const id of parseEntityRelationIds(
-          deptRecord.values[deptManager.id],
+    if (departmentEntity) {
+      // Prefer literal «Руководитель» over a soft «Менеджер» users match.
+      const deptManager =
+        departmentEntity.fields.find((field) => {
+          if (field.type !== "relation" && field.type !== "belonging") {
+            return false;
+          }
+          if (getEntityRelationTargetId(field) !== SYSTEM_USERS_ENTITY_ID) {
+            return false;
+          }
+          return fieldNameMatches(field, MANAGER_KEYS);
+        }) ?? findEntityManagerUserField(departmentEntity);
+      if (deptManager) {
+        const groupsField = findDeptCalculationsGroupsField(entity);
+        for (const pair of collectTkpStageDepartmentPairs(
+          groupsField ? record.values[groupsField.id] : undefined,
         )) {
-          push(id);
+          if (!pair.departmentId.trim()) continue;
+          const deptRecord = departmentEntity.records.find(
+            (item) => item.id === pair.departmentId,
+          );
+          if (!deptRecord) continue;
+          if (isGipDepartmentRecord(departmentEntity, deptRecord, entities)) {
+            continue;
+          }
+          for (const id of parseEntityRelationIds(
+            deptRecord.values[deptManager.id],
+          )) {
+            push(id);
+          }
         }
       }
     }

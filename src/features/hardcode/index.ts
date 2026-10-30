@@ -4,7 +4,11 @@ export {
   applyTkpGipDepartmentUsers,
   type TkpGipDepartmentUsersResult,
 } from "./tkp-gip/apply-gip-department-users";
-export { persistDeptCalculationRelatedUpdate } from "./tkp-gip/fan-out-related-persist";
+export {
+  ensureDeptCalculationGipRows,
+  persistDeptCalculationRelatedUpdate,
+  syncDeptCalculationCatalogManagers,
+} from "./tkp-gip/fan-out-related-persist";
 export {
   buildTkpGipSoftFillParentRecord,
   collectDeptCalculationSiblingRecords,

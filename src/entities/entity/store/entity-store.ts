@@ -1305,6 +1305,10 @@ export function updateEntityField(
         if (patch.showInFilters !== undefined) {
           layoutOnly.showInFilters = patch.showInFilters;
         }
+        // Title column position is user-editable layout (same as other fields).
+        if (isEntityNameField(field) && patch.tableOrder !== undefined) {
+          layoutOnly.tableOrder = patch.tableOrder;
+        }
         if (
           isTabLinkField ||
           (isSystemEntityField(field) && !isEntityNameField(field))
@@ -1936,6 +1940,10 @@ export function addEntityTab(
   // Attach orphan fields (wrong/missing tab) to the home fields tab — groups stay.
   if (isEntityFieldsHostTab(tab)) {
     rescueOrphanEntityFields(entityId);
+  }
+
+  if (tab.kind === "timeSessions") {
+    ensureEntityTimeTracking(entityId);
   }
 
   return tab;
@@ -3584,6 +3592,22 @@ export function createEntityTimeTrackingJournal(hostEntityId: string) {
   seedInitialSchemaVersion(entryEntity);
 
   return plan.timeTracking;
+}
+
+/**
+ * Ensures time tracking is wired when the host has a «Учёт времени» tab.
+ * No-op when already wired or when the journal cannot be created.
+ */
+export function ensureEntityTimeTracking(hostEntityId: string) {
+  const host = config.entities.find((item) => item.id === hostEntityId);
+  if (!host) return null;
+  if (host.timeTracking || getEntityTimeTracking(host, config.entities)) {
+    return host.timeTracking;
+  }
+  if (!host.tabs.some((tab) => tab.kind === "timeSessions")) {
+    return null;
+  }
+  return createEntityTimeTrackingJournal(hostEntityId);
 }
 
 /** Insert an already-persisted record into local state (e.g. after invite-user). */
