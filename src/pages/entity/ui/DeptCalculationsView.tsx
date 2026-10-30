@@ -58,6 +58,7 @@ import {
   formatDeptMoney,
   getDeptNestedLines,
   resolveDeptCalcTypeLabelForRecord,
+  resolveDeptLineCost,
   resolveDeptLineHoursOrSum,
   resolveDeptLineTitle,
 } from "@/features/hardcode/dept-calculations/model/aggregation";
@@ -1159,16 +1160,13 @@ function DepartmentBlock({
                               calcTypeOption?.color
                                 ? calcTypeOption.color
                                 : null;
-                            const cost = lineFields.cost
-                              ? getRecordFieldNumber(
-                                  valueContext,
-                                  nested.entity,
-                                  line,
-                                  lineFields.cost,
-                                )
-                              : hoursOrSum.isHours
-                                ? null
-                                : hoursOrSum.value;
+                            const cost = resolveDeptLineCost(
+                              valueContext,
+                              nested.entity,
+                              line,
+                              lineFields,
+                              hoursOrSum.isHours,
+                            );
                             const lineComment = lineFields.comment
                               ? (
                                   line.values[lineFields.comment.id] ?? ""

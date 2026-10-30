@@ -107,6 +107,23 @@ function resolveCalcTypeOptionName(
     return null;
   }
 
+  // Formula / autofill from template: stored label («Сумма», «Часы»).
+  const rawText = (raw ?? "").trim();
+  if (rawText && /[а-яa-z]/i.test(rawText)) return rawText;
+  return null;
+}
+
+function resolveCalcTypeName(
+  entities: readonly Entity[],
+  field: EntityField | null,
+  raw: string | undefined,
+  formattedLabel?: string | null,
+): string | null {
+  if (!field) return null;
+  const fromField = resolveCalcTypeOptionName(entities, field, raw);
+  if (fromField) return fromField;
+  const formatted = (formattedLabel ?? "").trim();
+  if (formatted && formatted !== "—") return formatted;
   return null;
 }
 
@@ -114,11 +131,23 @@ function calcTypeIsHours(
   entities: readonly Entity[],
   field: EntityField | null,
   raw: string | undefined,
+  formattedLabel?: string | null,
 ): boolean {
-  if (!field) return true;
-  const name = resolveCalcTypeOptionName(entities, field, raw);
+  const name = resolveCalcTypeName(entities, field, raw, formattedLabel);
   if (!name) return true;
   return calcTypeNameIsHours(name);
+}
+
+function formatCalcTypeLabel(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField | null,
+): string | null {
+  if (!field) return null;
+  const formatted = formatRecordFieldValue(ctx, entity, record, field).trim();
+  if (!formatted || formatted === "—") return null;
+  return formatted;
 }
 
 /**
@@ -213,12 +242,32 @@ function readDeptLineHoursOrSumValue(
     return firstNumericValue(ctx, entity, record, [fields.hours]);
   }
 
-  // Sum type: «Сумма» → paired/visible → «Стоимость» → «Часы» (value often
-  // landed in hours when only that input was filled).
+  // Sum type: «Сумма» → paired/visible → «Часы» (legacy mis-fill).
+  // Cost / sum-with-coeff belong in the cost column, not here.
+  return firstNumericValue(ctx, entity, record, [fields.sum, fields.hours]);
+}
+
+/**
+ * Money for the «Стоимость» column / rollups:
+ * - «Часы» → «Стоимость»
+ * - «Сумма» → «Сумма с коэффициентом», then «Стоимость»
+ */
+export function resolveDeptLineCost(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  fields: DeptCalculationsSubtaskFields,
+  isHours: boolean,
+): number | null {
+  if (isHours) {
+    return firstNumericValue(ctx, entity, record, [
+      fields.cost,
+      fields.sumWithCoeff,
+    ]);
+  }
   return firstNumericValue(ctx, entity, record, [
-    fields.sum,
+    fields.sumWithCoeff,
     fields.cost,
-    fields.hours,
   ]);
 }
 
@@ -259,28 +308,44 @@ export function calculateDeptCalculationsBreakdown(
         : "—";
       if (title.trim() && title !== "—") lineTitles.push(title);
 
+      const calcRaw = line.values[lineFields.calcType?.id ?? ""];
+      const calcLabel = formatCalcTypeLabel(
+        ctx,
+        nested.entity,
+        line,
+        lineFields.calcType,
+      );
       const isHours = calcTypeIsHours(
         entities,
         lineFields.calcType,
-        line.values[lineFields.calcType?.id ?? ""],
+        calcRaw,
+        calcLabel,
       );
-      const amountValue = readDeptLineHoursOrSumValue(
+      const costValue = resolveDeptLineCost(
         ctx,
         nested.entity,
         line,
         lineFields,
         isHours,
       );
-      const costValue = lineFields.cost
-        ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.cost)
-        : null;
 
       if (isHours) {
-        hours += nonNegative(amountValue);
+        // Only the hours field — never «Сумма» / sum-with-coeff.
+        const hoursValue = lineFields.hours
+          ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.hours)
+          : null;
+        hours += nonNegative(hoursValue);
         laborCost += nonNegative(costValue);
       } else {
-        // Amount from «Сумма» / paired field; cost only if amount is empty.
-        fixedExpenses += nonNegative(amountValue ?? costValue);
+        // Fixed / amount lines: money after coefficient (or raw sum).
+        const amountValue = readDeptLineHoursOrSumValue(
+          ctx,
+          nested.entity,
+          line,
+          lineFields,
+          false,
+        );
+        fixedExpenses += nonNegative(costValue ?? amountValue);
       }
     }
 
@@ -360,10 +425,13 @@ export function resolveDeptLineHoursOrSum(
   entities: readonly Entity[],
   fields: DeptCalculationsSubtaskFields,
 ): { label: string; value: number | null; isHours: boolean } {
+  const calcRaw = record.values[fields.calcType?.id ?? ""];
+  const calcLabel = formatCalcTypeLabel(ctx, entity, record, fields.calcType);
   const isHours = calcTypeIsHours(
     entities,
     fields.calcType,
-    record.values[fields.calcType?.id ?? ""],
+    calcRaw,
+    calcLabel,
   );
   const value = readDeptLineHoursOrSumValue(
     ctx,
@@ -411,11 +479,10 @@ export function resolveDeptCalcTypeLabelForRecord(
 ): string {
   const field = fields.calcType;
   const raw = field ? record.values[field.id] : undefined;
-  if (field && field.type !== "list") {
-    const formatted = formatRecordFieldValue(ctx, entity, record, field).trim();
-    if (formatted && formatted !== "—") return formatted;
-  }
-  const isHours = calcTypeIsHours(entities, field, raw);
+  const formatted = formatCalcTypeLabel(ctx, entity, record, field);
+  const name = resolveCalcTypeName(entities, field, raw, formatted);
+  if (name) return name;
+  const isHours = calcTypeIsHours(entities, field, raw, formatted);
   return resolveDeptCalcTypeLabel(entities, field, raw, isHours);
 }
 

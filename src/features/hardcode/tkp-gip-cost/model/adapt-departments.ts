@@ -15,6 +15,7 @@ import {
 import {
   getDeptNestedLines,
   resolveDeptCalcTypeLabelForRecord,
+  resolveDeptLineCost,
   resolveDeptLineHoursOrSum,
   resolveDeptLineTitle,
 } from "../../dept-calculations/model/aggregation";
@@ -114,9 +115,13 @@ export function adaptDeptRecordsToGipDepartments(options: {
           entities,
           lineFields,
         );
-        const cost = lineFields.cost
-          ? getRecordFieldNumber(ctx, nested.entity, line, lineFields.cost)
-          : null;
+        const cost = resolveDeptLineCost(
+          ctx,
+          nested.entity,
+          line,
+          lineFields,
+          hoursOrSum.isHours,
+        );
         const title = resolveDeptLineTitle(
           ctx,
           nested.entity,
@@ -133,7 +138,8 @@ export function adaptDeptRecordsToGipDepartments(options: {
           calculation_type: calculationType,
           planned_hours: calculationType === "hours" ? (amount ?? 0) : 0,
           cost:
-            calculationType === "hours" ? (cost ?? 0) : (amount ?? cost ?? 0),
+            calculationType === "hours" ? (cost ?? 0) : (cost ?? amount ?? 0),
+          // Already includes template coefficient when «Сумма с коэффициентом».
           expense_category_snapshot:
             calculationType === "amount"
               ? normalizeReviewExpenseCategory("other_without_coefficient")

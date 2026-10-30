@@ -41,6 +41,7 @@ export {
   formatDeptDeadlineDays,
   formatDeptHours,
   formatDeptMoney,
+  resolveDeptLineCost,
 } from "./dept-calculations/model/aggregation";
 export { resolveDeptCalculationsNestedTarget } from "./dept-calculations/model/resolve-nested";
 export {

@@ -97,6 +97,11 @@ const SUM_KEYS = [
   "фикс сумма",
   "amount",
 ] as const;
+const SUM_WITH_COEFF_KEYS = [
+  "сумма с коэффициентом",
+  "сумма с коэф",
+  "сумма с коэф.",
+] as const;
 const CALC_TYPE_KEYS = [
   "тип расчета",
   "тип расчёта",
@@ -105,6 +110,11 @@ const CALC_TYPE_KEYS = [
   "calc type",
 ] as const;
 const COST_KEYS = ["стоимость"] as const;
+
+function nameLooksLikeSumWithCoeff(field: EntityField): boolean {
+  const name = normalizeName(getEntityFieldDisplayName(field));
+  return name.includes("коэффициент") || name.includes("коэф");
+}
 
 export type DeptCalculationsHostFields = {
   deadline: EntityField | null;
@@ -122,6 +132,8 @@ export type DeptCalculationsSubtaskFields = {
   calcType: EntityField | null;
   hours: EntityField | null;
   sum: EntityField | null;
+  /** Formula «Сумма с коэффициентом» — money for type «Сумма». */
+  sumWithCoeff: EntityField | null;
   cost: EntityField | null;
   comment: EntityField | null;
 };
@@ -192,24 +204,49 @@ export function resolveDeptCalculationsSubtaskFields(
   // «Сумма» formula that mirrors cost often stays empty while the number
   // input holds the amount for type «Сумма».
   const hours = findNumericInputField(entity, HOURS_KEYS);
-  const sum = findNumericInputField(entity, SUM_KEYS, {
+  const sumWithCoeff = findNumericInputField(entity, SUM_WITH_COEFF_KEYS, {
     excludeFieldIds: hours ? new Set([hours.id]) : undefined,
   });
+  const usedIds = new Set(
+    [hours?.id, sumWithCoeff?.id].filter((id): id is string => Boolean(id)),
+  );
+  // «Сумма» must not bind to «Сумма с коэффициентом» (name includes «сумма»).
+  const sumCandidates = entity.fields.filter((field) => {
+    if (usedIds.has(field.id)) return false;
+    if (!isEntityNumericFieldType(field.type)) return false;
+    if (nameLooksLikeSumWithCoeff(field)) return false;
+    return fieldNameMatches(field, SUM_KEYS);
+  });
+  const sum =
+    sumCandidates.find((field) => {
+      if (field.type !== "number") return false;
+      const name = normalizeName(getEntityFieldDisplayName(field));
+      return SUM_KEYS.some((key) => name === normalizeName(key));
+    }) ??
+    sumCandidates.find((field) => field.type === "number") ??
+    sumCandidates[0] ??
+    null;
+  if (sum) usedIds.add(sum.id);
+
   const cost =
     findNumericInputField(entity, COST_KEYS, {
-      excludeFieldIds: new Set(
-        [hours?.id, sum?.id].filter((id): id is string => Boolean(id)),
-      ),
+      excludeFieldIds: usedIds,
     }) ??
     findNumericInputField(entity, LABOR_KEYS, {
-      excludeFieldIds: new Set(
-        [hours?.id, sum?.id].filter((id): id is string => Boolean(id)),
-      ),
+      excludeFieldIds: usedIds,
     });
   const comment = findField(
     entity,
     COMMENT_KEYS,
     (field) => field.type === "text" || field.type === "textarea",
   );
-  return { name, calcType, hours, sum, cost, comment };
+  return {
+    name,
+    calcType,
+    hours,
+    sum,
+    sumWithCoeff,
+    cost,
+    comment,
+  };
 }
