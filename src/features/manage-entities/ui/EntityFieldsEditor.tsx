@@ -119,6 +119,7 @@ import {
 import { EntitySubEntitySettingsDialog } from "./EntitySubEntitySettingsDialog";
 import { EntityFilesTabFoldersEditor } from "./EntityFilesTabFoldersEditor";
 import { EntityTabDialog } from "./EntityTabDialog";
+import { EntityTimeTrackingSettings } from "./EntityTimeTrackingDialog";
 
 type EntityFieldsEditorProps = {
   entity: Entity;
@@ -4928,16 +4929,12 @@ export function EntityFieldsEditor({
                 </p>
               </div>
             ) : activeTab && isEntityTimeSessionsTab(activeTab) ? (
-              <div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-muted/15 px-6 py-12 text-center">
-                <p className="text-sm font-medium text-foreground">
-                  Учёт времени
-                </p>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  На странице карточки здесь будет список сессий таймера и
-                  ручных записей времени — без отдельных полей. Нужна настройка
-                  учёта времени у сущности.
-                </p>
-              </div>
+              <EntityTimeTrackingSettings
+                key={`${entity.id}:${entity.timeTracking?.entryEntityId ?? "off"}`}
+                entity={entity}
+                readOnly={readOnly}
+                variant="panel"
+              />
             ) : linkedEntityForActiveTab ? (
               linkedEntityForActiveTab.id === entity.id ||
               linkedEntityForActiveTab.parentEntityId !== entity.id ? (

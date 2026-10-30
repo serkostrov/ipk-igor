@@ -118,6 +118,16 @@ export {
   type TkpSalePriceMode,
 } from "./tkp-commercial";
 
-export { TkpReviewHardcodeSlot } from "./tkp-review/ui/TkpReviewHardcodeSlot";
+export {
+  TkpReviewHardcodeSlot,
+  type TkpReviewHardcodeSection,
+} from "./tkp-review/ui/TkpReviewHardcodeSlot";
 export { resolveTkpReviewCostVisibility } from "./tkp-review/model/visibility";
 export type { TkpReviewCostVisibility } from "./tkp-review/model/visibility";
+export {
+  TKP_PRICE_HARDCODE_TAB_ID,
+  TKP_PRICE_HARDCODE_TAB_NAME,
+  createTkpPriceHardcodeTab,
+  isTkpPriceHardcodeTab,
+  withTkpPriceHardcodeTab,
+} from "./tkp-review/model/price-tab";

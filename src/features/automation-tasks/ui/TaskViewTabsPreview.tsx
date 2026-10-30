@@ -54,8 +54,15 @@ import {
   type EntityTab,
   type EntityTabFileEntry,
 } from "@/entities/entity";
+import { useCurrentRole } from "@/entities/access";
 import { useEntityRecordEvents } from "@/entities/history";
 import { RecordEntityTabPanel } from "@/pages/entity/ui/RecordEntityTabPanel";
+import {
+  isTkpPriceHardcodeTab,
+  resolveTkpReviewCostVisibility,
+  TkpReviewHardcodeSlot,
+  withTkpPriceHardcodeTab,
+} from "@/features/hardcode";
 import {
   formatDatetimeDisplay,
   formatTimestampDisplay,
@@ -95,6 +102,8 @@ type TaskViewTabsPreviewProps = {
   /** Optional badge on the fill tab (e.g. remaining required count). */
   fillBadge?: ReactNode;
   className?: string;
+  /** Hardcode commercial pricing tab: block edits while task is busy. */
+  readOnly?: boolean;
 };
 
 function folderPathLabel(
@@ -217,6 +226,8 @@ function collectFilesPreviewRows(
 }
 
 function TabKindIcon({ tab }: { tab: EntityTab }) {
+  if (isTkpPriceHardcodeTab(tab))
+    return <FileText className="size-3.5" aria-hidden />;
   if (isEntityFilesTab(tab)) return <Folder className="size-3.5" aria-hidden />;
   if (isEntityHistoryTab(tab))
     return <History className="size-3.5" aria-hidden />;
@@ -975,6 +986,7 @@ function TabPreviewBody({
   filesTabEntryIds,
   filesTabAllowMove = false,
   depth = 0,
+  readOnly = true,
 }: {
   entity: Entity;
   record: EntityRecord;
@@ -983,7 +995,18 @@ function TabPreviewBody({
   filesTabAllowMove?: boolean;
   /** Prevent infinite mirror → mirror recursion. */
   depth?: number;
+  readOnly?: boolean;
 }) {
+  if (isTkpPriceHardcodeTab(tab)) {
+    return (
+      <TkpReviewHardcodeSlot
+        entity={entity}
+        record={record}
+        readOnly={readOnly}
+        sections={["commercial"]}
+      />
+    );
+  }
   if (isEntityRecordsTab(tab)) {
     return <RecordsPreview entity={entity} record={record} tab={tab} />;
   }
@@ -1035,14 +1058,19 @@ export function TaskViewTabsPreview({
   fillSlot,
   fillBadge,
   className,
+  readOnly = true,
 }: TaskViewTabsPreviewProps) {
-  const viewTabs = useMemo(
-    () =>
-      tabIds
-        .map((id) => entity.tabs.find((tab) => tab.id === id))
-        .filter((tab): tab is EntityTab => tab != null),
-    [entity.tabs, tabIds],
+  const role = useCurrentRole();
+  const showCommercialPricing = useMemo(
+    () => resolveTkpReviewCostVisibility(role).showCommercialPricing,
+    [role],
   );
+  const viewTabs = useMemo(() => {
+    const selected = tabIds
+      .map((id) => entity.tabs.find((tab) => tab.id === id))
+      .filter((tab): tab is EntityTab => tab != null);
+    return withTkpPriceHardcodeTab(selected, entity, showCommercialPricing);
+  }, [entity, showCommercialPricing, tabIds]);
 
   const hasFill = fillSlot != null;
   const defaultTab = hasFill ? FILL_TAB_ID : (viewTabs[0]?.id ?? FILL_TAB_ID);
@@ -1133,6 +1161,7 @@ export function TaskViewTabsPreview({
             tab={item}
             filesTabEntryIds={filesTabEntryIds}
             filesTabAllowMove={filesTabAllowMove}
+            readOnly={readOnly}
           />
         </TabsContent>
       ))}

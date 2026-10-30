@@ -427,6 +427,15 @@ export {
   type ManualTimePlan,
 } from "./model/time-tracking";
 export {
+  buildTimeTrackingJournalPlan,
+  canEntityServeAsTimeJournal,
+  getRelationFieldsTo,
+  getTimeTrackingSettingsError,
+  listTimeJournalCandidates,
+  suggestEntityTimeTracking,
+  type TimeTrackingJournalPlan,
+} from "./model/time-tracking-setup";
+export {
   ListSelect,
   ListValueDisplay,
   OverflowCommaLabels,
@@ -635,6 +644,7 @@ export {
   getEntitySchemaEditSession,
   isEntitySchemaEditDirty,
   setEntityTimeTracking,
+  createEntityTimeTrackingJournal,
   setEntityTimeline,
   setEntityPageLayout,
   rescheduleEntityRecord,

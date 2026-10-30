@@ -53,16 +53,27 @@ import {
 import { TkpRelatedMoneyTable } from "./TkpRelatedMoneyTable";
 import { TkpPendingPriceVersionBanner } from "./TkpPendingPriceVersionBanner";
 
+export type TkpReviewHardcodeSection = "gip" | "commercial" | "related";
+
+const ALL_TKP_REVIEW_SECTIONS: readonly TkpReviewHardcodeSection[] = [
+  "gip",
+  "commercial",
+  "related",
+];
+
 export function TkpReviewHardcodeSlot({
   entity,
   record,
   readOnly = false,
   showRelatedTables = true,
+  /** Which blocks to render (GIP summary can live on the dept-calculations tab). */
+  sections = ALL_TKP_REVIEW_SECTIONS,
 }: {
   entity: Entity;
   record: EntityRecord;
   readOnly?: boolean;
   showRelatedTables?: boolean;
+  sections?: readonly TkpReviewHardcodeSection[];
 }) {
   const role = useCurrentRole();
   const visibility = useMemo(
@@ -271,23 +282,29 @@ export function TkpReviewHardcodeSlot({
     toast.message("Загрузите новый файл ТКП и сохраните версию цены");
   }
 
-  const canEditCommercial = !readOnly && visibility.showCommercialPricing;
+  const wantGip = sections.includes("gip");
+  const wantCommercial = sections.includes("commercial");
+  const wantRelated = sections.includes("related") && showRelatedTables;
+
+  const showGipBlock =
+    wantGip &&
+    (visibility.showGipCalculation ||
+      visibility.showDepartmentRestrictedTotals);
+  const showCommercialBlock =
+    wantCommercial && visibility.showCommercialPricing;
+
+  const canEditCommercial = !readOnly && showCommercialBlock;
   const canEditGipDuration =
     !readOnly &&
     (visibility.showGipCalculation || visibility.showCommercialPricing);
 
-  if (
-    !visibility.showGipCalculation &&
-    !visibility.showCommercialPricing &&
-    !visibility.showDepartmentRestrictedTotals
-  ) {
+  if (!showGipBlock && !showCommercialBlock && !wantRelated) {
     return null;
   }
 
   return (
     <div className="flex flex-col gap-4" data-testid="tkp-review-hardcode-slot">
-      {visibility.showGipCalculation ||
-      visibility.showDepartmentRestrictedTotals ? (
+      {showGipBlock ? (
         <GipCostSummary
           calculation={gipCalculation}
           executionDurationDays={executionDurationDays}
@@ -298,7 +315,7 @@ export function TkpReviewHardcodeSlot({
         />
       ) : null}
 
-      {visibility.showCommercialPricing ? (
+      {showCommercialBlock ? (
         <div className="space-y-3">
           {pendingNewPriceVersion ? (
             <TkpPendingPriceVersionBanner
@@ -325,7 +342,7 @@ export function TkpReviewHardcodeSlot({
         </div>
       ) : null}
 
-      {showRelatedTables ? (
+      {wantRelated ? (
         <div className="grid gap-4 lg:grid-cols-2">
           <TkpRelatedMoneyTable
             title="Командировки"

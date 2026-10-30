@@ -907,6 +907,7 @@ function TaskWorkspaceBody({
           record={{ ...record, values: mergedValues }}
           readOnly={busy}
           showRelatedTables
+          sections={["related"]}
         />
       ) : null}
 
@@ -921,6 +922,7 @@ function TaskWorkspaceBody({
           tabIds={earlyViewTabIds}
           filesTabEntryIds={taskAsk.viewFilesTabEntryIds}
           filesTabAllowMove={taskAsk.viewFilesTabAllowMove}
+          readOnly={busy}
           fillBadge={
             hasFillForm && missingRequiredCount > 0 ? (
               <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">

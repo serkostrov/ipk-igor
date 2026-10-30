@@ -89,6 +89,7 @@ export function SettingSelect({
   placeholder = "Выберите",
   emptyLabel,
   noOptionsLabel,
+  disabled,
   onChange,
 }: {
   id: string;
@@ -103,6 +104,7 @@ export function SettingSelect({
   emptyLabel?: string;
   /** Shown instead of the select when there is nothing to choose. */
   noOptionsLabel?: string;
+  disabled?: boolean;
   onChange: (value: string | null) => void;
 }) {
   const selected = options.find((option) => option.value === value);
@@ -129,6 +131,7 @@ export function SettingSelect({
       ) : (
         <Select
           value={value ?? EMPTY_VALUE}
+          disabled={disabled}
           onValueChange={(next) => {
             if (next == null) return;
             const nextValue = String(next);

@@ -84,7 +84,10 @@ import {
 } from "@/entities/entity";
 import {
   isTkpAnalysisEntity,
+  isTkpPriceHardcodeTab,
+  resolveTkpReviewCostVisibility,
   TkpReviewHardcodeSlot,
+  withTkpPriceHardcodeTab,
 } from "@/features/hardcode";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { RecordEntityTabPanel } from "./RecordEntityTabPanel";
@@ -1146,7 +1149,19 @@ export function EntityRecordPage({
       (group) => group.name !== PRIMARY_ENTITY_FIELD_GROUP,
     );
   }, [isUsersEntity, primaryGroups]);
-  const entityTabs = entity.tabs;
+  const tkpCostVisibility = useMemo(
+    () => resolveTkpReviewCostVisibility(role),
+    [role],
+  );
+  const entityTabs = useMemo(
+    () =>
+      withTkpPriceHardcodeTab(
+        entity.tabs,
+        entity,
+        tkpCostVisibility.showCommercialPricing,
+      ),
+    [entity, tkpCostVisibility.showCommercialPricing],
+  );
   const resolvedActiveTabId =
     entityTabs.find((tab) => tab.id === locationTabId)?.id ??
     entityTabs[0]?.id ??
@@ -1270,6 +1285,7 @@ export function EntityRecordPage({
               entity={entity}
               record={record}
               readOnly={!canUpdate}
+              sections={["related"]}
             />
           ) : null}
 
@@ -1299,6 +1315,19 @@ export function EntityRecordPage({
             ) : null}
 
             {entityTabs.map((tab) => {
+              if (isTkpPriceHardcodeTab(tab)) {
+                return (
+                  <TabsContent key={tab.id} value={tab.id} className="mt-0">
+                    <TkpReviewHardcodeSlot
+                      entity={entity}
+                      record={record}
+                      readOnly={!canUpdate}
+                      sections={["commercial"]}
+                    />
+                  </TabsContent>
+                );
+              }
+
               if (isEntityMirrorTab(tab)) {
                 return (
                   <TabsContent key={tab.id} value={tab.id} className="mt-0">

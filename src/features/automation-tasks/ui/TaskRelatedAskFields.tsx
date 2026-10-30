@@ -18,8 +18,10 @@ import {
 } from "@/entities/entity";
 import {
   filterDeptCalculationRecordsForAssignee,
+  isTkpAnalysisEntity,
   resolveDeptCalculationsHostFields,
   resolveEditableDeptCalculationRecordIds,
+  TkpReviewHardcodeSlot,
 } from "@/features/hardcode";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 import { DeptCalculationsView } from "@/pages/entity/ui/DeptCalculationsView";
@@ -358,6 +360,14 @@ export function TaskRelatedAskFields({
               editableRecordIds={editableDeptRecordIds}
             />
           )}
+          {softFillParent && isTkpAnalysisEntity(softFillParent.entity) ? (
+            <TkpReviewHardcodeSlot
+              entity={softFillParent.entity}
+              record={softFillParent.record}
+              readOnly={disabled}
+              sections={["gip"]}
+            />
+          ) : null}
         </div>
       ) : null}
 

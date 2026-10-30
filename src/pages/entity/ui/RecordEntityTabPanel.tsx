@@ -100,7 +100,11 @@ import {
   collectRecordsLinkedToParent,
   resolveLinkedTabParentLinkFieldId,
 } from "@/entities/automation";
-import { isDeptCalculationsEntity } from "@/features/hardcode";
+import {
+  isDeptCalculationsEntity,
+  isTkpAnalysisEntity,
+  TkpReviewHardcodeSlot,
+} from "@/features/hardcode";
 import { cn } from "@/shared/lib/cn";
 import {
   ENTITY_TABLE_ACTIONS_WIDTH,
@@ -1771,6 +1775,20 @@ export function RecordEntityTabPanel({
     setDialogRecord("new");
   }
 
+  /** Hardcode: GIP cost summary lives at the end of «Расчёты отделов» on TKP. */
+  const tkpGipFooter =
+    isDeptCalculationsEntity(linkedEntity) &&
+    hostEntity &&
+    parentRecord &&
+    isTkpAnalysisEntity(hostEntity) ? (
+      <TkpReviewHardcodeSlot
+        entity={hostEntity}
+        record={parentRecord}
+        readOnly={readOnly}
+        sections={["gip"]}
+      />
+    ) : null;
+
   return (
     <section
       className={cn(
@@ -1808,19 +1826,24 @@ export function RecordEntityTabPanel({
       </header>
 
       {records.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-12 text-center">
-          <p className="text-sm font-medium text-foreground">Нет записей</p>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            {readOnly
-              ? "Связанных записей пока нет."
-              : singleRecord
-                ? "Добавьте запись, чтобы она появилась здесь."
-                : "Добавьте первую запись, чтобы она появилась здесь."}
-          </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-12 text-center">
+            <p className="text-sm font-medium text-foreground">Нет записей</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              {readOnly
+                ? "Связанных записей пока нет."
+                : singleRecord
+                  ? "Добавьте запись, чтобы она появилась здесь."
+                  : "Добавьте первую запись, чтобы она появилась здесь."}
+            </p>
+          </div>
+          {tkpGipFooter ? (
+            <div className="px-3 pb-3">{tkpGipFooter}</div>
+          ) : null}
         </div>
       ) : recordsDisplay === "table" && !singleRecord ? (
         isDeptCalculationsEntity(linkedEntity) ? (
-          <div className="min-h-0 flex-1 p-3 pt-0">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 p-3 pt-0">
             <DeptCalculationsView
               entity={linkedEntity}
               records={records}
@@ -1833,6 +1856,7 @@ export function RecordEntityTabPanel({
                 readOnly ? undefined : (record) => setDialogRecord(record)
               }
             />
+            {tkpGipFooter}
           </div>
         ) : (
           <RecordsTable

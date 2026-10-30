@@ -68,8 +68,10 @@ import {
 import {
   ensureSystemEntities,
   findSystemUserByAuthId,
+  getSystemUsersEntity,
   syncUsersRoleFieldOptions,
 } from "../model/system-entities";
+import { buildTimeTrackingJournalPlan } from "../model/time-tracking-setup";
 import { isEntityTableParentField } from "../model/table-hierarchy";
 import {
   DEFAULT_ENTITY_FIELD_GROUP,
@@ -3470,6 +3472,38 @@ export function setEntityTimeTracking(
   timeTracking: EntityTimeTracking | null,
 ) {
   mapEntity(entityId, (entity) => ({ ...entity, timeTracking }));
+}
+
+/**
+ * Creates a ready «Сессии · …» journal entity with all required fields and
+ * wires time tracking on the host in one structure write.
+ */
+export function createEntityTimeTrackingJournal(hostEntityId: string) {
+  const host = config.entities.find((item) => item.id === hostEntityId);
+  if (!host) return null;
+  const users = getSystemUsersEntity(config.entities);
+  if (!users) return null;
+
+  const plan = buildTimeTrackingJournalPlan({
+    host,
+    usersEntityId: users.id,
+    createId,
+  });
+  const entryEntity = normalizeEntity(plan.entryEntity);
+
+  persistStructure({
+    entities: [
+      ...config.entities.map((entity) =>
+        entity.id === hostEntityId
+          ? { ...entity, timeTracking: plan.timeTracking }
+          : entity,
+      ),
+      entryEntity,
+    ],
+  });
+  seedInitialSchemaVersion(entryEntity);
+
+  return plan.timeTracking;
 }
 
 /** Insert an already-persisted record into local state (e.g. after invite-user). */
