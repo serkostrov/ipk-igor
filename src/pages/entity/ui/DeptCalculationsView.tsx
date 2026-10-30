@@ -922,9 +922,7 @@ function DepartmentBlock({
                               value={deadlineInput}
                               required
                               aria-required
-                              aria-invalid={
-                                !deadlineFilled ? true : undefined
-                              }
+                              aria-invalid={!deadlineFilled ? true : undefined}
                               className={cn(
                                 !deadlineFilled &&
                                   "border-destructive/60 focus-visible:ring-destructive/30",

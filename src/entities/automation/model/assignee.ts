@@ -4,12 +4,26 @@ import {
   type AutomationConditions,
 } from "./conditions";
 
+/**
+ * When several assignees get parallel tasks: advance on the first «Готово»
+ * (`any`) or only after every sibling finishes (`all`, default).
+ */
+export type AutomationAssigneeCompleteWhen = "all" | "any";
+
 /** Leaf ways to pick people (no nesting). */
 export type AutomationAssigneeLeafResolver =
   | { type: "none" }
-  | { type: "fixedUsers"; userIds: string[] }
+  | {
+      type: "fixedUsers";
+      userIds: string[];
+      completeWhen?: AutomationAssigneeCompleteWhen;
+    }
   | { type: "field"; fieldId: string }
-  | { type: "relationFieldFanOut"; fieldId: string }
+  | {
+      type: "relationFieldFanOut";
+      fieldId: string;
+      completeWhen?: AutomationAssigneeCompleteWhen;
+    }
   | {
       type: "relatedField";
       /**
@@ -43,8 +57,14 @@ export type AutomationAssigneeLeafResolver =
        * field (separate tasks). Otherwise only the first.
        */
       fanOut?: boolean;
+      /** Join for fan-out siblings. Default `all` when `fanOut`. */
+      completeWhen?: AutomationAssigneeCompleteWhen;
     }
-  | { type: "role"; roleId: string }
+  | {
+      type: "role";
+      roleId: string;
+      completeWhen?: AutomationAssigneeCompleteWhen;
+    }
   | { type: "currentUser" }
   | { type: "recordCreator" };
 
@@ -86,14 +106,14 @@ export const AUTOMATION_ASSIGNEE_TYPE_HINTS: Record<
 > = {
   none: "Исполнитель не назначается.",
   fixedUsers:
-    "Задача уйдёт выбранным пользователям. Если их несколько — следующий шаг после всех.",
+    "Задача уйдёт выбранным пользователям. Если их несколько — можно выбрать, когда открывать следующий шаг.",
   field:
     "Человек из поля этой записи или через связь / вложенность (Менеджер, ГИП…). Если в поле несколько — только первый.",
   relationFieldFanOut:
-    "Отдельная задача каждому из поля. Следующий шаг сценария — когда закончат все.",
+    "Отдельная задача каждому из поля. Когда открывать следующий шаг — настраивается отдельно.",
   relatedField:
-    "Через связь или вложенность: связанная запись → … → поле с человеком (Менеджер, ГИП…). При «каждому» следующий шаг — после всех.",
-  role: "Задача появится у всех пользователей с выбранной ролью. Следующий шаг — когда закончат все.",
+    "Через связь или вложенность: связанная запись → … → поле с человеком (Менеджер, ГИП…). При «каждому» можно выбрать, когда открывать следующий шаг.",
+  role: "Задача появится у всех пользователей с выбранной ролью. Когда открывать следующий шаг — настраивается отдельно.",
   currentUser: "Исполнитель — тот, кто вызвал переход или изменение стадии.",
   recordCreator: "Исполнитель — автор записи (если он известен).",
 };
@@ -247,6 +267,55 @@ export function defaultAssigneeLeafResolver(): AutomationAssigneeLeafResolver {
   return { type: "currentUser" };
 }
 
+export function normalizeAssigneeCompleteWhen(
+  raw: unknown,
+): AutomationAssigneeCompleteWhen | undefined {
+  if (raw === "all" || raw === "any") return raw;
+  return undefined;
+}
+
+/** Effective join for multi-assignee resolvers (`all` if unset). */
+export function assigneeCompleteWhen(
+  value: AutomationAssigneeLeafResolver,
+): AutomationAssigneeCompleteWhen | undefined {
+  switch (value.type) {
+    case "relationFieldFanOut":
+    case "role":
+      return value.completeWhen ?? "all";
+    case "fixedUsers":
+      return value.userIds.length > 1
+        ? (value.completeWhen ?? "all")
+        : undefined;
+    case "relatedField":
+      return value.fanOut ? (value.completeWhen ?? "all") : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** Whether the editor should show «когда все / любой». */
+export function assigneeShowsCompleteWhen(
+  value: AutomationAssigneeLeafResolver,
+): boolean {
+  return assigneeCompleteWhen(value) != null;
+}
+
+export function withAssigneeCompleteWhen(
+  value: AutomationAssigneeLeafResolver,
+  completeWhen: AutomationAssigneeCompleteWhen,
+): AutomationAssigneeLeafResolver {
+  switch (value.type) {
+    case "relationFieldFanOut":
+    case "fixedUsers":
+    case "role":
+      return { ...value, completeWhen };
+    case "relatedField":
+      return value.fanOut ? { ...value, completeWhen } : value;
+    default:
+      return value;
+  }
+}
+
 export function defaultConditionalAssigneeResolver(): Extract<
   AutomationAssigneeResolver,
   { type: "conditional" }
@@ -274,14 +343,33 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
       const userIds = Array.isArray(raw.userIds)
         ? raw.userIds.filter((id): id is string => typeof id === "string")
         : [];
-      return { type: "fixedUsers", userIds };
+      const completeWhen = normalizeAssigneeCompleteWhen(
+        raw.completeWhen ?? raw.complete_when,
+      );
+      return {
+        type: "fixedUsers",
+        userIds,
+        ...(completeWhen ? { completeWhen } : {}),
+      };
     }
-    case "field":
+    case "field": {
+      const fieldIdRaw = raw.fieldId ?? raw.field_id;
+      const fieldId = typeof fieldIdRaw === "string" ? fieldIdRaw.trim() : "";
+      if (!fieldId) return defaultAssigneeLeafResolver();
+      return { type: "field", fieldId };
+    }
     case "relationFieldFanOut": {
       const fieldIdRaw = raw.fieldId ?? raw.field_id;
       const fieldId = typeof fieldIdRaw === "string" ? fieldIdRaw.trim() : "";
       if (!fieldId) return defaultAssigneeLeafResolver();
-      return { type, fieldId };
+      const completeWhen = normalizeAssigneeCompleteWhen(
+        raw.completeWhen ?? raw.complete_when,
+      );
+      return {
+        type: "relationFieldFanOut",
+        fieldId,
+        ...(completeWhen ? { completeWhen } : {}),
+      };
     }
     case "relatedField": {
       const pathFromArray = Array.isArray(raw.relationPath)
@@ -352,6 +440,9 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
         return defaultAssigneeLeafResolver();
       }
       const fanOut = raw.fanOut === true || raw.fan_out === true;
+      const completeWhen = normalizeAssigneeCompleteWhen(
+        raw.completeWhen ?? raw.complete_when,
+      );
       const depthsRaw = Array.isArray(raw.relationGroupsDepths)
         ? raw.relationGroupsDepths
         : Array.isArray(raw.relation_groups_depths)
@@ -380,7 +471,13 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
         ...(linkedChild ? { linkedChild } : {}),
         ...(hasDepth ? { relationGroupsDepths } : {}),
       };
-      return fanOut ? { ...base, fanOut: true } : base;
+      return fanOut
+        ? {
+            ...base,
+            fanOut: true,
+            ...(completeWhen ? { completeWhen } : {}),
+          }
+        : base;
     }
     case "role": {
       const roleId =
@@ -390,7 +487,14 @@ function normalizeLeafResolver(value: unknown): AutomationAssigneeLeafResolver {
             ? raw.role_id.trim()
             : "";
       if (!roleId) return defaultAssigneeLeafResolver();
-      return { type: "role", roleId };
+      const completeWhen = normalizeAssigneeCompleteWhen(
+        raw.completeWhen ?? raw.complete_when,
+      );
+      return {
+        type: "role",
+        roleId,
+        ...(completeWhen ? { completeWhen } : {}),
+      };
     }
     case "recordCreator":
       return { type: "recordCreator" };

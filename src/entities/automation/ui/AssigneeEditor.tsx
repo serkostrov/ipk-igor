@@ -4,12 +4,16 @@ import {
   AUTOMATION_ASSIGNEE_SOURCE_GROUPS,
   AUTOMATION_ASSIGNEE_SOURCE_LABELS,
   AUTOMATION_ASSIGNEE_SOURCE_ORDER,
+  assigneeCompleteWhen,
+  assigneeShowsCompleteWhen,
   assigneeSourceKind,
   createAutomationAssigneeBranchId,
   defaultAssigneeLeafResolver,
   defaultConditionalAssigneeResolver,
   relatedFieldRelationPath,
+  withAssigneeCompleteWhen,
   type AutomationAssigneeBranch,
+  type AutomationAssigneeCompleteWhen,
   type AutomationAssigneeEditorMode,
   type AutomationAssigneeLeafResolver,
   type AutomationAssigneeResolver,
@@ -126,7 +130,11 @@ function defaultFromFieldResolver(
   const direct = firstUserRelationFieldId(fields);
   if (direct) {
     return preferFanOut
-      ? { type: "relationFieldFanOut", fieldId: direct }
+      ? {
+          type: "relationFieldFanOut",
+          fieldId: direct,
+          completeWhen: "all",
+        }
       : { type: "field", fieldId: direct };
   }
   return (
@@ -139,9 +147,18 @@ function defaultFromFieldResolver(
 function fanOutLabels() {
   return {
     one: "Только первому",
-    oneHint: "Дальше сразу после его ответа",
+    oneHint: "Одна задача первому из списка",
     each: "Каждому из поля",
-    eachHint: "Дальше — когда закончат все",
+    eachHint: "Отдельная задача каждому",
+  };
+}
+
+function completeWhenLabels() {
+  return {
+    all: "Когда закончат все",
+    allHint: "Дальше после последнего ответа",
+    any: "Когда любой закончит",
+    anyHint: "Дальше сразу после первого ответа",
   };
 }
 
@@ -155,16 +172,25 @@ function asLeaf(
 function pathToResolver(
   path: UserFieldPath,
   preferFanOut: boolean,
+  completeWhen: AutomationAssigneeCompleteWhen = "all",
 ): AutomationAssigneeLeafResolver {
   if (path.kind === "direct") {
     return preferFanOut
-      ? { type: "relationFieldFanOut", fieldId: path.fieldId }
+      ? {
+          type: "relationFieldFanOut",
+          fieldId: path.fieldId,
+          completeWhen,
+        }
       : { type: "field", fieldId: path.fieldId };
   }
   const [relationFieldId, ...via] = path.relationPath;
   if (!relationFieldId && !path.linkedChild) {
     return preferFanOut
-      ? { type: "relationFieldFanOut", fieldId: path.fieldId }
+      ? {
+          type: "relationFieldFanOut",
+          fieldId: path.fieldId,
+          completeWhen,
+        }
       : { type: "field", fieldId: path.fieldId };
   }
   const depths = path.relationGroupsDepths;
@@ -186,7 +212,56 @@ function pathToResolver(
     ...(linkedChild ? { linkedChild } : {}),
     ...(hasDepth ? { relationGroupsDepths: depths } : {}),
   };
-  return preferFanOut ? { ...base, fanOut: true } : base;
+  return preferFanOut ? { ...base, fanOut: true, completeWhen } : base;
+}
+
+function CompleteWhenPicker({
+  value,
+  onChange,
+}: {
+  value: AutomationAssigneeCompleteWhen;
+  onChange: (next: AutomationAssigneeCompleteWhen) => void;
+}) {
+  const labels = completeWhenLabels();
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-[11px] font-medium text-muted-foreground">
+        Переход дальше
+      </Label>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button
+          type="button"
+          className={cn(
+            "rounded-md border px-2.5 py-2 text-left transition-colors",
+            value === "all"
+              ? "border-primary/40 bg-background ring-1 ring-primary/25"
+              : "border-border/70 bg-background/60 hover:bg-background",
+          )}
+          onClick={() => onChange("all")}
+        >
+          <span className="block text-xs font-medium">{labels.all}</span>
+          <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
+            {labels.allHint}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "rounded-md border px-2.5 py-2 text-left transition-colors",
+            value === "any"
+              ? "border-primary/40 bg-background ring-1 ring-primary/25"
+              : "border-border/70 bg-background/60 hover:bg-background",
+          )}
+          onClick={() => onChange("any")}
+        >
+          <span className="block text-xs font-medium">{labels.any}</span>
+          <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
+            {labels.anyHint}
+          </span>
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function findPathLeafField(
@@ -373,6 +448,9 @@ function LeafAssigneeEditor({
     linkedTabCount > 0;
   const showFanOut = pathNeedsFanOutChoice(pathValue, rootEntity, entities);
   const fanOutSelected = isFanOutSelected(value);
+  const joinMode = assigneeCompleteWhen(value) ?? "all";
+  const showCompleteWhen =
+    mode === "assignee" && assigneeShowsCompleteWhen(value);
 
   const sourceOptions = AUTOMATION_ASSIGNEE_SOURCE_ORDER.filter((kind) => {
     if (kind === "conditional") return false;
@@ -402,6 +480,8 @@ function LeafAssigneeEditor({
       onChange({
         type: "fixedUsers",
         userIds: value.type === "fixedUsers" ? value.userIds : [],
+        completeWhen:
+          value.type === "fixedUsers" ? (value.completeWhen ?? "all") : "all",
       });
       return;
     }
@@ -409,6 +489,8 @@ function LeafAssigneeEditor({
       onChange({
         type: "role",
         roleId: value.type === "role" ? value.roleId : (roles[0]?.id ?? ""),
+        completeWhen:
+          value.type === "role" ? (value.completeWhen ?? "all") : "all",
       });
       return;
     }
@@ -475,7 +557,13 @@ function LeafAssigneeEditor({
                   )
                     ? pathImpliesMultiAssignee(next) || fanOutSelected
                     : fanOutSelected;
-                  onChange(pathToResolver(next, preferFanOut));
+                  onChange(
+                    pathToResolver(
+                      next,
+                      preferFanOut,
+                      preferFanOut ? joinMode : "all",
+                    ),
+                  );
                 }}
               />
             )}
@@ -512,7 +600,9 @@ function LeafAssigneeEditor({
                       ? "border-primary/40 bg-background ring-1 ring-primary/25"
                       : "border-border/70 bg-background/60 hover:bg-background",
                   )}
-                  onClick={() => onChange(pathToResolver(pathValue, true))}
+                  onClick={() =>
+                    onChange(pathToResolver(pathValue, true, joinMode))
+                  }
                 >
                   <span className="block text-xs font-medium">
                     {fanOut.each}
@@ -523,6 +613,15 @@ function LeafAssigneeEditor({
                 </button>
               </div>
             </div>
+          ) : null}
+
+          {showCompleteWhen ? (
+            <CompleteWhenPicker
+              value={joinMode}
+              onChange={(next) =>
+                onChange(withAssigneeCompleteWhen(value, next))
+              }
+            />
           ) : null}
         </div>
       ) : null}
@@ -538,7 +637,11 @@ function LeafAssigneeEditor({
             value={value.roleId || undefined}
             onValueChange={(next) => {
               if (next != null)
-                onChange({ type: "role", roleId: String(next) });
+                onChange({
+                  type: "role",
+                  roleId: String(next),
+                  completeWhen: value.completeWhen ?? "all",
+                });
             }}
           >
             <SelectTrigger className="w-full">
@@ -561,6 +664,14 @@ function LeafAssigneeEditor({
               )}
             </SelectContent>
           </Select>
+          {showCompleteWhen ? (
+            <CompleteWhenPicker
+              value={joinMode}
+              onChange={(next) =>
+                onChange(withAssigneeCompleteWhen(value, next))
+              }
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -577,13 +688,25 @@ function LeafAssigneeEditor({
             multiple
             placeholder="Выберите пользователей"
             aria-label="Пользователи"
-            onChange={(next) =>
+            onChange={(next) => {
+              const userIds = parseEntityRelationIds(next);
               onChange({
                 type: "fixedUsers",
-                userIds: parseEntityRelationIds(next),
-              })
-            }
+                userIds,
+                ...(userIds.length > 1
+                  ? { completeWhen: value.completeWhen ?? "all" }
+                  : {}),
+              });
+            }}
           />
+          {showCompleteWhen ? (
+            <CompleteWhenPicker
+              value={joinMode}
+              onChange={(next) =>
+                onChange(withAssigneeCompleteWhen(value, next))
+              }
+            />
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -851,6 +974,8 @@ export function AssigneeEditor({
       onChange({
         type: "fixedUsers",
         userIds: leaf.type === "fixedUsers" ? leaf.userIds : [],
+        completeWhen:
+          leaf.type === "fixedUsers" ? (leaf.completeWhen ?? "all") : "all",
       });
       return;
     }
@@ -858,6 +983,8 @@ export function AssigneeEditor({
       onChange({
         type: "role",
         roleId: leaf.type === "role" ? leaf.roleId : "",
+        completeWhen:
+          leaf.type === "role" ? (leaf.completeWhen ?? "all") : "all",
       });
       return;
     }

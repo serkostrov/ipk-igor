@@ -44,7 +44,6 @@ import {
   type AutomationTask,
 } from "../model/types";
 
-
 /** Append selected form-field values as notes on the first «Записи» tab. */
 async function appendOutcomeFieldComments(
   entity: Entity,
@@ -535,8 +534,7 @@ export async function completeAutomationTask(
     rpcResult.waitingForAssignees
   ) {
     toast.message("Задание завершено", {
-      description:
-        "Следующий шаг откроется, когда закончат все исполнители",
+      description: "Следующий шаг откроется, когда закончат все исполнители",
     });
   }
 

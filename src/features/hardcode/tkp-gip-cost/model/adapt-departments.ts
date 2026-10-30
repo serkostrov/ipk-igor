@@ -131,12 +131,9 @@ export function adaptDeptRecordsToGipDepartments(options: {
           department_name: departmentName,
           project_stage_name: projectStageName,
           calculation_type: calculationType,
-          planned_hours:
-            calculationType === "hours" ? (amount ?? 0) : 0,
+          planned_hours: calculationType === "hours" ? (amount ?? 0) : 0,
           cost:
-            calculationType === "hours"
-              ? (cost ?? 0)
-              : (amount ?? cost ?? 0),
+            calculationType === "hours" ? (cost ?? 0) : (amount ?? cost ?? 0),
           expense_category_snapshot:
             calculationType === "amount"
               ? normalizeReviewExpenseCategory("other_without_coefficient")
