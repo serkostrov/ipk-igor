@@ -40,6 +40,10 @@ import {
   BIND_PRICE_REVISION_KEY,
   PENDING_NEW_PRICE_KEY,
 } from "../lib/tkp-file-bind";
+import {
+  readTkpApprovalState,
+} from "../lib/tkp-approval";
+import { submitTkpDocumentForApproval } from "../lib/submit-tkp-document";
 import { TkpPendingPriceVersionBanner } from "./TkpPendingPriceVersionBanner";
 
 export type TkpReviewHardcodeSection = "gip" | "commercial";
@@ -191,6 +195,26 @@ export function TkpReviewHardcodeSlot({
     toast.message("Загрузите новый файл ТКП и сохраните версию цены");
   }
 
+  async function handleSubmitForApproval(revision: TkpPriceRevisionSummary) {
+    const result = await submitTkpDocumentForApproval({
+      entity,
+      record,
+      revision,
+      entities,
+    });
+    if (result.approvalFieldUpdated) {
+      toast.success(
+        `Документ «${result.fileName}» сохранён в папку ТКП и отправлен на согласование`,
+      );
+    } else {
+      toast.success(
+        `Документ «${result.fileName}» сохранён в папку ТКП. Добавьте поле списка «Согласование ТКП» со значением «На согласовании», чтобы запускать цепочку автоматизацией.`,
+      );
+    }
+  }
+
+  const approvalState = readTkpApprovalState(record.values);
+
   const wantGip = sections.includes("gip");
   const wantCommercial = sections.includes("commercial");
 
@@ -240,7 +264,12 @@ export function TkpReviewHardcodeSlot({
             onStartNewPriceVersion={
               canEditCommercial ? handleStartNewPriceVersion : undefined
             }
+            onSubmitForApproval={
+              canEditCommercial ? handleSubmitForApproval : undefined
+            }
             pendingNewPriceVersion={pendingNewPriceVersion}
+            approvalRevisionId={approvalState.revisionId}
+            approvalSubmittedAt={approvalState.submittedAt}
           />
           {historyLoading ? (
             <p className="text-xs text-muted-foreground">

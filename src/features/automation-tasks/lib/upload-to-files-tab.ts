@@ -2,7 +2,6 @@ import {
   DEFAULT_ENTITY_FOLDER_COLOR,
   getEntityConfig,
   getEntityTabFilesValueKey,
-  isEntityFilesTab,
   normalizeListColor,
   parseEntityTabFileEntries,
   serializeEntityTabFileEntries,
@@ -14,7 +13,10 @@ import {
   type EntityTabDefaultFolder,
   type EntityTabFileEntry,
 } from "@/entities/entity";
-import type { AutomationTaskUploadTarget } from "@/entities/automation";
+import {
+  countFilesUnderUploadFolder,
+  type AutomationTaskUploadTarget,
+} from "@/entities/automation";
 
 function uniqueName(
   base: string,
@@ -63,7 +65,9 @@ export function ensureUploadTargetFolderId(input: {
 
   const def = input.defaultFolders.find((item) => item.id === folderId);
   if (!def) {
-    return { entries: input.entries, parentId: null };
+    throw new Error(
+      "Папка для загрузки не найдена. Проверьте настройки задания.",
+    );
   }
 
   const existing = input.entries.find(
@@ -88,44 +92,12 @@ export function ensureUploadTargetFolderId(input: {
   return { entries: [...input.entries, created], parentId: created.id };
 }
 
-/** Folder ids under `parentId` (inclusive). Root (`null`) → all folders. */
-function folderScopeIds(
-  entries: EntityTabFileEntry[],
-  parentId: string | null,
-): Set<string> | null {
-  if (parentId === null) return null;
-
-  const allowed = new Set<string>([parentId]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const entry of entries) {
-      if (
-        entry.kind === "folder" &&
-        entry.parentId &&
-        allowed.has(entry.parentId) &&
-        !allowed.has(entry.id)
-      ) {
-        allowed.add(entry.id);
-        grew = true;
-      }
-    }
-  }
-  return allowed;
-}
-
 /** Count files under a folder (direct + nested). Root = all files when parentId is null. */
 export function countFilesUnderFolder(
   entries: EntityTabFileEntry[],
   parentId: string | null,
 ): number {
-  const scope = folderScopeIds(entries, parentId);
-  return entries.reduce((count, entry) => {
-    if (entry.kind !== "file") return count;
-    if (scope === null) return count + 1;
-    if (entry.parentId && scope.has(entry.parentId)) return count + 1;
-    return count;
-  }, 0);
+  return countFilesUnderUploadFolder(entries, parentId);
 }
 
 export type UploadTargetFileItem = {
@@ -139,7 +111,6 @@ export function listFilesUnderFolder(
   entries: EntityTabFileEntry[],
   parentId: string | null,
 ): UploadTargetFileItem[] {
-  const scope = folderScopeIds(entries, parentId);
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
 
   function relativePath(file: EntityTabFileEntry): string {
@@ -158,8 +129,15 @@ export function listFilesUnderFolder(
   return entries
     .filter((entry) => {
       if (entry.kind !== "file") return false;
-      if (scope === null) return true;
-      return Boolean(entry.parentId && scope.has(entry.parentId));
+      if (parentId === null) return true;
+      let cursor: string | null = entry.parentId;
+      while (cursor) {
+        if (cursor === parentId) return true;
+        const folder = byId.get(cursor);
+        if (!folder || folder.kind !== "folder") return false;
+        cursor = folder.parentId;
+      }
+      return false;
     })
     .map((entry) => ({ entry, relativePath: relativePath(entry) }))
     .sort((a, b) => {
@@ -271,25 +249,4 @@ export async function uploadFilesToAutomationTarget(input: {
   });
 
   return { uploadedCount, folderParentId: rootParentId };
-}
-
-/** True when upload is required and the target folder still has no files. */
-export function automationUploadTargetBlocksComplete(
-  entity: Entity | undefined,
-  record: EntityRecord | undefined,
-  target: AutomationTaskUploadTarget | null,
-): boolean {
-  if (!target?.required || !entity || !record) return false;
-  const tab = entity.tabs.find(
-    (item) => item.id === target.filesTabId && isEntityFilesTab(item),
-  );
-  if (!tab) return true;
-  const valueKey = getEntityTabFilesValueKey(tab.id);
-  const entries = parseEntityTabFileEntries(record.values[valueKey]);
-  const { parentId } = ensureUploadTargetFolderId({
-    entries,
-    defaultFolders: tab.defaultFolders,
-    folderId: target.folderId,
-  });
-  return countFilesUnderFolder(entries, parentId) === 0;
 }

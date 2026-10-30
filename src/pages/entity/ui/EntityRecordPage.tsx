@@ -23,7 +23,12 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { cn } from "@/shared/lib/cn";
-import { canField, useCanEntity, useCurrentRole } from "@/entities/access";
+import {
+  canField,
+  canViewRecordForLegalEntities,
+  useCanEntity,
+  useCurrentRole,
+} from "@/entities/access";
 import {
   addEntityRecord,
   waitForEntityRecordInsert,
@@ -1214,6 +1219,20 @@ export function EntityRecordPage({
     const field = entity.fields.find((item) => item.id === fieldId);
     if (!field) return;
     void requestListChange(entity, record, field, optionId);
+  }
+
+  if (!canViewRecordForLegalEntities(role, entity, record, entities)) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-start gap-3 overflow-auto p-8">
+        <p className="text-sm font-medium text-foreground">Нет доступа</p>
+        <p className="max-w-md text-sm text-muted-foreground">
+          Запись связана с другим юрлицом и скрыта настройками вашей роли.
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={onBack}>
+          Назад
+        </Button>
+      </div>
+    );
   }
 
   return (

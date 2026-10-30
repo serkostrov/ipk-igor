@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { cn } from "@/shared/lib/cn";
+import { getProjectZonedParts } from "@/shared/lib/datetime";
 import { formatDateDisplay } from "@/shared/lib/format-date";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
@@ -119,8 +120,8 @@ export function DatePicker({
 
   const days = useMemo(() => buildCalendarDays(visibleMonth), [visibleMonth]);
   const today = useMemo(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const parts = getProjectZonedParts();
+    return new Date(parts.year, parts.month - 1, parts.day);
   }, []);
   const years = useMemo(() => buildYearOptions(today.getFullYear()), [today]);
 

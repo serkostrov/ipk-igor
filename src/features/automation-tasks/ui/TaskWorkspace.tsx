@@ -3,6 +3,7 @@ import { Button } from "@/shared/ui/button";
 import {
   automationOutcomeButtonStyle,
   automationRequiresTimeTracking,
+  automationUploadTargetBlocksComplete,
   fetchAutomationTaskTimeSessions,
   fetchOpenAutomationTaskTimeSession,
   getAutomationUploadTarget,
@@ -14,7 +15,6 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { formatTimestampDisplay } from "@/shared/lib/format-date";
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
-import { automationUploadTargetBlocksComplete } from "../lib/upload-to-files-tab";
 import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
   applyEntityFieldValue,

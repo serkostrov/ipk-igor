@@ -13,6 +13,13 @@ export {
   type TkpSalePriceMode,
 } from "./model/commercial";
 
+export {
+  buildTkpCommercialDocumentFile,
+  buildTkpCommercialDocumentFileName,
+  buildTkpCommercialDocumentHtml,
+  type TkpCommercialDocumentInput,
+} from "./model/document";
+
 export type { TkpPriceRevisionSummary } from "./model/types";
 
 export {

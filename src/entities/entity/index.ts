@@ -386,6 +386,13 @@ export {
   getUsersSystemField,
 } from "./model/system-entities";
 export {
+  collectRecordLegalEntityIds,
+  entityCanLinkToLegalEntities,
+  findLegalEntitiesEntity,
+  getLegalEntityLinkFields,
+  recordMatchesLegalEntityScope,
+} from "./model/legal-entities";
+export {
   buildEntityFieldFileStoragePath,
   buildEntityFileStoragePath,
   buildEntityNoteAttachmentStoragePath,

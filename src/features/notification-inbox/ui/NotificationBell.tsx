@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { Bell } from "lucide-react";
 import {
+  formatNotificationCopy,
   markNotificationRead,
   useNotificationInbox,
   useUnreadNotificationCount,
   type Notification,
 } from "@/entities/notification";
+import { useEntityConfig } from "@/entities/entity";
 import { Button } from "@/shared/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { cn } from "@/shared/lib/cn";
-import { formatDatetimeDisplay } from "@/shared/lib/format-date";
+import { formatTimestampDisplay } from "@/shared/lib/format-date";
 
 export function NotificationBell({
   onOpenAll,
@@ -22,6 +24,7 @@ export function NotificationBell({
 }) {
   const inbox = useNotificationInbox();
   const unread = useUnreadNotificationCount();
+  const { entities } = useEntityConfig();
   const [open, setOpen] = useState(false);
   const recent = inbox.slice(0, 8);
 
@@ -87,31 +90,40 @@ export function NotificationBell({
               Пока тихо
             </p>
           ) : (
-            recent.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleOpen(item)}
-                className={cn(
-                  "flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left hover:bg-muted/70",
-                  item.readAt == null && "bg-accent/30",
-                )}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-xs font-medium">
-                    {item.title || "Уведомление"}
-                  </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {formatDatetimeDisplay(item.createdAt)}
-                  </span>
-                </div>
-                {item.message ? (
-                  <span className="line-clamp-2 text-[11px] text-muted-foreground">
-                    {item.message}
-                  </span>
-                ) : null}
-              </button>
-            ))
+            recent.map((item) => {
+              const copy = formatNotificationCopy({
+                title: item.title,
+                message: item.message,
+                entityId: item.entityId,
+                recordId: item.recordId,
+                entities,
+              });
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleOpen(item)}
+                  className={cn(
+                    "flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left hover:bg-muted/70",
+                    item.readAt == null && "bg-accent/30",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-medium">
+                      {copy.title || "Уведомление"}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {formatTimestampDisplay(item.createdAt)}
+                    </span>
+                  </div>
+                  {copy.message ? (
+                    <span className="line-clamp-2 text-[11px] text-muted-foreground">
+                      {copy.message}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })
           )}
         </div>
       </PopoverContent>

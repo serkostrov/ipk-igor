@@ -1,3 +1,5 @@
+import { getProjectZonedParts } from "@/shared/lib/datetime";
+
 /** Formats ISO date `YYYY-MM-DD` as `DD.MM.YYYY`. */
 export function formatDateDisplay(isoDate: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
@@ -9,6 +11,7 @@ export function formatDateDisplay(isoDate: string) {
 /**
  * Formats stored datetime values for UI.
  * Accepts `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, or `YYYY-MM-DD HH:mm`.
+ * Naive strings are already project-zone wall time — no conversion.
  */
 export function formatDatetimeDisplay(value: string) {
   const trimmed = value.trim();
@@ -44,18 +47,19 @@ export function joinDatetime(date: string, time: string) {
   return `${date}T${time}`;
 }
 
-/** Timestamp with zone (e.g. `timestamptz`) → local `{ date, time }`. */
+/** Timestamp with zone (e.g. `timestamptz`) → project-zone `{ date, time }`. */
 export function getLocalTimestampParts(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
+  const parts = getProjectZonedParts(date);
   const pad = (part: number) => String(part).padStart(2, "0");
   return {
-    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
-    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+    date: `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`,
+    time: `${pad(parts.hour)}:${pad(parts.minute)}`,
   };
 }
 
-/** Timestamp with zone → local `DD.MM.YYYY HH:mm`. */
+/** Timestamp with zone → project-zone `DD.MM.YYYY HH:mm`. */
 export function formatTimestampDisplay(value: string) {
   const parts = getLocalTimestampParts(value);
   return parts

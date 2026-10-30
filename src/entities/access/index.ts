@@ -37,11 +37,13 @@ export {
   canMenuItem,
   canSettingsTab,
   canViewAutomationTask,
+  canViewRecordForLegalEntities,
   entityScope,
   entityScopeFilter,
   filterAutomationTasksForRole,
   getEntityAccess,
   isAdminRole,
+  roleLegalEntityIds,
   roleMenuFlat,
 } from "./model/permissions";
 export {

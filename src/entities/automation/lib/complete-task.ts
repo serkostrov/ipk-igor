@@ -37,6 +37,7 @@ import { resolveAskRelatedTarget } from "./ask-related";
 import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
 import { pickAutomationOutcome } from "./pick-outcome";
+import { assertAutomationUploadRequired } from "./upload-required";
 import {
   isAutomationSilentTaskKind,
   relatedAskValueKey,
@@ -393,6 +394,9 @@ export async function completeAutomationTask(
   const record = entity?.records.find((item) => item.id === task.recordId);
   const valuesBefore = record?.values ?? {};
   const valuesForForm = { ...valuesBefore, ...formValues };
+
+  // Required file upload from template materials («Обязательно для завершения»).
+  assertAutomationUploadRequired(task.config.materials, entity, record);
 
   // Required fields from outcome form + optional requireFields action.
   const requireAction = outcome.actions.find(

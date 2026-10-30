@@ -82,6 +82,20 @@ function parseMenuItemIds(value: unknown): string[] | "*" {
   );
 }
 
+function parseLegalEntityIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const id = item.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 function parseEntities(value: unknown): EntityAccess[] | "*" {
   if (value === "*") return "*";
   if (!Array.isArray(value)) return [];
@@ -110,6 +124,7 @@ function parsePermissions(value: unknown): RolePermissions {
     canDeleteAutomationTasks: value.canDeleteAutomationTasks === true,
     automationTasksScope,
     canAccessNotifications: value.canAccessNotifications !== false,
+    legalEntityIds: parseLegalEntityIds(value.legalEntityIds),
     entities: parseEntities(value.entities),
   };
   if (automationTasksScope === "filter") {

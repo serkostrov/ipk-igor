@@ -67,6 +67,13 @@ export type RolePermissions = {
   /** Record conditions when `automationTasksScope === "filter"`. */
   automationTasksScopeFilter?: EntityCondition[];
   canAccessNotifications: boolean;
+  /**
+   * «Вижу только» выбранные юрлица (multi-select).
+   * Empty — без ограничения по юрлицу.
+   * Non-empty — записи сущностей, связанных с Юрлицами, видны только
+   * если пересекаются с этим списком. Новые юрлица появляются в пикере роли.
+   */
+  legalEntityIds: string[];
   entities: EntityAccess[] | "*";
 };
 
@@ -117,6 +124,7 @@ export function createAdminRole(): Role {
       canDeleteAutomationTasks: true,
       automationTasksScope: "all",
       canAccessNotifications: true,
+      legalEntityIds: [],
       entities: "*",
     },
   };
@@ -138,6 +146,7 @@ export function createEmployeeRole(): Role {
       canDeleteAutomationTasks: false,
       automationTasksScope: "own",
       canAccessNotifications: true,
+      legalEntityIds: [],
       entities: "*",
     },
   };

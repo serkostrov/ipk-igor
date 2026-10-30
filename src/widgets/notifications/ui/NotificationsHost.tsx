@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 import { findSystemUserByAuthId, useEntityConfig } from "@/entities/entity";
 import {
+  formatNotificationCopy,
   loadNotificationInbox,
   setNotificationToastHandler,
   startNotificationRealtime,
@@ -11,22 +12,27 @@ import {
 import { useSessionUser } from "@/entities/session";
 import { Toaster } from "@/shared/ui/sonner";
 
-function showNotificationToast(notification: Notification) {
-  toast(notification.title || "Уведомление", {
-    description: notification.message || undefined,
-    duration: 6000,
-  });
-}
-
 /** Bootstraps inbox realtime + toast host for the signed-in user. */
 export function NotificationsHost() {
   const sessionUser = useSessionUser();
   const { entities } = useEntityConfig();
 
   useEffect(() => {
-    setNotificationToastHandler(showNotificationToast);
+    setNotificationToastHandler((notification: Notification) => {
+      const copy = formatNotificationCopy({
+        title: notification.title,
+        message: notification.message,
+        entityId: notification.entityId,
+        recordId: notification.recordId,
+        entities,
+      });
+      toast(copy.title || "Уведомление", {
+        description: copy.message || undefined,
+        duration: 6000,
+      });
+    });
     return () => setNotificationToastHandler(null);
-  }, []);
+  }, [entities]);
 
   useEffect(() => {
     if (!sessionUser) {

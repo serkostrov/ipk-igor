@@ -1,6 +1,8 @@
-import type { Entity } from "@/entities/entity";
+import { findLegalEntitiesEntity, type Entity } from "@/entities/entity";
 import { isDdsOperationsEntity } from "../dds/match";
 import { findDdsArticlesEntity, findDdsOperationsEntity } from "../opiu/match";
+
+export { findLegalEntitiesEntity };
 
 function normalizeName(value: string): string {
   return value.trim().toLocaleLowerCase("ru");
@@ -18,7 +20,6 @@ function entityMatches(
   );
 }
 
-const LEGAL_KEYS = ["Юрлица", "Юрлицо", "Юридические лица"] as const;
 const WALLET_KEYS = ["Кошельки", "Кошелёк", "Кошелек"] as const;
 const PLANNED_RECEIPT_KEYS = [
   "Плановые поступления",
@@ -30,12 +31,6 @@ const PLANNED_OUTFLOW_KEYS = [
   "Плановые расходы",
 ] as const;
 const PROJECT_KEYS = ["Проекты", "Проект"] as const;
-
-export function findLegalEntitiesEntity(
-  entities: readonly Entity[],
-): Entity | null {
-  return entities.find((entity) => entityMatches(entity, LEGAL_KEYS)) ?? null;
-}
 
 export function findWalletsEntity(entities: readonly Entity[]): Entity | null {
   return entities.find((entity) => entityMatches(entity, WALLET_KEYS)) ?? null;

@@ -15,7 +15,12 @@ export {
   type NotificationSource,
   type NotificationTriggerKind,
 } from "./model/types";
-export { renderNotificationTemplate } from "./lib/render-template";
+export { formatNotificationCopy } from "./lib/format-notification-copy";
+export {
+  renderNotificationTemplate,
+  replaceBareRecordIds,
+  resolveStoredNotificationText,
+} from "./lib/render-template";
 export {
   deleteNotificationRule,
   fetchNotificationConfig,

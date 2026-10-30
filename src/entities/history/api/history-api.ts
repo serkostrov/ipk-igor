@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
+import { projectDayStartUtcIso } from "@/shared/lib/datetime";
 import type {
   EntityRecordEvent,
   EntityRecordEventAction,
@@ -57,9 +58,11 @@ function rowToEvent(row: EventRow): EntityRecordEvent {
 }
 
 function localDayStartIso(date: string, offsetDays = 0) {
-  const start = new Date(`${date}T00:00:00`);
-  start.setDate(start.getDate() + offsetDays);
-  return start.toISOString();
+  return (
+    projectDayStartUtcIso(date, offsetDays) ??
+    // Fallback keeps the query valid if the date string is malformed.
+    new Date(`${date}T00:00:00+03:00`).toISOString()
+  );
 }
 
 export async function fetchEntityRecordEvents(

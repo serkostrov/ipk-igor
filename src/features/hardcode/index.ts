@@ -117,6 +117,8 @@ export {
 
 export {
   appendTkpPriceRevision,
+  buildTkpCommercialDocumentFile,
+  buildTkpCommercialDocumentHtml,
   calculateTkpCommercialV7,
   CommercialCalculationMetrics,
   CommercialMetricDetails,
@@ -148,3 +150,11 @@ export {
   isTkpPriceHardcodeTab,
   withTkpPriceHardcodeTab,
 } from "./tkp-review/model/price-tab";
+export {
+  findTkpApprovalListField,
+  readTkpApprovalState,
+  resolveTkpApprovalPendingOptionId,
+  TKP_APPROVAL_REVISION_KEY,
+  TKP_APPROVAL_SUBMITTED_AT_KEY,
+} from "./tkp-review/lib/tkp-approval";
+export { submitTkpDocumentForApproval } from "./tkp-review/lib/submit-tkp-document";

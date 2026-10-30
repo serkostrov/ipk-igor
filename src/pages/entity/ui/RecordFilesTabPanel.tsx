@@ -47,7 +47,10 @@ import {
   type EntityTab,
   type EntityTabFileEntry,
 } from "@/entities/entity";
-import { formatDatetimeDisplay } from "@/shared/lib/format-date";
+import {
+  formatDatetimeDisplay,
+  formatTimestampDisplay,
+} from "@/shared/lib/format-date";
 import { cn } from "@/shared/lib/cn";
 import { isTkpAnalysisEntity } from "@/features/hardcode";
 import {
@@ -128,8 +131,14 @@ function FolderColorPicker({
 function formatEntryTime(value: string) {
   const iso = value.trim();
   if (!iso) return "";
-  const asLocal = iso.includes("T") ? iso.slice(0, 16) : iso;
-  return formatDatetimeDisplay(asLocal) || iso;
+  // Prefer timestamptz → Moscow; fall back for naive stored datetimes.
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso) &&
+    /Z|[+-]\d{2}:\d{2}$/.test(iso)
+  ) {
+    return formatTimestampDisplay(iso) || iso;
+  }
+  return formatDatetimeDisplay(iso) || iso;
 }
 
 function uniqueName(

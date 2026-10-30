@@ -22,8 +22,8 @@ import {
   type EntityRecord,
   type EntityTabFileEntry,
 } from "@/entities/entity";
+import { resolveUploadTargetFolderId } from "@/entities/automation";
 import {
-  ensureUploadTargetFolderId,
   listFilesUnderFolder,
   uploadFilesToAutomationTarget,
 } from "../lib/upload-to-files-tab";
@@ -89,11 +89,12 @@ export function TaskUploadPanel({
     if (!tab) return [];
     const valueKey = getEntityTabFilesValueKey(tab.id);
     const entries = parseEntityTabFileEntries(record.values[valueKey]);
-    const { parentId } = ensureUploadTargetFolderId({
+    const parentId = resolveUploadTargetFolderId({
       entries,
       defaultFolders: tab.defaultFolders,
       folderId: target.folderId,
     });
+    if (parentId === undefined) return [];
     return listFilesUnderFolder(entries, parentId);
   }, [tab, record.values, target.folderId]);
 

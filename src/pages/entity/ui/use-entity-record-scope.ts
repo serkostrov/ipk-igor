@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  canViewRecordForLegalEntities,
   entityScope,
   entityScopeFilter,
   useCurrentRole,
@@ -91,6 +92,8 @@ export function useEntityRecordScope(entity: Entity | null): EntityRecordScope {
       scopeFilter,
       authUserId,
       ctx,
+    ).filter((record) =>
+      canViewRecordForLegalEntities(role, entity, record, ctx.entities),
     );
     const hiddenOptionIds = getEntityHiddenListOptionIds(entity, ctx.entities);
     const unhidden = scopedRecords.filter(

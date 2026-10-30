@@ -1,21 +1,24 @@
+import { getProjectZonedParts, toProjectIsoDate } from "@/shared/lib/datetime";
 import type { FinanceDashboardTab } from "./types";
 
 const STORAGE_KEY = "finance-dashboard-search:v1";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const pad = (value: number) => String(value).padStart(2, "0");
 
+/** Instant → project-zone `YYYY-MM-DD` (Europe/Moscow). */
 export function localIsoDate(date: Date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return toProjectIsoDate(date);
 }
 
 export function monthStartIso(date: Date = new Date()): string {
-  return localIsoDate(new Date(date.getFullYear(), date.getMonth(), 1));
+  const parts = getProjectZonedParts(date);
+  return `${parts.year}-${pad(parts.month)}-01`;
 }
 
 export function monthEndIso(date: Date = new Date()): string {
-  return localIsoDate(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+  const parts = getProjectZonedParts(date);
+  const last = new Date(Date.UTC(parts.year, parts.month, 0));
+  return `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`;
 }
 
 export function monthStartFromIso(isoDate: string): string {
@@ -26,7 +29,8 @@ export function monthStartFromIso(isoDate: string): string {
 export function monthEndFromIso(isoDate: string): string {
   const [year, month] = isoDate.split("-").map(Number);
   if (!year || !month) return isoDate;
-  return localIsoDate(new Date(year, month, 0));
+  const last = new Date(Date.UTC(year, month, 0));
+  return `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`;
 }
 
 export function financeDashboardYearRange(year: number): {
@@ -37,7 +41,7 @@ export function financeDashboardYearRange(year: number): {
 }
 
 export function financeDashboardQuickYears(now = new Date()): number[] {
-  const year = now.getFullYear();
+  const year = getProjectZonedParts(now).year;
   return [year - 1, year, year + 1];
 }
 

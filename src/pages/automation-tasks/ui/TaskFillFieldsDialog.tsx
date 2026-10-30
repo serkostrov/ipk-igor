@@ -10,6 +10,7 @@ import {
 } from "@/shared/ui/dialog";
 import {
   automationOutcomeButtonStyle,
+  automationUploadTargetBlocksComplete,
   completeAutomationTask,
   completePendingSilentAutomationTasks,
   completePendingSilentAutomationTasksForRecord,
@@ -88,7 +89,6 @@ import { applyRelatedAskFieldChange } from "@/features/automation-tasks/lib/appl
 import { TaskRelatedAskFields } from "@/features/automation-tasks/ui/TaskRelatedAskFields";
 import { TaskViewContextFields } from "@/features/automation-tasks/ui/TaskViewContextFields";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
-import { automationUploadTargetBlocksComplete } from "@/features/automation-tasks/lib/upload-to-files-tab";
 import { TaskUploadPanel } from "@/features/automation-tasks/ui/TaskUploadPanel";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { maybeEnsureDeptCalculationGipForTask } from "@/features/hardcode/tkp-gip/gip-filling-phase";

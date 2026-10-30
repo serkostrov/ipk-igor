@@ -7,7 +7,9 @@ import {
   SETTINGS_ITEM_ID,
 } from "@/entities/menu";
 import {
+  findLegalEntitiesEntity,
   matchesEntityConditions,
+  recordMatchesLegalEntityScope,
   type Entity,
   type EntityCondition,
   type EntityRecord,
@@ -79,6 +81,35 @@ export function entityScopeFilter(
   const access = getEntityAccess(role.permissions, entityId);
   if (!access || access.scope !== "filter") return null;
   return access.scopeFilter ?? [];
+}
+
+/**
+ * Allowed юрлица for «вижу только». Empty — без ограничения.
+ * Admin always unrestricted.
+ */
+export function roleLegalEntityIds(
+  role: Role | null | undefined,
+): readonly string[] {
+  if (!role || isAdminRole(role)) return [];
+  return role.permissions.legalEntityIds ?? [];
+}
+
+/** Whether a record is visible under the role's юрлицо restriction. */
+export function canViewRecordForLegalEntities(
+  role: Role | null | undefined,
+  entity: Entity,
+  record: EntityRecord,
+  entities: readonly Entity[],
+): boolean {
+  const allowed = roleLegalEntityIds(role);
+  if (allowed.length === 0) return true;
+  return recordMatchesLegalEntityScope(
+    entity,
+    record,
+    allowed,
+    findLegalEntitiesEntity(entities),
+    entities,
+  );
 }
 
 export function canField(
@@ -172,8 +203,7 @@ type AutomationTaskVisibilityTarget = {
   recordId: string;
 };
 
-/** Whether the role may open / see this automation task instance. */
-export function canViewAutomationTask(
+function taskMatchesAutomationScope(
   role: Role | null | undefined,
   task: AutomationTaskVisibilityTarget,
   options: {
@@ -183,7 +213,6 @@ export function canViewAutomationTask(
     valueContext: EntityValueContext;
   },
 ): boolean {
-  if (!canAccessAutomationTasks(role)) return false;
   const scope = automationTasksScope(role);
   if (scope === "all") return true;
 
@@ -210,9 +239,7 @@ export function canViewAutomationTask(
   if (filter.conditions.length === 0) return false;
   const entity = options.entities.find((item) => item.id === filter.entityId);
   if (!entity) return false;
-  const record: EntityRecord | undefined = entity.records.find(
-    (item) => item.id === task.recordId,
-  );
+  const record = entity.records.find((item) => item.id === task.recordId);
   if (!record) return false;
   return matchesEntityConditions(
     options.valueContext,
@@ -220,6 +247,26 @@ export function canViewAutomationTask(
     record,
     filter.conditions,
   );
+}
+
+/** Whether the role may open / see this automation task instance. */
+export function canViewAutomationTask(
+  role: Role | null | undefined,
+  task: AutomationTaskVisibilityTarget,
+  options: {
+    authUserId: string | null;
+    userRecordId: string | null;
+    entities: Entity[];
+    valueContext: EntityValueContext;
+  },
+): boolean {
+  if (!canAccessAutomationTasks(role)) return false;
+  if (!taskMatchesAutomationScope(role, task, options)) return false;
+
+  const entity = options.entities.find((item) => item.id === task.entityId);
+  const record = entity?.records.find((item) => item.id === task.recordId);
+  if (!entity || !record) return true;
+  return canViewRecordForLegalEntities(role, entity, record, options.entities);
 }
 
 export function filterAutomationTasksForRole<
@@ -235,7 +282,9 @@ export function filterAutomationTasksForRole<
   },
 ): T[] {
   if (!canAccessAutomationTasks(role)) return [];
-  if (automationTasksScope(role) === "all") return tasks;
+  const scope = automationTasksScope(role);
+  const hasLegalRestriction = roleLegalEntityIds(role).length > 0;
+  if (scope === "all" && !hasLegalRestriction) return tasks;
   return tasks.filter((task) => canViewAutomationTask(role, task, options));
 }
 

@@ -59,15 +59,22 @@ export function NotificationRuleEditor({
   );
   const triggerField = listFields.find((field) => field.id === draft.fieldId);
   const previewValues = entity?.records[0]?.values ?? {};
+  const previewOpts = {
+    entity,
+    entities,
+    previewUnresolved: true as const,
+  };
   const previewTitle = renderNotificationTemplate(
     draft.titleTemplate,
     previewValues,
     draft.name,
+    previewOpts,
   );
   const previewMessage = renderNotificationTemplate(
     draft.messageTemplate,
     previewValues,
     previewTitle,
+    previewOpts,
   );
 
   function patch(partial: Partial<NotificationRule>) {
@@ -322,7 +329,7 @@ export function NotificationRuleEditor({
             id={`nr-title-${draft.id}`}
             title="Заголовок"
             value={draft.titleTemplate}
-            placeholder="Например: Вам назначено задание по {{name}}"
+            placeholder="Например: Вам назначено: «{{name}}»"
             fields={entity.fields}
             onChange={(titleTemplate) => patch({ titleTemplate })}
           />

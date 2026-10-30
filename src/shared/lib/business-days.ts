@@ -1,7 +1,11 @@
 /**
- * Business-day helpers (Mon–Fri, no holidays) for local `YYYY-MM-DD` dates.
+ * Business-day helpers (Mon–Fri, no holidays) for `YYYY-MM-DD` calendar dates.
+ * «Сегодня» / «сейчас» follow the project timezone (Europe/Moscow).
  */
 
+import { toProjectIsoDate, toProjectTimeHHmm } from "@/shared/lib/datetime";
+
+/** Format a calendar `Date` (local Y-M-D components) as `YYYY-MM-DD`. */
 export function toIsoDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -10,13 +14,12 @@ export function toIsoDate(date: Date): string {
 }
 
 export function todayIsoDate(): string {
-  return toIsoDate(new Date());
+  return toProjectIsoDate(new Date());
 }
 
-/** Local time `HH:mm` of now. */
+/** Project-zone time `HH:mm` of now. */
 export function nowTimeHHmm(): string {
-  const now = new Date();
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  return toProjectTimeHHmm(new Date());
 }
 
 /** Date part of a stored value (`YYYY-MM-DD` or `YYYY-MM-DDTHH:mm`). */

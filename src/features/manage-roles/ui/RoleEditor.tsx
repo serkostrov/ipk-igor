@@ -32,7 +32,12 @@ import {
 } from "@/entities/access";
 import {
   ConditionBuilder,
+  findLegalEntitiesEntity,
   getEntityFieldDisplayName,
+  getRelationRecordOptions,
+  parseEntityRelationIds,
+  RelationSelect,
+  serializeEntityRelationIds,
   useEntityConfig,
   type Entity,
   type EntityCondition,
@@ -560,6 +565,17 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
   const fieldsAccess = fieldsEntity
     ? (accessByEntityId.get(fieldsEntity.id) ?? null)
     : null;
+  const legalEntitiesEntity = useMemo(
+    () => findLegalEntitiesEntity(entities),
+    [entities],
+  );
+  const legalEntityOptions = useMemo(
+    () => getRelationRecordOptions(legalEntitiesEntity, entities),
+    [legalEntitiesEntity, entities],
+  );
+  const legalEntityValue = serializeEntityRelationIds(
+    role.permissions.legalEntityIds ?? [],
+  );
 
   const updateEntityAccess = (
     entityId: string,
@@ -651,6 +667,57 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             rows={2}
           />
         </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">
+            Видимость по юрлицам
+          </h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            «Вижу только» выбранные юрлица. Пустой список — без ограничения.
+            Ограничение применяется к записям сущностей, связанных с юрлицом
+            (напрямую или через принадлежность).
+          </p>
+        </div>
+        {legalEntitiesEntity ? (
+          <div className="space-y-2 rounded-xl border border-border p-4">
+            <Label htmlFor="role-legal-entities">Юрлица</Label>
+            <RelationSelect
+              id="role-legal-entities"
+              multiple
+              options={legalEntityOptions}
+              value={legalEntityValue}
+              placeholder="Все юрлица"
+              aria-label="Юрлица роли"
+              onChange={(value) =>
+                onChange(
+                  patchPermissions(role, {
+                    legalEntityIds: parseEntityRelationIds(value),
+                  }),
+                )
+              }
+            />
+            {(role.permissions.legalEntityIds ?? []).length > 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                Выбрано: {(role.permissions.legalEntityIds ?? []).length}. Новые
+                юрлица из каталога «
+                {legalEntitiesEntity.namePlural.trim() ||
+                  legalEntitiesEntity.name}
+                » появятся в этом списке автоматически.
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                Ограничение выключено — роль видит записи всех юрлиц.
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-border px-4 py-3 text-xs text-muted-foreground">
+            Создайте сущность «Юрлица», чтобы ограничивать видимость записей по
+            компаниям.
+          </p>
+        )}
       </section>
 
       <section className="space-y-3">

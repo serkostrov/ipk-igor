@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { PROJECT_TIMEZONE } from "@/shared/config/project-time";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -58,6 +59,7 @@ function finitePositive(value: string): number | null {
 
 function fmtDateTime(value: string): string {
   return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: PROJECT_TIMEZONE,
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
@@ -348,7 +350,10 @@ export function CommercialPricingPanel({
   history,
   onSaveRevision,
   onStartNewPriceVersion,
+  onSubmitForApproval,
   pendingNewPriceVersion = false,
+  approvalRevisionId = null,
+  approvalSubmittedAt = null,
 }: {
   basis: ReviewGipCommercialBasis;
   canEdit: boolean;
@@ -356,7 +361,13 @@ export function CommercialPricingPanel({
   history: TkpPriceRevisionSummary[];
   onSaveRevision: (input: CommercialPricingPanelSaveInput) => Promise<void>;
   onStartNewPriceVersion?: () => Promise<void>;
+  /** Generate document from latest revision and send to approval chain. */
+  onSubmitForApproval?: (
+    revision: TkpPriceRevisionSummary,
+  ) => Promise<void>;
   pendingNewPriceVersion?: boolean;
+  approvalRevisionId?: string | null;
+  approvalSubmittedAt?: string | null;
 }) {
   const [mode, setMode] = useState<TkpSalePriceMode>(
     latestRevision?.priceMode ?? "coefficient",
@@ -384,6 +395,7 @@ export function CommercialPricingPanel({
   );
   const [saving, setSaving] = useState(false);
   const [startingVersion, setStartingVersion] = useState(false);
+  const [submittingApproval, setSubmittingApproval] = useState(false);
 
   const input = useMemo(
     () => buildPriceInput(mode, coefficient, manualTotalBeforeVat, retroAmount),
@@ -439,10 +451,31 @@ export function CommercialPricingPanel({
     }
   }
 
+  async function handleSubmitForApproval() {
+    if (!onSubmitForApproval || !latestRevision?.calculation) return;
+    setSubmittingApproval(true);
+    try {
+      await onSubmitForApproval(latestRevision);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Ошибка");
+    } finally {
+      setSubmittingApproval(false);
+    }
+  }
+
   const modeLabel =
     mode === "coefficient"
       ? tkpSalePriceModeLabel("coefficient")
       : tkpSalePriceModeLabel("manual");
+  const approvalMatchesLatest =
+    latestRevision != null &&
+    approvalRevisionId != null &&
+    approvalRevisionId === latestRevision.id;
+  const canSubmitApproval =
+    canEdit &&
+    Boolean(onSubmitForApproval) &&
+    Boolean(latestRevision?.calculation) &&
+    !pendingNewPriceVersion;
 
   return (
     <section
@@ -459,19 +492,48 @@ export function CommercialPricingPanel({
             {TKP_COMMERCIAL_VAT_RATE}%
           </p>
         </div>
-        {onStartNewPriceVersion && !pendingNewPriceVersion ? (
-          <Button
-            type="button"
-            size="sm"
-            className="h-8 shrink-0"
-            onClick={() => void handleStartNewPriceVersion()}
-            disabled={startingVersion || !canEdit}
-            data-testid="start-customer-price-revision"
-          >
-            {startingVersion ? "Создание…" : "Новая версия цены"}
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {canSubmitApproval ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 shrink-0"
+              onClick={() => void handleSubmitForApproval()}
+              disabled={submittingApproval || !canEdit}
+              data-testid="submit-tkp-document-approval"
+            >
+              {submittingApproval
+                ? "Формирование…"
+                : approvalMatchesLatest
+                  ? "Отправить снова"
+                  : "Документ на согласование"}
+            </Button>
+          ) : null}
+          {onStartNewPriceVersion && !pendingNewPriceVersion ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={() => void handleStartNewPriceVersion()}
+              disabled={startingVersion || !canEdit}
+              data-testid="start-customer-price-revision"
+            >
+              {startingVersion ? "Создание…" : "Новая версия цены"}
+            </Button>
+          ) : null}
+        </div>
       </header>
+
+      {approvalMatchesLatest && approvalSubmittedAt ? (
+        <p
+          className="border-b border-border/70 bg-emerald-500/10 px-4 py-2.5 text-xs text-emerald-950 dark:text-emerald-100 sm:px-5"
+          data-testid="tkp-approval-submitted-banner"
+        >
+          Документ по текущей ревизии сформирован и отправлен на согласование
+          {` · ${fmtDateTime(approvalSubmittedAt)}`}.
+        </p>
+      ) : null}
 
       {pendingNewPriceVersion ? (
         <p className="border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground sm:px-5">

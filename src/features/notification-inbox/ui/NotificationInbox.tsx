@@ -9,15 +9,17 @@ import {
 import { toast } from "sonner";
 import {
   deleteNotification,
+  formatNotificationCopy,
   markAllNotificationsRead,
   markNotificationRead,
   useNotificationInbox,
   useNotificationInboxStatus,
   type Notification,
 } from "@/entities/notification";
+import { useEntityConfig } from "@/entities/entity";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
-import { formatDatetimeDisplay } from "@/shared/lib/format-date";
+import { formatTimestampDisplay } from "@/shared/lib/format-date";
 
 const PAGE_SIZE = 20;
 
@@ -30,6 +32,7 @@ export function NotificationInbox({
 }) {
   const inbox = useNotificationInbox();
   const status = useNotificationInboxStatus();
+  const { entities } = useEntityConfig();
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [page, setPage] = useState(1);
   const [pageFilter, setPageFilter] = useState(filter);
@@ -129,45 +132,54 @@ export function NotificationInbox({
           </p>
         ) : (
           <ul className="flex flex-col gap-1">
-            {pageItems.map((item) => (
-              <li key={item.id} className="group relative">
-                <button
-                  type="button"
-                  onClick={() => handleOpen(item)}
-                  className={cn(
-                    "flex w-full flex-col gap-0.5 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-muted/60",
-                    item.readAt == null && "bg-accent/40",
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-medium">
-                      {item.title || "Уведомление"}
-                    </p>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {formatDatetimeDisplay(item.createdAt)}
-                    </span>
-                  </div>
-                  {item.message ? (
-                    <p className="line-clamp-2 text-xs text-muted-foreground">
-                      {item.message}
-                    </p>
-                  ) : null}
-                </button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="absolute top-2 right-2 size-7 text-muted-foreground opacity-70 transition-opacity hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-                  aria-label="Удалить уведомление"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleDelete(item);
-                  }}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </li>
-            ))}
+            {pageItems.map((item) => {
+              const copy = formatNotificationCopy({
+                title: item.title,
+                message: item.message,
+                entityId: item.entityId,
+                recordId: item.recordId,
+                entities,
+              });
+              return (
+                <li key={item.id} className="group relative">
+                  <button
+                    type="button"
+                    onClick={() => handleOpen(item)}
+                    className={cn(
+                      "flex w-full flex-col gap-0.5 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-muted/60",
+                      item.readAt == null && "bg-accent/40",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium">
+                        {copy.title || "Уведомление"}
+                      </p>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {formatTimestampDisplay(item.createdAt)}
+                      </span>
+                    </div>
+                    {copy.message ? (
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {copy.message}
+                      </p>
+                    ) : null}
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="absolute top-2 right-2 size-7 text-muted-foreground opacity-70 transition-opacity hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                    aria-label="Удалить уведомление"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleDelete(item);
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

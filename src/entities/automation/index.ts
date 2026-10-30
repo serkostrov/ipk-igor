@@ -219,6 +219,12 @@ export {
   setAutomationUploadTarget,
   type AutomationTaskUploadTarget,
 } from "./lib/upload-target";
+export {
+  assertAutomationUploadRequired,
+  automationUploadTargetBlocksComplete,
+  countFilesUnderUploadFolder,
+  resolveUploadTargetFolderId,
+} from "./lib/upload-required";
 export { pickAutomationOutcome } from "./lib/pick-outcome";
 export { resolveAssigneeUserIds } from "./lib/resolve-assignee";
 export {

@@ -1018,11 +1018,19 @@ function ActionValueEditorBody({
   const mappingDirectFields = mapping
     ? compatibleNestedFields(field, sourceFields, { loose: true }).filter(
         (sourceField) => {
-          // Bridges go to «Из связанной сущности», except groups→groups:
-          // the groups field itself is the value to copy, not a hop.
+          // Bridges go to «Из связанной сущности», except when the field
+          // itself is the value to copy (groups→groups, relation→relation).
           if (
             field.type === "relationGroups" &&
             sourceField.type === "relationGroups"
+          ) {
+            return true;
+          }
+          // Lead «Менеджер» / «ГИП» → Deal same fields: copy the relation id.
+          if (
+            (field.type === "relation" || field.type === "belonging") &&
+            isEntityRelationLikeFieldType(sourceField.type) &&
+            isTypeCompatibleSource(field, sourceField)
           ) {
             return true;
           }
@@ -1495,11 +1503,15 @@ function ActionValueEditorBody({
             value={fieldRefId(value)}
             excludeFieldId={excludeSourceFieldId}
             entitySuffix={
-              isUsers
-                ? "пользователь"
-                : target
-                  ? getEntityDisplayName(target)
+              mapping
+                ? mappingSourceEntity
+                  ? getEntityDisplayName(mappingSourceEntity)
                   : undefined
+                : isUsers
+                  ? "пользователь"
+                  : target
+                    ? getEntityDisplayName(target)
+                    : undefined
             }
             onChange={(fieldId) => onChange(toAutomationFieldRef(fieldId))}
           />
