@@ -1,5 +1,6 @@
 export {
   buildTkpGipSoftFillParentRecord,
+  collectDeptCalculationRecordsForParent,
   collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,
   collectTkpStageRootIds,

@@ -34,7 +34,7 @@ import { cn } from "@/shared/lib/cn";
 import {
   addEntityRecord,
   applyTkpGipDepartmentUsers,
-  collectDeptCalculationSiblingRecords,
+  collectDeptCalculationRecordsForParent,
   formatEntityDecimalTotal,
   formatRecordFieldValue,
   getEntityConfig,
@@ -246,10 +246,16 @@ export function DeptCalculationsView({
       entities,
       parentEntity: leadParent.entity,
       parentRecord: leadParent.record,
+      seedRecords: records,
     }).join(",");
-  }, [entity, entities, leadParent, recordIdsKey]);
+  }, [entity, entities, leadParent, records]);
+  const recordsRef = useRef(records);
   const attemptedMissingKeysRef = useRef(new Set<string>());
   const healInFlightRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
 
   // Soft-fill empty managers — skips rows that already have a value.
   useEffect(() => {
@@ -284,11 +290,9 @@ export function DeptCalculationsView({
     let cancelled = false;
     void (async () => {
       try {
-        // Empty records → discover all siblings via parent forward links,
-        // not the assignee-filtered table list (that dropped other stages).
         await ensureDeptCalculationGipRows({
           entity,
-          records: [],
+          records: recordsRef.current,
           entities,
           parentEntity,
           parentRecord,
@@ -299,11 +303,10 @@ export function DeptCalculationsView({
         const liveEntity =
           getEntityConfig().entities.find((item) => item.id === entity.id) ??
           entity;
-        const siblings = collectDeptCalculationSiblingRecords(
-          liveEntity,
-          liveEntity.records.map((record) => record.id),
-          { entity: parentEntity, recordId: parentRecord.id },
-        );
+        const siblings = collectDeptCalculationRecordsForParent(liveEntity, {
+          entity: parentEntity,
+          recordId: parentRecord.id,
+        });
         for (const record of siblings) {
           const next = applyTkpGipDepartmentUsers({
             childEntity: entity,
@@ -330,7 +333,11 @@ export function DeptCalculationsView({
         console.warn("[dept-calc] ensure GIP rows failed", error);
       } finally {
         healInFlightRef.current.delete(healKey);
-        attemptedMissingKeysRef.current.add(healKey);
+        // Only lock this missing-set after a finished attempt — cleanup on
+        // remount must not permanently skip a still-missing ГИП.
+        if (!cancelled) {
+          attemptedMissingKeysRef.current.add(healKey);
+        }
       }
     })();
 

@@ -6,6 +6,7 @@
 import {
   addEntityRecord,
   applyTkpGipDepartmentUsers,
+  collectDeptCalculationRecordsForParent,
   collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,
   collectTkpStageRootIds,
@@ -312,7 +313,8 @@ function userFieldPatch(
 
 /**
  * Sibling «Расчёты отделов» for this parent (or the passed record set).
- * Prefer parent-scoped discovery so ГИП heal never confuses other ТКП.
+ * Unions parent-scoped discovery (child→parent + forward) with UI seeds so
+ * ГИП heal works when either side is incomplete.
  */
 function resolveDeptCalculationHealSiblings(options: {
   entity: Entity;
@@ -328,31 +330,25 @@ function resolveDeptCalculationHealSiblings(options: {
       ? { entity: parentEntity, recordId: parentRecord.id }
       : null;
 
-  if (records.length > 0) {
-    return collectDeptCalculationSiblingRecords(
+  const byId = new Map<string, EntityRecord>();
+  if (parentRef) {
+    for (const record of collectDeptCalculationRecordsForParent(
       live,
-      records.map((record) => record.id),
       parentRef,
-    );
-  }
-
-  if (!parentRef) return [];
-
-  const linked: EntityRecord[] = [];
-  const seen = new Set<string>();
-  for (const field of parentEntity!.fields) {
-    if (field.type !== "relation" && field.type !== "dependencies") continue;
-    if (getEntityRelationTargetId(field) !== entity.id) continue;
-    for (const id of parseEntityRelationIds(
-      parentRecord!.values[field.id] ?? "",
     )) {
-      const record = live.records.find((item) => item.id === id);
-      if (!record || seen.has(record.id)) continue;
-      seen.add(record.id);
-      linked.push(record);
+      byId.set(record.id, record);
     }
   }
-  return linked;
+  if (records.length > 0) {
+    for (const record of collectDeptCalculationSiblingRecords(
+      live,
+      records.map((item) => item.id),
+      parentRef,
+    )) {
+      byId.set(record.id, record);
+    }
+  }
+  return [...byId.values()];
 }
 
 /** Do not retry the same stage×dept create after a failed persist (avoids UI hang). */
@@ -391,8 +387,16 @@ export function missingDeptCalculationGipStageIds(options: {
   entities: readonly Entity[];
   parentEntity: Entity;
   parentRecord: EntityRecord;
+  /** Optional UI seeds — used when parent links are not written yet. */
+  seedRecords?: readonly EntityRecord[];
 }): string[] {
-  const { entity, entities, parentEntity, parentRecord } = options;
+  const {
+    entity,
+    entities,
+    parentEntity,
+    parentRecord,
+    seedRecords = [],
+  } = options;
   if (!isDeptCalculationsEntity(entity) || !isTkpAnalysisEntity(parentEntity)) {
     return [];
   }
@@ -404,7 +408,7 @@ export function missingDeptCalculationGipStageIds(options: {
 
   const siblings = resolveDeptCalculationHealSiblings({
     entity,
-    records: [],
+    records: seedRecords,
     parentEntity,
     parentRecord,
   });
@@ -486,11 +490,10 @@ export async function ensureDeptCalculationGipRows(options: {
     clearFailedGipEnsureKeys(entity.id, parentRecord?.id, gipId);
   }
 
-  // gipOnly + parent: discover ALL linked children via the parent forward
-  // relation — never trust a filtered UI record list (drops other stages).
+  // Parent-scoped siblings (belonging + forward). Seeds only as fallback.
   const siblings = resolveDeptCalculationHealSiblings({
     entity,
-    records: gipOnly && parentEntity && parentRecord ? [] : records,
+    records,
     parentEntity,
     parentRecord,
   });
@@ -598,12 +601,7 @@ export async function ensureDeptCalculationGipRows(options: {
         entity;
       const liveSiblings = resolveDeptCalculationHealSiblings({
         entity: live,
-        records:
-          gipOnly && parentEntity && parentRecord
-            ? []
-            : siblings.length > 0
-              ? siblings
-              : records,
+        records: siblings.length > 0 ? siblings : records,
         parentEntity,
         parentRecord,
       });

@@ -623,6 +623,71 @@ export function unionTkpStageDepartmentGroupsValues(
   ]);
 }
 
+function deptCalculationParentLinkFields(entity: Entity): EntityField[] {
+  const owned = getEntityParentLinkField(entity);
+  return entity.fields.filter((field) => {
+    if (field.type !== "relation" && field.type !== "belonging") return false;
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) return false;
+    return (
+      field.id === owned?.id ||
+      field.type === "belonging" ||
+      (entity.parentEntityId != null && targetId === entity.parentEntityId)
+    );
+  });
+}
+
+/**
+ * Every «Расчёты отделов» row for one parent — child→parent belonging and
+ * parent forward relation. Does not require seed ids (heal / ensure).
+ */
+export function collectDeptCalculationRecordsForParent(
+  entity: Entity,
+  parent: {
+    entity: Entity;
+    recordId: string;
+  },
+): EntityRecord[] {
+  if (!isDeptCalculationsEntity(entity)) return [];
+  const parentRecordId = parent.recordId.trim();
+  if (!parentRecordId) return [];
+
+  const result: EntityRecord[] = [];
+  const seen = new Set<string>();
+  const push = (record: EntityRecord) => {
+    if (seen.has(record.id)) return;
+    seen.add(record.id);
+    result.push(record);
+  };
+
+  const linkFields = deptCalculationParentLinkFields(entity);
+  for (const record of entity.records) {
+    const belongs = linkFields.some(
+      (field) =>
+        getEntityRelationTargetId(field) === parent.entity.id &&
+        parseEntityRelationIds(record.values[field.id]).includes(
+          parentRecordId,
+        ),
+    );
+    if (belongs) push(record);
+  }
+
+  const parentRecord =
+    parent.entity.records.find((item) => item.id === parentRecordId) ?? null;
+  for (const field of parent.entity.fields) {
+    if (field.type !== "relation" && field.type !== "dependencies") continue;
+    if (getEntityRelationTargetId(field) !== entity.id) continue;
+    for (const id of parseEntityRelationIds(
+      parentRecord?.values[field.id] ?? "",
+    )) {
+      const record = entity.records.find((item) => item.id === id);
+      if (record) push(record);
+    }
+  }
+
+  return result;
+}
+
 /**
  * All «Расчёты отделов» rows that share a parent with any seed id —
  * used when the ask layout only discovered a subset of fan-out siblings.
@@ -646,17 +711,19 @@ export function collectDeptCalculationSiblingRecords(
   const seeds = entity.records.filter((record) => seedSet.has(record.id));
   if (seeds.length === 0) return [];
 
-  const owned = getEntityParentLinkField(entity);
-  const linkFields = entity.fields.filter((field) => {
-    if (field.type !== "relation" && field.type !== "belonging") return false;
-    const targetId = getEntityRelationTargetId(field);
-    if (!targetId) return false;
-    return (
-      field.id === owned?.id ||
-      field.type === "belonging" ||
-      (entity.parentEntityId != null && targetId === entity.parentEntityId)
-    );
-  });
+  // Prefer exact parent scope when known — avoids pulling other ТКП via seeds.
+  if (parent?.recordId && parent.entity.id) {
+    const scoped = collectDeptCalculationRecordsForParent(entity, parent);
+    if (scoped.length > 0) {
+      const byId = new Map(scoped.map((record) => [record.id, record]));
+      for (const seed of seeds) {
+        if (!byId.has(seed.id)) byId.set(seed.id, seed);
+      }
+      return [...byId.values()];
+    }
+  }
+
+  const linkFields = deptCalculationParentLinkFields(entity);
 
   const parentKeys = new Set<string>();
   for (const seed of seeds) {

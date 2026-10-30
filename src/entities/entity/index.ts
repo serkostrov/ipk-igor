@@ -539,6 +539,7 @@ export {
   collectTkpStageRootIds,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
+  collectDeptCalculationRecordsForParent,
   collectDeptCalculationSiblingRecords,
   ensureTkpGipDepartmentInGroupsValue,
   serializeTkpStageDepartmentPairs,

@@ -21,6 +21,7 @@ export {
 } from "@/entities/entity";
 export {
   buildTkpGipSoftFillParentRecord,
+  collectDeptCalculationRecordsForParent,
   collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,
   collectTkpStageRootIds,
