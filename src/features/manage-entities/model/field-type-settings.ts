@@ -40,6 +40,8 @@ export type FieldTypeSettingsDraft = {
   /** Formula with `[Поле]` names, as typed. */
   formulaText: string;
   formulaDecimals: EntityNumberDecimals;
+  /** Live formula value in the create-record form. */
+  formulaShowOnCreate: boolean;
   rollup: EntityRollupConfig | null;
   lookup: EntityLookupConfig | null;
   dependencies: EntityDependenciesConfig;
@@ -119,6 +121,7 @@ export function createFieldTypeSettingsDraft(
         )
       : "",
     formulaDecimals: field?.formula?.decimals ?? 2,
+    formulaShowOnCreate: field?.formula?.showOnCreate === true,
     rollup: field?.rollup ?? null,
     lookup: field?.lookup ?? null,
     dependencies: field?.dependencies ?? { sameFieldId: null },
@@ -200,7 +203,11 @@ export function resolveFieldTypeSettings(
     type === "formula" ? compileDraftFormula(draft, entity, fieldId) : null;
   return {
     formula: compiled?.ok
-      ? { expression: compiled.expression, decimals: draft.formulaDecimals }
+      ? {
+          expression: compiled.expression,
+          decimals: draft.formulaDecimals,
+          ...(draft.formulaShowOnCreate ? { showOnCreate: true } : {}),
+        }
       : undefined,
     rollup: type === "rollup" ? (draft.rollup ?? undefined) : undefined,
     lookup: type === "lookup" ? (draft.lookup ?? undefined) : undefined,

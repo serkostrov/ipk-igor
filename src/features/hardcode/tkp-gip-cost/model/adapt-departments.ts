@@ -14,7 +14,7 @@ import {
 } from "@/entities/entity";
 import {
   getDeptNestedLines,
-  resolveDeptCalcTypeLabel,
+  resolveDeptCalcTypeLabelForRecord,
   resolveDeptLineTitle,
 } from "../../dept-calculations/model/aggregation";
 import {
@@ -98,10 +98,12 @@ export function adaptDeptRecordsToGipDepartments(options: {
 
     if (nested && lineFields && lines.length > 0) {
       for (const line of lines) {
-        const calcLabel = resolveDeptCalcTypeLabel(
+        const calcLabel = resolveDeptCalcTypeLabelForRecord(
+          ctx,
+          nested.entity,
+          line,
           entities,
-          lineFields.calcType,
-          line.values[lineFields.calcType?.id ?? ""],
+          lineFields,
         );
         const calculationType = calcTypeToLineType(calcLabel);
         const hours = lineFields.hours

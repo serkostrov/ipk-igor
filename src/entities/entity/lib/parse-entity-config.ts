@@ -159,6 +159,7 @@ function normalizeFormulaConfig(
   return {
     expression: typeof value.expression === "string" ? value.expression : "",
     decimals: normalizeDecimals(value.decimals),
+    showOnCreate: value.showOnCreate === true ? true : undefined,
   };
 }
 

@@ -272,12 +272,17 @@ function TablePositionControl({
   return (
     <TypeNestedGroup>
       <div className="flex items-center justify-between gap-2 py-0.5 pr-0.5">
-        <Label
-          htmlFor="entity-field-table-position"
-          className="text-xs font-medium text-muted-foreground"
-        >
-          Позиция
-        </Label>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <Label
+            htmlFor="entity-field-table-position"
+            className="text-xs font-medium text-muted-foreground"
+          >
+            Позиция
+          </Label>
+          <span className="text-[11px] leading-tight text-muted-foreground">
+            Одна позиция и одинаковые условия — одна колонка
+          </span>
+        </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <Button
             type="button"
@@ -2002,6 +2007,17 @@ function EntityFieldForm({
                   <NumberTotalControl
                     checked={includeInTotal}
                     onCheckedChange={setIncludeInTotal}
+                  />
+                ) : null}
+                {type === "formula" ? (
+                  <SettingSwitch
+                    id="entity-field-formula-show-on-create"
+                    title="В форме добавления"
+                    description="Считать и показывать значение прямо при создании записи"
+                    checked={typeSettings.formulaShowOnCreate}
+                    onCheckedChange={(formulaShowOnCreate) =>
+                      patchTypeSettings({ formulaShowOnCreate })
+                    }
                   />
                 ) : null}
                 {isDatetimeType ? (

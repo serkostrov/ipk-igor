@@ -182,6 +182,11 @@ export type EntityFormulaConfig = {
   /** Expression with `{{fieldId}}` references. */
   expression: string;
   decimals: EntityNumberDecimals;
+  /**
+   * Show a live calculated value in the create-record form.
+   * Opt-in — blank drafts often have no operands yet.
+   */
+  showOnCreate?: boolean;
 };
 
 export const ENTITY_ROLLUP_AGGREGATIONS = [
@@ -560,16 +565,18 @@ export function isEntityFieldVisibleOnRecord(
 
 /** Fields shown in the create-record dialog (title + required always). */
 export function isEntityFieldVisibleOnCreate(
-  field: Pick<EntityField, "type" | "showOnCreate" | "required" | "locked">,
+  field: Pick<
+    EntityField,
+    "type" | "showOnCreate" | "required" | "locked" | "formula"
+  >,
 ) {
   if (isEntityNameField(field)) return true;
-  // Formula / rollup / numberSum are empty or zero on a blank draft — never
-  // clutter the create form (values still resolve once the record exists).
-  if (
-    field.type === "formula" ||
-    field.type === "rollup" ||
-    field.type === "numberSum"
-  ) {
+  // Formula: opt-in live preview via formula.showOnCreate.
+  if (field.type === "formula") {
+    return field.formula?.showOnCreate === true;
+  }
+  // Rollup / numberSum stay hidden on create (need saved / related data).
+  if (field.type === "rollup" || field.type === "numberSum") {
     return false;
   }
   if (field.required) return true;

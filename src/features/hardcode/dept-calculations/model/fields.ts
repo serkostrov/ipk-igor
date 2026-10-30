@@ -61,7 +61,13 @@ const LABOR_KEYS = ["стоимость трудозатрат", "стоимос
 const TOTAL_KEYS = ["итог отдела", "итог"] as const;
 const HOURS_KEYS = ["часы", "общие часы"] as const;
 const SUM_KEYS = ["сумма"] as const;
-const CALC_TYPE_KEYS = ["тип расчета", "тип расчёта"] as const;
+const CALC_TYPE_KEYS = [
+  "тип расчета",
+  "тип расчёта",
+  "тип рассчета",
+  "calculation type",
+  "calc type",
+] as const;
 const COST_KEYS = ["стоимость"] as const;
 
 export type DeptCalculationsHostFields = {
@@ -135,11 +141,17 @@ export function resolveDeptCalculationsSubtaskFields(
   entity: Entity,
 ): DeptCalculationsSubtaskFields {
   const name = entity.fields.find((field) => isEntityNameField(field)) ?? null;
-  const calcType = findField(
-    entity,
-    CALC_TYPE_KEYS,
-    (field) => field.type === "list",
-  );
+  // Prefer a list named «Тип расчёта»; fall back to any matching field, then
+  // a lone list field whose name is exactly «Тип».
+  const calcType =
+    findField(entity, CALC_TYPE_KEYS, (field) => field.type === "list") ??
+    findField(entity, CALC_TYPE_KEYS) ??
+    entity.fields.find((field) => {
+      if (field.type !== "list") return false;
+      const n = normalizeName(getEntityFieldDisplayName(field));
+      return n === "тип" || n.startsWith("тип ");
+    }) ??
+    null;
   const hours = findField(entity, HOURS_KEYS, (field) =>
     isEntityNumericFieldType(field.type),
   );

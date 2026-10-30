@@ -1,7 +1,8 @@
 /**
- * Table display columns: merge mutually exclusive numeric fields that
- * appear by `visibilityConditions` on the same controlling field
- * (e.g. «Часы» / «Сумма» depending on calculation type) into one column.
+ * Table display columns: merge mutually exclusive fields that share
+ * visibility controller + table position (e.g. «Часы» / «Сумма» at
+ * position 5 depending on calculation type) into one column. The same
+ * condition pattern at position 6 stays a separate adjacent column.
  */
 
 import { getEntityFieldDisplayName, isEntityNumericFieldType } from "./field";
@@ -29,7 +30,7 @@ export type EntityTableDisplayColumn = {
  * Controlling field ids from visibility rules — fields that share this key
  * are alternatives of the same switch (тип расчёта → часы | сумма).
  */
-function visibilityControllerKey(field: EntityField): string | null {
+export function visibilityControllerKey(field: EntityField): string | null {
   if (!isEntityNumericFieldType(field.type)) return null;
   const conditions = field.visibilityConditions;
   if (!conditions.length) return null;
@@ -40,6 +41,27 @@ function visibilityControllerKey(field: EntityField): string | null {
   ].sort();
   if (ids.length === 0) return null;
   return ids.join("|");
+}
+
+/**
+ * Merge bucket: same table position + same visibility controllers.
+ * Different positions with the same controllers stay separate columns.
+ */
+function mergeGroupKey(field: EntityField): string | null {
+  const controller = visibilityControllerKey(field);
+  if (!controller) return null;
+  return `${field.tableOrder}::${controller}`;
+}
+
+/** Whether two fields can share one table column (position + conditions). */
+export function canMergeEntityTableFields(
+  left: EntityField,
+  right: EntityField,
+): boolean {
+  const leftKey = visibilityControllerKey(left);
+  const rightKey = visibilityControllerKey(right);
+  if (!leftKey || !rightKey || leftKey !== rightKey) return false;
+  return left.tableOrder === right.tableOrder;
 }
 
 /** Prefer «Часы/Сумма» over tableOrder when both names are present. */
@@ -56,13 +78,30 @@ function compareMergedFieldLabels(a: EntityField, b: EntityField): number {
   return nameA.localeCompare(nameB, "ru");
 }
 
+function columnFromFields(fields: EntityField[]): EntityTableDisplayColumn {
+  const ordered = fields.slice().sort(compareMergedFieldLabels);
+  if (ordered.length === 1) {
+    const field = ordered[0]!;
+    return {
+      id: field.id,
+      label: getEntityFieldDisplayName(field),
+      fields: ordered,
+    };
+  }
+  return {
+    id: `merged:${ordered.map((item) => item.id).join("+")}`,
+    label: ordered.map((item) => getEntityFieldDisplayName(item)).join("/"),
+    fields: ordered,
+  };
+}
+
 /** Build display columns from already-filtered table fields. */
 export function buildEntityTableDisplayColumns(
   tableFields: readonly EntityField[],
 ): EntityTableDisplayColumn[] {
   const mergeGroups = new Map<string, EntityField[]>();
   for (const field of tableFields) {
-    const key = visibilityControllerKey(field);
+    const key = mergeGroupKey(field);
     if (!key) continue;
     const list = mergeGroups.get(key) ?? [];
     list.push(field);
@@ -81,25 +120,16 @@ export function buildEntityTableDisplayColumns(
   for (const field of tableFields) {
     if (emitted.has(field.id)) continue;
 
-    const key = visibilityControllerKey(field);
+    const key = mergeGroupKey(field);
     const group = key ? mergeGroups.get(key) : undefined;
     if (group && group.length >= 2 && mergeFieldIds.has(field.id)) {
       for (const item of group) emitted.add(item.id);
-      const ordered = group.slice().sort(compareMergedFieldLabels);
-      columns.push({
-        id: `merged:${ordered.map((item) => item.id).join("+")}`,
-        label: ordered.map((item) => getEntityFieldDisplayName(item)).join("/"),
-        fields: ordered,
-      });
+      columns.push(columnFromFields(group));
       continue;
     }
 
     emitted.add(field.id);
-    columns.push({
-      id: field.id,
-      label: getEntityFieldDisplayName(field),
-      fields: [field],
-    });
+    columns.push(columnFromFields([field]));
   }
 
   return columns;
@@ -118,6 +148,22 @@ export function getEntityTableDisplayColumns(
     preferArrayOrder: options?.preferArrayOrder,
   }).filter((field) => !hide?.has(field.id));
   return buildEntityTableDisplayColumns(tableFields);
+}
+
+/**
+ * 1-based display-column index for a table field (merged groups count as one).
+ * Returns null when the field is not shown in the table.
+ */
+export function getEntityTableDisplayColumnPosition(
+  fields: readonly EntityField[],
+  fieldId: string,
+  options?: { preferArrayOrder?: boolean },
+): number | null {
+  const columns = getEntityTableDisplayColumns([...fields], options);
+  const index = columns.findIndex((column) =>
+    column.fields.some((field) => field.id === fieldId),
+  );
+  return index >= 0 ? index + 1 : null;
 }
 
 /**

@@ -119,8 +119,9 @@ export function isEntityComputedFieldType(type: EntityFieldType) {
 
 /**
  * Whether the field may use the «При создании» visibility toggle.
- * Formula / rollup / numberSum are never shown on create (see
- * `isEntityFieldVisibleOnCreate`) — no toggle. Lookup stays toggleable.
+ * Formula uses its own toggle on `formula.showOnCreate`.
+ * Rollup / numberSum are never shown on create — no toggle.
+ * Lookup stays toggleable.
  */
 export function canEntityFieldToggleShowOnCreate(type: EntityFieldType) {
   if (type === "formula" || type === "rollup" || type === "numberSum") {

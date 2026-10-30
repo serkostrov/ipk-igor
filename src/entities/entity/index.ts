@@ -474,12 +474,15 @@ export {
 } from "./model/table-hierarchy";
 export {
   buildEntityTableDisplayColumns,
+  canMergeEntityTableFields,
   entityTableDisplayColumnIncludeInTotal,
   formatEntityTableDisplayColumnValue,
   getEntityTableDisplayColumnNumber,
+  getEntityTableDisplayColumnPosition,
   getEntityTableDisplayColumns,
   isEntityTableDisplayColumnNumeric,
   resolveEntityTableDisplayColumnField,
+  visibilityControllerKey,
   type EntityTableDisplayColumn,
 } from "./model/table-display-columns";
 export {

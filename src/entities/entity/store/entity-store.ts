@@ -74,6 +74,10 @@ import {
 import { buildTimeTrackingJournalPlan } from "../model/time-tracking-setup";
 import { isEntityTableParentField } from "../model/table-hierarchy";
 import {
+  buildEntityTableDisplayColumns,
+  visibilityControllerKey,
+} from "../model/table-display-columns";
+import {
   DEFAULT_ENTITY_FIELD_GROUP,
   ENTITY_FIELD_GROUP_COLUMNS,
   ENTITY_OVERVIEW_TAB_ID,
@@ -3034,8 +3038,11 @@ export function moveEntityListOption(
 }
 
 /**
- * Places a field at a 1-based column index among table columns
- * (including the name field).
+ * Places a field at a 1-based display-column index.
+ * When the slot already has a mutually exclusive field (same visibility
+ * controllers), the field joins that slot (shared `tableOrder`) instead of
+ * opening a new column — so position 5 + same conditions merges, position 6
+ * stays adjacent.
  */
 export function placeEntityFieldInTable(
   entityId: string,
@@ -3049,40 +3056,72 @@ export function placeEntityFieldInTable(
     const withoutTarget = getEntityTableFields(entity.fields).filter(
       (field) => field.id !== fieldId,
     );
-    const maxPosition = withoutTarget.length + 1;
+    const displayColumns = buildEntityTableDisplayColumns(withoutTarget);
+    const maxPosition = displayColumns.length + 1;
     const nextPosition = Math.min(
       maxPosition,
       Math.max(1, Math.round(position)),
     );
 
-    const placed = normalizeEntityField({ ...target, showInTable: true });
-    const columns = [
-      ...withoutTarget.slice(0, nextPosition - 1),
-      placed,
-      ...withoutTarget.slice(nextPosition - 1),
-    ];
+    const placedBase = normalizeEntityField({
+      ...target,
+      showInTable: true,
+    });
+    const targetController = visibilityControllerKey(placedBase);
+    const existingAtPosition =
+      nextPosition <= displayColumns.length
+        ? displayColumns[nextPosition - 1]
+        : null;
+    const existingController = existingAtPosition?.fields[0]
+      ? visibilityControllerKey(existingAtPosition.fields[0])
+      : null;
+    const mergeIntoExisting =
+      targetController != null &&
+      existingController != null &&
+      targetController === existingController &&
+      existingAtPosition != null;
 
-    let order = 1;
-    const orderById = new Map<string, number>();
-    for (const column of columns) {
-      orderById.set(column.id, order);
-      order += 1;
+    type Slot = { fields: EntityField[] };
+    const slots: Slot[] = displayColumns.map((column) => ({
+      fields: [...column.fields],
+    }));
+
+    if (mergeIntoExisting && existingAtPosition) {
+      const slot = slots[nextPosition - 1]!;
+      if (!slot.fields.some((field) => field.id === fieldId)) {
+        slot.fields.push(placedBase);
+      }
+    } else {
+      slots.splice(nextPosition - 1, 0, { fields: [placedBase] });
     }
+
+    const orderById = new Map<string, number>();
+    slots.forEach((slot, index) => {
+      const order = index + 1;
+      for (const field of slot.fields) {
+        orderById.set(field.id, order);
+      }
+    });
 
     return {
       ...entity,
       fields: entity.fields.map((field) => {
+        const nextOrder = orderById.get(field.id);
         if (field.id === fieldId) {
           return normalizeEntityField({
             ...field,
             showInTable: true,
-            tableOrder: orderById.get(field.id) ?? order,
+            tableOrder: nextOrder ?? nextPosition,
           });
         }
-        const nextOrder = orderById.get(field.id);
         if (nextOrder === undefined) return field;
-        if (field.tableOrder === nextOrder) return field;
-        return normalizeEntityField({ ...field, tableOrder: nextOrder });
+        if (field.tableOrder === nextOrder && field.showInTable !== false) {
+          return field;
+        }
+        return normalizeEntityField({
+          ...field,
+          tableOrder: nextOrder,
+        });
       }),
     };
   });

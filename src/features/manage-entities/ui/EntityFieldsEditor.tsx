@@ -52,7 +52,8 @@ import {
   getEntityPathLabel,
   getEntityRelationTargetId,
   getEntitySummableFields,
-  getEntityTableFields,
+  getEntityTableDisplayColumnPosition,
+  getEntityTableDisplayColumns,
   getEntityTabLinkFieldIds,
   groupEntityFields,
   isEntityFieldsHostTab,
@@ -4101,17 +4102,18 @@ export function EntityFieldsEditor({
     dialogListField != null
       ? resolveEntityListFieldOptions(dialogListField, entities).length
       : 0;
-  const tableColumns = getEntityTableFields(entity.fields);
+  const tableDisplayColumns = getEntityTableDisplayColumns(entity.fields);
   const editingInTable =
     editingField != null && editingField.showInTable !== false;
   const tableColumnCount = editingInTable
-    ? tableColumns.length
-    : tableColumns.length + 1;
+    ? tableDisplayColumns.length
+    : tableDisplayColumns.length + 1;
   const tablePositionMin = 1;
   const tablePosition = editingInTable
     ? Math.max(
         tablePositionMin,
-        tableColumns.findIndex((field) => field.id === editingField.id) + 1,
+        getEntityTableDisplayColumnPosition(entity.fields, editingField.id) ??
+          tableColumnCount,
       )
     : tableColumnCount;
   const draggingField =

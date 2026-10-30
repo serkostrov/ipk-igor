@@ -6,7 +6,10 @@
 import {
   entityRelationIncludesId,
   formatEntityDecimalTotal,
-  getEntityFieldDisplayName,
+  formatEntityListFieldValue,
+  formatRecordFieldValue,
+  getEntityListOption,
+  getEntityListOptions,
   getEntityRecordTitle,
   getRecordFieldNumber,
   isEntityNameField,
@@ -43,26 +46,74 @@ function nonNegative(value: number | null | undefined): number {
   return value;
 }
 
+function normalizeCalcTypeName(value: string): string {
+  return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
+}
+
+function calcTypeNameIsHours(name: string): boolean {
+  const normalized = normalizeCalcTypeName(name);
+  if (!normalized) return true;
+  if (
+    normalized.includes("сумм") ||
+    normalized.includes("фикс") ||
+    normalized.includes("amount") ||
+    normalized.includes("fixed")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function resolveCalcTypeOptionName(
+  entities: readonly Entity[],
+  field: EntityField,
+  raw: string | undefined,
+): string | null {
+  if (field.type === "list") {
+    const formatted = formatEntityListFieldValue(field, raw, entities).trim();
+    if (formatted && formatted !== "—") return formatted;
+
+    const options = resolveEntityListFieldOptions(field, entities);
+    const selected = getEntityListOptions(options, raw);
+    if (selected[0]?.name?.trim()) return selected[0].name.trim();
+
+    // Plain-text / legacy value: match option by name.
+    const rawText = (raw ?? "").trim();
+    if (rawText) {
+      const byName = options.find(
+        (item) =>
+          normalizeCalcTypeName(item.name) === normalizeCalcTypeName(rawText),
+      );
+      if (byName?.name.trim()) return byName.name.trim();
+      const optionId = parseEntityListValueIds(rawText)[0];
+      const byId = getEntityListOption(options, optionId ?? rawText);
+      if (byId?.name.trim()) return byId.name.trim();
+      // Stored label itself (e.g. «Часы»).
+      if (/[а-яa-z]/i.test(rawText) && !optionId) return rawText;
+      if (
+        optionId &&
+        optionId === rawText &&
+        /[а-яa-z]/i.test(rawText) &&
+        !options.some((item) => item.id === rawText)
+      ) {
+        return rawText;
+      }
+    }
+    return null;
+  }
+
+  return null;
+}
+
 function calcTypeIsHours(
   entities: readonly Entity[],
   field: EntityField | null,
   raw: string | undefined,
 ): boolean {
   if (!field) return true;
-  const optionId = parseEntityListValueIds(raw)[0];
-  if (!optionId) return true;
-  const option = resolveEntityListFieldOptions(field, entities).find(
-    (item) => item.id === optionId,
-  );
-  const name = (option?.name ?? "").trim().toLocaleLowerCase("ru");
-  if (
-    name.includes("сумм") ||
-    name.includes("фикс") ||
-    name.includes("amount")
-  ) {
-    return false;
-  }
-  return true;
+  const name = resolveCalcTypeOptionName(entities, field, raw);
+  if (!name) return true;
+  return calcTypeNameIsHours(name);
 }
 
 function nestedLinesForHost(
@@ -220,18 +271,44 @@ export function resolveDeptLineHoursOrSum(
   return { label: "Сумма", value, isHours: false };
 }
 
+/**
+ * Display label for «Тип расчёта» on a subtask line.
+ * Resolves list options (incl. linked catalogs); falls back to «Часы»/«Сумма».
+ */
 export function resolveDeptCalcTypeLabel(
   entities: readonly Entity[],
   field: EntityField | null,
   raw: string | undefined,
+  fallbackIsHours = true,
 ): string {
-  if (!field) return "—";
-  const optionId = parseEntityListValueIds(raw)[0];
-  if (!optionId) return "—";
-  const option = resolveEntityListFieldOptions(field, entities).find(
-    (item) => item.id === optionId,
-  );
-  return option?.name?.trim() || getEntityFieldDisplayName(field);
+  if (field) {
+    if (field.type === "list") {
+      const name = resolveCalcTypeOptionName(entities, field, raw);
+      if (name) return name;
+    } else {
+      const text = (raw ?? "").trim();
+      if (text) return text;
+    }
+  }
+  return fallbackIsHours ? "Часы" : "Сумма";
+}
+
+/** Label with live formatting when a value context is available. */
+export function resolveDeptCalcTypeLabelForRecord(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  entities: readonly Entity[],
+  fields: DeptCalculationsSubtaskFields,
+): string {
+  const field = fields.calcType;
+  const raw = field ? record.values[field.id] : undefined;
+  if (field && field.type !== "list") {
+    const formatted = formatRecordFieldValue(ctx, entity, record, field).trim();
+    if (formatted && formatted !== "—") return formatted;
+  }
+  const isHours = calcTypeIsHours(entities, field, raw);
+  return resolveDeptCalcTypeLabel(entities, field, raw, isHours);
 }
 
 export function getDeptNestedLines(

@@ -108,9 +108,11 @@ function fieldMatchesCreateFilter(field: EntityField, filter: CreateFilter) {
   return filter === "onCreate" ? onCreate : !onCreate;
 }
 
-/** Fields that can use the «При создании» toggle (not title / non-lookup computed). */
+/** Fields that can use the «При создании» toggle (not title / rollup / numberSum). */
 function canToggleShowOnCreate(field: EntityField) {
   if (isEntityNameField(field)) return false;
+  // Formula: own flag on `formula.showOnCreate` (opt-in live preview).
+  if (field.type === "formula") return Boolean(field.formula);
   return canEntityFieldToggleShowOnCreate(field.type);
 }
 
@@ -932,6 +934,15 @@ function EntityFieldsOverviewBody({
                         onToggleShowOnCreate={
                           showCreateToggle
                             ? (next) => {
+                                if (field.type === "formula" && field.formula) {
+                                  updateEntityField(entity.id, field.id, {
+                                    formula: {
+                                      ...field.formula,
+                                      showOnCreate: next ? true : undefined,
+                                    },
+                                  });
+                                  return;
+                                }
                                 updateEntityField(entity.id, field.id, {
                                   showOnCreate: next,
                                 });

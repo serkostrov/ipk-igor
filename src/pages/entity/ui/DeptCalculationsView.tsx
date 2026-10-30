@@ -36,8 +36,11 @@ import {
   applyTkpGipDepartmentUsers,
   formatEntityDecimalTotal,
   formatRecordFieldValue,
+  getEntityListOption,
   getRecordFieldNumber,
   removeEntityRecord,
+  resolveEntityListFieldOptions,
+  resolveEntityListFieldPresentation,
   serializeEntityRelationIds,
   updateEntityRecord,
   useEntityConfig,
@@ -54,7 +57,7 @@ import {
   formatDeptHours,
   formatDeptMoney,
   getDeptNestedLines,
-  resolveDeptCalcTypeLabel,
+  resolveDeptCalcTypeLabelForRecord,
   resolveDeptLineHoursOrSum,
   resolveDeptLineTitle,
 } from "@/features/hardcode/dept-calculations/model/aggregation";
@@ -91,13 +94,38 @@ type DeptCalculationsViewProps = {
   editableRecordIds?: ReadonlySet<string> | null;
 };
 
-function StatusPill({ label }: { label: string }) {
-  if (!label || label === "—") {
+function StatusPill({
+  label,
+  color,
+}: {
+  label: string;
+  /** Optional list-option color (dot + tinted chip). */
+  color?: string | null;
+}) {
+  const text = label.trim();
+  if (!text || text === "—") {
     return <span className="text-muted-foreground/50">—</span>;
   }
+  const tint = color?.trim() || null;
   return (
-    <span className="inline-flex max-w-full truncate rounded-md border border-border/70 bg-muted/35 px-2 py-0.5 text-[11px] font-medium text-foreground/80">
-      {label}
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center gap-1.5 truncate rounded-md border px-2 py-0.5 text-[11px] font-medium",
+        tint
+          ? "border-black/5 text-foreground"
+          : "border-border/70 bg-muted/35 text-foreground/80",
+      )}
+      style={tint ? { backgroundColor: `${tint}28` } : undefined}
+      title={text}
+    >
+      {tint ? (
+        <span
+          className="size-1.5 shrink-0 rounded-full"
+          style={{ backgroundColor: tint }}
+          aria-hidden
+        />
+      ) : null}
+      <span className="truncate">{text}</span>
     </span>
   );
 }
@@ -976,6 +1004,14 @@ function DepartmentBlock({
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[920px] table-fixed text-sm">
+                        <colgroup>
+                          <col className="w-[32%]" />
+                          <col className="w-[14%]" />
+                          <col className="w-[12%]" />
+                          <col className="w-[14%]" />
+                          <col className="w-[20%]" />
+                          <col className="w-[8%]" />
+                        </colgroup>
                         <thead className="border-b border-border bg-muted/30 text-left text-[11px] tracking-wide text-muted-foreground uppercase">
                           <tr>
                             <th className="px-3 py-2">Подзадача / шаблон</th>
@@ -996,11 +1032,6 @@ function DepartmentBlock({
                               line,
                               lineFields,
                             );
-                            const calcLabel = resolveDeptCalcTypeLabel(
-                              entities,
-                              lineFields.calcType,
-                              line.values[lineFields.calcType?.id ?? ""],
-                            );
                             const hoursOrSum = resolveDeptLineHoursOrSum(
                               valueContext,
                               nested.entity,
@@ -1008,6 +1039,35 @@ function DepartmentBlock({
                               entities,
                               lineFields,
                             );
+                            const calcLabel = resolveDeptCalcTypeLabelForRecord(
+                              valueContext,
+                              nested.entity,
+                              line,
+                              entities,
+                              lineFields,
+                            );
+                            const calcTypeField = lineFields.calcType;
+                            const calcTypePresentation = calcTypeField
+                              ? resolveEntityListFieldPresentation(
+                                  calcTypeField,
+                                  entities,
+                                )
+                              : null;
+                            const calcTypeOption =
+                              calcTypeField?.type === "list"
+                                ? getEntityListOption(
+                                    resolveEntityListFieldOptions(
+                                      calcTypeField,
+                                      entities,
+                                    ),
+                                    line.values[calcTypeField.id],
+                                  )
+                                : null;
+                            const calcTypeColor =
+                              calcTypePresentation?.listUseColors &&
+                              calcTypeOption?.color
+                                ? calcTypeOption.color
+                                : null;
                             const cost = lineFields.cost
                               ? getRecordFieldNumber(
                                   valueContext,
@@ -1029,26 +1089,36 @@ function DepartmentBlock({
                                 key={line.id}
                                 className="border-b border-border/60 last:border-0"
                               >
-                                <td className="px-3 py-2.5 font-medium">
-                                  {title}
+                                <td className="max-w-0 px-3 py-2.5 align-top font-medium">
+                                  <span
+                                    className="block whitespace-normal break-words [overflow-wrap:anywhere]"
+                                    title={title}
+                                  >
+                                    {title}
+                                  </span>
                                 </td>
-                                <td className="px-3 py-2.5">
-                                  <StatusPill label={calcLabel} />
+                                <td className="px-3 py-2.5 align-top">
+                                  <StatusPill
+                                    label={calcLabel}
+                                    color={calcTypeColor}
+                                  />
                                 </td>
-                                <td className="px-3 py-2.5 text-right tabular-nums">
+                                <td className="px-3 py-2.5 align-top text-right tabular-nums">
                                   {hoursOrSum.value == null
                                     ? "—"
                                     : formatEntityDecimalTotal(
                                         hoursOrSum.value,
                                       )}
                                 </td>
-                                <td className="px-3 py-2.5 text-right tabular-nums">
+                                <td className="px-3 py-2.5 align-top text-right tabular-nums">
                                   {cost == null ? "—" : formatDeptMoney(cost)}
                                 </td>
-                                <td className="px-3 py-2.5 text-muted-foreground">
-                                  {lineComment || "—"}
+                                <td className="max-w-0 px-3 py-2.5 align-top text-muted-foreground">
+                                  <span className="block whitespace-normal break-words [overflow-wrap:anywhere]">
+                                    {lineComment || "—"}
+                                  </span>
                                 </td>
-                                <td className="px-3 py-2.5 text-right">
+                                <td className="px-3 py-2.5 align-top text-right">
                                   {canEdit ? (
                                     <DropdownMenu>
                                       <DropdownMenuTrigger
