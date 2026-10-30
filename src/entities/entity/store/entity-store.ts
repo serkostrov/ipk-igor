@@ -3506,6 +3506,47 @@ export function addManualTimeEntries(
   return plan.days.length;
 }
 
+/** Updates start / end / comment of an existing time entry; recalculates hours. */
+export function updateTimeEntry(
+  hostEntityId: string,
+  entryId: string,
+  input: {
+    start: string;
+    end: string;
+    comment: string;
+  },
+) {
+  const entity = config.entities.find((item) => item.id === hostEntityId);
+  const setup = entity ? getEntityTimeTracking(entity, config.entities) : null;
+  if (!entity || !setup) {
+    throw new Error("Учёт времени недоступен для этой записи");
+  }
+  const entry = setup.entryEntity.records.find((item) => item.id === entryId);
+  if (!entry) {
+    throw new Error("Сессия не найдена");
+  }
+  const start = parseLocalDatetime(input.start);
+  const end = parseLocalDatetime(input.end);
+  if (!start || !end) {
+    throw new Error("Укажите дату и время начала и окончания");
+  }
+  if (end.getTime() <= start.getTime()) {
+    throw new Error("Окончание должно быть позже начала");
+  }
+  const nextValues: Record<string, string> = {
+    ...entry.values,
+    [setup.config.startFieldId]: toLocalDatetime(start),
+    [setup.config.endFieldId]: toLocalDatetime(end),
+    [setup.config.hoursFieldId]: serializeEntityDecimal(
+      getTimeEntryHours(start, end),
+    ),
+  };
+  if (setup.config.commentFieldId) {
+    nextValues[setup.config.commentFieldId] = input.comment.trim();
+  }
+  updateEntityRecord(setup.entryEntity.id, entryId, nextValues);
+}
+
 export function setEntityTimeTracking(
   entityId: string,
   timeTracking: EntityTimeTracking | null,

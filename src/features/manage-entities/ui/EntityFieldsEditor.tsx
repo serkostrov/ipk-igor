@@ -9,10 +9,13 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Clock,
+  ClockPlus,
   Eye,
   EyeOff,
   Link2,
   Pencil,
+  Play,
   Plus,
   Settings,
   Trash2,
@@ -120,7 +123,6 @@ import {
 import { EntitySubEntitySettingsDialog } from "./EntitySubEntitySettingsDialog";
 import { EntityFilesTabFoldersEditor } from "./EntityFilesTabFoldersEditor";
 import { EntityTabDialog } from "./EntityTabDialog";
-import { EntityTimeTrackingSettings } from "./EntityTimeTrackingDialog";
 
 type EntityFieldsEditorProps = {
   entity: Entity;
@@ -4931,12 +4933,55 @@ export function EntityFieldsEditor({
                 </p>
               </div>
             ) : activeTab && isEntityTimeSessionsTab(activeTab) ? (
-              <EntityTimeTrackingSettings
-                key={`${entity.id}:${entity.timeTracking?.entryEntityId ?? "off"}`}
-                entity={entity}
-                readOnly={readOnly}
-                variant="panel"
-              />
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+                  <div className="min-w-0 flex flex-col gap-0.5">
+                    <p className="text-sm font-semibold tracking-tight text-foreground">
+                      {activeTab.name}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      На странице карточки — таймер, ручной ввод и журнал
+                      сессий.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 opacity-60">
+                    <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground">
+                      <Play className="size-3.5 fill-current" />
+                      Запустить
+                    </span>
+                    <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground">
+                      <ClockPlus className="size-3.5" />
+                      Вручную
+                    </span>
+                  </div>
+                </div>
+                <div className="px-4 py-3">
+                  <div className="overflow-hidden rounded-lg border border-border/70">
+                    <div className="grid grid-cols-[1.2fr_1fr_1fr_0.9fr_1.2fr] gap-2 border-b border-border bg-muted/30 px-3 py-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                      <span>Исполнитель</span>
+                      <span>Начало</span>
+                      <span>Окончание</span>
+                      <span>Длительность</span>
+                      <span>Комментарий</span>
+                    </div>
+                    <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+                      <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                        <Clock className="size-4" />
+                      </span>
+                      <p className="text-sm font-medium text-foreground">
+                        Журнал сессий
+                      </p>
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        В карточке здесь появятся сессии с полями исполнитель,
+                        начало, окончание, длительность и комментарий.
+                        Редактирование и удаление — по правам роли на сущность
+                        журнала. Настройка учёта времени: «Работа с записями» →
+                        «Учёт времени».
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             ) : linkedEntityForActiveTab ? (
               linkedEntityForActiveTab.id === entity.id ||
               linkedEntityForActiveTab.parentEntityId !== entity.id ? (

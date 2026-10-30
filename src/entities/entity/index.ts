@@ -652,6 +652,7 @@ export {
   setEntityPageLayout,
   rescheduleEntityRecord,
   addManualTimeEntries,
+  updateTimeEntry,
   startRecordTimer,
   stopRunningTimer,
   subscribeEntityConfig,
