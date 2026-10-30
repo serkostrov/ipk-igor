@@ -5,14 +5,20 @@ import {
   serializeEntityDecimal,
   serializeEntityRelationIds,
 } from "./field";
+import { isEntityListOptionFinal } from "./list-process";
 import {
   isEntityNameField,
   parseEntityListValueIds,
   parseEntityRelationIds,
+  resolveEntityListFieldOptions,
   type Entity,
   type EntityRecord,
   type EntityTimeTracking,
 } from "./types";
+
+function normalizeStatusLabel(value: string): string {
+  return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
+}
 
 export type EntityTimeTrackingSetup = {
   config: EntityTimeTracking;
@@ -101,16 +107,63 @@ export function findRunningTimer(
   return null;
 }
 
-/** Timer is allowed in the record's current status. */
+/**
+ * Timer is allowed in the record's current status.
+ * Empty restriction / empty status / stale option ids → allow (do not soft-lock).
+ */
 export function canStartEntityTimer(
   config: EntityTimeTracking,
   record: EntityRecord,
+  host?: Pick<Entity, "fields"> | null,
+  entities: readonly Entity[] = [],
 ) {
-  if (!config.statusFieldId || config.statusOptionIds.length === 0) {
+  const statusFieldId = config.statusFieldId?.trim() ?? "";
+  if (!statusFieldId || config.statusOptionIds.length === 0) {
     return true;
   }
-  const value = parseEntityListValueIds(record.values[config.statusFieldId])[0];
-  return value != null && config.statusOptionIds.includes(value);
+
+  const statusField =
+    host?.fields.find(
+      (field) => field.id === statusFieldId && field.type === "list",
+    ) ?? null;
+  // Misconfigured mapping must not permanently disable the button.
+  if (!statusField) return true;
+
+  const raw = (record.values[statusFieldId] ?? "").trim();
+  if (!raw) return true;
+
+  const valueIds = parseEntityListValueIds(raw);
+  const allowed = config.statusOptionIds.map((id) => id.trim()).filter(Boolean);
+  if (allowed.length === 0) return true;
+
+  const options = resolveEntityListFieldOptions(statusField, entities);
+  const knownIds = new Set(options.map((option) => option.id));
+  const allowedKnown = allowed.filter((id) => knownIds.has(id));
+  // After list options were recreated, saved ids no longer exist — don't block.
+  if (allowedKnown.length === 0 && options.length > 0) {
+    const current = options.find((option) => valueIds.includes(option.id));
+    return current ? !isEntityListOptionFinal(current) : true;
+  }
+
+  if (valueIds.some((id) => allowed.includes(id))) return true;
+
+  const selected = options.filter(
+    (option) =>
+      valueIds.includes(option.id) ||
+      normalizeStatusLabel(option.name) === normalizeStatusLabel(raw),
+  );
+  for (const option of selected) {
+    if (allowed.includes(option.id)) return true;
+    if (
+      allowed.some(
+        (id) => normalizeStatusLabel(id) === normalizeStatusLabel(option.name),
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /** Hours between two stored datetimes, rounded to hundredths. */

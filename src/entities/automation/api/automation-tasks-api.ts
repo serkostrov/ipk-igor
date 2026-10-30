@@ -218,6 +218,8 @@ export async function completeAutomationTaskRpc(
   runId: string;
   outcomeId: string;
   fieldValues: Record<string, string> | null;
+  /** True when other fan-out assignees still have open tasks. */
+  waitingForAssignees: boolean;
 }> {
   const client = requireClient();
   const { data, error } = await client.rpc("complete_automation_task", {
@@ -233,12 +235,14 @@ export async function completeAutomationTaskRpc(
     runId?: string;
     outcomeId?: string;
     fieldValues?: unknown;
+    waitingForAssignees?: unknown;
   };
   return {
     taskId: result.taskId ?? taskId,
     runId: result.runId ?? "",
     outcomeId: result.outcomeId ?? outcomeId,
     fieldValues: parseRpcFieldValues(result.fieldValues),
+    waitingForAssignees: result.waitingForAssignees === true,
   };
 }
 

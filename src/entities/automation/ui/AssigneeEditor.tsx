@@ -139,7 +139,9 @@ function defaultFromFieldResolver(
 function fanOutLabels() {
   return {
     one: "Только первому",
+    oneHint: "Дальше сразу после его ответа",
     each: "Каждому из поля",
+    eachHint: "Дальше — когда закончат все",
   };
 }
 
@@ -498,6 +500,9 @@ function LeafAssigneeEditor({
                   <span className="block text-xs font-medium">
                     {fanOut.one}
                   </span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
+                    {fanOut.oneHint}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -511,6 +516,9 @@ function LeafAssigneeEditor({
                 >
                   <span className="block text-xs font-medium">
                     {fanOut.each}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
+                    {fanOut.eachHint}
                   </span>
                 </button>
               </div>

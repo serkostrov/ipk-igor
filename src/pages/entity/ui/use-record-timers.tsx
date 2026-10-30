@@ -33,7 +33,10 @@ export function useRecordTimers(entity: Entity): RecordTimers {
     running?.entity.id === entity.id ? (running.record?.id ?? null) : null;
 
   function canStart(record: EntityRecord) {
-    return setup != null && canStartEntityTimer(setup.config, record);
+    return (
+      setup != null &&
+      canStartEntityTimer(setup.config, record, entity, entities)
+    );
   }
 
   function toggle(record: EntityRecord) {

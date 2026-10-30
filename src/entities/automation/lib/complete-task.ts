@@ -23,6 +23,7 @@ import {
   type EntityRecord,
   type EntityTabRecordEntry,
 } from "@/entities/entity";
+import { toast } from "sonner";
 import {
   completeAutomationTaskRpc,
   fetchAutomationTask,
@@ -42,6 +43,7 @@ import {
   type AutomationOutcomeFieldAccess,
   type AutomationTask,
 } from "../model/types";
+
 
 /** Append selected form-field values as notes on the first «Записи» tab. */
 async function appendOutcomeFieldComments(
@@ -526,6 +528,17 @@ export async function completeAutomationTask(
     throw new Error(message, { cause: error });
   }
   notifyAutomationTasksChanged();
+
+  // Multi-assignee: next step / stage wait for everyone — tell the actor.
+  if (
+    !isAutomationSilentTaskKind(task.config.kind) &&
+    rpcResult.waitingForAssignees
+  ) {
+    toast.message("Задание завершено", {
+      description:
+        "Следующий шаг откроется, когда закончат все исполнители",
+    });
+  }
 
   // SQL setField writes the DB; realtime is often down — mirror into local store
   // so Kanban / record views move to the configured stage immediately.

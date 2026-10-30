@@ -14,6 +14,7 @@ import {
   createEntityTimeTrackingJournal,
   getSystemUsersEntity,
   isEntityComputedFieldType,
+  isEntityListOptionFinal,
   ListSelect,
   listTimeJournalCandidates,
   parseEntityListValueIds,
@@ -436,9 +437,25 @@ export function EntityTimeTrackingSettings({
                   value={draft.statusFieldId}
                   options={getEntityFieldOptions(statusFields)}
                   emptyLabel="Всегда"
-                  onChange={(next) =>
-                    patch({ statusFieldId: next, statusOptionIds: [] })
-                  }
+                  onChange={(next) => {
+                    if (!next) {
+                      patch({ statusFieldId: null, statusOptionIds: [] });
+                      return;
+                    }
+                    const field =
+                      statusFields.find((item) => item.id === next) ?? null;
+                    const options = field
+                      ? resolveEntityListFieldOptions(field, entities)
+                      : [];
+                    // Default: all non-final statuses (e.g. «Назначена», «В работе»).
+                    const nonFinal = options
+                      .filter((option) => !isEntityListOptionFinal(option))
+                      .map((option) => option.id);
+                    patch({
+                      statusFieldId: next,
+                      statusOptionIds: nonFinal,
+                    });
+                  }}
                   disabled={readOnly}
                 />
                 {statusField ? (
