@@ -4,7 +4,10 @@
  */
 
 import { PROJECT_TIMEZONE } from "@/shared/config/project-time";
-import { tkpSalePriceModeLabel, type TkpCommercialCalculation } from "./commercial";
+import {
+  tkpSalePriceModeLabel,
+  type TkpCommercialCalculation,
+} from "./commercial";
 import {
   baseBeforeRetroRows,
   fmtMoney,
@@ -32,7 +35,10 @@ function fmtDateTime(value: string | Date): string {
   }).format(date);
 }
 
-function rowsTable(title: string, rows: Array<{ label: string; value: string }>) {
+function rowsTable(
+  title: string,
+  rows: Array<{ label: string; value: string }>,
+) {
   if (rows.length === 0) return "";
   const body = rows
     .map(

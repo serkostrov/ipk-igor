@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
+import { FileText } from "lucide-react";
 import { toast } from "sonner";
 
 import { PROJECT_TIMEZONE } from "@/shared/config/project-time";
 import { Button } from "@/shared/ui/button";
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import {
@@ -354,6 +356,8 @@ export function CommercialPricingPanel({
   pendingNewPriceVersion = false,
   approvalRevisionId = null,
   approvalSubmittedAt = null,
+  approvalChainReady = false,
+  approvalFieldName = null,
 }: {
   basis: ReviewGipCommercialBasis;
   canEdit: boolean;
@@ -362,12 +366,13 @@ export function CommercialPricingPanel({
   onSaveRevision: (input: CommercialPricingPanelSaveInput) => Promise<void>;
   onStartNewPriceVersion?: () => Promise<void>;
   /** Generate document from latest revision and send to approval chain. */
-  onSubmitForApproval?: (
-    revision: TkpPriceRevisionSummary,
-  ) => Promise<void>;
+  onSubmitForApproval?: (revision: TkpPriceRevisionSummary) => Promise<void>;
   pendingNewPriceVersion?: boolean;
   approvalRevisionId?: string | null;
   approvalSubmittedAt?: string | null;
+  /** List field «Согласование ТКП» + option «На согласовании» are configured. */
+  approvalChainReady?: boolean;
+  approvalFieldName?: string | null;
 }) {
   const [mode, setMode] = useState<TkpSalePriceMode>(
     latestRevision?.priceMode ?? "coefficient",
@@ -396,6 +401,7 @@ export function CommercialPricingPanel({
   const [saving, setSaving] = useState(false);
   const [startingVersion, setStartingVersion] = useState(false);
   const [submittingApproval, setSubmittingApproval] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const input = useMemo(
     () => buildPriceInput(mode, coefficient, manualTotalBeforeVat, retroAmount),
@@ -458,6 +464,7 @@ export function CommercialPricingPanel({
       await onSubmitForApproval(latestRevision);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Ошибка");
+      throw err;
     } finally {
       setSubmittingApproval(false);
     }
@@ -476,6 +483,19 @@ export function CommercialPricingPanel({
     Boolean(onSubmitForApproval) &&
     Boolean(latestRevision?.calculation) &&
     !pendingNewPriceVersion;
+  const revisionLabel =
+    latestRevision?.revisionNumber != null
+      ? `№${latestRevision.revisionNumber}`
+      : null;
+  const confirmDescription = [
+    revisionLabel
+      ? `По сохранённой ревизии цены ${revisionLabel} будет сформирован документ ТКП.`
+      : "По сохранённой ревизии цены будет сформирован документ ТКП.",
+    "Файл сохранится во вкладку «Файлы» → папка «ТКП».",
+    approvalChainReady
+      ? `Статус «${approvalFieldName ?? "Согласование ТКП"}» станет «На согласовании» — дальше сработает цепочка согласования.`
+      : "Документ сохранится. Чтобы запустить цепочку, добавьте на сущность поле списка «Согласование ТКП» со значением «На согласовании» и настройте автоматизацию.",
+  ].join("\n\n");
 
   return (
     <section
@@ -488,8 +508,8 @@ export function CommercialPricingPanel({
             Цена ТКП
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Предпросмотр на клиенте · каждое сохранение — новая ревизия · НДС{" "}
-            {TKP_COMMERCIAL_VAT_RATE}%
+            Сохраните ревизию → сформируйте документ → отправьте на согласование
+            · НДС {TKP_COMMERCIAL_VAT_RATE}%
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -497,23 +517,24 @@ export function CommercialPricingPanel({
             <Button
               type="button"
               size="sm"
-              variant="outline"
-              className="h-8 shrink-0"
-              onClick={() => void handleSubmitForApproval()}
+              className="h-8 shrink-0 gap-1.5"
+              onClick={() => setConfirmOpen(true)}
               disabled={submittingApproval || !canEdit}
               data-testid="submit-tkp-document-approval"
             >
+              <FileText className="size-3.5" aria-hidden />
               {submittingApproval
                 ? "Формирование…"
                 : approvalMatchesLatest
                   ? "Отправить снова"
-                  : "Документ на согласование"}
+                  : "На согласование"}
             </Button>
           ) : null}
           {onStartNewPriceVersion && !pendingNewPriceVersion ? (
             <Button
               type="button"
               size="sm"
+              variant="outline"
               className="h-8 shrink-0"
               onClick={() => void handleStartNewPriceVersion()}
               disabled={startingVersion || !canEdit}
@@ -531,16 +552,39 @@ export function CommercialPricingPanel({
           data-testid="tkp-approval-submitted-banner"
         >
           Документ по текущей ревизии сформирован и отправлен на согласование
-          {` · ${fmtDateTime(approvalSubmittedAt)}`}.
+          {` · ${fmtDateTime(approvalSubmittedAt)}`}. Смотрите файл во вкладке
+          «Файлы» → «ТКП».
+        </p>
+      ) : canSubmitApproval ? (
+        <p
+          className="border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground sm:px-5"
+          data-testid="tkp-approval-hint"
+        >
+          {approvalChainReady
+            ? "Кнопка «На согласование» сформирует документ из сохранённой цены и запустит цепочку согласования."
+            : "Кнопка «На согласование» сформирует документ из сохранённой цены. Для автозапуска цепочки нужно поле «Согласование ТКП»."}
         </p>
       ) : null}
 
       {pendingNewPriceVersion ? (
         <p className="border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground sm:px-5">
-          Сохранение создаст цену N+1. Перед финализацией убедитесь, что
-          комплекты файлов ТКП соответствуют новой цене.
+          Сохранение создаст цену N+1. Затем сформируйте документ кнопкой «На
+          согласование» или загрузите файл ТКП вручную.
         </p>
       ) : null}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Сформировать документ и отправить на согласование?"
+        description={confirmDescription}
+        confirmLabel={
+          approvalMatchesLatest ? "Отправить снова" : "Сформировать и отправить"
+        }
+        cancelLabel="Отмена"
+        destructive={false}
+        onConfirm={handleSubmitForApproval}
+      />
 
       <div className="space-y-4 p-3 sm:p-4">
         {visibleCalculation ? (

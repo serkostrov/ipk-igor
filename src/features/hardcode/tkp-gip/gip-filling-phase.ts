@@ -3,6 +3,7 @@
  */
 
 import { registerAfterAutomationTaskCompleteHook } from "@/entities/automation/lib/hardcode-hooks";
+import "../tkp-review/lib/assert-gip-execution-duration";
 import {
   getEntityConfig,
   isDeptCalculationsEntity,

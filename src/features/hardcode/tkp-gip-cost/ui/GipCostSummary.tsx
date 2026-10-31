@@ -361,7 +361,7 @@ function GipExecutionDurationControl({
     setError(null);
     try {
       await onSave(parsed);
-      toast.success("Общий срок выполнения ГИПа сохранён");
+      toast.success("Общий срок расчёта сохранён");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Ошибка";
       setError(message);
@@ -371,70 +371,103 @@ function GipExecutionDurationControl({
     }
   }
 
+  const filled =
+    executionDurationDays != null &&
+    Number.isFinite(executionDurationDays) &&
+    executionDurationDays > 0;
+  const highlightEmpty = canEdit && !filled;
+
   return (
     <div
-      className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-4"
+      className={
+        highlightEmpty
+          ? "rounded-xl border-2 border-amber-500/70 bg-amber-500/10 px-3.5 py-3 shadow-sm ring-1 ring-amber-500/20 sm:px-4"
+          : "rounded-xl border border-border/80 bg-background/80 px-3.5 py-3 sm:px-4"
+      }
       data-testid="review-gip-execution-duration"
     >
-      <div className="min-w-0 flex-1">
-        <Label
-          htmlFor="review-gip-execution-duration"
-          className="text-sm font-medium text-foreground"
-        >
-          Общий срок выполнения
-        </Label>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          Рабочие дни · вручную · на стоимость не влияет
-        </p>
-        {error ? (
-          <p className="mt-1 text-[11px] text-destructive" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
-
-      {canEdit ? (
-        <div className="flex shrink-0 items-center gap-2">
-          <Input
-            id="review-gip-execution-duration"
-            data-testid="review-gip-execution-duration-input"
-            type="number"
-            min="0.5"
-            step="0.5"
-            required
-            inputMode="decimal"
-            placeholder="0"
-            className="h-9 w-28 bg-background text-right tabular-nums"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void handleSave();
-              }
-            }}
-            aria-invalid={
-              value.trim().length > 0 &&
-              parseReviewExecutionDuration(value) === null
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <Label
+            htmlFor="review-gip-execution-duration"
+            className={
+              highlightEmpty
+                ? "text-sm font-semibold text-foreground"
+                : "text-sm font-medium text-foreground"
             }
-          />
-          <span className="text-xs text-muted-foreground">дн.</span>
-          <Button
-            type="button"
-            size="sm"
-            className="h-9"
-            onClick={() => void handleSave()}
-            disabled={saving || !onSave}
-            data-testid="review-gip-execution-duration-save"
           >
-            {saving ? "…" : "Сохранить"}
-          </Button>
+            Общий срок расчёта
+            {canEdit ? (
+              <span className="ml-1 text-destructive" aria-hidden>
+                *
+              </span>
+            ) : null}
+          </Label>
+          <p
+            className={
+              highlightEmpty
+                ? "mt-0.5 text-[11px] font-medium text-amber-900/80 dark:text-amber-100/80"
+                : "mt-0.5 text-[11px] text-muted-foreground"
+            }
+          >
+            {highlightEmpty
+              ? "Обязательно для завершения задания ГИПа · рабочие дни"
+              : "Рабочие дни · вручную · на стоимость не влияет"}
+          </p>
+          {error ? (
+            <p className="mt-1 text-[11px] text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
         </div>
-      ) : (
-        <p className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
-          {formatReviewExecutionDuration(executionDurationDays)}
-        </p>
-      )}
+
+        {canEdit ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <Input
+              id="review-gip-execution-duration"
+              data-testid="review-gip-execution-duration-input"
+              type="number"
+              min="0.5"
+              step="0.5"
+              required
+              inputMode="decimal"
+              placeholder="0"
+              className={
+                highlightEmpty
+                  ? "h-9 w-28 border-amber-500/60 bg-background text-right tabular-nums font-semibold shadow-xs"
+                  : "h-9 w-28 bg-background text-right tabular-nums"
+              }
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleSave();
+                }
+              }}
+              aria-invalid={
+                value.trim().length > 0 &&
+                parseReviewExecutionDuration(value) === null
+              }
+            />
+            <span className="text-xs text-muted-foreground">дн.</span>
+            <Button
+              type="button"
+              size="sm"
+              className="h-9"
+              onClick={() => void handleSave()}
+              disabled={saving || !onSave}
+              data-testid="review-gip-execution-duration-save"
+            >
+              {saving ? "…" : "Сохранить"}
+            </Button>
+          </div>
+        ) : (
+          <p className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+            {formatReviewExecutionDuration(executionDurationDays)}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

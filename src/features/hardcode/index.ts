@@ -153,8 +153,10 @@ export {
 export {
   findTkpApprovalListField,
   readTkpApprovalState,
+  resolveTkpApprovalChainReady,
   resolveTkpApprovalPendingOptionId,
   TKP_APPROVAL_REVISION_KEY,
   TKP_APPROVAL_SUBMITTED_AT_KEY,
 } from "./tkp-review/lib/tkp-approval";
 export { submitTkpDocumentForApproval } from "./tkp-review/lib/submit-tkp-document";
+export { resolveTkpDocumentFilesTarget } from "./tkp-review/lib/resolve-tkp-files-target";

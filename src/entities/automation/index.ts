@@ -60,6 +60,7 @@ export {
 } from "./model/actions";
 export {
   AUTOMATION_PATH_RELATED_RECORD,
+  AUTOMATION_PATH_TAB_PREFIX,
   AUTOMATION_VALUE_CURRENT_RECORD,
   AUTOMATION_VALUE_CURRENT_USER,
   AUTOMATION_VALUE_NOW,
@@ -72,11 +73,14 @@ export {
   isAutomationEntityPathRef,
   isAutomationFieldRef,
   isAutomationPathRelatedRecord,
+  isAutomationTabPathBridge,
   parseAutomationEntityPathRef,
   parseAutomationFieldRef,
+  parseAutomationTabPathBridge,
   resolveAutomationActionValue,
   toAutomationEntityPathRef,
   toAutomationFieldRef,
+  toAutomationTabPathBridge,
   type AutomationEntityPathRef,
 } from "./model/action-values";
 export {

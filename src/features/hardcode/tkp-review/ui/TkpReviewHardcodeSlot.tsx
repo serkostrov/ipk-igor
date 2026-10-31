@@ -42,6 +42,7 @@ import {
 } from "../lib/tkp-file-bind";
 import {
   readTkpApprovalState,
+  resolveTkpApprovalChainReady,
 } from "../lib/tkp-approval";
 import { submitTkpDocumentForApproval } from "../lib/submit-tkp-document";
 import { TkpPendingPriceVersionBanner } from "./TkpPendingPriceVersionBanner";
@@ -125,6 +126,11 @@ export function TkpReviewHardcodeSlot({
     entity,
   );
   const pendingNewPriceVersion = record.values[PENDING_NEW_PRICE_KEY] === "1";
+  const approvalState = readTkpApprovalState(record.values);
+  const approvalChain = useMemo(
+    () => resolveTkpApprovalChainReady(entity, entities),
+    [entity, entities],
+  );
 
   const reloadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -202,18 +208,19 @@ export function TkpReviewHardcodeSlot({
       revision,
       entities,
     });
+    const tabHint = result.createdFilesTab
+      ? ` Создана вкладка «${result.filesTabName}».`
+      : "";
     if (result.approvalFieldUpdated) {
       toast.success(
-        `Документ «${result.fileName}» сохранён в папку ТКП и отправлен на согласование`,
+        `Документ «${result.fileName}» сохранён в «${result.filesTabName}» → «ТКП» и отправлен на согласование.${tabHint}`,
       );
     } else {
       toast.success(
-        `Документ «${result.fileName}» сохранён в папку ТКП. Добавьте поле списка «Согласование ТКП» со значением «На согласовании», чтобы запускать цепочку автоматизацией.`,
+        `Документ «${result.fileName}» сохранён в «${result.filesTabName}» → «ТКП».${tabHint} Для автозапуска цепочки добавьте поле списка «Согласование ТКП» со значением «На согласовании».`,
       );
     }
   }
-
-  const approvalState = readTkpApprovalState(record.values);
 
   const wantGip = sections.includes("gip");
   const wantCommercial = sections.includes("commercial");
@@ -270,6 +277,8 @@ export function TkpReviewHardcodeSlot({
             pendingNewPriceVersion={pendingNewPriceVersion}
             approvalRevisionId={approvalState.revisionId}
             approvalSubmittedAt={approvalState.submittedAt}
+            approvalChainReady={approvalChain.ready}
+            approvalFieldName={approvalChain.fieldName}
           />
           {historyLoading ? (
             <p className="text-xs text-muted-foreground">

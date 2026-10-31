@@ -10,12 +10,15 @@ import {
   AUTOMATION_VALUE_TOMORROW,
   automationBridgeTargetEntityId,
   automationLookupRelationGroupsField,
+  getAskRelatedLinkedTabs,
   isAutomationEntityPathRef,
   isAutomationFieldRef,
   isAutomationPathRelatedRecord,
+  isAutomationTabPathBridge,
   parseAutomationEntityPathRef,
   toAutomationEntityPathRef,
   toAutomationFieldRef,
+  toAutomationTabPathBridge,
 } from "@/entities/automation";
 import {
   getEntityDisplayName,
@@ -37,6 +40,7 @@ import {
   serializeEntityPeriod,
   type Entity,
   type EntityField,
+  type EntityTab,
 } from "@/entities/entity";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { DateRangePicker } from "@/shared/ui/date-range-picker";
@@ -268,7 +272,7 @@ function SourceFieldSelect({
     const name = getEntityFieldDisplayName(field);
     if (entitySuffix) return `${name} из ${entitySuffix}`;
     if (field.type === "relationGroups") return `${name} · набор связей`;
-    if (field.type === "relation") {
+    if (isEntityRelationLikeFieldType(field.type)) {
       const targetId = getEntityRelationTargetId(field);
       if (targetId === SYSTEM_USERS_ENTITY_ID) {
         return `${name} · пользователь`;
@@ -296,7 +300,7 @@ function SourceFieldSelect({
         </span>
       );
     }
-    if (field.type === "relation") {
+    if (isEntityRelationLikeFieldType(field.type)) {
       const targetId = getEntityRelationTargetId(field);
       if (targetId === SYSTEM_USERS_ENTITY_ID) {
         return (
@@ -555,17 +559,29 @@ function bridgeFieldLabel(
   return name;
 }
 
-/** Relation/dependencies target matches the entity at the hop — can copy the record id. */
+/** Relation/belonging/dependencies target matches the hop entity — copy record id(s). */
 function canPickRelatedRecordAsValue(
   targetField: EntityField,
   relatedEntityId: string | null,
 ) {
   if (!relatedEntityId) return false;
-  if (targetField.type !== "relation" && targetField.type !== "dependencies") {
+  if (
+    targetField.type !== "relation" &&
+    targetField.type !== "belonging" &&
+    targetField.type !== "dependencies"
+  ) {
     return false;
   }
   return getEntityRelationTargetId(targetField) === relatedEntityId;
 }
+
+type EntityPathBridgeOption = {
+  id: string;
+  label: string;
+  field: EntityField | null;
+  tab: EntityTab | null;
+  linkedEntity: Entity | null;
+};
 
 function pickDefaultNestedFieldId(
   targetField: EntityField,
@@ -582,6 +598,54 @@ function pickDefaultNestedFieldId(
   return nestedFields[0]?.id ?? "";
 }
 
+function buildEntityPathBridgeOptions(options: {
+  sourceFields: EntityField[];
+  entities: Entity[];
+  hostEntity: Entity | null;
+  targetField: EntityField;
+  mapToOtherEntity?: boolean;
+}): EntityPathBridgeOption[] {
+  const { sourceFields, entities, hostEntity, targetField, mapToOtherEntity } =
+    options;
+  const bridges: EntityPathBridgeOption[] = [];
+  const seen = new Set<string>();
+
+  for (const field of sourceFields) {
+    if (!mapToOtherEntity && field.id === targetField.id) continue;
+    if (!isBridgeSourceField(field, entities, hostEntity)) continue;
+    if (seen.has(field.id)) continue;
+    seen.add(field.id);
+    bridges.push({
+      id: field.id,
+      label: bridgeFieldLabel(field, entities, hostEntity),
+      field,
+      tab: null,
+      linkedEntity: null,
+    });
+  }
+
+  if (hostEntity) {
+    for (const { tab, target } of getAskRelatedLinkedTabs(
+      hostEntity,
+      entities,
+    )) {
+      const id = toAutomationTabPathBridge(tab.id);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const tabName = tab.name.trim() || getEntityDisplayName(target);
+      bridges.push({
+        id,
+        label: `${tabName} → ${getEntityDisplayName(target)}`,
+        field: null,
+        tab,
+        linkedEntity: target,
+      });
+    }
+  }
+
+  return bridges;
+}
+
 function FromEntitySelects({
   targetField,
   sourceFields,
@@ -589,6 +653,7 @@ function FromEntitySelects({
   value,
   onChange,
   mapToOtherEntity,
+  sourceEntityId,
   compact,
   className,
 }: {
@@ -598,31 +663,40 @@ function FromEntitySelects({
   value: string;
   onChange: (next: string) => void;
   mapToOtherEntity?: boolean;
+  sourceEntityId?: string;
   compact?: boolean;
   className?: string;
 }) {
   const path = parseAutomationEntityPathRef(value);
-  const hostEntity =
-    entities.find((entity) =>
-      sourceFields.every((field) =>
-        entity.fields.some((item) => item.id === field.id),
-      ),
-    ) ??
-    entities.find((entity) =>
-      sourceFields.some((field) =>
-        entity.fields.some((item) => item.id === field.id),
-      ),
-    ) ??
-    null;
-  const bridgeFields = sourceFields.filter(
-    (field) =>
-      (mapToOtherEntity || field.id !== targetField.id) &&
-      isBridgeSourceField(field, entities, hostEntity),
-  );
+  let hostEntity = sourceEntityId
+    ? (entities.find((entity) => entity.id === sourceEntityId) ?? null)
+    : null;
+  if (!hostEntity) {
+    hostEntity =
+      entities.find((entity) =>
+        sourceFields.every((field) =>
+          entity.fields.some((item) => item.id === field.id),
+        ),
+      ) ??
+      entities.find((entity) =>
+        sourceFields.some((field) =>
+          entity.fields.some((item) => item.id === field.id),
+        ),
+      ) ??
+      null;
+  }
+  const bridgeOptions = buildEntityPathBridgeOptions({
+    sourceFields,
+    entities,
+    hostEntity,
+    targetField,
+    mapToOtherEntity,
+  });
   const relationFieldId = path?.relationFieldId ?? "";
   const nestedFieldId = path?.fieldId ?? "";
-  const bridgeField =
-    bridgeFields.find((field) => field.id === relationFieldId) ?? null;
+  const selectedBridge =
+    bridgeOptions.find((item) => item.id === relationFieldId) ?? null;
+  const bridgeField = selectedBridge?.field ?? null;
   const groupsField = bridgeField
     ? bridgeGroupsField(bridgeField, entities, hostEntity)
     : null;
@@ -632,16 +706,20 @@ function FromEntitySelects({
     path?.relationGroupsDepth ??
     (isGroups ? Math.max(0, groupsLevels.length - 1) : undefined);
 
-  const relatedEntityId = bridgeField
-    ? automationBridgeTargetEntityId(
-        bridgeField,
-        entities,
-        groupsDepth,
-        hostEntity,
-      )
-    : null;
+  const relatedEntityId = selectedBridge?.linkedEntity
+    ? selectedBridge.linkedEntity.id
+    : bridgeField
+      ? automationBridgeTargetEntityId(
+          bridgeField,
+          entities,
+          groupsDepth,
+          hostEntity,
+        )
+      : null;
   const relatedEntity = relatedEntityId
-    ? (entities.find((entity) => entity.id === relatedEntityId) ?? null)
+    ? (entities.find((entity) => entity.id === relatedEntityId) ??
+      selectedBridge?.linkedEntity ??
+      null)
     : null;
   const nestedFields = relatedEntity
     ? compatibleNestedFields(targetField, relatedEntity.fields, {
@@ -666,19 +744,25 @@ function FromEntitySelects({
     );
   }
 
-  function pickDefaultNested(
-    nextBridge: EntityField,
+  function pickDefaultNestedForBridge(
+    bridge: EntityPathBridgeOption,
     depth: number | undefined,
     preferId: string,
   ) {
-    const targetId = automationBridgeTargetEntityId(
-      nextBridge,
-      entities,
-      depth,
-      hostEntity,
-    );
+    const targetId = bridge.linkedEntity
+      ? bridge.linkedEntity.id
+      : bridge.field
+        ? automationBridgeTargetEntityId(
+            bridge.field,
+            entities,
+            depth,
+            hostEntity,
+          )
+        : null;
     const entity = targetId
-      ? (entities.find((item) => item.id === targetId) ?? null)
+      ? (entities.find((item) => item.id === targetId) ??
+        bridge.linkedEntity ??
+        null)
       : null;
     const options = entity
       ? compatibleNestedFields(targetField, entity.fields, { loose: true })
@@ -698,9 +782,9 @@ function FromEntitySelects({
     : undefined;
 
   const bridgeSelect =
-    bridgeFields.length === 0 ? (
+    bridgeOptions.length === 0 ? (
       <p className="text-[11px] text-muted-foreground">
-        Нет связей и наборов, из которых можно взять значение.
+        Нет связей, вкладок и наборов, из которых можно взять значение.
       </p>
     ) : (
       <div className="min-w-0">
@@ -709,19 +793,15 @@ function FromEntitySelects({
           onValueChange={(next) => {
             if (next == null) return;
             const nextId = String(next);
-            const nextBridge = bridgeFields.find(
-              (field) => field.id === nextId,
-            );
+            const nextBridge = bridgeOptions.find((item) => item.id === nextId);
             if (!nextBridge) return;
-            const nextGroups = bridgeGroupsField(
-              nextBridge,
-              entities,
-              hostEntity,
-            );
+            const nextGroups = nextBridge.field
+              ? bridgeGroupsField(nextBridge.field, entities, hostEntity)
+              : null;
             const nextDepth = nextGroups
               ? Math.max(0, (nextGroups.relationGroups?.levels.length ?? 1) - 1)
               : undefined;
-            const nextNested = pickDefaultNested(
+            const nextNested = pickDefaultNestedForBridge(
               nextBridge,
               nextDepth,
               nestedFieldId,
@@ -735,26 +815,30 @@ function FromEntitySelects({
           >
             <SelectValue className="min-w-0">
               {(selected) => {
-                const field = bridgeFields.find((item) => item.id === selected);
+                const bridge = bridgeOptions.find(
+                  (item) => item.id === selected,
+                );
                 return (
                   <span className="block truncate">
-                    {field
-                      ? bridgeFieldLabel(field, entities, hostEntity)
-                      : "Поле связи"}
+                    {bridge?.label ??
+                      (isAutomationTabPathBridge(String(selected ?? ""))
+                        ? "Связанная вкладка"
+                        : "Поле связи")}
                   </span>
                 );
               }}
             </SelectValue>
           </SelectTrigger>
           <SelectContent className="max-h-72" searchPlaceholder="Поиск…">
-            {bridgeFields.map((field) => {
-              const label = bridgeFieldLabel(field, entities, hostEntity);
-              return (
-                <SelectItem key={field.id} value={field.id} label={label}>
-                  {label}
-                </SelectItem>
-              );
-            })}
+            {bridgeOptions.map((bridge) => (
+              <SelectItem
+                key={bridge.id}
+                value={bridge.id}
+                label={bridge.label}
+              >
+                {bridge.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -766,11 +850,11 @@ function FromEntitySelects({
         <Select
           value={String(groupsDepth ?? 0)}
           onValueChange={(next) => {
-            if (next == null || !bridgeField) return;
+            if (next == null || !selectedBridge) return;
             const depth = Number.parseInt(String(next), 10);
             if (!Number.isFinite(depth)) return;
-            const nextNested = pickDefaultNested(
-              bridgeField,
+            const nextNested = pickDefaultNestedForBridge(
+              selectedBridge,
               depth,
               nestedFieldId,
             );
@@ -1052,6 +1136,7 @@ function ActionValueEditorBody({
         value={value}
         onChange={onChange}
         mapToOtherEntity={mapToOtherEntity}
+        sourceEntityId={sourceEntityId}
         compact={compact}
         className={
           compact && mode === "fromEntity"

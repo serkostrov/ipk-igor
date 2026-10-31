@@ -4,6 +4,14 @@
  * the feature layer.
  */
 
+export type BeforeAutomationTaskCompleteHook = (args: {
+  entityId: string;
+  recordId: string;
+  values: Record<string, string>;
+  triggerOptionId?: string | null;
+  taskName?: string | null;
+}) => void;
+
 export type AfterAutomationTaskCompleteHook = (args: {
   entityId: string;
   recordId: string;
@@ -12,12 +20,30 @@ export type AfterAutomationTaskCompleteHook = (args: {
   triggerOptionId?: string | null;
 }) => void | Promise<void>;
 
+let beforeTaskCompleteHook: BeforeAutomationTaskCompleteHook | null = null;
 let afterTaskCompleteHook: AfterAutomationTaskCompleteHook | null = null;
+
+export function registerBeforeAutomationTaskCompleteHook(
+  hook: BeforeAutomationTaskCompleteHook | null,
+) {
+  beforeTaskCompleteHook = hook;
+}
 
 export function registerAfterAutomationTaskCompleteHook(
   hook: AfterAutomationTaskCompleteHook | null,
 ) {
   afterTaskCompleteHook = hook;
+}
+
+/** Throws when hardcode blocks complete (e.g. missing GIP duration). */
+export function runBeforeAutomationTaskCompleteHook(args: {
+  entityId: string;
+  recordId: string;
+  values: Record<string, string>;
+  triggerOptionId?: string | null;
+  taskName?: string | null;
+}): void {
+  beforeTaskCompleteHook?.(args);
 }
 
 export async function runAfterAutomationTaskCompleteHook(args: {

@@ -37,6 +37,7 @@ import { resolveAskRelatedTarget } from "./ask-related";
 import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
 import { pickAutomationOutcome } from "./pick-outcome";
+import { runBeforeAutomationTaskCompleteHook } from "./hardcode-hooks";
 import { assertAutomationUploadRequired } from "./upload-required";
 import {
   isAutomationSilentTaskKind,
@@ -397,6 +398,15 @@ export async function completeAutomationTask(
 
   // Required file upload from template materials («Обязательно для завершения»).
   assertAutomationUploadRequired(task.config.materials, entity, record);
+
+  // Product hardcode gates (e.g. GIP «Общий срок расчёта»).
+  runBeforeAutomationTaskCompleteHook({
+    entityId: task.entityId,
+    recordId: task.recordId,
+    values: valuesForForm,
+    triggerOptionId: task.triggerOptionId,
+    taskName: task.name,
+  });
 
   // Required fields from outcome form + optional requireFields action.
   const requireAction = outcome.actions.find(

@@ -193,6 +193,18 @@ export function resolveDeptCalculationDepartmentLabel(
   record: EntityRecord,
   entities: readonly Entity[],
 ): string {
+  // Fan-out rows: one stage×department in «Стадия/отделы» — catalog name first
+  // (calc-row title is often the manager FIO and must not land in «Отдел»).
+  const paired = resolveDeptCalcDepartmentRecord(entity, record, entities);
+  if (paired) {
+    const label = resolveRelationRecordLabel(
+      paired.entity,
+      paired.record.id,
+      entities,
+    )?.trim();
+    if (label && label !== "Без названия") return label;
+  }
+
   const parentField = resolveEntityTableParentField(entity);
   const subgroupField = resolveEntityTableSubgroupField(entity);
   if (parentField && subgroupField) {

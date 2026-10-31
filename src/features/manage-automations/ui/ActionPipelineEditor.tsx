@@ -57,6 +57,7 @@ import {
   isEntityNameField,
   isEntityParentLinkField,
   isEntityRecordsTab,
+  isEntityRelationLikeFieldType,
   isEntityTabWithLinkedEntity,
   ListSelect,
   parseEntityListValueIds,
@@ -2341,12 +2342,15 @@ function fieldsCompatibleForAutoMap(
   if (source.type === "relationGroups") {
     return target.type === "relationGroups";
   }
+  if (
+    isEntityRelationLikeFieldType(target.type) &&
+    isEntityRelationLikeFieldType(source.type)
+  ) {
+    const targetId = getEntityRelationTargetId(target);
+    const sourceId = getEntityRelationTargetId(source);
+    return !targetId || !sourceId || targetId === sourceId;
+  }
   if (target.type === source.type) {
-    if (target.type === "relation") {
-      const targetId = getEntityRelationTargetId(target);
-      const sourceId = getEntityRelationTargetId(source);
-      return !targetId || !sourceId || targetId === sourceId;
-    }
     return true;
   }
   if (
@@ -2357,6 +2361,7 @@ function fieldsCompatibleForAutoMap(
       source.type === "email" ||
       source.type === "url" ||
       source.type === "relation" ||
+      source.type === "belonging" ||
       source.type === "lookup" ||
       source.type === "list" ||
       source.type === "number" ||
@@ -2366,7 +2371,12 @@ function fieldsCompatibleForAutoMap(
   ) {
     return true;
   }
-  if (target.type === "relation" && source.type === "lookup") return true;
+  if (
+    (target.type === "relation" || target.type === "belonging") &&
+    source.type === "lookup"
+  ) {
+    return true;
+  }
   if (
     target.type === "number" &&
     (source.type === "formula" ||
@@ -3220,8 +3230,9 @@ function MappingsEditor({
           <p className="text-[11px] font-medium leading-none text-muted-foreground">
             {title}
           </p>
-          <p className="mt-1 truncate text-[10px] leading-snug text-muted-foreground/80">
-            «{sourceLabel}» → «{targetLabel}»
+          <p className="mt-1 text-[10px] leading-snug text-muted-foreground/80">
+            «{sourceLabel}» → «{targetLabel}». Договор / ТКП / этапы — через «Из
+            связанной сущности» (вкладка или поле → запись / поле).
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">

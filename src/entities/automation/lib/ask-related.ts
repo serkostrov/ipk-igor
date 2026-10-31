@@ -6,12 +6,18 @@ import {
   getEntityRelationTargetId,
   isEntityTabWithLinkedEntity,
   parseEntityRelationIds,
+  SYSTEM_USERS_ENTITY_ID,
   type Entity,
   type EntityField,
   type EntityTab,
 } from "@/entities/entity";
 import type { AutomationCreateParentFromRelated } from "../model/actions";
 import type { AutomationAskRelatedField } from "../model/types";
+
+/** Users are people fields, not createRecord parent hosts. */
+function isCreateRecordParentEntity(entity: Entity) {
+  return entity.id !== SYSTEM_USERS_ENTITY_ID;
+}
 
 /**
  * How a host record links to a child entity (owned sub-entity or linked tab).
@@ -334,6 +340,7 @@ export function getCreateParentFromRelatedOptions(
     sourceEntity,
     entities,
   )) {
+    if (!isCreateRecordParentEntity(target)) continue;
     if (!resolveHostChildParentLinkField(target, createTarget)) continue;
     const key = `tab:${tab.id}`;
     if (seen.has(key)) continue;
@@ -350,7 +357,7 @@ export function getCreateParentFromRelatedOptions(
     const targetId = getEntityRelationTargetId(field);
     if (!targetId) continue;
     const target = entities.find((item) => item.id === targetId);
-    if (!target) continue;
+    if (!target || !isCreateRecordParentEntity(target)) continue;
     if (!resolveHostChildParentLinkField(target, createTarget)) continue;
     const key = `rel:${field.id}`;
     if (seen.has(key)) continue;
@@ -415,6 +422,7 @@ export function getCreateUnderExistingRelatedOptions(
     sourceEntity,
     entities,
   )) {
+    if (!isCreateRecordParentEntity(target)) continue;
     const parentLabel =
       tab.name.trim() || getEntityDisplayName(target) || "Подсущность";
     for (const child of collectChildEntitiesOf(target, entities)) {
@@ -427,7 +435,7 @@ export function getCreateUnderExistingRelatedOptions(
     const targetId = getEntityRelationTargetId(field);
     if (!targetId) continue;
     const target = entities.find((item) => item.id === targetId);
-    if (!target) continue;
+    if (!target || !isCreateRecordParentEntity(target)) continue;
     const parentLabel = getEntityFieldDisplayName(field);
     for (const child of collectChildEntitiesOf(target, entities)) {
       push(child, { relationFieldId: field.id }, target, parentLabel);

@@ -9,7 +9,6 @@ import {
   getEntityRecordTitle,
   getEntityTabFilesValueKey,
   getEntityValueContext,
-  isEntityFilesTab,
   isEntityNameField,
   normalizeListColor,
   parseEntityTabFileEntries,
@@ -28,11 +27,9 @@ import {
   resolveTkpApprovalPendingOptionId,
   writeTkpApprovalSubmittedPatch,
 } from "./tkp-approval";
+import { resolveTkpDocumentFilesTarget } from "./resolve-tkp-files-target";
 
-function uniqueFileName(
-  base: string,
-  existing: readonly string[],
-): string {
+function uniqueFileName(base: string, existing: readonly string[]): string {
   const names = new Set(existing.map((name) => name.toLowerCase()));
   if (!names.has(base.toLowerCase())) return base;
   const dot = base.lastIndexOf(".");
@@ -70,6 +67,8 @@ export type SubmitTkpDocumentForApprovalResult = {
   revisionId: string;
   approvalFieldUpdated: boolean;
   approvalFieldName: string | null;
+  filesTabName: string;
+  createdFilesTab: boolean;
 };
 
 export async function submitTkpDocumentForApproval(input: {
@@ -82,25 +81,24 @@ export async function submitTkpDocumentForApproval(input: {
     throw new Error("У ревизии цены нет расчёта — сначала сохраните цену");
   }
 
-  const filesTab = input.entity.tabs.find((tab) => isEntityFilesTab(tab));
-  if (!filesTab) {
-    throw new Error(
-      "Добавьте вкладку «Файлы» на сущность, чтобы сохранить документ ТКП",
-    );
-  }
+  const target = resolveTkpDocumentFilesTarget({
+    entity: input.entity,
+    record: input.record,
+    entities: input.entities,
+  });
 
   const ctx = getEntityValueContext(input.entities);
   const recordTitle = getEntityRecordTitle(
     ctx,
-    input.entity,
-    input.record,
+    target.entity,
+    target.record,
     "",
   ).trim();
-  const nameField = input.entity.fields.find((field) =>
+  const nameField = target.entity.fields.find((field) =>
     isEntityNameField(field),
   );
   const rawName = nameField
-    ? (input.record.values[nameField.id] ?? "").trim()
+    ? (target.record.values[nameField.id] ?? "").trim()
     : "";
   const title =
     recordTitle && recordTitle !== "—"
@@ -112,8 +110,8 @@ export async function submitTkpDocumentForApproval(input: {
     revision: input.revision,
   });
 
-  const valueKey = getEntityTabFilesValueKey(filesTab.id);
-  let entries = parseEntityTabFileEntries(input.record.values[valueKey]);
+  const valueKey = getEntityTabFilesValueKey(target.tab.id);
+  let entries = parseEntityTabFileEntries(target.record.values[valueKey]);
   const ensured = ensureTkpDocumentsFolder(entries);
   entries = ensured.entries;
   const folderId = ensured.folderId;
@@ -125,9 +123,9 @@ export async function submitTkpDocumentForApproval(input: {
   const entryId = crypto.randomUUID();
 
   const uploaded = await uploadEntityFile({
-    entityId: input.entity.id,
-    recordId: input.record.id,
-    tabId: filesTab.id,
+    entityId: target.entity.id,
+    recordId: target.record.id,
+    tabId: target.tab.id,
     entryId,
     file,
   });
@@ -146,30 +144,30 @@ export async function submitTkpDocumentForApproval(input: {
   };
   entries = [...entries, fileEntry];
 
-  const approvalField = findTkpApprovalListField(input.entity);
+  const approvalField = findTkpApprovalListField(target.entity);
   const pendingOptionId = approvalField
     ? resolveTkpApprovalPendingOptionId(approvalField, input.entities)
     : null;
   const approvalFieldUpdated = Boolean(approvalField && pendingOptionId);
 
   const nextValues = writeTkpApprovalSubmittedPatch({
-    entity: input.entity,
+    entity: target.entity,
     entities: input.entities,
     values: {
-      ...input.record.values,
+      ...target.record.values,
       [valueKey]: serializeEntityTabFileEntries(entries),
     },
     revisionId: input.revision.id,
   });
 
-  await updateEntityRecord(input.entity.id, input.record.id, nextValues);
+  await updateEntityRecord(target.entity.id, target.record.id, nextValues);
 
   return {
     fileName,
     revisionId: input.revision.id,
     approvalFieldUpdated,
-    approvalFieldName: approvalField
-      ? approvalField.name.trim() || null
-      : null,
+    approvalFieldName: approvalField ? approvalField.name.trim() || null : null,
+    filesTabName: target.tab.name.trim() || "Файлы",
+    createdFilesTab: target.createdTab,
   };
 }

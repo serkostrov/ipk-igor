@@ -114,8 +114,6 @@ export function assertAutomationUploadRequired(
 ): void {
   const target = getAutomationUploadTarget(materials);
   if (automationUploadTargetBlocksComplete(entity, record, target)) {
-    throw new Error(
-      "Прикрепите файлы в папку задания, чтобы завершить его.",
-    );
+    throw new Error("Прикрепите файлы в папку задания, чтобы завершить его.");
   }
 }

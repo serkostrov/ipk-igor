@@ -70,6 +70,8 @@ export function readTkpGipExecutionDurationDays(
   const field = findField(
     entity,
     [
+      "общий срок расчета",
+      "общий срок расчёта",
       "общий срок выполнения гипа",
       "срок выполнения гипа",
       "общий срок выполнения",
@@ -95,6 +97,8 @@ export function writeTkpGipExecutionDurationPatch(
   const field = findField(
     entity,
     [
+      "общий срок расчета",
+      "общий срок расчёта",
       "общий срок выполнения гипа",
       "срок выполнения гипа",
       "общий срок выполнения",

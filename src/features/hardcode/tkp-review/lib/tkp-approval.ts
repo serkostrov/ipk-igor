@@ -77,6 +77,24 @@ export function readTkpApprovalState(values: Record<string, string>): {
   return { revisionId, submittedAt };
 }
 
+/** Whether the host has a list field + «На согласовании» option for the chain. */
+export function resolveTkpApprovalChainReady(
+  entity: Entity,
+  entities: readonly Entity[] = [],
+): {
+  ready: boolean;
+  fieldName: string | null;
+} {
+  const field = findTkpApprovalListField(entity);
+  if (!field) return { ready: false, fieldName: null };
+  const optionId = resolveTkpApprovalPendingOptionId(field, entities);
+  return {
+    ready: optionId != null,
+    fieldName:
+      getEntityFieldDisplayName(field).trim() || field.name.trim() || null,
+  };
+}
+
 export function writeTkpApprovalSubmittedPatch(input: {
   entity: Entity;
   entities: readonly Entity[];

@@ -7,6 +7,7 @@ import {
   getRelationGroupsLevelEntityId,
   isEntityNameField,
   isEntityRelationLikeFieldType,
+  isEntityTabWithLinkedEntity,
   parseEntityRelationGroups,
   parseEntityRelationIds,
   resolveEntityLookupTarget,
@@ -23,9 +24,33 @@ import {
   nowTimeHHmm,
   todayIsoDate,
 } from "@/shared/lib/business-days";
+import { collectLinkedTabRecordIds } from "../lib/ask-related";
 
 function wantsRelationIds(fieldType: EntityFieldType | undefined) {
-  return fieldType === "relation" || fieldType === "dependencies";
+  return (
+    fieldType === "relation" ||
+    fieldType === "belonging" ||
+    fieldType === "dependencies"
+  );
+}
+
+/** Path bridge via a linked-entity tab on the trigger (`tab:{tabId}`). */
+export const AUTOMATION_PATH_TAB_PREFIX = "tab:";
+
+export function toAutomationTabPathBridge(tabId: string) {
+  const id = tabId.trim();
+  return id ? `${AUTOMATION_PATH_TAB_PREFIX}${id}` : "";
+}
+
+export function parseAutomationTabPathBridge(bridgeId: string): string | null {
+  const raw = bridgeId.trim();
+  if (!raw.startsWith(AUTOMATION_PATH_TAB_PREFIX)) return null;
+  const tabId = raw.slice(AUTOMATION_PATH_TAB_PREFIX.length).trim();
+  return tabId || null;
+}
+
+export function isAutomationTabPathBridge(bridgeId: string) {
+  return parseAutomationTabPathBridge(bridgeId) != null;
 }
 
 function wantsRelationGroupsValue(fieldType: EntityFieldType | undefined) {
@@ -89,7 +114,9 @@ function resolveCopiedFieldValue(
     (item) => item.id === options.triggerEntityId,
   );
   const sourceField = trigger?.fields.find((item) => item.id === sourceFieldId);
-  if (sourceField?.type !== "relation") return rawValue;
+  if (!sourceField || !isEntityRelationLikeFieldType(sourceField.type)) {
+    return rawValue;
+  }
   const targetId = getEntityRelationTargetId(sourceField);
   const target = targetId
     ? (options.entities?.find((item) => item.id === targetId) ?? null)
@@ -110,7 +137,7 @@ function resolveNestedFieldDisplayValue(
   const nestedField = relatedEntity.fields.find(
     (item) => item.id === nestedFieldId,
   );
-  if (nestedField?.type === "relation") {
+  if (nestedField && isEntityRelationLikeFieldType(nestedField.type)) {
     const targetId = getEntityRelationTargetId(nestedField);
     const target = targetId
       ? (options.entities?.find((item) => item.id === targetId) ?? null)
@@ -350,6 +377,29 @@ export type ResolveAutomationActionValueOptions = {
   values?: Record<string, string>;
 };
 
+function resolveTabBridgeRelated(
+  trigger: Entity,
+  tabId: string,
+  entities: Entity[],
+  triggerRecordId: string | undefined,
+): { relatedEntity: Entity; relatedIds: string[] } | null {
+  const tab = trigger.tabs.find((item) => item.id === tabId);
+  if (!tab || !isEntityTabWithLinkedEntity(tab) || !tab.linkedEntityId) {
+    return null;
+  }
+  const relatedEntity = entities.find((item) => item.id === tab.linkedEntityId);
+  if (!relatedEntity) return null;
+  const recordId = triggerRecordId?.trim() ?? "";
+  if (!recordId) return { relatedEntity, relatedIds: [] };
+  const relatedIds = collectLinkedTabRecordIds({
+    tab,
+    linkedEntity: relatedEntity,
+    parentEntityId: trigger.id,
+    parentRecordId: recordId,
+  });
+  return { relatedEntity, relatedIds: [...new Set(relatedIds)] };
+}
+
 function resolveRelatedFieldValue(
   path: AutomationEntityPathRef,
   options: ResolveAutomationActionValueOptions,
@@ -358,10 +408,12 @@ function resolveRelatedFieldValue(
   const values = options.values;
   const entities = options.entities;
   const triggerEntityId = options.triggerEntityId;
+  const tabId = parseAutomationTabPathBridge(relationFieldId);
 
   if (!values || !entities || !triggerEntityId) {
-    // Legacy callback path (no depth / record-self support).
+    // Legacy callback path (no depth / record-self / tab support).
     if (
+      !tabId &&
       options.getRelatedFieldValue &&
       !isAutomationPathRelatedRecord(nestedFieldId)
     ) {
@@ -371,18 +423,50 @@ function resolveRelatedFieldValue(
   }
 
   const trigger = entities.find((entity) => entity.id === triggerEntityId);
-  const bridgeField = trigger?.fields.find(
-    (field) => field.id === relationFieldId,
-  );
-  if (!bridgeField || !trigger) return "";
+  if (!trigger) return "";
 
-  const relatedIds = automationBridgeRelatedIds(
-    values,
-    bridgeField,
-    relationGroupsDepth,
-    entities,
-    trigger,
-  );
+  let relatedIds: string[] = [];
+  let relatedEntity: Entity | null = null;
+
+  if (tabId) {
+    const fromTab = resolveTabBridgeRelated(
+      trigger,
+      tabId,
+      entities,
+      options.triggerRecordId,
+    );
+    if (!fromTab) return "";
+    relatedEntity = fromTab.relatedEntity;
+    relatedIds = fromTab.relatedIds;
+  } else {
+    const bridgeField = trigger.fields.find(
+      (field) => field.id === relationFieldId,
+    );
+    if (!bridgeField) return "";
+    relatedIds = automationBridgeRelatedIds(
+      values,
+      bridgeField,
+      relationGroupsDepth,
+      entities,
+      trigger,
+    );
+    const targetId = automationBridgeTargetEntityId(
+      bridgeField,
+      entities,
+      relationGroupsDepth,
+      trigger,
+    );
+    relatedEntity = targetId
+      ? (entities.find((entity) => entity.id === targetId) ?? null)
+      : null;
+    if (!relatedEntity && relatedIds[0]) {
+      relatedEntity =
+        entities.find((entity) =>
+          entity.records.some((record) => record.id === relatedIds[0]),
+        ) ?? null;
+    }
+  }
+
   if (relatedIds.length === 0) return "";
 
   if (isAutomationPathRelatedRecord(nestedFieldId)) {
@@ -390,15 +474,6 @@ function resolveRelatedFieldValue(
     if (wantsRelationIds(options.fieldType)) {
       return serializeEntityRelationIds(unique);
     }
-    const targetId = automationBridgeTargetEntityId(
-      bridgeField,
-      entities,
-      relationGroupsDepth,
-      trigger,
-    );
-    const relatedEntity = targetId
-      ? (entities.find((entity) => entity.id === targetId) ?? null)
-      : null;
     if (!relatedEntity) return unique.join(", ");
     const labels = unique
       .map((id) => resolveRelationRecordLabel(relatedEntity, id)?.trim() || id)
@@ -406,20 +481,9 @@ function resolveRelatedFieldValue(
     return [...new Set(labels)].join(", ");
   }
 
-  const targetId = automationBridgeTargetEntityId(
-    bridgeField,
-    entities,
-    relationGroupsDepth,
-    trigger,
-  );
-  const relatedEntity =
-    (targetId ? entities.find((entity) => entity.id === targetId) : null) ??
-    entities.find((entity) =>
-      entity.records.some((record) => record.id === relatedIds[0]),
-    );
   if (!relatedEntity) return "";
 
-  if (options.getRelatedFieldValue) {
+  if (!tabId && options.getRelatedFieldValue) {
     const rawValue = options.getRelatedFieldValue(
       relationFieldId,
       nestedFieldId,
@@ -561,7 +625,10 @@ export function describeAutomationActionValue(
 
   const path = parseAutomationEntityPathRef(raw);
   if (path) {
-    const relationName = fieldNameById?.(path.relationFieldId) ?? "связь";
+    const tabBridge = parseAutomationTabPathBridge(path.relationFieldId);
+    const relationName = tabBridge
+      ? (fieldNameById?.(path.relationFieldId) ?? "связанная вкладка")
+      : (fieldNameById?.(path.relationFieldId) ?? "связь");
     const nestedName = isAutomationPathRelatedRecord(path.fieldId)
       ? "запись"
       : (fieldNameById?.(path.fieldId) ?? "поле");

@@ -415,10 +415,10 @@ export function DeptCalculationsView({
         >
           <TableHeader>
             <TableRow className="border-0 hover:bg-transparent">
-              <TableHead className={cn(headClass, "w-[22%]")}>Отдел</TableHead>
               <TableHead className={cn(headClass, "w-[16%]")}>
                 Руководитель
               </TableHead>
+              <TableHead className={cn(headClass, "w-[22%]")}>Отдел</TableHead>
               <TableHead className={cn(headClass, "w-[8%] text-right")}>
                 Подзадачи
               </TableHead>
@@ -544,9 +544,10 @@ export function DeptCalculationsView({
                         : "");
                     // Form open/close uses persisted values — drafts must not
                     // collapse the editor on first keystroke (looks like autosave).
-                    const contextSaved =
-                      (!hostFields.deadline || savedDeadline.length > 0) &&
-                      (!hostFields.description || savedDescription.length > 0);
+                    // Description is optional: deadline alone means «saved».
+                    const contextSaved = hostFields.deadline
+                      ? savedDeadline.length > 0
+                      : !hostFields.description || savedDescription.length > 0;
                     const lines = getDeptNestedLines(record, nested);
 
                     return (
@@ -882,13 +883,16 @@ function DepartmentBlock({
             ) : (
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             )}
-            <span className="truncate text-[13px] font-medium text-foreground">
-              {deptLabel}
-            </span>
+            <ManagerCell name={managerName} />
           </button>
         </TableCell>
         <TableCell className={cellClass}>
-          <ManagerCell name={managerName} />
+          <span
+            className="truncate text-[13px] font-medium text-foreground"
+            title={deptLabel}
+          >
+            {deptLabel}
+          </span>
         </TableCell>
         <TableCell className={cn(cellClass, "text-right")}>
           <MetricCell muted={lineCount === 0}>{lineCount}</MetricCell>

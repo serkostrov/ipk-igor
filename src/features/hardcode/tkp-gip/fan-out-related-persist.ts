@@ -298,6 +298,73 @@ function withGipUsers(options: {
   }).values;
 }
 
+/** Department catalog «Руководитель» (users) for soft-fill into calc rows. */
+function resolveDepartmentCatalogManagerField(
+  departmentEntity: Entity,
+): EntityField | null {
+  let named =
+    departmentEntity.fields.find((field) => {
+      if (field.type !== "relation" && field.type !== "belonging") return false;
+      if (getEntityRelationTargetId(field) !== SYSTEM_USERS_ENTITY_ID) {
+        return false;
+      }
+      const name = getEntityFieldDisplayName(field)
+        .trim()
+        .toLocaleLowerCase("ru")
+        .replaceAll("ё", "е");
+      return name === "руководитель" || name.startsWith("руководитель ");
+    }) ?? null;
+  if (!named) named = findEntityManagerUserField(departmentEntity);
+  if (!named) return null;
+  if (getEntityRelationTargetId(named) !== SYSTEM_USERS_ENTITY_ID) return null;
+  return named;
+}
+
+/**
+ * Soft-fill empty calc «Руководитель» from the paired department catalog.
+ * «ГИП» rows stay for `withGipUsers` (lead). Used so spawn assignees can
+ * resolve after fan-out even when the ask only stores stage×department ids.
+ */
+function withCatalogManagerIfEmpty(options: {
+  entity: Entity;
+  values: Record<string, string>;
+  entities: readonly Entity[];
+  groupsFieldId: string;
+}): Record<string, string> {
+  const { entity, values, entities, groupsFieldId } = options;
+  const { manager } = findDeptCalculationUserFields(entity);
+  if (!manager) return values;
+  if (parseEntityRelationIds(values[manager.id]).length > 0) return values;
+
+  const departmentEntity = resolveDepartmentEntity(entity, entities);
+  if (!departmentEntity) return values;
+  const deptManager = resolveDepartmentCatalogManagerField(departmentEntity);
+  if (!deptManager) return values;
+
+  for (const pair of collectTkpStageDepartmentPairs(values[groupsFieldId])) {
+    if (!pair.departmentId.trim()) continue;
+    const deptRecord = departmentEntity.records.find(
+      (item) => item.id === pair.departmentId,
+    );
+    if (!deptRecord) continue;
+    if (isGipDepartmentRecord(departmentEntity, deptRecord, entities)) {
+      continue;
+    }
+    const catalogIds = parseEntityRelationIds(
+      deptRecord.values[deptManager.id],
+    );
+    if (catalogIds.length === 0) continue;
+    return {
+      ...values,
+      [manager.id]:
+        manager.relationMultiple === true
+          ? serializeEntityRelationIds(catalogIds)
+          : serializeEntityRelationIds(catalogIds.slice(0, 1)),
+    };
+  }
+  return values;
+}
+
 function userFieldPatch(
   entity: Entity,
   values: Record<string, string>,
@@ -779,7 +846,6 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     getEntityConfig().entities.find((item) => item.id === entity.id) ?? entity;
   const sourceRecord = liveEntity.records.find((item) => item.id === recordId);
   const linkFields = parentLinkFields(entity);
-  const { manager, performer } = findDeptCalculationUserFields(entity);
   const baseValues: Record<string, string> = {
     ...(sourceRecord?.values ?? {}),
     ...patch,
@@ -839,16 +905,21 @@ export async function persistDeptCalculationRelatedUpdate(options: {
       pairs.length === 1
         ? encodeTkpStageDepartmentPair(pairs[0]!)
         : ensuredGroups;
-    const merged = withGipUsers({
+    const merged = withCatalogManagerIfEmpty({
       entity,
-      values: withParentLinks({
-        ...baseValues,
-        [groupsField.id]: groupsValue,
+      values: withGipUsers({
+        entity,
+        values: withParentLinks({
+          ...baseValues,
+          [groupsField.id]: groupsValue,
+        }),
+        entities,
+        groupsFieldId: groupsField.id,
+        parentEntity,
+        parentRecord,
       }),
       entities,
       groupsFieldId: groupsField.id,
-      parentEntity,
-      parentRecord,
     });
     await updateEntityRecord(entity.id, recordId, {
       ...siblingPatch,
@@ -873,16 +944,21 @@ export async function persistDeptCalculationRelatedUpdate(options: {
   }
 
   const first = pairs[0]!;
-  const firstMerged = withGipUsers({
+  const firstMerged = withCatalogManagerIfEmpty({
     entity,
-    values: withParentLinks({
-      ...baseValues,
-      [groupsField.id]: encodeTkpStageDepartmentPair(first),
+    values: withGipUsers({
+      entity,
+      values: withParentLinks({
+        ...baseValues,
+        [groupsField.id]: encodeTkpStageDepartmentPair(first),
+      }),
+      entities,
+      groupsFieldId: groupsField.id,
+      parentEntity,
+      parentRecord,
     }),
     entities,
     groupsFieldId: groupsField.id,
-    parentEntity,
-    parentRecord,
   });
 
   await updateEntityRecord(entity.id, recordId, {
@@ -913,17 +989,22 @@ export async function persistDeptCalculationRelatedUpdate(options: {
     const encoded = encodeTkpStageDepartmentPair(pair);
 
     if (existing) {
-      const siblingMerged = withGipUsers({
+      const siblingMerged = withCatalogManagerIfEmpty({
         entity,
-        values: withParentLinks({
-          ...existing.values,
-          ...siblingPatch,
-          [groupsField.id]: encoded,
+        values: withGipUsers({
+          entity,
+          values: withParentLinks({
+            ...existing.values,
+            ...siblingPatch,
+            [groupsField.id]: encoded,
+          }),
+          entities,
+          groupsFieldId: groupsField.id,
+          parentEntity,
+          parentRecord,
         }),
         entities,
         groupsFieldId: groupsField.id,
-        parentEntity,
-        parentRecord,
       });
       await updateEntityRecord(entity.id, existing.id, {
         ...siblingPatch,
@@ -941,21 +1022,23 @@ export async function persistDeptCalculationRelatedUpdate(options: {
       continue;
     }
 
+    // Do not wipe manager/performer — soft-fill from catalog / GIP below.
     const createBase = withParentLinks({
       ...baseValues,
       [groupsField.id]: encoded,
     });
-    for (const field of [manager, performer]) {
-      if (!field) continue;
-      createBase[field.id] = "";
-    }
-    const createValues = withGipUsers({
+    const createValues = withCatalogManagerIfEmpty({
       entity,
-      values: createBase,
+      values: withGipUsers({
+        entity,
+        values: createBase,
+        entities,
+        groupsFieldId: groupsField.id,
+        parentEntity,
+        parentRecord,
+      }),
       entities,
       groupsFieldId: groupsField.id,
-      parentEntity,
-      parentRecord,
     });
     const created = addEntityRecord(entity.id, createValues);
     // Wait for remote insert — otherwise reload drops fan-out siblings.
