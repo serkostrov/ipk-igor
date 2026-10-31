@@ -12,6 +12,7 @@ import {
   getEntityRelationTargetId,
   parseEntityListValueIds,
   parseEntityRelationIds,
+  serializeEntityListValueIds,
   serializeEntityRelationIds,
 } from "../model/field";
 import {
@@ -154,6 +155,62 @@ export function isTkpAnalysisEntity(
   if (entityMatchesLoose(entity, TKP_ANALYSIS_KEYS)) return true;
   const text = normalizeName(`${entity.name} ${entity.namePlural}`);
   return text.includes("разбор") && text.includes("ткп");
+}
+
+/** Kanban / «Стадия» list on «Разбор ТКП». */
+export function findTkpAnalysisStageField(
+  entity: Pick<Entity, "fields" | "kanbanFieldId">,
+): EntityField | null {
+  if (entity.kanbanFieldId) {
+    const kanban =
+      entity.fields.find((field) => field.id === entity.kanbanFieldId) ?? null;
+    if (kanban?.type === "list") return kanban;
+  }
+  return (
+    entity.fields.find((field) => {
+      if (field.type !== "list") return false;
+      return normalizeName(getEntityFieldDisplayName(field)) === "стадия";
+    }) ?? null
+  );
+}
+
+/**
+ * New TKP rows must start at «Создано». The entity defaultValue was wrongly
+ * set to «Выбор отделов для расчета», so Lead createRecord immediately spawned
+ * department-head tasks while «Ознакомиться с ТЗ» (which advances the stage)
+ * was still open.
+ */
+export function applyTkpAnalysisCreateDefaults(
+  entity: Entity,
+  values: Record<string, string>,
+  entities: readonly Entity[] = [],
+): Record<string, string> {
+  if (!isTkpAnalysisEntity(entity)) return values;
+  const stageField = findTkpAnalysisStageField(entity);
+  if (!stageField) return values;
+
+  const resolved = resolveEntityListFieldOptions(stageField, entities);
+  const options =
+    resolved.length > 0 ? resolved : (stageField.listOptions ?? []);
+  const created = options.find((option) => {
+    const name = normalizeName(option.name);
+    return name === "создано" || name.startsWith("создано ");
+  });
+  if (!created) return values;
+
+  const selectDepts = options.find((option) => {
+    const name = normalizeName(option.name);
+    return name.includes("выбор отдел") && name.includes("расчет");
+  });
+  const current = parseEntityListValueIds(values[stageField.id])[0] ?? "";
+  // Keep an explicit later stage; replace empty / mis-default «Выбор отделов».
+  if (current && (!selectDepts || current !== selectDepts.id)) {
+    return values;
+  }
+  return {
+    ...values,
+    [stageField.id]: serializeEntityListValueIds([created.id]),
+  };
 }
 
 export function isDeptCalculationsEntity(

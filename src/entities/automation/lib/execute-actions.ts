@@ -1,5 +1,6 @@
 import {
   addEntityRecord,
+  applyTkpAnalysisCreateDefaults,
   applyTkpGipDepartmentUsers,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
@@ -503,6 +504,11 @@ async function createMappedRecord(
   // Skip shell rows that would show as «Без названия» (parent link only / empty).
   if (!createValuesAreMeaningful(target, values, parentLinkFieldIds)) {
     return null;
+  }
+  // Lead createRecord must not land ТКП on «Выбор отделов» (defaultValue) —
+  // that spawns department-head tasks before «Ознакомиться с ТЗ» advances.
+  if (target) {
+    values = applyTkpAnalysisCreateDefaults(target, values, ctx.entities);
   }
   const record = addEntityRecord(entityId, values);
   if (!record) {

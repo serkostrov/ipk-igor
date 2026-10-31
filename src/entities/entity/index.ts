@@ -539,6 +539,7 @@ export {
 } from "./lib/record-mentions";
 export { notifyRecordMentions } from "./lib/notify-record-mentions";
 export {
+  applyTkpAnalysisCreateDefaults,
   applyTkpGipDepartmentUsers,
   buildTkpGipSoftFillParentRecord,
   childValuesSelectGipDepartment,

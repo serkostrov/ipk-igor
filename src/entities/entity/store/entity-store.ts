@@ -24,6 +24,7 @@ import {
   updateEntityRecordValues,
 } from "../api/entity-records-api";
 import { buildClonedEntityPlan } from "../lib/clone-entity";
+import { applyTkpAnalysisCreateDefaults } from "../lib/hardcode-tkp-gip";
 import {
   cloneDefaultEntityConfig,
   normalizeEntity,
@@ -3382,7 +3383,11 @@ export function waitForEntityRecordDelete(recordId: string): Promise<void> {
 function insertRecord(entityId: string, values: Record<string, string>) {
   const entity = config.entities.find((item) => item.id === entityId);
   const withFieldDefaults = entity
-    ? applyEntityFieldDefaults(entity, values, getCurrentUserRecordId())
+    ? applyTkpAnalysisCreateDefaults(
+        entity,
+        applyEntityFieldDefaults(entity, values, getCurrentUserRecordId()),
+        config.entities,
+      )
     : values;
   const withFilesDefaults = entity
     ? applyEntityFilesTabDefaults(entity, withFieldDefaults)
