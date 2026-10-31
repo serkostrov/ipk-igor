@@ -14,6 +14,7 @@ import {
 } from "@/entities/automation";
 import { cn } from "@/shared/lib/cn";
 import { formatTimestampDisplay } from "@/shared/lib/format-date";
+import { TaskReturnReasonBanner } from "./TaskReturnReasonBanner";
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
 import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
@@ -56,8 +57,6 @@ import {
   automationOutcomeNeedsInput,
   automationTaskShowsFormUpfront,
   automationTaskShowsViewBeforeOutcomes,
-  automationTemplateHasFillFields,
-  automationTemplateHasViewContext,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
@@ -258,8 +257,6 @@ function TaskWorkspaceBody({
   const templateAsk = getAutomationTemplateAskFields(task);
   const formUpfront = automationTaskShowsFormUpfront(task);
   const showViewBefore = automationTaskShowsViewBeforeOutcomes(task);
-  const hasTemplateFill = automationTemplateHasFillFields(task);
-  const hasTemplateView = automationTemplateHasViewContext(task);
   const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(
     () => getDefaultSelectedOutcomeId(task),
   );
@@ -528,14 +525,12 @@ function TaskWorkspaceBody({
     viewEntityLayout.groups.length > 0 ||
     viewEntityLayout.empty.length > 0;
   const hasCreateAsk = createAskSlots.length > 0;
-  const hasEditableFill =
-    fields.length > 0 || hasRelatedAsk || hasCreateAsk || hasTemplateFill;
-  /** After-select view rides with the fill slot; template fill/view is always early. */
-  const hasFillForm =
-    hasEditableFill || (!showViewBefore && ask != null && hasViewContext);
-  const hasEarlyView =
-    (showViewBefore && hasViewContext) || (hasTemplateView && !formUpfront);
-  const hasEarlyFill = hasTemplateFill && !formUpfront;
+  /**
+   * «Заполнить» only when the slot has real content (editable ask or view
+   * fields). View tabs alone must not create an empty fill tab.
+   */
+  const showFillTab =
+    fields.length > 0 || hasRelatedAsk || hasCreateAsk || hasViewContext;
   const missingLocalRequiredCount = [...requiredIds].filter((fieldId) => {
     const field = entity?.fields.find((item) => item.id === fieldId);
     if (!field) return false;
@@ -957,6 +952,10 @@ function TaskWorkspaceBody({
         </div>
       </header>
 
+      {task.highlightNote?.kind === "return_reason" ? (
+        <TaskReturnReasonBanner note={task.highlightNote} />
+      ) : null}
+
       {requireTime ? (
         <TaskTimeSessionsPanel
           taskId={task.id}
@@ -981,10 +980,7 @@ function TaskWorkspaceBody({
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           Запись ещё не загружена. Обновите страницу.
         </p>
-      ) : earlyViewTabIds.length > 0 ||
-        hasFillForm ||
-        hasEarlyView ||
-        hasEarlyFill ? (
+      ) : earlyViewTabIds.length > 0 || showFillTab ? (
         <TaskViewTabsPreview
           entity={entity}
           record={{ ...record, values: mergedValues }}
@@ -993,14 +989,14 @@ function TaskWorkspaceBody({
           filesTabAllowMove={taskAsk.viewFilesTabAllowMove}
           readOnly={busy}
           fillBadge={
-            (hasFillForm || hasEarlyFill) && missingRequiredCount > 0 ? (
+            showFillTab && missingRequiredCount > 0 ? (
               <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">
                 {missingRequiredCount}
               </span>
             ) : null
           }
           fillSlot={
-            hasFillForm || hasEarlyView || hasEarlyFill ? (
+            showFillTab ? (
               <div className="flex flex-col gap-4">
                 {autosaveLabel || autosave.error ? (
                   <p

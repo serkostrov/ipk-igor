@@ -1402,7 +1402,7 @@ export async function executeAutomationActions(
                 updated_at: new Date().toISOString(),
               })
               .eq("record_id", ctx.triggerRecordId)
-              .eq("status", "pending");
+              .in("status", ["pending", "completed"]);
             if (action.templateIds && action.templateIds.length > 0) {
               query = query.in("template_id", action.templateIds);
             }

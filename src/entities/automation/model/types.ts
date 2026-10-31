@@ -167,6 +167,16 @@ export type AutomationOutcomeFieldAccess = {
    * Defaults to all related visible for new configs.
    */
   relatedRecordIds: string[];
+  /**
+   * Own text/textarea field whose value is the return-to-previous-stage reason.
+   * Mutually exclusive with `relatedReasonId`.
+   */
+  reasonFieldId: string | null;
+  /**
+   * Related ask id whose value is the return-to-previous-stage reason.
+   * Mutually exclusive with `reasonFieldId`.
+   */
+  relatedReasonId: string | null;
   /** Presentation tweaks for complex ask fields (e.g. relationGroups mode). */
   fieldAskOptions: Record<string, AutomationFieldAskOptions>;
 };
@@ -182,6 +192,8 @@ export function emptyAutomationOutcomeFieldAccess(): AutomationOutcomeFieldAcces
     relatedRequiredIds: [],
     relatedCommentIds: [],
     relatedRecordIds: [],
+    reasonFieldId: null,
+    relatedReasonId: null,
     fieldAskOptions: {},
   };
 }
@@ -379,6 +391,20 @@ export function normalizeAutomationOutcomeFieldAccess(
         relatedVisibleIds.has(id),
       )
     : relatedVisibleFields.map((field) => field.id);
+  const reasonFieldRaw = access.reasonFieldId ?? access.reason_field_id;
+  const relatedReasonRaw = access.relatedReasonId ?? access.related_reason_id;
+  const reasonFieldId =
+    typeof reasonFieldRaw === "string" &&
+    reasonFieldRaw.trim() &&
+    visibleFieldIds.includes(reasonFieldRaw.trim())
+      ? reasonFieldRaw.trim()
+      : null;
+  const relatedReasonId =
+    typeof relatedReasonRaw === "string" &&
+    relatedReasonRaw.trim() &&
+    relatedVisibleIds.has(relatedReasonRaw.trim())
+      ? relatedReasonRaw.trim()
+      : null;
   return {
     requiredFieldIds,
     visibleFieldIds,
@@ -390,6 +416,9 @@ export function normalizeAutomationOutcomeFieldAccess(
     relatedRequiredIds,
     relatedCommentIds,
     relatedRecordIds,
+    // Prefer own-field reason when both are present (legacy / bad data).
+    reasonFieldId: reasonFieldId,
+    relatedReasonId: reasonFieldId ? null : relatedReasonId,
     fieldAskOptions: normalizeFieldAskOptions(
       access.fieldAskOptions ?? access.field_ask_options,
       visibleFieldIds,
@@ -759,6 +788,45 @@ export type AutomationConfig = {
   notificationRules: AutomationNotificationRule[];
 };
 
+/** Snapshot shown on the task page after a return-to-previous-stage. */
+export type AutomationTaskHighlightNote = {
+  kind: "return_reason";
+  title: string;
+  text: string;
+  fieldLabel: string;
+  sourceTaskId: string;
+};
+
+export function normalizeAutomationTaskHighlightNote(
+  value: unknown,
+): AutomationTaskHighlightNote | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (raw.kind !== "return_reason") return null;
+  const text = typeof raw.text === "string" ? raw.text.trim() : "";
+  if (!text) return null;
+  return {
+    kind: "return_reason",
+    title:
+      typeof raw.title === "string" && raw.title.trim()
+        ? raw.title.trim()
+        : "Причина возврата",
+    text,
+    fieldLabel:
+      typeof raw.fieldLabel === "string"
+        ? raw.fieldLabel.trim()
+        : typeof raw.field_label === "string"
+          ? raw.field_label.trim()
+          : "",
+    sourceTaskId:
+      typeof raw.sourceTaskId === "string"
+        ? raw.sourceTaskId.trim()
+        : typeof raw.source_task_id === "string"
+          ? raw.source_task_id.trim()
+          : "",
+  };
+}
+
 export type AutomationTask = {
   id: string;
   processId: string;
@@ -780,6 +848,8 @@ export type AutomationTask = {
   config: AutomationTaskTemplate;
   dueAt: string | null;
   parentTaskId: string | null;
+  /** Optional UI highlight (e.g. return reason after stage rollback). */
+  highlightNote: AutomationTaskHighlightNote | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;

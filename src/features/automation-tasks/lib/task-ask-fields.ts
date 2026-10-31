@@ -330,6 +330,8 @@ export function getAutomationTemplateAskFields(
         relatedRequiredIds: [],
         relatedCommentIds: [],
         relatedRecordIds: [],
+        reasonFieldId: null,
+        relatedReasonId: null,
         fieldAskOptions: {},
       } satisfies AutomationOutcomeFieldAccess),
     conditions: { version: 1, match: "all", rules: [] },

@@ -1,4 +1,5 @@
 export { TaskInbox } from "./ui/TaskInbox";
+export { TaskReturnReasonBanner } from "./ui/TaskReturnReasonBanner";
 export { TaskTableView } from "./ui/TaskTableView";
 export { TaskWorkspace } from "./ui/TaskWorkspace";
 export { useMyOpenAutomationTaskCount } from "./hooks/use-my-open-tasks-count";

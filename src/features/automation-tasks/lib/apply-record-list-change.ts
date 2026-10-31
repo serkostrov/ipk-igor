@@ -133,11 +133,17 @@ function findPrepTasksForMove(
   });
 }
 
-/** True when every blocking beforeEnter template for `to` is completed. */
+/**
+ * True when every blocking beforeEnter template for `to` is completed
+ * for the current move attempt (prep stored on `from`).
+ * Prior-visit completions (other triggerOptionId) do not count — rework
+ * must run prep again after supersede-on-reentry.
+ */
 async function isBeforeEnterPrepCompletedForDestination(
   recordId: string,
   scenarioId: string,
   toOptionId: string,
+  fromOptionId?: string,
 ) {
   if (!toOptionId) return false;
   const { templates } = getAutomationConfig();
@@ -155,9 +161,13 @@ async function isBeforeEnterPrepCompletedForDestination(
     status: ["completed", "pending", "returned"],
   });
   return prepTemplates.every((template) =>
-    history.some(
-      (task) => task.templateId === template.id && task.status === "completed",
-    ),
+    history.some((task) => {
+      if (task.templateId !== template.id || task.status !== "completed") {
+        return false;
+      }
+      if (!fromOptionId) return true;
+      return optionIdsMatch(task.triggerOptionId, fromOptionId);
+    }),
   );
 }
 
@@ -535,6 +545,7 @@ export async function applyRecordListChange(
                   record.id,
                   scenario.id,
                   toOptionId,
+                  fromOptionId,
                 )
               ) {
                 // fall through — apply the list change

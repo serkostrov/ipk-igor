@@ -313,6 +313,12 @@ function scrubFieldAccess(
     relatedRecordIds: access.relatedRecordIds.filter((id) =>
       keptAskIds.has(id),
     ),
+    reasonFieldId:
+      access.reasonFieldId === fieldId ? null : access.reasonFieldId,
+    relatedReasonId:
+      access.relatedReasonId && keptAskIds.has(access.relatedReasonId)
+        ? access.relatedReasonId
+        : null,
   };
 }
 

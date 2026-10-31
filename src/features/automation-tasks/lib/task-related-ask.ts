@@ -741,6 +741,8 @@ export function countMissingRelatedRequired(options: {
       relatedRequiredIds: options.relatedRequiredIds,
       relatedCommentIds: [],
       relatedRecordIds: [],
+      reasonFieldId: null,
+      relatedReasonId: null,
       fieldAskOptions: {},
     },
     values: options.values,

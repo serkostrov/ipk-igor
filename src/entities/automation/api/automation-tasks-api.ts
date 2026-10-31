@@ -1,7 +1,9 @@
 import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
 import {
+  normalizeAutomationTaskHighlightNote,
   normalizeAutomationTaskTemplate,
   type AutomationTask,
+  type AutomationTaskHighlightNote,
   type AutomationTaskStatus,
 } from "../model/types";
 
@@ -41,6 +43,8 @@ function mapTaskRow(row: Record<string, unknown>): AutomationTask | null {
       relatedRequiredIds: [],
       relatedCommentIds: [],
       relatedRecordIds: [],
+      reasonFieldId: null,
+      relatedReasonId: null,
       fieldAskOptions: {},
     },
     actions: [],
@@ -69,6 +73,7 @@ function mapTaskRow(row: Record<string, unknown>): AutomationTask | null {
     dueAt: typeof row.due_at === "string" ? row.due_at : null,
     parentTaskId:
       typeof row.parent_task_id === "string" ? row.parent_task_id : null,
+    highlightNote: normalizeAutomationTaskHighlightNote(row.highlight_note),
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
     completedAt: typeof row.completed_at === "string" ? row.completed_at : null,
@@ -351,6 +356,26 @@ function notifyAutomationTasksListeners() {
 /** Immediate local refresh (realtime may lag after RPC complete/return). */
 export function notifyAutomationTasksChanged() {
   notifyAutomationTasksListeners();
+}
+
+/** Attach a highlight note to the given pending/returned tasks by id. */
+export async function setAutomationTasksHighlightNote(options: {
+  taskIds: string[];
+  note: AutomationTaskHighlightNote;
+}): Promise<number> {
+  if (!isSupabaseConfigured || !supabase) return 0;
+  const taskIds = [
+    ...new Set(options.taskIds.map((id) => id.trim()).filter(Boolean)),
+  ];
+  if (taskIds.length === 0) return 0;
+  const { data, error } = await supabase
+    .from("automation_tasks")
+    .update({ highlight_note: options.note })
+    .in("id", taskIds)
+    .is("highlight_note", null)
+    .select("id");
+  if (error) throw error;
+  return data?.length ?? 0;
 }
 
 export function subscribeAutomationTasks(onChange: () => void): () => void {

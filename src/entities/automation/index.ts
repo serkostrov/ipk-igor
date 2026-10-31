@@ -175,6 +175,7 @@ export {
   normalizeAutomationStageTaskReleaseMap,
   normalizeAutomationStageTransition,
   normalizeAutomationStageTransitions,
+  normalizeAutomationTaskHighlightNote,
   normalizeAutomationTaskTemplate,
   type AutomationCanvasLayout,
   type AutomationCanvasNodePositions,
@@ -201,6 +202,7 @@ export {
   type AutomationStageTaskReleaseMap,
   type AutomationStageTransition,
   type AutomationTask,
+  type AutomationTaskHighlightNote,
   type AutomationLaunchPhase,
   type AutomationTaskKind,
   type AutomationTaskStatus,
@@ -233,6 +235,9 @@ export { pickAutomationOutcome } from "./lib/pick-outcome";
 export { resolveAssigneeUserIds } from "./lib/resolve-assignee";
 export {
   getOutcomeStageOptionId,
+  normalizeProcessStageOptionId,
+  outcomeChangesProcessStage,
+  processStageOptionIdsMatch,
   withOutcomeStageAction,
   withoutOutcomeStageAction,
 } from "./lib/outcome-stage-action";
@@ -289,6 +294,7 @@ export {
   stopAutomationTaskTimeSession,
   subscribeAutomationTasks,
   notifyAutomationTasksChanged,
+  setAutomationTasksHighlightNote,
   completeAutomationTaskRpc,
   type AutomationTaskTimeSession,
 } from "./api/automation-tasks-api";

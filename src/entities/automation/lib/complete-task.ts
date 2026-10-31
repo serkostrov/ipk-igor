@@ -30,20 +30,30 @@ import {
   fetchAutomationTasks,
   notifyAutomationTasksChanged,
   returnAutomationTaskForRevisionRpc,
+  setAutomationTasksHighlightNote,
 } from "../api/automation-tasks-api";
 import { resolveAutomationActionValue } from "../model/action-values";
 import { getAutomationConfig } from "../store/automation-store";
 import { resolveAskRelatedTarget } from "./ask-related";
 import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
+import {
+  getOutcomeStageOptionId,
+  normalizeProcessStageOptionId,
+  outcomeChangesProcessStage,
+  processStageOptionIdsMatch,
+} from "./outcome-stage-action";
 import { pickAutomationOutcome } from "./pick-outcome";
 import { runBeforeAutomationTaskCompleteHook } from "./hardcode-hooks";
 import { assertAutomationUploadRequired } from "./upload-required";
 import {
+  emptyAutomationOutcomeFieldAccess,
   isAutomationSilentTaskKind,
+  normalizeAutomationOutcomeFieldAccess,
   relatedAskValueKey,
   type AutomationOutcomeFieldAccess,
   type AutomationTask,
+  type AutomationTaskHighlightNote,
 } from "../model/types";
 
 /** Append selected form-field values as notes on the first «Записи» tab. */
@@ -210,6 +220,157 @@ async function appendRelatedOutcomeFieldComments(
       entityName: bucket.entity.name,
     });
   }
+}
+
+/**
+ * Reason may be configured on the outcome button or on template-level
+ * «Действия задания». Outcome wins when both are set.
+ */
+function resolveReturnReasonFieldAccess(
+  task: AutomationTask,
+  outcomeAccess: AutomationOutcomeFieldAccess,
+): AutomationOutcomeFieldAccess {
+  const outcome = normalizeAutomationOutcomeFieldAccess(outcomeAccess);
+  const template = normalizeAutomationOutcomeFieldAccess(
+    task.config.fieldAccess ?? emptyAutomationOutcomeFieldAccess(),
+  );
+  if (outcome.reasonFieldId || outcome.relatedReasonId) return outcome;
+  if (!template.reasonFieldId && !template.relatedReasonId) return outcome;
+  return {
+    ...outcome,
+    reasonFieldId: template.reasonFieldId,
+    relatedReasonId: template.relatedReasonId,
+    // Need related ask row metadata when reason is a related field.
+    relatedVisibleFields:
+      outcome.relatedVisibleFields.length > 0
+        ? outcome.relatedVisibleFields
+        : template.relatedVisibleFields,
+  };
+}
+
+/** Resolve the single configured return-reason text from ask form values. */
+function resolveReturnReasonSnapshot(options: {
+  triggerEntity: Entity | undefined;
+  entities: Entity[];
+  fieldAccess: AutomationOutcomeFieldAccess;
+  values: Record<string, string>;
+  recordValues?: Record<string, string>;
+  triggerRecordId: string;
+  sourceTaskId: string;
+}): AutomationTaskHighlightNote | null {
+  const {
+    triggerEntity,
+    entities,
+    fieldAccess,
+    values,
+    recordValues,
+    triggerRecordId,
+    sourceTaskId,
+  } = options;
+  if (!triggerEntity) return null;
+
+  if (fieldAccess.reasonFieldId) {
+    const field = triggerEntity.fields.find(
+      (item) => item.id === fieldAccess.reasonFieldId,
+    );
+    if (!field || (field.type !== "text" && field.type !== "textarea")) {
+      return null;
+    }
+    const text =
+      (values[field.id] ?? "").trim() ||
+      (recordValues?.[field.id] ?? "").trim();
+    if (!text) return null;
+    return {
+      kind: "return_reason",
+      title: "Причина возврата",
+      text,
+      fieldLabel: getEntityFieldDisplayName(field),
+      sourceTaskId,
+    };
+  }
+
+  if (!fieldAccess.relatedReasonId) return null;
+  const ask = fieldAccess.relatedVisibleFields.find(
+    (item) => item.id === fieldAccess.relatedReasonId,
+  );
+  if (!ask) return null;
+  const resolved = resolveAskRelatedTarget({
+    triggerEntity,
+    entities,
+    ask,
+    triggerRecordId,
+    triggerValues: values,
+  });
+  if (!resolved) return null;
+  const field = resolved.relatedEntity.fields.find(
+    (item) => item.id === ask.fieldId,
+  );
+  if (!field || (field.type !== "text" && field.type !== "textarea")) {
+    return null;
+  }
+  for (const relatedRecordId of resolved.relatedRecordIds) {
+    const key = relatedAskValueKey(
+      resolved.scopeKey,
+      relatedRecordId,
+      ask.fieldId,
+    );
+    const fromForm = (values[key] ?? "").trim();
+    if (fromForm) {
+      return {
+        kind: "return_reason",
+        title: "Причина возврата",
+        text: fromForm,
+        fieldLabel: getEntityFieldDisplayName(field),
+        sourceTaskId,
+      };
+    }
+    const relatedRecord = resolved.relatedEntity.records.find(
+      (item) => item.id === relatedRecordId,
+    );
+    const fromRecord = (relatedRecord?.values[ask.fieldId] ?? "").trim();
+    if (fromRecord) {
+      return {
+        kind: "return_reason",
+        title: "Причина возврата",
+        text: fromRecord,
+        fieldLabel: getEntityFieldDisplayName(field),
+        sourceTaskId,
+      };
+    }
+  }
+  return null;
+}
+
+/** Pending tasks spawned for this process after a stage return (or sequential next). */
+async function collectHighlightTargetTaskIds(options: {
+  recordId: string;
+  processId: string;
+  excludeTaskId: string;
+  createdAtFromMs: number;
+  destinationStageId?: string;
+}): Promise<string[]> {
+  const pending = await fetchAutomationTasks({
+    recordId: options.recordId,
+    status: ["pending", "returned"],
+  });
+  const destination = options.destinationStageId
+    ? normalizeProcessStageOptionId(options.destinationStageId)
+    : "";
+  return pending
+    .filter((item) => {
+      if (item.id === options.excludeTaskId) return false;
+      if (item.processId !== options.processId) return false;
+      if (item.highlightNote) return false;
+      if (new Date(item.createdAt).getTime() < options.createdAtFromMs) {
+        return false;
+      }
+      if (!destination) return true;
+      return (
+        processStageOptionIdsMatch(item.triggerOptionId, destination) ||
+        processStageOptionIdsMatch(item.config.triggerOptionId, destination)
+      );
+    })
+    .map((item) => item.id);
 }
 
 function validateRelatedRequiredFields(
@@ -522,6 +683,39 @@ export async function completeAutomationTask(
     }
   }
 
+  const process = getAutomationConfig().processes.find(
+    (item) => item.id === task.processId,
+  );
+  const triggerFieldId = process?.triggerFieldId?.trim() ?? "";
+  const stageChanges = outcomeChangesProcessStage(
+    outcome.actions,
+    triggerFieldId,
+    task.triggerOptionId,
+  );
+  const reasonAccess = resolveReturnReasonFieldAccess(
+    task,
+    outcome.fieldAccess,
+  );
+  const returnReason =
+    stageChanges && (reasonAccess.reasonFieldId || reasonAccess.relatedReasonId)
+      ? resolveReturnReasonSnapshot({
+          triggerEntity: entity,
+          entities,
+          fieldAccess: reasonAccess,
+          values: valuesForForm,
+          recordValues: record?.values,
+          triggerRecordId: task.recordId,
+          sourceTaskId: task.id,
+        })
+      : null;
+  const destinationStageId = stageChanges
+    ? normalizeProcessStageOptionId(
+        getOutcomeStageOptionId(outcome.actions, triggerFieldId),
+      )
+    : "";
+  // Lower bound with skew cushion so server `created_at` is not missed.
+  const spawnAfterMs = Date.now() - 15_000;
+
   let rpcResult;
   try {
     rpcResult = await completeAutomationTaskRpc(
@@ -540,6 +734,40 @@ export async function completeAutomationTask(
     });
     throw new Error(message, { cause: error });
   }
+
+  // Attach / forward return-reason banner onto newly spawned tasks.
+  const highlightNote =
+    returnReason ??
+    (task.highlightNote?.kind === "return_reason" ? task.highlightNote : null);
+  if (highlightNote) {
+    try {
+      const stageFilter = returnReason
+        ? destinationStageId
+        : normalizeProcessStageOptionId(
+            task.config.triggerOptionId || task.triggerOptionId,
+          );
+      const targetIds = await collectHighlightTargetTaskIds({
+        recordId: task.recordId,
+        processId: task.processId,
+        excludeTaskId: task.id,
+        createdAtFromMs: spawnAfterMs,
+        // Stage return → destination; sequential continue → same stage.
+        destinationStageId: stageFilter || undefined,
+      });
+      if (targetIds.length > 0) {
+        await setAutomationTasksHighlightNote({
+          taskIds: targetIds,
+          note: highlightNote,
+        });
+      }
+    } catch (error: unknown) {
+      console.error(
+        "[automation] failed to attach return-reason highlight",
+        error,
+      );
+    }
+  }
+
   notifyAutomationTasksChanged();
 
   // Multi-assignee: next step / stage wait for everyone — tell the actor.
@@ -586,10 +814,6 @@ export async function completeAutomationTask(
   // column and the «ТОГДА» gateway keeps blocking manual moves.
   const launchPhase = task.config.launchPhase ?? "onEnter";
   if (launchPhase === "beforeEnter") {
-    const process = getAutomationConfig().processes.find(
-      (item) => item.id === task.processId,
-    );
-    const triggerFieldId = process?.triggerFieldId?.trim() ?? "";
     const destination = task.config.triggerOptionId?.trim() ?? "";
     const hasExplicitStage = outcome.actions.some(
       (action) =>

@@ -61,6 +61,7 @@ import {
   TaskCreateRecordAsk,
   validateCreateAskRequired,
   type AutomationAskFields,
+  TaskReturnReasonBanner,
 } from "@/features/automation-tasks";
 import {
   applyAutomationSetFieldAutofill,
@@ -795,6 +796,10 @@ function TaskFillFieldsDialogBody({
                   : "Выберите результат и при необходимости заполните поля."}
         </DialogDescription>
       </DialogHeader>
+
+      {task?.highlightNote?.kind === "return_reason" ? (
+        <TaskReturnReasonBanner note={task.highlightNote} />
+      ) : null}
 
       {loading ? (
         <div className="flex flex-col gap-3">

@@ -118,6 +118,11 @@ function isAskRelatedTargetField(field: EntityField) {
   );
 }
 
+/** Return-reason flag is only meaningful for free-text fields. */
+function isReturnReasonFieldType(type: EntityField["type"]) {
+  return type === "text" || type === "textarea";
+}
+
 const fieldLayoutTransition = {
   type: "spring" as const,
   stiffness: 420,
@@ -693,6 +698,8 @@ function OutcomeAskFieldsEditor({
       requiredFieldIds: access.requiredFieldIds.filter((id) => id !== fieldId),
       commentFieldIds: access.commentFieldIds.filter((id) => id !== fieldId),
       recordFieldIds: access.recordFieldIds.filter((id) => id !== fieldId),
+      reasonFieldId:
+        access.reasonFieldId === fieldId ? null : access.reasonFieldId,
       fieldAskOptions: restOptions,
     });
   }
@@ -743,6 +750,27 @@ function OutcomeAskFieldsEditor({
     });
   }
 
+  function setReason(fieldId: string, enabled: boolean) {
+    if (!enabled) {
+      onChange({
+        ...access,
+        reasonFieldId:
+          access.reasonFieldId === fieldId ? null : access.reasonFieldId,
+      });
+      return;
+    }
+    const field = fields.find((item) => item.id === fieldId);
+    if (!field || !isReturnReasonFieldType(field.type)) return;
+    onChange({
+      ...access,
+      reasonFieldId: fieldId,
+      relatedReasonId: null,
+      requiredFieldIds: access.requiredFieldIds.includes(fieldId)
+        ? access.requiredFieldIds
+        : [...access.requiredFieldIds, fieldId],
+    });
+  }
+
   function addRelatedField(relationFieldId: string, fieldId: string) {
     const next: AutomationAskRelatedField = {
       id: createAskRelatedFieldId(),
@@ -781,6 +809,8 @@ function OutcomeAskFieldsEditor({
       ),
       relatedCommentIds: access.relatedCommentIds.filter((id) => id !== askId),
       relatedRecordIds: access.relatedRecordIds.filter((id) => id !== askId),
+      relatedReasonId:
+        access.relatedReasonId === askId ? null : access.relatedReasonId,
     });
   }
 
@@ -806,6 +836,25 @@ function OutcomeAskFieldsEditor({
     onChange({
       ...access,
       relatedRecordIds: toggleIdList(access.relatedRecordIds, askId, enabled),
+    });
+  }
+
+  function setRelatedReason(askId: string, enabled: boolean) {
+    if (!enabled) {
+      onChange({
+        ...access,
+        relatedReasonId:
+          access.relatedReasonId === askId ? null : access.relatedReasonId,
+      });
+      return;
+    }
+    onChange({
+      ...access,
+      relatedReasonId: askId,
+      reasonFieldId: null,
+      relatedRequiredIds: access.relatedRequiredIds.includes(askId)
+        ? access.relatedRequiredIds
+        : [...access.relatedRequiredIds, askId],
     });
   }
 
@@ -1096,6 +1145,8 @@ function OutcomeAskFieldsEditor({
                 !computed && access.requiredFieldIds.includes(field.id);
               const toComments = access.commentFieldIds.includes(field.id);
               const toRecord = access.recordFieldIds.includes(field.id);
+              const canBeReason = isReturnReasonFieldType(field.type);
+              const isReason = access.reasonFieldId === field.id;
               const label = getEntityFieldDisplayName(field);
               const isDragging = draggingId === field.id;
               const dropEdge: "before" | "after" | null =
@@ -1247,6 +1298,16 @@ function OutcomeAskFieldsEditor({
                                   setRecord(field.id, checked)
                                 }
                               />
+                              {canBeReason ? (
+                                <FieldFlagCheckbox
+                                  checked={isReason}
+                                  label="прич."
+                                  title="Причина возврата на предыдущее задание"
+                                  onCheckedChange={(checked) =>
+                                    setReason(field.id, checked)
+                                  }
+                                />
+                              ) : null}
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -1318,6 +1379,10 @@ function OutcomeAskFieldsEditor({
                 const required = access.relatedRequiredIds.includes(item.id);
                 const toComments = access.relatedCommentIds.includes(item.id);
                 const toRecord = access.relatedRecordIds.includes(item.id);
+                const canBeReason =
+                  row.targetField != null &&
+                  isReturnReasonFieldType(row.targetField.type);
+                const isReason = access.relatedReasonId === item.id;
                 const isRelationGroups =
                   row.targetField?.type === "relationGroups";
                 const label = `${row.relationLabel} · ${row.fieldLabel}`;
@@ -1478,6 +1543,16 @@ function OutcomeAskFieldsEditor({
                                     setRelatedRecord(item.id, checked)
                                   }
                                 />
+                                {canBeReason ? (
+                                  <FieldFlagCheckbox
+                                    checked={isReason}
+                                    label="прич."
+                                    title="Причина возврата на предыдущее задание"
+                                    onCheckedChange={(checked) =>
+                                      setRelatedReason(item.id, checked)
+                                    }
+                                  />
+                                ) : null}
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -1568,6 +1643,8 @@ function clearOutcomeAskFields(
     relatedRequiredIds: [],
     relatedCommentIds: [],
     relatedRecordIds: [],
+    reasonFieldId: null,
+    relatedReasonId: null,
     fieldAskOptions: {},
     commentFieldIds: normalized.commentFieldIds.filter((id) =>
       keepCommentFieldIds.has(id),
