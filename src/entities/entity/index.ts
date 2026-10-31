@@ -545,6 +545,7 @@ export {
   childValuesSelectGipDepartment,
   collectTkpStageDepartmentPairs,
   collectTkpStageRootIds,
+  coerceTkpNestedIdsToDepartments,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
   collectDeptCalculationRecordsForParent,

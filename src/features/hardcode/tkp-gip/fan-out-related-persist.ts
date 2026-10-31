@@ -8,6 +8,7 @@ import {
   applyTkpGipDepartmentUsers,
   collectDeptCalculationRecordsForParent,
   collectDeptCalculationSiblingRecords,
+  coerceTkpNestedIdsToDepartments,
   collectTkpStageDepartmentPairs,
   collectTkpStageRootIds,
   deptCalculationValuesMatchStagePair,
@@ -38,8 +39,17 @@ import {
   type EntityRecord,
 } from "@/entities/entity";
 
-function parentLinkFields(entity: Entity): EntityField[] {
+/**
+ * Child→parent link fields for «Расчёты отделов».
+ * `parentEntityId` is often unset in live schemas — still treat a relation to
+ * the known parent host (linked tab / heal parent) as the belonging link.
+ */
+function parentLinkFields(
+  entity: Entity,
+  parentEntity?: Entity | null,
+): EntityField[] {
   const owned = getEntityParentLinkField(entity);
+  const parentId = parentEntity?.id?.trim() || entity.parentEntityId?.trim() || "";
   const result: EntityField[] = [];
   const seen = new Set<string>();
   for (const field of entity.fields) {
@@ -49,7 +59,7 @@ function parentLinkFields(entity: Entity): EntityField[] {
     const isParent =
       field.id === owned?.id ||
       field.type === "belonging" ||
-      (entity.parentEntityId != null && targetId === entity.parentEntityId);
+      (parentId !== "" && targetId === parentId);
     if (!isParent || seen.has(field.id)) continue;
     seen.add(field.id);
     result.push(field);
@@ -62,7 +72,9 @@ function sharesParentLink(
   right: Record<string, string | undefined>,
   linkFields: readonly EntityField[],
 ): boolean {
-  if (linkFields.length === 0) return true;
+  // Without a known parent link field, never treat unrelated rows as siblings
+  // (orphan cleanup would otherwise delete every «Расчёт отдела»).
+  if (linkFields.length === 0) return false;
   for (const field of linkFields) {
     const leftIds = parseEntityRelationIds(left[field.id]);
     const rightIds = parseEntityRelationIds(right[field.id]);
@@ -628,7 +640,7 @@ export async function ensureDeptCalculationGipRows(options: {
   }
   if (missingPairs.length === 0) return;
 
-  const linkFields = parentLinkFields(entity);
+  const linkFields = parentLinkFields(entity, parentEntity);
   const template = siblings[0] ?? records[0] ?? null;
   const { manager, performer } = findDeptCalculationUserFields(entity);
   const templateLinks = template
@@ -825,7 +837,13 @@ export async function persistDeptCalculationRelatedUpdate(options: {
   }
 
   const ensuredGroups = ensureTkpGipDepartmentInGroupsValue({
-    value: patch[groupsField.id] ?? "",
+    value: coerceTkpNestedIdsToDepartments({
+      groupsValue: patch[groupsField.id] ?? "",
+      hostEntity: entity,
+      entities,
+      parentEntity,
+      parentRecord,
+    }),
     hostEntity: entity,
     entities,
   });
@@ -845,7 +863,7 @@ export async function persistDeptCalculationRelatedUpdate(options: {
   const liveEntity =
     getEntityConfig().entities.find((item) => item.id === entity.id) ?? entity;
   const sourceRecord = liveEntity.records.find((item) => item.id === recordId);
-  const linkFields = parentLinkFields(entity);
+  const linkFields = parentLinkFields(entity, parentEntity);
   const baseValues: Record<string, string> = {
     ...(sourceRecord?.values ?? {}),
     ...patch,

@@ -8,6 +8,7 @@ import {
   type AutomationConditionEvalContext,
 } from "./evaluate-conditions";
 import {
+  SYSTEM_USERS_ENTITY_ID,
   SYSTEM_USERS_FIELD_ROLE_ID,
   collectRelationGroupsIdsAtDepth,
   collectRelationGroupsLeafIds,
@@ -226,15 +227,28 @@ function resolveRelatedFieldUserIds(
         null;
       if (!relatedEntity) continue;
 
+      const usersEntity = getSystemUsersEntity(entities);
       for (const relatedId of hopIds) {
         const relatedRecord = relatedEntity.records.find(
           (record) => record.id === relatedId,
         );
-        if (!relatedRecord) continue;
+        if (relatedRecord) {
+          nextCursors.push({
+            entity: relatedEntity,
+            values: relatedRecord.values,
+            recordId: relatedRecord.id,
+          });
+          continue;
+        }
+        // Managers-task may store Users ids in department slots — still hop.
+        const userRecord = usersEntity?.records.find(
+          (record) => record.id === relatedId,
+        );
+        if (!userRecord || !usersEntity) continue;
         nextCursors.push({
-          entity: relatedEntity,
-          values: relatedRecord.values,
-          recordId: relatedRecord.id,
+          entity: usersEntity,
+          values: userRecord.values,
+          recordId: userRecord.id,
         });
       }
     }
@@ -256,6 +270,15 @@ function resolveRelatedFieldUserIds(
       if (managerField && managerField.id !== resolver.fieldId) {
         fallbackIds = parseEntityRelationIds(cursor.values[managerField.id]);
       }
+    }
+    // «Стадия/отделы» depth may already be Users (selected heads). Configured
+    // «Отдел.Руководители» is empty on those rows — use the user cursor id.
+    if (
+      fallbackIds.length === 0 &&
+      cursor.entity.id === SYSTEM_USERS_ENTITY_ID &&
+      cursor.recordId?.trim()
+    ) {
+      fallbackIds = [cursor.recordId.trim()];
     }
     const stored =
       (cursor.recordId

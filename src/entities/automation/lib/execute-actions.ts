@@ -987,7 +987,7 @@ export async function executeAutomationActions(
                   writeBackToParents: true,
                 },
               );
-              if (!fanned) continue;
+              if (fanned == null || fanned.length === 0) continue;
               fanOutApplied = true;
               for (const id of fanned) {
                 if (fannedMultiIds.includes(id)) continue;
@@ -1090,11 +1090,12 @@ export async function executeAutomationActions(
               writeBackToParents: true,
             },
           );
-          if (fannedSingle) {
+          // `[]` is truthy — fall through to single create when fan-out made nothing.
+          if (fannedSingle != null && fannedSingle.length > 0) {
             for (const id of fannedSingle) {
               await maybeCopyTriggerTabsToCreated(action, id, ctx);
             }
-            if (action.linkBackFieldId && fannedSingle.length > 0) {
+            if (action.linkBackFieldId) {
               const linked = serializeEntityRelationIds(fannedSingle);
               await updateEntityRecord(
                 ctx.triggerEntityId,
@@ -1103,44 +1104,42 @@ export async function executeAutomationActions(
               );
               ctx.values[action.linkBackFieldId] = linked;
             }
-            const fanOutParentId = fannedSingle[0] ?? "";
+            const fanOutParentId = fannedSingle[0]!;
             const nestedCreatedIds: string[] = [];
-            if (fanOutParentId) {
-              for (const nested of action.nestedCreates ?? []) {
-                if (!nested.entityId.trim()) continue;
-                const count = readNestedDraftCount(
+            for (const nested of action.nestedCreates ?? []) {
+              if (!nested.entityId.trim()) continue;
+              const count = readNestedDraftCount(
+                ctx.formValues,
+                action.id,
+                nested.id,
+              );
+              for (let index = 0; index < count; index++) {
+                const nestedAsk = readAskDraftValues(
                   ctx.formValues,
-                  action.id,
-                  nested.id,
+                  nested.askFieldIds,
+                  (fieldId) =>
+                    createRecordNestedAskDraftKey(
+                      action.id,
+                      nested.id,
+                      index,
+                      fieldId,
+                    ),
                 );
-                for (let index = 0; index < count; index++) {
-                  const nestedAsk = readAskDraftValues(
-                    ctx.formValues,
-                    nested.askFieldIds,
-                    (fieldId) =>
-                      createRecordNestedAskDraftKey(
-                        action.id,
-                        nested.id,
-                        index,
-                        fieldId,
-                      ),
-                  );
-                  const child = await createMappedRecord(
-                    nested.entityId,
-                    nested.mappings ?? [],
-                    ctx,
-                    createdRecordIds,
-                    {
-                      askOverrides: nestedAsk,
-                      parentLink: {
-                        parentEntityId: action.entityId,
-                        parentRecordId: fanOutParentId,
-                      },
+                const child = await createMappedRecord(
+                  nested.entityId,
+                  nested.mappings ?? [],
+                  ctx,
+                  createdRecordIds,
+                  {
+                    askOverrides: nestedAsk,
+                    parentLink: {
+                      parentEntityId: action.entityId,
+                      parentRecordId: fanOutParentId,
                     },
-                  );
-                  if (!child) continue;
-                  nestedCreatedIds.push(child.id);
-                }
+                  },
+                );
+                if (!child) continue;
+                nestedCreatedIds.push(child.id);
               }
             }
             logs.push({
@@ -1148,7 +1147,7 @@ export async function executeAutomationActions(
               entityId: action.entityId,
               fanOutStageDepartments: true,
               recordIds: fannedSingle,
-              recordId: fanOutParentId || undefined,
+              recordId: fanOutParentId,
               nestedRecordIds: nestedCreatedIds,
             });
             break;

@@ -680,17 +680,110 @@ export function unionTkpStageDepartmentGroupsValues(
   ]);
 }
 
-function deptCalculationParentLinkFields(entity: Entity): EntityField[] {
+/**
+ * Nested «Стадия/отделы» must be department catalog ids. Managers-task /
+ * related-ask sometimes persist Users ids in those slots — remap to the
+ * department they head (or «ГИП» for lead GIP users) so assignee
+ * relatedField → depth 1 → Отдел.Руководители can resolve.
+ */
+export function coerceTkpNestedIdsToDepartments(options: {
+  groupsValue: string | undefined;
+  hostEntity: Entity;
+  entities: readonly Entity[];
+  parentEntity?: Entity | null;
+  parentRecord?: EntityRecord | null;
+}): string {
+  const { groupsValue, hostEntity, entities, parentEntity, parentRecord } =
+    options;
+  const departmentEntity = resolveDepartmentEntity(hostEntity, entities);
+  if (!departmentEntity) return groupsValue?.trim() ?? "";
+
+  const pairs = collectTkpStageDepartmentPairs(groupsValue);
+  if (pairs.length === 0) return groupsValue?.trim() ?? "";
+
+  const deptById = new Map(
+    departmentEntity.records.map((record) => [record.id, record]),
+  );
+  const deptManager =
+    departmentEntity.fields.find((field) => {
+      if (field.type !== "relation" && field.type !== "belonging") return false;
+      if (getEntityRelationTargetId(field) !== SYSTEM_USERS_ENTITY_ID) {
+        return false;
+      }
+      return fieldNameMatches(field, MANAGER_KEYS);
+    }) ?? findEntityManagerUserField(departmentEntity);
+
+  const managerToDepts = new Map<string, string[]>();
+  if (deptManager) {
+    for (const record of departmentEntity.records) {
+      for (const userId of parseEntityRelationIds(
+        record.values[deptManager.id],
+      )) {
+        const list = managerToDepts.get(userId) ?? [];
+        list.push(record.id);
+        managerToDepts.set(userId, list);
+      }
+    }
+  }
+
+  const gipDeptId = findGipDepartmentRecordId(departmentEntity, entities);
+  const gipUserIds = new Set<string>();
+  if (parentEntity && parentRecord) {
+    for (const id of resolveTkpGipUserIdsFromHost({
+      hostEntity: parentEntity,
+      hostValues: parentRecord.values,
+      entities,
+    })) {
+      gipUserIds.add(id);
+    }
+  }
+
+  const coerced: TkpStageDepartmentPair[] = [];
+  const seen = new Set<string>();
+  for (const pair of pairs) {
+    const stageId = pair.stageId.trim();
+    let departmentId = pair.departmentId.trim();
+    if (!stageId || !departmentId) continue;
+
+    if (!deptById.has(departmentId)) {
+      if (gipDeptId && gipUserIds.has(departmentId)) {
+        departmentId = gipDeptId;
+      } else {
+        const headed = managerToDepts.get(departmentId) ?? [];
+        if (headed.length === 0) continue;
+        departmentId = headed[0]!;
+      }
+    }
+
+    const key = `${stageId}\0${departmentId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    coerced.push({ stageId, departmentId });
+  }
+
+  return serializeTkpStageDepartmentPairs(coerced);
+}
+
+function deptCalculationParentLinkFields(
+  entity: Entity,
+  entities: readonly Entity[] = [],
+): EntityField[] {
   const owned = getEntityParentLinkField(entity);
   return entity.fields.filter((field) => {
     if (field.type !== "relation" && field.type !== "belonging") return false;
     const targetId = getEntityRelationTargetId(field);
     if (!targetId) return false;
-    return (
+    if (
       field.id === owned?.id ||
       field.type === "belonging" ||
       (entity.parentEntityId != null && targetId === entity.parentEntityId)
-    );
+    ) {
+      return true;
+    }
+    // Live «Расчёт отдела» often has parentEntityId unset — still treat a
+    // relation to «Разбор ТКП» as the parent link.
+    const target = entities.find((item) => item.id === targetId);
+    return target != null && isTkpAnalysisEntity(target);
   });
 }
 
@@ -717,7 +810,10 @@ export function collectDeptCalculationRecordsForParent(
     result.push(record);
   };
 
-  const linkFields = deptCalculationParentLinkFields(entity);
+  const linkFields = deptCalculationParentLinkFields(entity, [
+    entity,
+    parent.entity,
+  ]);
   for (const record of entity.records) {
     const belongs = linkFields.some(
       (field) =>
@@ -780,7 +876,10 @@ export function collectDeptCalculationSiblingRecords(
     }
   }
 
-  const linkFields = deptCalculationParentLinkFields(entity);
+  const linkFields = deptCalculationParentLinkFields(
+    entity,
+    parent?.entity ? [entity, parent.entity] : [entity],
+  );
 
   const parentKeys = new Set<string>();
   for (const seed of seeds) {
