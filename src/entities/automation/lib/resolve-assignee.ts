@@ -16,6 +16,7 @@ import {
   getRelationGroupsLeafEntityId,
   getRelationGroupsLevelEntityId,
   getSystemUsersEntity,
+  findEntityManagerUserField,
   isDeptCalculationsEntity,
   isEntityRelationLikeFieldType,
   isTkpAnalysisEntity,
@@ -245,7 +246,17 @@ function resolveRelatedFieldUserIds(
   const seen = new Set<string>();
   const triggerRecordId = ctx.triggerRecordId?.trim() || null;
   for (const cursor of cursors) {
-    const fallbackIds = parseEntityRelationIds(cursor.values[resolver.fieldId]);
+    // Prefer configured field; if missing/empty on this entity (e.g. wrongly
+    // saved Users.«Руководитель»), fall back to catalog «Руководитель(и)».
+    let fallbackIds = parseEntityRelationIds(cursor.values[resolver.fieldId]);
+    if (fallbackIds.length === 0) {
+      const managerField =
+        cursor.entity.fields.find((field) => field.id === resolver.fieldId) ??
+        findEntityManagerUserField(cursor.entity);
+      if (managerField && managerField.id !== resolver.fieldId) {
+        fallbackIds = parseEntityRelationIds(cursor.values[managerField.id]);
+      }
+    }
     const stored =
       (cursor.recordId
         ? cursor.entity.records.find((item) => item.id === cursor.recordId)
