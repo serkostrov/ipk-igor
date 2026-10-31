@@ -49,7 +49,8 @@ function parentLinkFields(
   parentEntity?: Entity | null,
 ): EntityField[] {
   const owned = getEntityParentLinkField(entity);
-  const parentId = parentEntity?.id?.trim() || entity.parentEntityId?.trim() || "";
+  const parentId =
+    parentEntity?.id?.trim() || entity.parentEntityId?.trim() || "";
   const result: EntityField[] = [];
   const seen = new Set<string>();
   for (const field of entity.fields) {

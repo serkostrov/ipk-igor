@@ -160,3 +160,10 @@ export {
 } from "./tkp-review/lib/tkp-approval";
 export { submitTkpDocumentForApproval } from "./tkp-review/lib/submit-tkp-document";
 export { resolveTkpDocumentFilesTarget } from "./tkp-review/lib/resolve-tkp-files-target";
+export {
+  countTkpRevisionFilesById,
+  listTkpRevisionFiles,
+  readTkpDocumentFileEntries,
+  uploadTkpRevisionFiles,
+} from "./tkp-review/lib/revision-files";
+export { RevisionFilesPanel } from "./tkp-review/ui/RevisionFilesPanel";

@@ -5,12 +5,10 @@
  */
 
 import {
-  DEFAULT_ENTITY_FOLDER_COLOR,
   getEntityRecordTitle,
   getEntityTabFilesValueKey,
   getEntityValueContext,
   isEntityNameField,
-  normalizeListColor,
   parseEntityTabFileEntries,
   serializeEntityTabFileEntries,
   updateEntityRecord,
@@ -21,46 +19,13 @@ import {
 } from "@/entities/entity";
 import { buildTkpCommercialDocumentFile } from "../../tkp-commercial/model/document";
 import type { TkpPriceRevisionSummary } from "../../tkp-commercial/model/types";
-import { isTkpDocumentsFolder } from "./tkp-file-bind";
 import {
   findTkpApprovalListField,
   resolveTkpApprovalPendingOptionId,
   writeTkpApprovalSubmittedPatch,
 } from "./tkp-approval";
 import { resolveTkpDocumentFilesTarget } from "./resolve-tkp-files-target";
-
-function uniqueFileName(base: string, existing: readonly string[]): string {
-  const names = new Set(existing.map((name) => name.toLowerCase()));
-  if (!names.has(base.toLowerCase())) return base;
-  const dot = base.lastIndexOf(".");
-  const stem = dot > 0 ? base.slice(0, dot) : base;
-  const ext = dot > 0 ? base.slice(dot) : "";
-  let index = 2;
-  while (names.has(`${stem} ${index}${ext}`.toLowerCase())) index += 1;
-  return `${stem} ${index}${ext}`;
-}
-
-function ensureTkpDocumentsFolder(entries: EntityTabFileEntry[]): {
-  entries: EntityTabFileEntry[];
-  folderId: string;
-} {
-  const existing = entries.find(
-    (entry) => entry.kind === "folder" && isTkpDocumentsFolder(entry),
-  );
-  if (existing) {
-    return { entries, folderId: existing.id };
-  }
-
-  const folder: EntityTabFileEntry = {
-    id: crypto.randomUUID(),
-    name: "ТКП",
-    kind: "folder",
-    parentId: null,
-    createdAt: new Date().toISOString(),
-    color: normalizeListColor(DEFAULT_ENTITY_FOLDER_COLOR),
-  };
-  return { entries: [...entries, folder], folderId: folder.id };
-}
+import { ensureTkpDocumentsFolder, uniqueTkpFileName } from "./revision-files";
 
 export type SubmitTkpDocumentForApprovalResult = {
   fileName: string;
@@ -119,7 +84,7 @@ export async function submitTkpDocumentForApproval(input: {
   const siblingNames = entries
     .filter((entry) => entry.parentId === folderId && entry.kind === "file")
     .map((entry) => entry.name);
-  const fileName = uniqueFileName(file.name, siblingNames);
+  const fileName = uniqueTkpFileName(file.name, siblingNames);
   const entryId = crypto.randomUUID();
 
   const uploaded = await uploadEntityFile({

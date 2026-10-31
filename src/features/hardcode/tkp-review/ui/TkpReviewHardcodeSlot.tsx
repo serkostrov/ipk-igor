@@ -45,6 +45,13 @@ import {
   resolveTkpApprovalChainReady,
 } from "../lib/tkp-approval";
 import { submitTkpDocumentForApproval } from "../lib/submit-tkp-document";
+import {
+  countTkpRevisionFilesById,
+  listTkpRevisionFiles,
+  readTkpDocumentFileEntries,
+  uploadTkpRevisionFiles,
+} from "../lib/revision-files";
+import { RevisionFilesPanel } from "./RevisionFilesPanel";
 import { TkpPendingPriceVersionBanner } from "./TkpPendingPriceVersionBanner";
 
 export type TkpReviewHardcodeSection = "gip" | "commercial";
@@ -76,6 +83,9 @@ export function TkpReviewHardcodeSlot({
   const currentUserId = useCurrentUserRecordId();
   const [history, setHistory] = useState<TkpPriceRevisionSummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [autoExpandRevisionId, setAutoExpandRevisionId] = useState<
+    string | null
+  >(null);
 
   const deptEntity = useMemo(
     () => findDeptCalculationsLinkedEntity(entity, entities),
@@ -131,6 +141,14 @@ export function TkpReviewHardcodeSlot({
     () => resolveTkpApprovalChainReady(entity, entities),
     [entity, entities],
   );
+  const revisionFileEntries = useMemo(
+    () => readTkpDocumentFileEntries({ entity, record }),
+    [entity, record],
+  );
+  const fileCountByRevisionId = useMemo(
+    () => countTkpRevisionFilesById(revisionFileEntries),
+    [revisionFileEntries],
+  );
 
   const reloadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -183,11 +201,14 @@ export function TkpReviewHardcodeSlot({
     if (pendingNewPriceVersion) {
       nextValues[PENDING_NEW_PRICE_KEY] = "1";
       nextValues[BIND_PRICE_REVISION_KEY] = saved.id;
+      setAutoExpandRevisionId(saved.id);
     }
     updateEntityRecord(entity.id, record.id, nextValues);
+    const revisionLabel =
+      saved.revisionNumber != null ? `#${saved.revisionNumber}` : "";
     toast.success(
       pendingNewPriceVersion
-        ? "Версия цены сохранена — загрузите файл ТКП"
+        ? `Версия цены ${revisionLabel} сохранена — загрузите файлы ТКП в строке ревизии ниже`
         : "Версия цены сохранена",
     );
     await reloadHistory();
@@ -198,7 +219,22 @@ export function TkpReviewHardcodeSlot({
       ...record.values,
       [PENDING_NEW_PRICE_KEY]: "1",
     });
-    toast.message("Загрузите новый файл ТКП и сохраните версию цены");
+    toast.message(
+      "Сохраните новую версию цены, затем загрузите файлы в строке ревизии",
+    );
+  }
+
+  async function handleUploadRevisionFiles(revisionId: string, files: File[]) {
+    const result = await uploadTkpRevisionFiles({
+      entity,
+      record,
+      entities,
+      revisionId,
+      files,
+    });
+    if (result.createdFilesTab) {
+      toast.message(`Создана вкладка «${result.filesTabName}»`);
+    }
   }
 
   async function handleSubmitForApproval(revision: TkpPriceRevisionSummary) {
@@ -208,16 +244,17 @@ export function TkpReviewHardcodeSlot({
       revision,
       entities,
     });
+    setAutoExpandRevisionId(revision.id);
     const tabHint = result.createdFilesTab
       ? ` Создана вкладка «${result.filesTabName}».`
       : "";
     if (result.approvalFieldUpdated) {
       toast.success(
-        `Документ «${result.fileName}» сохранён в «${result.filesTabName}» → «ТКП» и отправлен на согласование.${tabHint}`,
+        `Документ «${result.fileName}» сохранён у ревизии и отправлен на согласование.${tabHint}`,
       );
     } else {
       toast.success(
-        `Документ «${result.fileName}» сохранён в «${result.filesTabName}» → «ТКП».${tabHint} Для автозапуска цепочки добавьте поле списка «Согласование ТКП» со значением «На согласовании».`,
+        `Документ «${result.fileName}» сохранён у ревизии в «Истории цен».${tabHint} Для автозапуска цепочки добавьте поле списка «Согласование ТКП» со значением «На согласовании».`,
       );
     }
   }
@@ -279,6 +316,23 @@ export function TkpReviewHardcodeSlot({
             approvalSubmittedAt={approvalState.submittedAt}
             approvalChainReady={approvalChain.ready}
             approvalFieldName={approvalChain.fieldName}
+            fileCountByRevisionId={fileCountByRevisionId}
+            autoExpandRevisionId={autoExpandRevisionId}
+            renderRevisionFiles={(entry) => (
+              <RevisionFilesPanel
+                revisionId={entry.id}
+                revisionNumber={entry.revisionNumber}
+                files={listTkpRevisionFiles(revisionFileEntries, entry.id)}
+                canEdit={canEditCommercial}
+                highlightUpload={autoExpandRevisionId === entry.id}
+                isLatest={history[0]?.id === entry.id}
+                onUpload={
+                  canEditCommercial
+                    ? (files) => handleUploadRevisionFiles(entry.id, files)
+                    : undefined
+                }
+              />
+            )}
           />
           {historyLoading ? (
             <p className="text-xs text-muted-foreground">

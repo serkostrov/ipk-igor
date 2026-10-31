@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
-import { FileText } from "lucide-react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { ChevronRight, FileText, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 
 import { PROJECT_TIMEZONE } from "@/shared/config/project-time";
+import { cn } from "@/shared/lib/cn";
+import { pluralRu } from "@/shared/lib/plural";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import { Input } from "@/shared/ui/input";
@@ -39,6 +41,13 @@ import {
   HistoricalGipBreakdownNotice,
   PricingValue,
 } from "./CommercialMetricDetails";
+
+const HISTORY_COLUMN_COUNT = 14;
+
+function revisionFilesBadgeLabel(count: number): string {
+  if (count <= 0) return "Нет файлов";
+  return `${count} ${pluralRu(count, "файл", "файла", "файлов")}`;
+}
 
 function numberInput(value: number | null | undefined): string {
   return value == null ? "" : String(value);
@@ -244,9 +253,21 @@ export function CommercialCalculationMetrics({
 
 export function CommercialPriceHistoryTable({
   entries,
+  fileCountByRevisionId,
+  autoExpandRevisionId = null,
+  renderRevisionFiles,
 }: {
   entries: TkpPriceRevisionSummary[];
+  /** Bound TKP file counts keyed by `tkp_price_revisions.id`. */
+  fileCountByRevisionId?: ReadonlyMap<string, number>;
+  /** Open this revision's files panel after save (pending new version). */
+  autoExpandRevisionId?: string | null;
+  renderRevisionFiles?: (entry: TkpPriceRevisionSummary) => ReactNode;
 }) {
+  const [expandedId, setExpandedId] = useState<string | null>(
+    autoExpandRevisionId,
+  );
+
   if (entries.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-border/70 bg-muted/15 px-3 py-4 text-center text-xs text-muted-foreground">
@@ -255,14 +276,22 @@ export function CommercialPriceHistoryTable({
     );
   }
 
+  const filesEnabled = Boolean(renderRevisionFiles);
+
+  function toggleExpanded(id: string) {
+    if (!filesEnabled) return;
+    setExpandedId((current) => (current === id ? null : id));
+  }
+
   return (
     <div
       className="overflow-x-auto rounded-xl border border-border/70"
       data-testid="review-price-history-table"
     >
-      <table className="w-full min-w-[1200px] text-xs">
+      <table className="w-full min-w-[1280px] text-xs">
         <thead className="bg-muted/40 text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
           <tr>
+            {filesEnabled ? <th className="w-36 px-3 py-2.5">Файлы</th> : null}
             <th className="px-3 py-2.5">Ревизия</th>
             <th className="px-3 py-2.5">Дата и автор</th>
             <th className="px-3 py-2.5">Режим</th>
@@ -281,58 +310,110 @@ export function CommercialPriceHistoryTable({
         <tbody>
           {entries.map((entry) => {
             const calculation = entry.calculation;
+            const expanded = filesEnabled && expandedId === entry.id;
+            const fileCount = fileCountByRevisionId?.get(entry.id) ?? 0;
             return (
-              <tr
-                key={entry.id}
-                className="border-t border-border/60 align-top hover:bg-muted/20"
-              >
-                <td className="px-3 py-2.5 font-medium">
-                  {entry.revisionNumber == null
-                    ? "—"
-                    : `#${entry.revisionNumber}`}
-                </td>
-                <td className="px-3 py-2.5">
-                  {fmtDateTime(entry.createdAt)}
-                  <div className="text-muted-foreground">
-                    {entry.createdByName ?? "—"}
-                  </div>
-                </td>
-                <td className="px-3 py-2.5">
-                  {tkpSalePriceModeLabel(entry.priceMode)}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation ? fmtMoney(calculation.costWithFixed) : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation?.effectiveCoefficient ?? "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation ? fmtMoney(calculation.netProfit) : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation
-                    ? `${calculation.profitabilityPercent.toLocaleString("ru-RU")}%`
-                    : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation ? fmtMoney(calculation.profitTaxAmount) : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation ? fmtMoney(calculation.retroAmount) : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation ? fmtMoney(calculation.retroWithFactor) : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation ? fmtMoney(calculation.totalBeforeVat) : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {calculation ? fmtMoney(calculation.vatAmount) : "—"}
-                </td>
-                <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                  {calculation ? fmtMoney(calculation.totalWithVat) : "—"}
-                </td>
-              </tr>
+              <Fragment key={entry.id}>
+                <tr
+                  className={cn(
+                    "border-t border-border/60 align-top",
+                    filesEnabled && "cursor-pointer hover:bg-muted/20",
+                    expanded && "bg-muted/25",
+                  )}
+                  onClick={() => toggleExpanded(entry.id)}
+                  data-testid={`price-history-row-${entry.id}`}
+                  data-expanded={expanded ? "true" : "false"}
+                >
+                  {filesEnabled ? (
+                    <td className="px-3 py-2.5">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+                        <ChevronRight
+                          className={cn(
+                            "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                            expanded && "rotate-90",
+                          )}
+                          aria-hidden
+                        />
+                        <Paperclip
+                          className={cn(
+                            "size-3 shrink-0",
+                            fileCount > 0
+                              ? "text-foreground"
+                              : "text-muted-foreground/70",
+                          )}
+                          aria-hidden
+                        />
+                        <span
+                          className={cn(
+                            fileCount > 0
+                              ? "text-foreground"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {revisionFilesBadgeLabel(fileCount)}
+                        </span>
+                      </span>
+                    </td>
+                  ) : null}
+                  <td className="px-3 py-2.5 font-medium">
+                    {entry.revisionNumber == null
+                      ? "—"
+                      : `#${entry.revisionNumber}`}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {fmtDateTime(entry.createdAt)}
+                    <div className="text-muted-foreground">
+                      {entry.createdByName ?? "—"}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {tkpSalePriceModeLabel(entry.priceMode)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation ? fmtMoney(calculation.costWithFixed) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation?.effectiveCoefficient ?? "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation ? fmtMoney(calculation.netProfit) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation
+                      ? `${calculation.profitabilityPercent.toLocaleString("ru-RU")}%`
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation ? fmtMoney(calculation.profitTaxAmount) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation ? fmtMoney(calculation.retroAmount) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation ? fmtMoney(calculation.retroWithFactor) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation ? fmtMoney(calculation.totalBeforeVat) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {calculation ? fmtMoney(calculation.vatAmount) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                    {calculation ? fmtMoney(calculation.totalWithVat) : "—"}
+                  </td>
+                </tr>
+                {expanded && renderRevisionFiles ? (
+                  <tr className="border-t border-border/40 bg-muted/10">
+                    <td
+                      colSpan={HISTORY_COLUMN_COUNT}
+                      className="px-3 py-3"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {renderRevisionFiles(entry)}
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             );
           })}
         </tbody>
@@ -358,6 +439,9 @@ export function CommercialPricingPanel({
   approvalSubmittedAt = null,
   approvalChainReady = false,
   approvalFieldName = null,
+  fileCountByRevisionId,
+  autoExpandRevisionId = null,
+  renderRevisionFiles,
 }: {
   basis: ReviewGipCommercialBasis;
   canEdit: boolean;
@@ -373,6 +457,9 @@ export function CommercialPricingPanel({
   /** List field «Согласование ТКП» + option «На согласовании» are configured. */
   approvalChainReady?: boolean;
   approvalFieldName?: string | null;
+  fileCountByRevisionId?: ReadonlyMap<string, number>;
+  autoExpandRevisionId?: string | null;
+  renderRevisionFiles?: (entry: TkpPriceRevisionSummary) => ReactNode;
 }) {
   const [mode, setMode] = useState<TkpSalePriceMode>(
     latestRevision?.priceMode ?? "coefficient",
@@ -491,7 +578,7 @@ export function CommercialPricingPanel({
     revisionLabel
       ? `По сохранённой ревизии цены ${revisionLabel} будет сформирован документ ТКП.`
       : "По сохранённой ревизии цены будет сформирован документ ТКП.",
-    "Файл сохранится во вкладку «Файлы» → папка «ТКП».",
+    "Файл появится в «Истории цен» у этой ревизии и во вкладке «Файлы» → «ТКП».",
     approvalChainReady
       ? `Статус «${approvalFieldName ?? "Согласование ТКП"}» станет «На согласовании» — дальше сработает цепочка согласования.`
       : "Документ сохранится. Чтобы запустить цепочку, добавьте на сущность поле списка «Согласование ТКП» со значением «На согласовании» и настройте автоматизацию.",
@@ -552,8 +639,8 @@ export function CommercialPricingPanel({
           data-testid="tkp-approval-submitted-banner"
         >
           Документ по текущей ревизии сформирован и отправлен на согласование
-          {` · ${fmtDateTime(approvalSubmittedAt)}`}. Смотрите файл во вкладке
-          «Файлы» → «ТКП».
+          {` · ${fmtDateTime(approvalSubmittedAt)}`}. Откройте строку ревизии в
+          «Истории цен» или вкладку «Файлы» → «ТКП».
         </p>
       ) : canSubmitApproval ? (
         <p
@@ -561,15 +648,16 @@ export function CommercialPricingPanel({
           data-testid="tkp-approval-hint"
         >
           {approvalChainReady
-            ? "Кнопка «На согласование» сформирует документ из сохранённой цены и запустит цепочку согласования."
-            : "Кнопка «На согласование» сформирует документ из сохранённой цены. Для автозапуска цепочки нужно поле «Согласование ТКП»."}
+            ? "Кнопка «На согласование» сформирует документ из сохранённой цены и запустит цепочку согласования. Файлы также можно загрузить в строке ревизии ниже."
+            : "Кнопка «На согласование» сформирует документ из сохранённой цены. Для автозапуска цепочки нужно поле «Согласование ТКП». Файлы можно загрузить в строке ревизии ниже."}
         </p>
       ) : null}
 
       {pendingNewPriceVersion ? (
         <p className="border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground sm:px-5">
-          Сохранение создаст цену N+1. Затем сформируйте документ кнопкой «На
-          согласование» или загрузите файл ТКП вручную.
+          Сохранение создаст цену N+1. Затем загрузите файлы ТКП в раскрытой
+          строке новой ревизии — после этого снова станет доступна кнопка «На
+          согласование».
         </p>
       ) : null}
 
@@ -726,7 +814,13 @@ export function CommercialPricingPanel({
 
       <div className="space-y-2.5 border-t border-border/70 px-4 py-3.5 sm:px-5">
         <h3 className="text-sm font-medium text-foreground">История цен</h3>
-        <CommercialPriceHistoryTable entries={history} />
+        <CommercialPriceHistoryTable
+          key={autoExpandRevisionId ?? "price-history"}
+          entries={history}
+          fileCountByRevisionId={fileCountByRevisionId}
+          autoExpandRevisionId={autoExpandRevisionId}
+          renderRevisionFiles={renderRevisionFiles}
+        />
       </div>
     </section>
   );

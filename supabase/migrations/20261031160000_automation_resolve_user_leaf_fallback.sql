@@ -1,7 +1,8 @@
--- Assignees after «Стадия/отделы» → Users: treat user cursor ids as assignees
--- when leaf fieldId (e.g. Отдел.Руководители) is empty on those rows.
--- Also: merge live record values into relatedField hops; linkedChild parent
--- match via automation_bridge_record_ids (+ text fallback).
+-- relatedField hop may land on Users rows when «Стадия/отделы» nested slots
+-- were filled with managers instead of department catalog ids. Reading
+-- Отдел.Руководители on those rows is empty — treat the user record id as the
+-- assignee. Also fall back to a catalog «Руководитель(и)» field by name when
+-- the configured fieldId is missing on the landed entity.
 
 create or replace function public.automation_resolve_assignees(
   resolver jsonb,
@@ -38,6 +39,7 @@ declare
   hop_ids text[];
   related_id text;
   related_values jsonb;
+  related_entity_id text;
   collected text[] := array[]::text[];
   user_id text;
   hop_index int;
@@ -54,19 +56,11 @@ declare
   cursor_ids text[] := array[]::text[];
   next_cursor_ids text[] := array[]::text[];
   cursor_id text;
+  cursor_entity_id text;
   gip_ids text[];
+  manager_field_id text;
   idx int;
-  live_values jsonb := '{}'::jsonb;
 begin
-  if p_record_id is not null and btrim(p_record_id) <> '' then
-    select coalesce(er.field_values, '{}'::jsonb)
-      into live_values
-    from public.entity_records er
-    where er.id = p_record_id
-    limit 1;
-  end if;
-  live_values := coalesce(live_values, '{}'::jsonb);
-
   case rtype
     when 'none' then
       return array[]::text[];
@@ -128,11 +122,7 @@ begin
       if field_id is null then
         return array[]::text[];
       end if;
-      raw := coalesce(
-        nullif(trim(coalesce(p_values->>field_id, '')), ''),
-        live_values->>field_id,
-        ''
-      );
+      raw := coalesce(p_values->>field_id, '');
       ids := public.automation_field_ids(raw);
       if cardinality(ids) > 0 then
         return array[ids[1]];
@@ -147,11 +137,7 @@ begin
       if field_id is null then
         return array[]::text[];
       end if;
-      raw := coalesce(
-        nullif(trim(coalesce(p_values->>field_id, '')), ''),
-        live_values->>field_id,
-        ''
-      );
+      raw := coalesce(p_values->>field_id, '');
       return public.automation_field_ids(raw);
 
     when 'relatedField' then
@@ -232,8 +218,7 @@ begin
         limit 1;
       end if;
 
-      -- Draft p_values override live record (spawn passes live; RPC probes may not).
-      cursors := array[live_values || coalesce(p_values, '{}'::jsonb)];
+      cursors := array[coalesce(p_values, '{}'::jsonb)];
       cursor_ids := array[nullif(trim(coalesce(p_record_id, '')), '')];
 
       if linked_child is not null and jsonb_typeof(linked_child) = 'object' then
@@ -271,25 +256,27 @@ begin
 
         next_cursors := array[]::jsonb[];
         next_cursor_ids := array[]::text[];
-        for related_id, related_values in
-          select er.id, coalesce(er.field_values, '{}'::jsonb)
+        for related_id in
+          select er.id
           from public.entity_records er
           where er.entity_id = child_entity_id
-            and (
-              parent_record_id = any (
-                public.automation_bridge_record_ids(
-                  coalesce(er.field_values->>child_parent_field_id, ''),
-                  null
-                )
+            and parent_record_id = any (
+              public.automation_field_ids(
+                coalesce(er.field_values->>child_parent_field_id, '')
               )
-              -- Fallback: parent id stored under any key / CSV / JSON shape.
-              or position(parent_record_id in coalesce(er.field_values::text, '')) > 0
             )
         loop
-          next_cursors := next_cursors || related_values;
-          next_cursor_ids := next_cursor_ids || related_id;
-          if not fan_out then
-            exit;
+          select er.field_values
+            into related_values
+          from public.entity_records er
+          where er.id = related_id
+          limit 1;
+          if related_values is not null then
+            next_cursors := next_cursors || related_values;
+            next_cursor_ids := next_cursor_ids || related_id;
+            if not fan_out then
+              exit;
+            end if;
           end if;
         end loop;
         cursors := next_cursors;
@@ -362,20 +349,45 @@ begin
 
         ids := public.automation_field_ids(coalesce(cursor_values->>nested_field_id, ''));
 
-        -- relationGroups leaf/depth may already be Users (heads selected in
-        -- «Стадия/отделы»). Configured fieldId «Отдел.Руководители» is empty
-        -- on user rows — treat the cursor itself as the assignee.
-        if cardinality(ids) = 0
-           and cursor_id is not null
-           and btrim(cursor_id) <> ''
-        then
-          if exists (
-            select 1
-            from public.entity_records er
-            where er.id = cursor_id
-              and er.entity_id = 'entity-system-users'
-            limit 1
-          ) then
+        -- Catalog «Руководитель(и)» by name when configured fieldId is absent/empty.
+        if cardinality(ids) = 0 and cursor_id is not null then
+          select er.entity_id into cursor_entity_id
+          from public.entity_records er
+          where er.id = cursor_id
+          limit 1;
+          if cursor_entity_id is not null then
+            select nullif(trim(f->>'id'), '')
+              into manager_field_id
+            from public.entities e,
+                 lateral jsonb_array_elements(coalesce(e.definition->'fields', '[]'::jsonb)) as f
+            where e.id = cursor_entity_id
+              and coalesce(f->>'type', '') in ('relation', 'belonging')
+              and (
+                lower(replace(coalesce(f->>'name', ''), 'ё', 'е')) = 'руководитель'
+                or lower(replace(coalesce(f->>'name', ''), 'ё', 'е')) = 'руководители'
+                or lower(replace(coalesce(f->>'name', ''), 'ё', 'е')) like 'руководитель %'
+              )
+            order by case
+              when lower(replace(coalesce(f->>'name', ''), 'ё', 'е')) = 'руководитель' then 0
+              when lower(replace(coalesce(f->>'name', ''), 'ё', 'е')) = 'руководители' then 1
+              else 2
+            end
+            limit 1;
+            if manager_field_id is not null and manager_field_id <> nested_field_id then
+              ids := public.automation_field_ids(
+                coalesce(cursor_values->>manager_field_id, '')
+              );
+            end if;
+          end if;
+        end if;
+
+        -- Users leaf (managers stored as nested ids): the record is the assignee.
+        if cardinality(ids) = 0 and cursor_id is not null then
+          select er.entity_id into related_entity_id
+          from public.entity_records er
+          where er.id = cursor_id
+          limit 1;
+          if related_entity_id = 'entity-system-users' then
             ids := array[cursor_id];
           end if;
         end if;
@@ -474,3 +486,229 @@ $$;
 
 grant execute on function public.automation_resolve_assignees(jsonb, jsonb, text, text)
   to authenticated, service_role;
+
+-- Fan-out relatedField: do not create a single unassigned task when resolve
+-- returns empty — that hides the data problem and blocks correct re-spawn.
+create or replace function public.automation_spawn_template_for_record(
+  p_tmpl public.automation_task_templates,
+  p_process_id text,
+  p_entity_id text,
+  p_record_id text,
+  p_trigger_field_id text,
+  p_stored_option_id text,
+  p_values jsonb,
+  p_old_values jsonb,
+  p_actor text
+) returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  assignee_ids text[];
+  assignee_id text;
+  rtype text;
+  task_id text;
+  task_name text;
+  task_description text;
+  due timestamptz;
+  template_snapshot jsonb;
+  launch_phase text;
+  autofill_outcome_id text;
+  outcome_elem jsonb;
+  first_task_id text := null;
+  is_silent boolean;
+  already boolean;
+begin
+  if coalesce(p_tmpl.enabled, true) = false then
+    return null;
+  end if;
+
+  launch_phase := coalesce(nullif(p_tmpl.launch_phase, ''), 'onEnter');
+  is_silent := p_tmpl.kind in ('autofill', 'actions');
+
+  if is_silent then
+    assignee_ids := array[null::text];
+  else
+    assignee_ids := public.automation_resolve_assignees(
+      p_tmpl.assignee,
+      p_values,
+      p_actor,
+      p_record_id
+    );
+    if cardinality(assignee_ids) = 0 then
+      rtype := coalesce(p_tmpl.assignee->>'type', 'currentUser');
+      if rtype in ('currentUser', 'recordCreator') then
+        assignee_ids := public.automation_resolve_assignees(
+          '{"type":"currentUser"}'::jsonb,
+          p_values,
+          p_actor,
+          p_record_id
+        );
+      end if;
+    end if;
+    if cardinality(assignee_ids) = 0 then
+      rtype := coalesce(p_tmpl.assignee->>'type', 'currentUser');
+      -- relatedField / fan-out: skip null placeholder — fix data / resolve instead.
+      if rtype in ('relatedField', 'relationFieldFanOut') then
+        return null;
+      end if;
+      assignee_ids := array[null::text];
+    end if;
+  end if;
+
+  template_snapshot := jsonb_build_object(
+    'id', p_tmpl.id,
+    'scenarioId', p_tmpl.scenario_id,
+    'name', p_tmpl.name,
+    'nameTemplate', p_tmpl.name_template,
+    'description', p_tmpl.description,
+    'triggerOptionId', p_tmpl.trigger_option_id,
+    'stepOrder', p_tmpl.step_order,
+    'isBlocking', p_tmpl.is_blocking,
+    'enabled', coalesce(p_tmpl.enabled, true),
+    'kind', p_tmpl.kind,
+    'launchPhase', launch_phase,
+    'launchConditions', p_tmpl.launch_conditions,
+    'assignee', p_tmpl.assignee,
+    'watchers', p_tmpl.watchers,
+    'outcomes', p_tmpl.outcomes,
+    'sla', p_tmpl.sla,
+    'materials', p_tmpl.materials,
+    'fieldAccess', coalesce(p_tmpl.field_access, '{}'::jsonb),
+    'actions', coalesce(p_tmpl.actions, '[]'::jsonb),
+    'viewFieldsPlacement', coalesce(
+      nullif(p_tmpl.view_fields_placement, ''),
+      'afterSelect'
+    )
+  );
+
+  task_name := public.automation_render_template(
+    case
+      when nullif(btrim(p_tmpl.name_template), '') is not null then p_tmpl.name_template
+      else p_tmpl.name
+    end,
+    p_values
+  );
+  if nullif(btrim(task_name), '') is null then
+    task_name := p_tmpl.name;
+  end if;
+
+  task_description := public.automation_render_template(
+    coalesce(p_tmpl.description, ''),
+    p_values
+  );
+
+  due := null;
+  if p_tmpl.sla is not null and (p_tmpl.sla->>'hours') is not null then
+    begin
+      due := now() + ((p_tmpl.sla->>'hours')::numeric || ' hours')::interval;
+    exception when others then
+      due := null;
+    end;
+  end if;
+
+  autofill_outcome_id := null;
+  if is_silent then
+    for outcome_elem in
+      select value
+      from jsonb_array_elements(coalesce(p_tmpl.outcomes, '[]'::jsonb)) as value
+    loop
+      if public.automation_conditions_match(
+        coalesce(
+          outcome_elem->'conditions',
+          '{"version":1,"match":"all","rules":[]}'::jsonb
+        ),
+        p_values,
+        p_old_values
+      ) then
+        autofill_outcome_id := outcome_elem->>'id';
+        exit;
+      end if;
+    end loop;
+    if autofill_outcome_id is null then
+      autofill_outcome_id := coalesce(p_tmpl.outcomes->0->>'id', '');
+    end if;
+  end if;
+
+  foreach assignee_id in array assignee_ids
+  loop
+    select exists (
+      select 1
+      from public.automation_tasks existing
+      where existing.record_id = p_record_id
+        and existing.template_id = p_tmpl.id
+        and coalesce(existing.assignee_user_id, '') = coalesce(assignee_id, '')
+        and existing.status in ('pending', 'returned', 'completed')
+    ) into already;
+    if already then
+      continue;
+    end if;
+
+    task_id := 'atask-' || gen_random_uuid()::text;
+    begin
+      insert into public.automation_tasks (
+        id, process_id, scenario_id, template_id,
+        entity_id, record_id, trigger_field_id, trigger_option_id,
+        assignee_user_id, status, is_blocking, step_order,
+        name, description, config, due_at, outcome_id
+      ) values (
+        task_id,
+        p_process_id,
+        p_tmpl.scenario_id,
+        p_tmpl.id,
+        p_entity_id,
+        p_record_id,
+        p_trigger_field_id,
+        p_stored_option_id,
+        assignee_id,
+        'pending',
+        p_tmpl.is_blocking,
+        p_tmpl.step_order,
+        task_name,
+        task_description,
+        template_snapshot,
+        due,
+        autofill_outcome_id
+      );
+      if first_task_id is null then
+        first_task_id := task_id;
+      end if;
+    exception
+      when unique_violation then
+        continue;
+      when others then
+        raise warning 'automation spawn insert failed: %', sqlerrm;
+        continue;
+    end;
+
+    if is_silent then
+      continue;
+    end if;
+
+    begin
+      perform public.automation_notify_from_rules(
+        p_tmpl.id,
+        'assigned',
+        p_values,
+        p_old_values,
+        p_actor,
+        'Назначена задача',
+        'Назначена задача: ' || task_name,
+        p_entity_id,
+        p_record_id,
+        task_id,
+        assignee_id
+      );
+    exception when others then
+      raise warning 'automation spawn notify failed: %', sqlerrm;
+    end;
+  end loop;
+
+  return first_task_id;
+end;
+$$;
+
+grant execute on function public.automation_spawn_template_for_record(
+  public.automation_task_templates, text, text, text, text, text, jsonb, jsonb, text
+) to authenticated, service_role;
