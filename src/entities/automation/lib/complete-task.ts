@@ -15,6 +15,7 @@ import {
   isEntityRecordsTab,
   isEntityRelationGroupsFilled,
   notifyRecordMentions,
+  parseEntityListValueIds,
   parseEntityTabRecordEntries,
   serializeEntityTabRecordEntries,
   setEntityRecordValuesLocal,
@@ -812,23 +813,35 @@ export async function completeAutomationTask(
   // destination stage (template.triggerOptionId). Default «Готово» buttons
   // ship with empty actions — otherwise the record stays on the previous
   // column and the «ТОГДА» gateway keeps blocking manual moves.
+  // Skip if SQL already landed (avoids a second fieldEnter / duplicate spawn).
   const launchPhase = task.config.launchPhase ?? "onEnter";
   if (launchPhase === "beforeEnter") {
-    const destination = task.config.triggerOptionId?.trim() ?? "";
+    const destination = normalizeProcessStageOptionId(
+      task.config.triggerOptionId?.trim() ?? "",
+    );
     const hasExplicitStage = outcome.actions.some(
       (action) =>
         action.kind === "setField" && action.fieldId === triggerFieldId,
     );
+    const currentStageId =
+      parseEntityListValueIds(patchedValues[triggerFieldId] ?? "")[0] ??
+      (patchedValues[triggerFieldId] ?? "").trim();
+    const alreadyLanded =
+      Boolean(destination) &&
+      processStageOptionIdsMatch(currentStageId, destination);
     if (
       entity &&
       triggerFieldId &&
       destination &&
       !hasExplicitStage &&
-      (patchedValues[triggerFieldId] ?? "") !== destination
+      !alreadyLanded
     ) {
       patchedValues[triggerFieldId] = destination;
       try {
-        await updateEntityRecord(entity.id, task.recordId, patchedValues);
+        // Patch only the process stage — never rewrite the full form snapshot.
+        await updateEntityRecord(entity.id, task.recordId, {
+          [triggerFieldId]: destination,
+        });
       } catch (error: unknown) {
         console.error("[automation] beforeEnter stage advance failed", error);
       }

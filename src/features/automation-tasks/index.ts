@@ -41,6 +41,7 @@ export {
 } from "./model/fill-dialog-store";
 export {
   clearPendingRecordListChange,
+  clearPendingRecordListChangeIfLanded,
   getPendingRecordListChange,
   queuePendingRecordListChange,
   registerPendingRecordListChangeApplier,

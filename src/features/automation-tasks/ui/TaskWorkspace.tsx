@@ -82,7 +82,11 @@ import {
   taskFormAutosaveLabel,
   useTaskFormAutosave,
 } from "../lib/use-task-form-autosave";
-import { resumePendingRecordListChange } from "../model/pending-list-change";
+import {
+  clearPendingRecordListChangeIfLanded,
+  getPendingRecordListChange,
+  resumePendingRecordListChange,
+} from "../model/pending-list-change";
 import {
   resolveTaskAssigneeName,
   resolveTaskLeadManagerName,
@@ -828,6 +832,18 @@ function TaskWorkspaceBody({
       await autosave.flush();
       await persistValues(outcomeId);
       await onComplete(outcomeId, values);
+      // Complete / beforeEnter may already have landed the deferred stage —
+      // drop pending to avoid a second fieldEnter spawn.
+      const deferred = getPendingRecordListChange();
+      if (deferred?.recordId === task.recordId) {
+        const live = entities
+          .find((item) => item.id === deferred.entityId)
+          ?.records.find((item) => item.id === task.recordId);
+        clearPendingRecordListChangeIfLanded(
+          task.recordId,
+          live?.values[deferred.fieldId],
+        );
+      }
       await resumePendingRecordListChange(task.recordId);
       onCompleted();
     } catch (err: unknown) {

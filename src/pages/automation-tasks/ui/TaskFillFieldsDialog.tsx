@@ -57,6 +57,8 @@ import {
   getAutomationTemplateAskFields,
   getDefaultSelectedOutcomeId,
   getOutcomeCreateAskSlots,
+  clearPendingRecordListChangeIfLanded,
+  getPendingRecordListChange,
   resumePendingRecordListChange,
   TaskCreateRecordAsk,
   validateCreateAskRequired,
@@ -700,6 +702,16 @@ function TaskFillFieldsDialogBody({
         sessionUser?.id ?? null,
         values,
       );
+      const deferred = getPendingRecordListChange();
+      if (deferred?.recordId === completed.recordId) {
+        const live = entities
+          .find((item) => item.id === deferred.entityId)
+          ?.records.find((item) => item.id === completed.recordId);
+        clearPendingRecordListChangeIfLanded(
+          completed.recordId,
+          live?.values[deferred.fieldId],
+        );
+      }
       await resumePendingRecordListChange(completed.recordId);
       onOpenChange(false);
       onCompleted?.(completed);

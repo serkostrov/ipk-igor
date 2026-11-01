@@ -4,6 +4,8 @@
  * tasks are completed.
  */
 
+import { parseEntityListValueIds } from "@/entities/entity";
+
 export type PendingRecordListChange = {
   entityId: string;
   recordId: string;
@@ -11,6 +13,12 @@ export type PendingRecordListChange = {
   /** Serialized list value the user chose (after transition redirects). */
   value: string;
 };
+
+function listOptionId(value: string): string {
+  const ids = parseEntityListValueIds(value);
+  if (ids.length > 0) return ids[0]!;
+  return value.trim();
+}
 
 type Applier = (pending: PendingRecordListChange) => Promise<boolean>;
 
@@ -37,6 +45,26 @@ export function clearPendingRecordListChange(
     return;
   }
   pending = null;
+}
+
+/**
+ * Drop a deferred stage move when the record already sits on that option
+ * (e.g. beforeEnter complete already advanced the stage). Prevents a second
+ * fieldEnter land via resumePendingRecordListChange.
+ */
+export function clearPendingRecordListChangeIfLanded(
+  recordId: string,
+  currentFieldValue: string | undefined,
+): boolean {
+  if (!pending || pending.recordId !== recordId) return false;
+  const currentId = listOptionId(currentFieldValue ?? "");
+  const wantedId = listOptionId(pending.value);
+  if (!currentId || !wantedId || currentId !== wantedId) return false;
+  clearPendingRecordListChange({
+    recordId: pending.recordId,
+    fieldId: pending.fieldId,
+  });
+  return true;
 }
 
 /**
