@@ -1,7 +1,7 @@
 /**
  * Resolve where TKP commercial documents are stored.
- * Prefers a native «Файлы» tab on the host; creates one when missing
- * (mirror tabs of related records are not enough — docs belong on «Разбор ТКП»).
+ * Always targets the host’s native «Файлы» tab → folder «ТКП»
+ * (mirror tabs are not a storage target).
  */
 
 import {
@@ -9,9 +9,7 @@ import {
   DEFAULT_ENTITY_FOLDER_COLOR,
   getEntityConfig,
   isEntityFilesTab,
-  isEntityMirrorTab,
   normalizeListColor,
-  resolveEntityMirrorTab,
   type Entity,
   type EntityRecord,
   type EntityTab,
@@ -25,31 +23,26 @@ export type TkpDocumentFilesTarget = {
   createdTab: boolean;
 };
 
-function findNativeFilesTab(entity: Entity): EntityTab | null {
-  return entity.tabs.find((tab) => isEntityFilesTab(tab)) ?? null;
+function normalizeTabName(value: string): string {
+  return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
 }
 
-function hasFilesMirrorNamedFiles(
-  entity: Entity,
-  record: EntityRecord,
-  entities: readonly Entity[],
-): boolean {
-  return entity.tabs.some((tab) => {
-    if (!isEntityMirrorTab(tab)) return false;
-    const name = tab.name.trim().toLocaleLowerCase("ru");
-    if (name !== "файлы" && !name.includes("файл")) return false;
-    const resolved = resolveEntityMirrorTab(
-      tab,
-      entity,
-      record,
-      entities as Entity[],
-    );
-    return resolved != null && isEntityFilesTab(resolved.sourceTab);
-  });
+/** Native `kind: files` tab named «Файлы» — preferred storage for TKP docs. */
+export function findPreferredTkpFilesTab(entity: Entity): EntityTab | null {
+  return (
+    entity.tabs.find(
+      (tab) => isEntityFilesTab(tab) && normalizeTabName(tab.name) === "файлы",
+    ) ?? null
+  );
+}
+
+/** All native files tabs (for reading legacy «Документы ТКП» uploads). */
+export function listNativeFilesTabs(entity: Entity): EntityTab[] {
+  return entity.tabs.filter((tab) => isEntityFilesTab(tab));
 }
 
 /**
- * Ensure the host entity has a writable `kind: "files"` tab for TKP docs.
+ * Ensure the host entity has a writable native «Файлы» tab for TKP docs.
  * Returns a fresh entity snapshot from the store when a tab is created.
  */
 export function resolveTkpDocumentFilesTarget(input: {
@@ -57,26 +50,26 @@ export function resolveTkpDocumentFilesTarget(input: {
   record: EntityRecord;
   entities: readonly Entity[];
 }): TkpDocumentFilesTarget {
-  const existing = findNativeFilesTab(input.entity);
+  void input.entities;
+
+  const fresh =
+    getEntityConfig().entities.find((item) => item.id === input.entity.id) ??
+    input.entity;
+  const record =
+    fresh.records.find((item) => item.id === input.record.id) ?? input.record;
+
+  const existing = findPreferredTkpFilesTab(fresh);
   if (existing) {
     return {
-      entity: input.entity,
-      record: input.record,
+      entity: fresh,
+      record,
       tab: existing,
       createdTab: false,
     };
   }
 
-  // Mirror «Файлы» from a related record is not a storage target for TKP docs.
-  const mirrorNamedFiles = hasFilesMirrorNamedFiles(
-    input.entity,
-    input.record,
-    input.entities,
-  );
-  const tabName = mirrorNamedFiles ? "Документы ТКП" : "Файлы";
-
   const created = addEntityTab(input.entity.id, {
-    name: tabName,
+    name: "Файлы",
     kind: "files",
     defaultFolders: [
       {
@@ -87,12 +80,12 @@ export function resolveTkpDocumentFilesTarget(input: {
     ],
   });
 
-  const fresh =
+  const afterCreate =
     getEntityConfig().entities.find((item) => item.id === input.entity.id) ??
-    input.entity;
+    fresh;
   const tab =
-    fresh.tabs.find((item) => item.id === created.id) ??
-    findNativeFilesTab(fresh);
+    afterCreate.tabs.find((item) => item.id === created.id) ??
+    findPreferredTkpFilesTab(afterCreate);
 
   if (!tab || !isEntityFilesTab(tab)) {
     throw new Error(
@@ -100,12 +93,12 @@ export function resolveTkpDocumentFilesTarget(input: {
     );
   }
 
-  const record =
-    fresh.records.find((item) => item.id === input.record.id) ?? input.record;
+  const nextRecord =
+    afterCreate.records.find((item) => item.id === input.record.id) ?? record;
 
   return {
-    entity: fresh,
-    record,
+    entity: afterCreate,
+    record: nextRecord,
     tab,
     createdTab: true,
   };

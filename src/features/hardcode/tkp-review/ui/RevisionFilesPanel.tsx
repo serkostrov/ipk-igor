@@ -104,7 +104,10 @@ export function RevisionFilesPanel({
             variant="outline"
             className="h-8 gap-1.5"
             disabled={busy}
-            onClick={() => inputRef.current?.click()}
+            onClick={(event) => {
+              event.stopPropagation();
+              inputRef.current?.click();
+            }}
             data-testid="revision-files-upload"
           >
             <Upload className="size-3.5" aria-hidden />

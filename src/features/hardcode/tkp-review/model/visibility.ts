@@ -39,15 +39,15 @@ export function resolveTkpReviewCostVisibility(
     };
   }
 
+  // «Цена ТКП» — всем, кроме руководителей отделов (выше).
   if (name === "гип" || (name.includes("главн") && name.includes("инженер"))) {
     return {
       showGipCalculation: true,
       showDepartmentRestrictedTotals: false,
-      showCommercialPricing: false,
+      showCommercialPricing: true,
     };
   }
 
-  // Manager / commercial / default with commercial access
   if (
     name.includes("менеджер") ||
     name.includes("коммерч") ||
@@ -60,7 +60,6 @@ export function resolveTkpReviewCostVisibility(
     };
   }
 
-  // Fallback: show GIP + commercial (employee-like full view when unnamed)
   return {
     showGipCalculation: true,
     showDepartmentRestrictedTotals: false,

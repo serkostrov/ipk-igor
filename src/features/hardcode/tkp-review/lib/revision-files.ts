@@ -5,8 +5,8 @@
 
 import {
   DEFAULT_ENTITY_FOLDER_COLOR,
+  getEntityConfig,
   getEntityTabFilesValueKey,
-  isEntityFilesTab,
   normalizeListColor,
   parseEntityTabFileEntries,
   serializeEntityTabFileEntries,
@@ -18,11 +18,16 @@ import {
   type EntityTabFileEntry,
 } from "@/entities/entity";
 import {
-  clearTkpPriceBindKeys,
+  BIND_PRICE_REVISION_KEY,
   isTkpDocumentsFolder,
+  PENDING_NEW_PRICE_KEY,
   resolveTkpFolderAncestorId,
 } from "./tkp-file-bind";
-import { resolveTkpDocumentFilesTarget } from "./resolve-tkp-files-target";
+import {
+  findPreferredTkpFilesTab,
+  listNativeFilesTabs,
+  resolveTkpDocumentFilesTarget,
+} from "./resolve-tkp-files-target";
 
 export function uniqueTkpFileName(
   base: string,
@@ -60,19 +65,37 @@ export function ensureTkpDocumentsFolder(entries: EntityTabFileEntry[]): {
   return { entries: [...entries, folder], folderId: folder.id };
 }
 
-/** Native files tab on the host (if any) — does not create one. */
+/** Preferred native «Файлы» tab — does not create one. */
 export function findTkpFilesTab(entity: Entity): EntityTab | null {
-  return entity.tabs.find((tab) => isEntityFilesTab(tab)) ?? null;
+  return findPreferredTkpFilesTab(entity);
 }
 
+/**
+ * Entries for revision-file UI: prefer «Файлы», but also include other native
+ * files tabs (e.g. legacy «Документы ТКП») so older uploads stay visible.
+ */
 export function readTkpDocumentFileEntries(input: {
   entity: Entity;
   record: EntityRecord;
 }): EntityTabFileEntry[] {
-  const tab = findTkpFilesTab(input.entity);
-  if (!tab) return [];
-  const valueKey = getEntityTabFilesValueKey(tab.id);
-  return parseEntityTabFileEntries(input.record.values[valueKey]);
+  const preferred = findPreferredTkpFilesTab(input.entity);
+  const tabs = listNativeFilesTabs(input.entity);
+  if (tabs.length === 0) return [];
+
+  const ordered = preferred
+    ? [preferred, ...tabs.filter((tab) => tab.id !== preferred.id)]
+    : tabs;
+
+  const byId = new Map<string, EntityTabFileEntry>();
+  for (const tab of ordered) {
+    const valueKey = getEntityTabFilesValueKey(tab.id);
+    for (const entry of parseEntityTabFileEntries(
+      input.record.values[valueKey],
+    )) {
+      if (!byId.has(entry.id)) byId.set(entry.id, entry);
+    }
+  }
+  return [...byId.values()];
 }
 
 function isBoundToRevisionUnderTkpFolder(
@@ -147,7 +170,16 @@ export async function uploadTkpRevisionFiles(input: {
   });
 
   const valueKey = getEntityTabFilesValueKey(target.tab.id);
-  let entries = parseEntityTabFileEntries(target.record.values[valueKey]);
+  // Always read the live store row — task UI may pass a form overlay whose
+  // values still include the process stage and would trip AUTOMATION_BLOCKED
+  // if spread into updateEntityRecord as a full snapshot.
+  const liveValues =
+    getEntityConfig()
+      .entities.find((item) => item.id === target.entity.id)
+      ?.records.find((item) => item.id === target.record.id)?.values ??
+    target.record.values;
+
+  let entries = parseEntityTabFileEntries(liveValues[valueKey]);
   const ensured = ensureTkpDocumentsFolder(entries);
   entries = ensured.entries;
   const folderId = ensured.folderId;
@@ -186,9 +218,11 @@ export async function uploadTkpRevisionFiles(input: {
     ];
   }
 
+  // Patch only files + bind keys (same pattern as task files-tab upload).
   await updateEntityRecord(target.entity.id, target.record.id, {
-    ...clearTkpPriceBindKeys(target.record.values),
     [valueKey]: serializeEntityTabFileEntries(entries),
+    [PENDING_NEW_PRICE_KEY]: "",
+    [BIND_PRICE_REVISION_KEY]: "",
   });
 
   return {

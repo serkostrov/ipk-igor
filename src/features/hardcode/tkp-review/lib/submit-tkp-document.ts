@@ -5,6 +5,7 @@
  */
 
 import {
+  getEntityConfig,
   getEntityRecordTitle,
   getEntityTabFilesValueKey,
   getEntityValueContext,
@@ -22,6 +23,8 @@ import type { TkpPriceRevisionSummary } from "../../tkp-commercial/model/types";
 import {
   findTkpApprovalListField,
   resolveTkpApprovalPendingOptionId,
+  TKP_APPROVAL_REVISION_KEY,
+  TKP_APPROVAL_SUBMITTED_AT_KEY,
   writeTkpApprovalSubmittedPatch,
 } from "./tkp-approval";
 import { resolveTkpDocumentFilesTarget } from "./resolve-tkp-files-target";
@@ -76,7 +79,12 @@ export async function submitTkpDocumentForApproval(input: {
   });
 
   const valueKey = getEntityTabFilesValueKey(target.tab.id);
-  let entries = parseEntityTabFileEntries(target.record.values[valueKey]);
+  const liveValues =
+    getEntityConfig()
+      .entities.find((item) => item.id === target.entity.id)
+      ?.records.find((item) => item.id === target.record.id)?.values ??
+    target.record.values;
+  let entries = parseEntityTabFileEntries(liveValues[valueKey]);
   const ensured = ensureTkpDocumentsFolder(entries);
   entries = ensured.entries;
   const folderId = ensured.folderId;
@@ -115,17 +123,27 @@ export async function submitTkpDocumentForApproval(input: {
     : null;
   const approvalFieldUpdated = Boolean(approvalField && pendingOptionId);
 
-  const nextValues = writeTkpApprovalSubmittedPatch({
+  const approvalPatch = writeTkpApprovalSubmittedPatch({
     entity: target.entity,
     entities: input.entities,
-    values: {
-      ...target.record.values,
-      [valueKey]: serializeEntityTabFileEntries(entries),
-    },
+    values: liveValues,
     revisionId: input.revision.id,
   });
 
-  await updateEntityRecord(target.entity.id, target.record.id, nextValues);
+  // Only files + approval soft keys (+ optional list field) — never a full
+  // form overlay snapshot (task page would rewrite stage → AUTOMATION_BLOCKED).
+  const patch: Record<string, string> = {
+    [valueKey]: serializeEntityTabFileEntries(entries),
+    [TKP_APPROVAL_REVISION_KEY]:
+      approvalPatch[TKP_APPROVAL_REVISION_KEY] ?? input.revision.id,
+    [TKP_APPROVAL_SUBMITTED_AT_KEY]:
+      approvalPatch[TKP_APPROVAL_SUBMITTED_AT_KEY] ?? "",
+  };
+  if (approvalField && pendingOptionId) {
+    patch[approvalField.id] = pendingOptionId;
+  }
+
+  await updateEntityRecord(target.entity.id, target.record.id, patch);
 
   return {
     fileName,

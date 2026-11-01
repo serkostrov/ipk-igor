@@ -25,6 +25,7 @@ import {
   getVisibleListOptions,
   groupEntityFields,
   isEntityFieldGroupTitleHidden,
+  clearSiblingAllowManualFormulaValues,
   computeAllowManualFormulaSoftFill,
   isEntityComputedAutoValueEmpty,
   isEntityComputedFieldType,
@@ -256,6 +257,10 @@ function EntityRecordForm({
     softFillParent,
   ]);
   const [values, setValues] = useState(initialValues);
+  /** Last edited allow-manual formula — soft-fill recomputes the rest from it. */
+  const [formulaManualAnchorId, setFormulaManualAnchorId] = useState<
+    string | null
+  >(null);
   const [password, setPassword] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -266,8 +271,9 @@ function EntityRecordForm({
         entity,
         values,
         recordId: draftRecordId,
+        anchorFieldId: formulaManualAnchorId,
       }),
-    [valueContext, entity, values, draftRecordId],
+    [valueContext, entity, values, draftRecordId, formulaManualAnchorId],
   );
   // Soft-fill must win over empty "" so sibling formulas stay visible until typed.
   const displayValues = useMemo(
@@ -373,6 +379,11 @@ function EntityRecordForm({
     entity.name.trim() || entity.namePlural.trim() || "Без названия";
 
   function setValue(fieldId: string, value: string) {
+    const changedField = entity.fields.find((field) => field.id === fieldId);
+    const isManualFormula =
+      changedField?.type === "formula" &&
+      isEntityFieldManualInputEnabled(changedField);
+
     setValues((current) => {
       let next = applyEntityFieldValue(
         entity,
@@ -381,6 +392,10 @@ function EntityRecordForm({
         value,
         entities,
       );
+      // Last edit wins: drop sibling manual formulas so soft-fill owns them.
+      if (isManualFormula && value.trim().length > 0) {
+        next = clearSiblingAllowManualFormulaValues(entity, next, fieldId);
+      }
       if (softFillParent) {
         next = applyTkpGipDepartmentUsers({
           childEntity: entity,
@@ -393,6 +408,10 @@ function EntityRecordForm({
       }
       return next;
     });
+
+    if (isManualFormula) {
+      setFormulaManualAnchorId(value.trim().length > 0 ? fieldId : null);
+    }
   }
 
   function renderField(field: EntityField) {

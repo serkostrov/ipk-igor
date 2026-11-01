@@ -256,6 +256,7 @@ export {
   resolveEntityFieldSource,
   resolveEntityLookupTarget,
   isEntityComputedAutoValueEmpty,
+  clearSiblingAllowManualFormulaValues,
   computeAllowManualFormulaSoftFill,
   resolveEntityComputedManualEditField,
   resolveEntityRelationBridgeTarget,

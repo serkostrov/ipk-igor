@@ -533,16 +533,41 @@ function formatNumberForSoftFill(
   return fixed.replace(".", ",").replace(/,?0+$/, "").replace(/,$/, "") || "0";
 }
 
+/** Allow-manual formula fields other than `keepFieldId` (for last-edit soft-fill). */
+export function clearSiblingAllowManualFormulaValues(
+  entity: Entity,
+  values: Record<string, string>,
+  keepFieldId: string,
+): Record<string, string> {
+  let next = values;
+  for (const field of entity.fields) {
+    if (field.id === keepFieldId) continue;
+    if (field.type !== "formula" || !isEntityFieldManualInputEnabled(field)) {
+      continue;
+    }
+    if (!(next[field.id] ?? "").trim()) continue;
+    if (next === values) next = { ...values };
+    next[field.id] = "";
+  }
+  return next;
+}
+
 /**
  * Iteratively fill empty allow-manual formula fields from each other and from
  * user-entered anchors (e.g. VAT: enter «С НДС» → soft-fill «НДС» / «Без НДС»).
- * Keys are only fields that were empty in `values` and received a computed value.
+ * Keys are fields that received a computed value (not the locked anchor).
+ *
+ * `anchorFieldId` — last manually edited allow-manual formula; only it stays
+ * locked so a later edit of a sibling can recompute the earlier one.
+ * Without an anchor, every non-empty allow-manual formula stays locked
+ * (existing records until the user edits one).
  */
 export function computeAllowManualFormulaSoftFill(input: {
   ctx: EntityValueContext;
   entity: Entity;
   values: Record<string, string | undefined>;
   recordId: string;
+  anchorFieldId?: string | null;
 }): Record<string, string> {
   const formulaFields = input.entity.fields.filter(
     (field) =>
@@ -550,11 +575,24 @@ export function computeAllowManualFormulaSoftFill(input: {
   );
   if (formulaFields.length === 0) return {};
 
-  const userLocked = new Set(
-    formulaFields
-      .filter((field) => (input.values[field.id] ?? "").trim().length > 0)
-      .map((field) => field.id),
-  );
+  const formulaIds = new Set(formulaFields.map((field) => field.id));
+  const anchorId =
+    input.anchorFieldId && formulaIds.has(input.anchorFieldId)
+      ? input.anchorFieldId
+      : null;
+  const anchorLocked =
+    anchorId != null && (input.values[anchorId] ?? "").trim().length > 0;
+
+  const userLocked = new Set<string>();
+  if (anchorLocked && anchorId) {
+    userLocked.add(anchorId);
+  } else {
+    for (const field of formulaFields) {
+      if ((input.values[field.id] ?? "").trim().length > 0) {
+        userLocked.add(field.id);
+      }
+    }
+  }
 
   const working: Record<string, string> = {};
   for (const [key, value] of Object.entries(input.values)) {

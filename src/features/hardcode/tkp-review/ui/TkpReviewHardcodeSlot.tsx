@@ -87,22 +87,32 @@ export function TkpReviewHardcodeSlot({
     string | null
   >(null);
 
+  // Task UI may overlay form drafts on `record`; files always come from store.
+  const liveEntity = useMemo(
+    () => entities.find((item) => item.id === entity.id) ?? entity,
+    [entities, entity],
+  );
+  const liveRecord = useMemo(
+    () => liveEntity.records.find((item) => item.id === record.id) ?? record,
+    [liveEntity, record],
+  );
+
   const deptEntity = useMemo(
-    () => findDeptCalculationsLinkedEntity(entity, entities),
-    [entity, entities],
+    () => findDeptCalculationsLinkedEntity(liveEntity, entities),
+    [liveEntity, entities],
   );
 
   const deptRecords = useMemo(() => {
     if (!deptEntity) return [];
     const ids = collectRecordsLinkedToParent({
       childEntity: deptEntity,
-      parentEntityId: entity.id,
-      parentRecordId: record.id,
-      host: entity,
+      parentEntityId: liveEntity.id,
+      parentRecordId: liveRecord.id,
+      host: liveEntity,
     });
     const idSet = new Set(ids);
     return deptEntity.records.filter((item) => idSet.has(item.id));
-  }, [deptEntity, entity, record.id]);
+  }, [deptEntity, liveEntity, liveRecord.id]);
 
   const gipBreakdown = useMemo(() => {
     if (!deptEntity) {
@@ -132,18 +142,23 @@ export function TkpReviewHardcodeSlot({
         };
 
   const executionDurationDays = readTkpGipExecutionDurationDays(
-    record.values,
-    entity,
+    liveRecord.values,
+    liveEntity,
   );
-  const pendingNewPriceVersion = record.values[PENDING_NEW_PRICE_KEY] === "1";
-  const approvalState = readTkpApprovalState(record.values);
+  const pendingNewPriceVersion =
+    liveRecord.values[PENDING_NEW_PRICE_KEY] === "1";
+  const approvalState = readTkpApprovalState(liveRecord.values);
   const approvalChain = useMemo(
-    () => resolveTkpApprovalChainReady(entity, entities),
-    [entity, entities],
+    () => resolveTkpApprovalChainReady(liveEntity, entities),
+    [liveEntity, entities],
   );
   const revisionFileEntries = useMemo(
-    () => readTkpDocumentFileEntries({ entity, record }),
-    [entity, record],
+    () =>
+      readTkpDocumentFileEntries({
+        entity: liveEntity,
+        record: liveRecord,
+      }),
+    [liveEntity, liveRecord],
   );
   const fileCountByRevisionId = useMemo(
     () => countTkpRevisionFilesById(revisionFileEntries),
@@ -153,14 +168,14 @@ export function TkpReviewHardcodeSlot({
   const reloadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const rows = await fetchTkpPriceRevisions(entity.id, record.id);
+      const rows = await fetchTkpPriceRevisions(liveEntity.id, liveRecord.id);
       setHistory(rows);
     } catch (error) {
       console.error("[tkp-price-revisions] load failed", error);
     } finally {
       setHistoryLoading(false);
     }
-  }, [entity.id, record.id]);
+  }, [liveEntity.id, liveRecord.id]);
 
   useEffect(() => {
     if (!visibility.showCommercialPricing) return;
@@ -172,11 +187,8 @@ export function TkpReviewHardcodeSlot({
   }, [reloadHistory, visibility.showCommercialPricing]);
 
   async function handleSaveDuration(days: number) {
-    const patch = writeTkpGipExecutionDurationPatch(entity, days);
-    updateEntityRecord(entity.id, record.id, {
-      ...record.values,
-      ...patch,
-    });
+    const patch = writeTkpGipExecutionDurationPatch(liveEntity, days);
+    await updateEntityRecord(liveEntity.id, liveRecord.id, patch);
   }
 
   async function handleSaveRevision(input: CommercialPricingPanelSaveInput) {
@@ -184,8 +196,8 @@ export function TkpReviewHardcodeSlot({
       ? (getSystemUserName(entities, currentUserId) ?? null)
       : null;
     const saved = await appendTkpPriceRevision({
-      entityId: entity.id,
-      recordId: record.id,
+      entityId: liveEntity.id,
+      recordId: liveRecord.id,
       priceMode: input.mode,
       saleCoefficient:
         input.mode === "coefficient" ? input.saleCoefficient : null,
@@ -197,13 +209,13 @@ export function TkpReviewHardcodeSlot({
       createdByName: authorName,
       idempotencyKey: crypto.randomUUID(),
     });
-    const nextValues = { ...record.values };
     if (pendingNewPriceVersion) {
-      nextValues[PENDING_NEW_PRICE_KEY] = "1";
-      nextValues[BIND_PRICE_REVISION_KEY] = saved.id;
       setAutoExpandRevisionId(saved.id);
+      await updateEntityRecord(liveEntity.id, liveRecord.id, {
+        [PENDING_NEW_PRICE_KEY]: "1",
+        [BIND_PRICE_REVISION_KEY]: saved.id,
+      });
     }
-    updateEntityRecord(entity.id, record.id, nextValues);
     const revisionLabel =
       saved.revisionNumber != null ? `#${saved.revisionNumber}` : "";
     toast.success(
@@ -215,8 +227,7 @@ export function TkpReviewHardcodeSlot({
   }
 
   async function handleStartNewPriceVersion() {
-    updateEntityRecord(entity.id, record.id, {
-      ...record.values,
+    await updateEntityRecord(liveEntity.id, liveRecord.id, {
       [PENDING_NEW_PRICE_KEY]: "1",
     });
     toast.message(
@@ -226,8 +237,8 @@ export function TkpReviewHardcodeSlot({
 
   async function handleUploadRevisionFiles(revisionId: string, files: File[]) {
     const result = await uploadTkpRevisionFiles({
-      entity,
-      record,
+      entity: liveEntity,
+      record: liveRecord,
       entities,
       revisionId,
       files,
@@ -239,8 +250,8 @@ export function TkpReviewHardcodeSlot({
 
   async function handleSubmitForApproval(revision: TkpPriceRevisionSummary) {
     const result = await submitTkpDocumentForApproval({
-      entity,
-      record,
+      entity: liveEntity,
+      record: liveRecord,
       revision,
       entities,
     });
