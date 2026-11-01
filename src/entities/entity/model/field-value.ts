@@ -40,7 +40,7 @@ import {
   withEntityRelationGroupsDefaults,
   type EntityRelationGroupNode,
 } from "./field";
-import { evaluateFormula, type FormulaValue } from "./formula";
+import { evaluateFormula, parseFormula, type FormulaValue } from "./formula";
 import {
   isEntityListOptionFinal,
   isEntityListOptionProblem,
@@ -437,8 +437,58 @@ export function resolveEntityFieldSource<
 }
 
 /**
+ * True when a field has no usable value as a formula/manual source.
+ * Stored manual overrides on computed fields count as filled.
+ */
+function isFieldMissingForManualSource(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  fieldId: string,
+  depth: number,
+): boolean {
+  if (depth > 8) return true;
+  const ref = findField(entity, fieldId);
+  if (!ref) return true;
+  if (isEntityFieldManualInputEnabled(ref)) {
+    if ((record.values[ref.id] ?? "").trim()) return false;
+  }
+  if (ref.type === "formula") {
+    return isFormulaAutoSourceEmpty(ctx, entity, record, ref, depth + 1);
+  }
+  if (isEntityComputedFieldType(ref.type)) {
+    return isEntityComputedAutoValueEmpty(ctx, entity, record, ref);
+  }
+  return !(record.values[ref.id] ?? "").trim();
+}
+
+/**
+ * Formula arithmetic coerces empty operands to 0, so a numeric result alone
+ * does not mean sources were filled. Manual input applies when any referenced
+ * field is still empty (or the expression does not parse / yields null).
+ */
+function isFormulaAutoSourceEmpty(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField,
+  depth = 0,
+): boolean {
+  const expression = field.formula?.expression ?? "";
+  if (!expression.trim()) return true;
+  const parsed = parseFormula(expression);
+  if (!parsed.ok) return true;
+  if (parsed.refs.length === 0) {
+    return getFormulaResult(ctx, entity, record, field) == null;
+  }
+  return parsed.refs.some((refId) =>
+    isFieldMissingForManualSource(ctx, entity, record, refId, depth),
+  );
+}
+
+/**
  * True when the derived auto value is empty (manual fallback may apply).
- * Does not consider a stored manual override.
+ * Does not consider a stored manual override on `field` itself.
  */
 export function isEntityComputedAutoValueEmpty(
   ctx: EntityValueContext,
@@ -456,7 +506,7 @@ export function isEntityComputedAutoValueEmpty(
       return parts.length === 0;
     }
     case "formula":
-      return getFormulaResult(ctx, entity, record, field) == null;
+      return isFormulaAutoSourceEmpty(ctx, entity, record, field);
     case "rollup":
       return getRollupResult(ctx, record, field) == null;
     case "numberSum": {
@@ -737,6 +787,12 @@ export function getRecordFieldNumber(
       return readManualNumberFallback(field, record);
     }
     case "formula": {
+      if (
+        isEntityFieldManualInputEnabled(field) &&
+        isEntityComputedAutoValueEmpty(ctx, entity, record, field)
+      ) {
+        return readManualNumberFallback(field, record);
+      }
       const value = getFormulaResult(ctx, entity, record, field);
       if (typeof value === "number") return value;
       if (typeof value === "boolean") return value ? 1 : 0;
@@ -844,6 +900,12 @@ export function getRecordFieldFormulaValue(
     case "rollup":
       return getRecordFieldNumber(ctx, entity, record, field);
     case "formula": {
+      if (
+        isEntityFieldManualInputEnabled(field) &&
+        isEntityComputedAutoValueEmpty(ctx, entity, record, field)
+      ) {
+        return readManualNumberFallback(field, record);
+      }
       const computed = getFormulaResult(ctx, entity, record, field);
       if (computed != null) return computed;
       return readManualNumberFallback(field, record);
@@ -1277,6 +1339,18 @@ export function formatRecordFieldValue(
       return formatManualNumberDisplay(field, record, field.decimals);
     }
     case "formula": {
+      // Empty operands coerce to 0 in the engine — don't treat that as auto
+      // when manual input is enabled and sources are still blank.
+      if (
+        isEntityFieldManualInputEnabled(field) &&
+        isEntityComputedAutoValueEmpty(ctx, entity, record, field)
+      ) {
+        return formatManualNumberDisplay(
+          field,
+          record,
+          field.formula?.decimals,
+        );
+      }
       const computed = getFormulaResult(ctx, entity, record, field);
       if (computed != null) {
         return formatFormulaValue(

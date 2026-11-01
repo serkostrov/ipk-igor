@@ -2028,7 +2028,11 @@ function EntityFieldForm({
                   <SettingSwitch
                     id="entity-field-allow-manual-input"
                     title="Возможен ручной ввод"
-                    description="Если автозначение пусто — можно указать вручную"
+                    description={
+                      effectiveType === "formula"
+                        ? "Если поля в формуле ещё не заполнены — можно ввести значение вручную"
+                        : "Если автозначение пусто — можно указать вручную"
+                    }
                     checked={typeSettings.allowManualInput}
                     onCheckedChange={(allowManualInput) =>
                       patchTypeSettings({ allowManualInput })
