@@ -292,22 +292,20 @@ export function RecordFieldControl({
       draftRecord,
       field,
     );
+    const hasStoredManual =
+      isEntityFieldManualInputEnabled(field) && value.trim().length > 0;
+    // Editable when auto cannot run yet, or user already typed an override.
     const manualEditField =
-      isEntityFieldManualInputEnabled(field) && autoEmpty
+      isEntityFieldManualInputEnabled(field) && (autoEmpty || hasStoredManual)
         ? resolveEntityComputedManualEditField(entity, field, entities)
         : null;
 
     if (manualEditField) {
-      const manualHint =
-        manualEditField.hint.trim() ||
-        (sourceCaption
-          ? `${sourceCaption}. Автозначение пусто — укажите вручную`
-          : "Автозначение пусто — укажите вручную");
       return (
         <RecordFieldControl
           ctx={ctx}
           entity={entity}
-          field={{ ...manualEditField, hint: manualHint }}
+          field={{ ...manualEditField, hint: "" }}
           value={value}
           values={values}
           onChange={onChange}

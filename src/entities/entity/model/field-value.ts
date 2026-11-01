@@ -438,7 +438,8 @@ export function resolveEntityFieldSource<
 
 /**
  * True when a field has no usable value as a formula/manual source.
- * Stored manual overrides on computed fields count as filled.
+ * Manual-enabled computed fields count only by stored value — never recurse
+ * into their formula graph (avoids circular VAT-style deadlocks).
  */
 function isFieldMissingForManualSource(
   ctx: EntityValueContext,
@@ -451,7 +452,7 @@ function isFieldMissingForManualSource(
   const ref = findField(entity, fieldId);
   if (!ref) return true;
   if (isEntityFieldManualInputEnabled(ref)) {
-    if ((record.values[ref.id] ?? "").trim()) return false;
+    return !(record.values[ref.id] ?? "").trim();
   }
   if (ref.type === "formula") {
     return isFormulaAutoSourceEmpty(ctx, entity, record, ref, depth + 1);
