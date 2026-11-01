@@ -465,8 +465,9 @@ function isFieldMissingForManualSource(
 
 /**
  * Formula arithmetic coerces empty operands to 0, so a numeric result alone
- * does not mean sources were filled. Manual input applies when any referenced
- * field is still empty (or the expression does not parse / yields null).
+ * does not mean sources were filled. Auto value is incomplete when *any*
+ * referenced field is still empty (e.g. «Ставка НДС» = 22 but amounts blank
+ * must not count as a real «0 ₽» / block manual input).
  */
 function isFormulaAutoSourceEmpty(
   ctx: EntityValueContext,
@@ -482,9 +483,7 @@ function isFormulaAutoSourceEmpty(
   if (parsed.refs.length === 0) {
     return getFormulaResult(ctx, entity, record, field) == null;
   }
-  // Empty only when every referenced field is blank — otherwise the formula
-  // can run (missing allow-manual siblings resolve via iteration / 0).
-  return parsed.refs.every((refId) =>
+  return parsed.refs.some((refId) =>
     isFieldMissingForManualSource(ctx, entity, record, refId, depth),
   );
 }
@@ -908,14 +907,8 @@ export function getRecordFieldNumber(
       }
       return readManualNumberFallback(field, record);
     }
-    case "formula": {
-      const stored = readManualNumberFallback(field, record);
-      if (stored != null) return stored;
-      const value = getFormulaResult(ctx, entity, record, field);
-      if (typeof value === "number") return value;
-      if (typeof value === "boolean") return value ? 1 : 0;
-      return null;
-    }
+    case "formula":
+      return resolveFormulaNumber(ctx, entity, record, field);
     case "rollup": {
       const rolled = getRollupResult(ctx, record, field);
       if (rolled != null) return rolled;
@@ -971,15 +964,49 @@ export function getRecordFieldIds(
   return [];
 }
 
+function readStoredNumberRaw(
+  field: EntityField,
+  record: EntityRecord,
+): number | null {
+  const raw = (record.values[field.id] ?? "").trim();
+  if (!raw) return null;
+  const value = parseEntityDecimal(raw);
+  return value == null || !Number.isFinite(value) ? null : value;
+}
+
 function readManualNumberFallback(
   field: EntityField,
   record: EntityRecord,
 ): number | null {
   if (!isEntityFieldManualInputEnabled(field)) return null;
-  const raw = (record.values[field.id] ?? "").trim();
-  if (!raw) return null;
-  const value = parseEntityDecimal(raw);
-  return value == null || !Number.isFinite(value) ? null : value;
+  return readStoredNumberRaw(field, record);
+}
+
+/**
+ * Formula arithmetic coerces blank operands to 0. Treat that as empty so it
+ * does not hide a stored amount (allow-manual or leftover from a number field).
+ */
+function resolveFormulaNumber(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField,
+): number | null {
+  const stored = readManualNumberFallback(field, record);
+  if (stored != null) return stored;
+
+  const value = getFormulaResult(ctx, entity, record, field);
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number") {
+    if (
+      value === 0 &&
+      isFormulaAutoSourceEmpty(ctx, entity, record, field)
+    ) {
+      return readStoredNumberRaw(field, record);
+    }
+    return value;
+  }
+  return readStoredNumberRaw(field, record);
 }
 
 function formatManualNumberDisplay(
@@ -1017,13 +1044,8 @@ export function getRecordFieldFormulaValue(
     case "numberSum":
     case "rollup":
       return getRecordFieldNumber(ctx, entity, record, field);
-    case "formula": {
-      const stored = readManualNumberFallback(field, record);
-      if (stored != null) return stored;
-      const computed = getFormulaResult(ctx, entity, record, field);
-      if (computed != null) return computed;
-      return null;
-    }
+    case "formula":
+      return resolveFormulaNumber(ctx, entity, record, field);
     case "boolean":
       return record.values[field.id] === "true";
     case "datetime":
@@ -1453,21 +1475,13 @@ export function formatRecordFieldValue(
       return formatManualNumberDisplay(field, record, field.decimals);
     }
     case "formula": {
-      const stored = formatManualNumberDisplay(
-        field,
-        record,
-        field.formula?.decimals,
+      const resolved = resolveFormulaNumber(ctx, entity, record, field);
+      if (resolved == null) return "—";
+      return formatEntityComputedNumber(
+        resolved,
+        normalizeEntityNumberDecimals(field.formula?.decimals),
+        field.unitSuffix,
       );
-      if (stored !== "—") return stored;
-      const computed = getFormulaResult(ctx, entity, record, field);
-      if (computed != null) {
-        return formatFormulaValue(
-          computed,
-          normalizeEntityNumberDecimals(field.formula?.decimals),
-          field.unitSuffix,
-        );
-      }
-      return "—";
     }
     case "rollup": {
       const rolled = getRollupResult(ctx, record, field);
