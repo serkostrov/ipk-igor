@@ -1,5 +1,8 @@
 import {
+  createEntityDraftRecord,
+  isEntityComputedAutoValueEmpty,
   isEntityComputedFieldType,
+  isEntityFieldManualInputEnabled,
   isEntityRelationGroupsFilled,
   parseEntityFieldFileValue,
   type Entity,
@@ -18,15 +21,34 @@ export type TaskFieldFilledOptions = {
 
 /**
  * Whether a task/ask field counts as filled for required checks.
- * Computed fields (lookup / formula / rollup / numberSum) are never
- * user-writable — they must not block completion.
+ * Pure computed fields are never user-writable. With «Возможен ручной
+ * ввод», an empty auto value still needs a stored manual value.
  */
 export function isTaskAskFieldFilled(
   field: EntityField,
   value: string,
   options?: TaskFieldFilledOptions,
 ): boolean {
-  if (isEntityComputedFieldType(field.type)) return true;
+  if (isEntityComputedFieldType(field.type)) {
+    if (!isEntityFieldManualInputEnabled(field)) return true;
+    if (options?.ctx && options.entity && options.values) {
+      const draft = createEntityDraftRecord(
+        options.values,
+        options.recordId ?? "draft",
+      );
+      if (
+        !isEntityComputedAutoValueEmpty(
+          options.ctx,
+          options.entity,
+          draft,
+          field,
+        )
+      ) {
+        return true;
+      }
+    }
+    return value.trim().length > 0;
+  }
   if (field.type === "boolean") return true;
   if (field.type === "file") return parseEntityFieldFileValue(value) != null;
   if (field.type === "relationGroups") {

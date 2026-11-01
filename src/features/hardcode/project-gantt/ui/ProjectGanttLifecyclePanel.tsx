@@ -37,21 +37,27 @@ export function ProjectGanttLifecyclePanel({
   projectRecordId,
   lifecycle,
   snapshot,
+  entityLeadingDepartment = null,
   actorName,
   canManage,
   onChanged,
+  embedded = false,
 }: {
   projectEntityId: string;
   projectRecordId: string;
   lifecycle: ProjectGanttLifecycle | null;
   snapshot: ProjectGanttSnapshot | null;
+  /** From project Entity field «Ведущий отдел» — preferred source of truth. */
+  entityLeadingDepartment?: { id: string; name: string } | null;
   actorName: string | null;
   canManage: boolean;
   onChanged: () => void;
+  /** When true, skip outer card chrome (parent already provides it). */
+  embedded?: boolean;
 }) {
-  const [leadingName, setLeadingName] = useState(
-    lifecycle?.leadingDepartment?.name ?? "",
-  );
+  const resolvedLeading =
+    entityLeadingDepartment ?? lifecycle?.leadingDepartment ?? null;
+  const [leadingName, setLeadingName] = useState(resolvedLeading?.name ?? "");
   const [rejectComment, setRejectComment] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -59,6 +65,12 @@ export function ProjectGanttLifecyclePanel({
     () => new Set(lifecycle?.availableCommands ?? []),
     [lifecycle?.availableCommands],
   );
+
+  const leadingFromEntity = entityLeadingDepartment != null;
+  const showManualLeadingAssign =
+    canManage &&
+    commands.has("leading_department.change") &&
+    !leadingFromEntity;
 
   async function run(action: () => Promise<void>, ok: string) {
     setBusy(true);
@@ -78,12 +90,19 @@ export function ProjectGanttLifecyclePanel({
   if (!lifecycle) return null;
 
   return (
-    <div className="mb-3 space-y-3 rounded-lg border border-border bg-card p-3">
+    <div
+      className={cn(
+        "space-y-3",
+        !embedded && "mb-3 rounded-lg border border-border bg-card p-3",
+      )}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-medium text-foreground">
-            Согласование графика
-          </p>
+          {embedded ? null : (
+            <p className="text-sm font-medium text-foreground">
+              Согласование графика
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             {lifecycle.currentRevision
               ? `Ревизия №${lifecycle.currentRevision.revisionNumber} · ${STATUS_LABELS[lifecycle.currentRevision.status]}`
@@ -99,7 +118,7 @@ export function ProjectGanttLifecyclePanel({
         ) : null}
       </div>
 
-      {canManage && commands.has("leading_department.change") ? (
+      {showManualLeadingAssign ? (
         <div className="flex flex-wrap items-end gap-2">
           <div className="grid min-w-[200px] flex-1 gap-1.5">
             <Label htmlFor="gantt-leading-dept">Ведущий отдел</Label>
@@ -130,12 +149,17 @@ export function ProjectGanttLifecyclePanel({
             Назначить
           </Button>
         </div>
-      ) : lifecycle.leadingDepartment ? (
+      ) : resolvedLeading ? (
         <p className="text-xs text-muted-foreground">
           Ведущий отдел:{" "}
           <span className="font-medium text-foreground">
-            {lifecycle.leadingDepartment.name}
+            {resolvedLeading.name}
           </span>
+          {leadingFromEntity ? (
+            <span className="ml-1 text-muted-foreground/80">
+              · из карточки проекта
+            </span>
+          ) : null}
         </p>
       ) : null}
 

@@ -17,6 +17,7 @@ import {
 } from "@/entities/entity";
 import {
   ROLE_ADMIN_ID,
+  normalizeEntityAccess,
   type DataScope,
   type EntityAccess,
   type EntityAction,
@@ -47,9 +48,9 @@ export function getEntityAccess(
       fields: "*",
     };
   }
-  return (
-    permissions.entities.find((item) => item.entityId === entityId) ?? null
-  );
+  const access =
+    permissions.entities.find((item) => item.entityId === entityId) ?? null;
+  return access ? normalizeEntityAccess(access) : null;
 }
 
 export function canEntity(
@@ -122,7 +123,9 @@ export function canField(
   if (isAdminRole(role)) return true;
   const access = getEntityAccess(role.permissions, entityId);
   if (!access) return false;
-  if (mode === "edit" && !access.update) return false;
+  // Create forms write values via "edit" checks — allow when the role may
+  // create even without update (create-only access).
+  if (mode === "edit" && !access.update && !access.create) return false;
   if (mode === "view" && !access.read) return false;
   if (access.fields === "*") return true;
   const field = access.fields[fieldId];

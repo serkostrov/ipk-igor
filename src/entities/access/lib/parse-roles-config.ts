@@ -4,6 +4,7 @@ import {
   createEmployeeRole,
   isDataScope,
   isSettingsTabId,
+  normalizeEntityAccess,
   ROLE_ADMIN_ID,
   ROLE_EMPLOYEE_ID,
   type DataScope,
@@ -58,7 +59,7 @@ function parseEntityAccess(value: unknown): EntityAccess | null {
   if (scope === "filter") {
     access.scopeFilter = normalizeEntityConditions(value.scopeFilter);
   }
-  return access;
+  return normalizeEntityAccess(access);
 }
 
 function parseSettingsTabs(value: unknown): SettingsTabId[] | "*" {

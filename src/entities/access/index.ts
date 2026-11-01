@@ -21,6 +21,7 @@ export {
   createFullEntityAccess,
   isDataScope,
   isSettingsTabId,
+  normalizeEntityAccess,
 } from "./model/types";
 export {
   allowedSettingsTabs,

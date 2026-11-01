@@ -117,6 +117,22 @@ export function isEntityComputedFieldType(type: EntityFieldType) {
   );
 }
 
+/** Computed types that may offer a manual fallback when auto is empty. */
+export function canEntityFieldAllowManualInput(type: EntityFieldType) {
+  return isEntityComputedFieldType(type);
+}
+
+/** Field is computed and the «Возможен ручной ввод» toggle is on. */
+export function isEntityFieldManualInputEnabled(field: {
+  type: EntityFieldType;
+  allowManualInput?: boolean;
+}) {
+  return (
+    canEntityFieldAllowManualInput(field.type) &&
+    field.allowManualInput === true
+  );
+}
+
 /**
  * Whether the field may use the «При создании» visibility toggle.
  * Formula uses its own toggle on `formula.showOnCreate`.

@@ -39,6 +39,7 @@ import {
   getEntityFieldTypeLabel,
   getEntityListSourceCandidates,
   canEntityFieldToggleShowOnCreate,
+  canEntityFieldAllowManualInput,
   isEntityComputedFieldType,
   isEntityNameField,
   isEntityNumericFieldType,
@@ -1188,7 +1189,10 @@ function buildEntityFieldFormData({
     type: resolvedType,
     hint: hint.trim(),
     group: nextGroup === DEFAULT_ENTITY_FIELD_GROUP ? "" : nextGroup,
-    required: isEntityComputedFieldType(resolvedType) ? false : required,
+    required:
+      isEntityComputedFieldType(resolvedType) && !typeSettings.allowManualInput
+        ? false
+        : required,
     showInTable,
     showInFilters,
     showOnCreate: required ? true : Boolean(showOnCreate),
@@ -2020,6 +2024,17 @@ function EntityFieldForm({
                     }
                   />
                 ) : null}
+                {canEntityFieldAllowManualInput(effectiveType) ? (
+                  <SettingSwitch
+                    id="entity-field-allow-manual-input"
+                    title="Возможен ручной ввод"
+                    description="Если автозначение пусто — можно указать вручную"
+                    checked={typeSettings.allowManualInput}
+                    onCheckedChange={(allowManualInput) =>
+                      patchTypeSettings({ allowManualInput })
+                    }
+                  />
+                ) : null}
                 {isDatetimeType ? (
                   <DatetimeTimeControl
                     checked={datetimeWithTime}
@@ -2070,7 +2085,8 @@ function EntityFieldForm({
             </div>
 
             <div className="flex flex-col gap-2">
-              {isEntityComputedFieldType(effectiveType) ? null : (
+              {isEntityComputedFieldType(effectiveType) &&
+              !typeSettings.allowManualInput ? null : (
                 <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
                   <div className="flex min-w-0 flex-col gap-0.5">
                     <Label htmlFor="entity-field-required">Обязательное</Label>

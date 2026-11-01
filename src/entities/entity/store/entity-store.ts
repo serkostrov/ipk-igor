@@ -1214,6 +1214,7 @@ export function addEntityField(
     formula: data?.formula,
     rollup: data?.rollup,
     lookup: data?.lookup,
+    allowManualInput: data?.allowManualInput,
     dependencies: data?.dependencies,
     relationGroups: data?.relationGroups,
     defaultValue: data?.defaultValue,

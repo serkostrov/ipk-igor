@@ -420,6 +420,11 @@ export type EntityField = {
   lookup?: EntityLookupConfig;
   dependencies?: EntityDependenciesConfig;
   relationGroups?: EntityRelationGroupsConfig;
+  /**
+   * Computed fields (lookup / formula / rollup / numberSum): when the
+   * auto value is empty, allow storing a manual value in `record.values`.
+   */
+  allowManualInput?: boolean;
   /** Value prefilled for new records. */
   defaultValue?: EntityFieldDefaultValue;
   /** `relation` fields: which target records can be chosen. */

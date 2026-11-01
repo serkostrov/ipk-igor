@@ -451,7 +451,10 @@ export function normalizeEntityField(field: EntityField): EntityField {
     hint: field.hint,
     group: typeof field.group === "string" ? field.group.trim() : "",
     tabId: getEntityFieldTabId(field),
-    required: isEntityComputedFieldType(type) ? false : Boolean(field.required),
+    required:
+      isEntityComputedFieldType(type) && field.allowManualInput !== true
+        ? false
+        : Boolean(field.required),
     locked,
     systemKey,
     showInTable: field.showInTable !== false,
@@ -485,6 +488,10 @@ export function normalizeEntityField(field: EntityField): EntityField {
       type === "formula" ? normalizeFormulaConfig(field.formula) : undefined,
     rollup: type === "rollup" ? normalizeRollupConfig(field.rollup) : undefined,
     lookup: type === "lookup" ? normalizeLookupConfig(field.lookup) : undefined,
+    allowManualInput:
+      isEntityComputedFieldType(type) && field.allowManualInput === true
+        ? true
+        : undefined,
     dependencies:
       type === "dependencies"
         ? normalizeDependenciesConfig(field.dependencies)
@@ -547,6 +554,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     formula: undefined,
     rollup: undefined,
     lookup: undefined,
+    allowManualInput: undefined,
     dependencies: undefined,
     relationGroups: undefined,
     defaultValue: undefined,
@@ -673,6 +681,7 @@ function parseField(value: unknown): EntityField | null {
     formula: normalizeFormulaConfig(value.formula),
     rollup: normalizeRollupConfig(value.rollup),
     lookup: normalizeLookupConfig(value.lookup),
+    allowManualInput: value.allowManualInput === true ? true : undefined,
     dependencies: normalizeDependenciesConfig(value.dependencies),
     relationGroups: normalizeRelationGroupsConfig(value.relationGroups),
     defaultValue: normalizeDefaultValue(

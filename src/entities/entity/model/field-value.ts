@@ -18,6 +18,7 @@ import {
   getEntityFieldNumericValue,
   getEntityRelationTargetId,
   isEntityComputedFieldType,
+  isEntityFieldManualInputEnabled,
   isEntityListOtherValue,
   normalizeEntityNumberDecimals,
   normalizeEntitySumFieldIds,
@@ -435,6 +436,112 @@ export function resolveEntityFieldSource<
   return current.field.type === "lookup" ? null : current;
 }
 
+/**
+ * True when the derived auto value is empty (manual fallback may apply).
+ * Does not consider a stored manual override.
+ */
+export function isEntityComputedAutoValueEmpty(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField,
+): boolean {
+  switch (field.type) {
+    case "lookup": {
+      const parts = resolveRecordFieldCells(ctx, entity, record, field)
+        .map((cell) =>
+          formatRecordFieldValue(ctx, cell.entity, cell.record, cell.field),
+        )
+        .filter((value) => value && value !== "—");
+      return parts.length === 0;
+    }
+    case "formula":
+      return getFormulaResult(ctx, entity, record, field) == null;
+    case "rollup":
+      return getRollupResult(ctx, record, field) == null;
+    case "numberSum": {
+      const ids = normalizeEntitySumFieldIds(field.sumFieldIds);
+      return !ids.some((id) => (record.values[id] ?? "").trim().length > 0);
+    }
+    default:
+      return true;
+  }
+}
+
+/**
+ * Editable stand-in for a computed field when manual input is allowed and
+ * the auto value is empty. Stores under the computed field’s id.
+ */
+export function resolveEntityComputedManualEditField(
+  entity: Entity,
+  field: EntityField,
+  entities: readonly Entity[],
+): EntityField | null {
+  if (!isEntityFieldManualInputEnabled(field)) return null;
+
+  if (
+    field.type === "formula" ||
+    field.type === "rollup" ||
+    field.type === "numberSum"
+  ) {
+    const decimals =
+      field.type === "formula"
+        ? normalizeEntityNumberDecimals(field.formula?.decimals)
+        : field.type === "rollup"
+          ? normalizeEntityNumberDecimals(field.rollup?.decimals)
+          : normalizeEntityNumberDecimals(field.decimals);
+    return {
+      ...field,
+      type: "number",
+      formula: undefined,
+      rollup: undefined,
+      lookup: undefined,
+      allowManualInput: undefined,
+      sumFieldIds: [],
+      decimals,
+      numberDisplay: undefined,
+    };
+  }
+
+  if (field.type !== "lookup") return null;
+  const target = resolveEntityLookupTarget(entity, field, entities);
+  if (!target) {
+    return {
+      ...field,
+      type: "text",
+      formula: undefined,
+      rollup: undefined,
+      lookup: undefined,
+      allowManualInput: undefined,
+    };
+  }
+  return {
+    ...target.field,
+    id: field.id,
+    name: field.name,
+    hint: field.hint,
+    group: field.group,
+    tabId: field.tabId,
+    required: field.required,
+    locked: false,
+    systemKey: null,
+    showInTable: field.showInTable,
+    showInFilters: field.showInFilters,
+    showOnRecord: field.showOnRecord,
+    showOnCreate: field.showOnCreate,
+    visibilityConditions: field.visibilityConditions,
+    includeInTotal: false,
+    tableOrder: field.tableOrder,
+    formula: undefined,
+    rollup: undefined,
+    lookup: undefined,
+    allowManualInput: undefined,
+    defaultValue: undefined,
+    colSpan: field.colSpan,
+    rowSpan: field.rowSpan,
+  };
+}
+
 /** Value family (lookups take the family of their target field). */
 export function getEntityFieldValueKind(
   entity: Pick<Entity, "id" | "fields">,
@@ -623,24 +730,32 @@ export function getRecordFieldNumber(
       const hasAny = ids.some(
         (id) => (record.values[id] ?? "").trim().length > 0,
       );
-      if (!hasAny) return null;
-      const value = getEntityFieldNumericValue(field, record.values);
-      return Number.isFinite(value) ? value : null;
+      if (hasAny) {
+        const value = getEntityFieldNumericValue(field, record.values);
+        return Number.isFinite(value) ? value : null;
+      }
+      return readManualNumberFallback(field, record);
     }
     case "formula": {
       const value = getFormulaResult(ctx, entity, record, field);
       if (typeof value === "number") return value;
       if (typeof value === "boolean") return value ? 1 : 0;
-      return null;
+      return readManualNumberFallback(field, record);
     }
-    case "rollup":
-      return getRollupResult(ctx, record, field);
-    case "lookup":
-      return sumOrNull(
+    case "rollup": {
+      const rolled = getRollupResult(ctx, record, field);
+      if (rolled != null) return rolled;
+      return readManualNumberFallback(field, record);
+    }
+    case "lookup": {
+      const fromCells = sumOrNull(
         resolveRecordFieldCells(ctx, entity, record, field).map((cell) =>
           getRecordFieldNumber(ctx, cell.entity, cell.record, cell.field),
         ),
       );
+      if (fromCells != null) return fromCells;
+      return readManualNumberFallback(field, record);
+    }
     case "boolean":
       return record.values[field.id] === "true" ? 1 : 0;
     default:
@@ -662,15 +777,49 @@ export function getRecordFieldIds(
     return parseEntityRelationIds(record.values[field.id]);
   }
   if (field.type === "lookup") {
-    return [
+    const fromCells = [
       ...new Set(
         resolveRecordFieldCells(ctx, entity, record, field).flatMap((cell) =>
           getRecordFieldIds(ctx, cell.entity, cell.record, cell.field),
         ),
       ),
     ];
+    if (fromCells.length > 0) return fromCells;
+    if (!isEntityFieldManualInputEnabled(field)) return [];
+    const editField = resolveEntityComputedManualEditField(
+      entity,
+      field,
+      ctx.entities ?? [],
+    );
+    if (!editField) return [];
+    return getRecordFieldIds(ctx, entity, record, editField);
   }
   return [];
+}
+
+function readManualNumberFallback(
+  field: EntityField,
+  record: EntityRecord,
+): number | null {
+  if (!isEntityFieldManualInputEnabled(field)) return null;
+  const raw = (record.values[field.id] ?? "").trim();
+  if (!raw) return null;
+  const value = parseEntityDecimal(raw);
+  return value == null || !Number.isFinite(value) ? null : value;
+}
+
+function formatManualNumberDisplay(
+  field: EntityField,
+  record: EntityRecord,
+  decimals: EntityNumberDecimals | undefined,
+): string {
+  const value = readManualNumberFallback(field, record);
+  if (value == null) return "—";
+  return formatEntityComputedNumber(
+    value,
+    normalizeEntityNumberDecimals(decimals),
+    field.unitSuffix,
+  );
 }
 
 function getRelationLabel(
@@ -694,8 +843,11 @@ export function getRecordFieldFormulaValue(
     case "numberSum":
     case "rollup":
       return getRecordFieldNumber(ctx, entity, record, field);
-    case "formula":
-      return getFormulaResult(ctx, entity, record, field);
+    case "formula": {
+      const computed = getFormulaResult(ctx, entity, record, field);
+      if (computed != null) return computed;
+      return readManualNumberFallback(field, record);
+    }
     case "boolean":
       return record.values[field.id] === "true";
     case "datetime":
@@ -722,21 +874,32 @@ export function getRecordFieldFormulaValue(
     }
     case "lookup": {
       const cells = resolveRecordFieldCells(ctx, entity, record, field);
-      if (getEntityFieldValueKind(entity, field, ctx.entities) === "number") {
-        return sumOrNull(
-          cells.map((cell) =>
-            getRecordFieldNumber(ctx, cell.entity, cell.record, cell.field),
-          ),
-        );
+      if (cells.length > 0) {
+        if (getEntityFieldValueKind(entity, field, ctx.entities) === "number") {
+          return sumOrNull(
+            cells.map((cell) =>
+              getRecordFieldNumber(ctx, cell.entity, cell.record, cell.field),
+            ),
+          );
+        }
+        const first = cells[0];
+        return first
+          ? getRecordFieldFormulaValue(
+              ctx,
+              first.entity,
+              first.record,
+              first.field,
+            )
+          : null;
       }
-      const first = cells[0];
-      return first
-        ? getRecordFieldFormulaValue(
-            ctx,
-            first.entity,
-            first.record,
-            first.field,
-          )
+      if (!isEntityFieldManualInputEnabled(field)) return null;
+      const editField = resolveEntityComputedManualEditField(
+        entity,
+        field,
+        ctx.entities ?? [],
+      );
+      return editField
+        ? getRecordFieldFormulaValue(ctx, entity, record, editField)
         : null;
     }
     case "dependencies":
@@ -1108,27 +1271,48 @@ export function formatRecordFieldValue(
   field: EntityField,
 ): string {
   switch (field.type) {
-    case "numberSum":
-      return formatEntityNumberSumDisplay(field, record.values);
-    case "formula":
-      return formatFormulaValue(
-        getFormulaResult(ctx, entity, record, field),
-        normalizeEntityNumberDecimals(field.formula?.decimals),
-        field.unitSuffix,
-      );
-    case "rollup":
-      return formatEntityComputedNumber(
-        getRecordFieldNumber(ctx, entity, record, field),
-        normalizeEntityNumberDecimals(field.rollup?.decimals),
-        field.unitSuffix,
-      );
+    case "numberSum": {
+      const summed = formatEntityNumberSumDisplay(field, record.values);
+      if (summed !== "—") return summed;
+      return formatManualNumberDisplay(field, record, field.decimals);
+    }
+    case "formula": {
+      const computed = getFormulaResult(ctx, entity, record, field);
+      if (computed != null) {
+        return formatFormulaValue(
+          computed,
+          normalizeEntityNumberDecimals(field.formula?.decimals),
+          field.unitSuffix,
+        );
+      }
+      return formatManualNumberDisplay(field, record, field.formula?.decimals);
+    }
+    case "rollup": {
+      const rolled = getRollupResult(ctx, record, field);
+      if (rolled != null) {
+        return formatEntityComputedNumber(
+          rolled,
+          normalizeEntityNumberDecimals(field.rollup?.decimals),
+          field.unitSuffix,
+        );
+      }
+      return formatManualNumberDisplay(field, record, field.rollup?.decimals);
+    }
     case "lookup": {
       const parts = resolveRecordFieldCells(ctx, entity, record, field)
         .map((cell) =>
           formatRecordFieldValue(ctx, cell.entity, cell.record, cell.field),
         )
         .filter((value) => value && value !== "—");
-      return parts.length > 0 ? [...new Set(parts)].join(", ") : "—";
+      if (parts.length > 0) return [...new Set(parts)].join(", ");
+      if (!isEntityFieldManualInputEnabled(field)) return "—";
+      const editField = resolveEntityComputedManualEditField(
+        entity,
+        field,
+        ctx.entities ?? [],
+      );
+      if (!editField) return "—";
+      return formatRecordFieldValue(ctx, entity, record, editField);
     }
     case "list":
       return formatEntityListFieldValue(
@@ -2319,7 +2503,11 @@ export function getEntityRecordCopyValues(
 ): Record<string, string> {
   const values: Record<string, string> = {};
   for (const field of entity.fields) {
-    if (field.type === "file" || isEntityComputedFieldType(field.type)) {
+    if (field.type === "file") continue;
+    if (
+      isEntityComputedFieldType(field.type) &&
+      !isEntityFieldManualInputEnabled(field)
+    ) {
       continue;
     }
     const value = record.values[field.id];

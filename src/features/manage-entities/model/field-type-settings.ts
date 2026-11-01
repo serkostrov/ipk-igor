@@ -1,4 +1,5 @@
 import {
+  canEntityFieldAllowManualInput,
   compileFormulaText,
   emptyEntityRelationGroupsConfig,
   formulaToDisplay,
@@ -33,6 +34,7 @@ export type EntityFieldTypeSettings = Pick<
   | "deadline"
   | "numberDisplay"
   | "numberSignColor"
+  | "allowManualInput"
 >;
 
 /** Editable per-type settings in the field dialog. */
@@ -42,6 +44,10 @@ export type FieldTypeSettingsDraft = {
   formulaDecimals: EntityNumberDecimals;
   /** Live formula value in the create-record form. */
   formulaShowOnCreate: boolean;
+  /**
+   * Computed fields: allow storing a value when the auto source is empty.
+   */
+  allowManualInput: boolean;
   rollup: EntityRollupConfig | null;
   lookup: EntityLookupConfig | null;
   dependencies: EntityDependenciesConfig;
@@ -122,6 +128,7 @@ export function createFieldTypeSettingsDraft(
       : "",
     formulaDecimals: field?.formula?.decimals ?? 2,
     formulaShowOnCreate: field?.formula?.showOnCreate === true,
+    allowManualInput: field?.allowManualInput === true,
     rollup: field?.rollup ?? null,
     lookup: field?.lookup ?? null,
     dependencies: field?.dependencies ?? { sameFieldId: null },
@@ -223,6 +230,10 @@ export function resolveFieldTypeSettings(
     numberSignColor:
       draft.signColor && isEntityNumericFieldType(type)
         ? draft.signColor
+        : undefined,
+    allowManualInput:
+      canEntityFieldAllowManualInput(type) && draft.allowManualInput
+        ? true
         : undefined,
   };
 }

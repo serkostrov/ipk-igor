@@ -153,8 +153,11 @@ export {
 
 export {
   findProjectsEntity,
+  findProjectTasksLinkedEntity,
   isProjectsEntity,
+  isProjectTasksEntity,
   PROJECT_GANTT_ENTITY_KEYS,
+  PROJECT_GANTT_TASKS_ENTITY_KEYS,
   PROJECT_GANTT_HARDCODE_TAB_ID,
   PROJECT_GANTT_HARDCODE_TAB_NAME,
   createProjectGanttHardcodeTab,

@@ -175,3 +175,19 @@ export function createFullEntityAccess(entityId: string): EntityAccess {
     fields: "*",
   };
 }
+
+/**
+ * Entity CRUD without a field map used to leave `fields: {}`, which made
+ * `canField` deny every field — empty create/edit forms (often on «ГИП»).
+ * Empty map + any CRUD means «all fields», same as `"*"`. Explicit denials
+ * must list each field as `{ view: false, edit: false }`.
+ */
+export function normalizeEntityAccess(access: EntityAccess): EntityAccess {
+  if (access.fields === "*") return access;
+  const hasFieldEntries = Object.keys(access.fields).length > 0;
+  if (hasFieldEntries) return access;
+  if (!(access.create || access.read || access.update || access.delete)) {
+    return access;
+  }
+  return { ...access, fields: "*" };
+}

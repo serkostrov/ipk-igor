@@ -25,7 +25,9 @@ import {
   getVisibleListOptions,
   groupEntityFields,
   isEntityFieldGroupTitleHidden,
+  isEntityComputedAutoValueEmpty,
   isEntityComputedFieldType,
+  isEntityFieldManualInputEnabled,
   isEntityFieldVisibleByConditions,
   isEntityFieldVisibleOnCreate,
   isEntityFieldVisibleOnRecord,
@@ -46,8 +48,9 @@ import {
   type Entity,
   type EntityField,
   type EntityRecord,
+  type EntityValueContext,
 } from "@/entities/entity";
-import { canField, useCurrentRole } from "@/entities/access";
+import { canEntity, canField, useCurrentRole } from "@/entities/access";
 import { RecordFieldControl } from "./RecordFieldControl";
 
 export type EntityRecordSubmitMeta = {
@@ -107,9 +110,17 @@ function canSubmitRecord(
   entity: Entity,
   fields: EntityField[],
   values: Record<string, string>,
+  ctx: EntityValueContext,
+  recordId: string,
 ) {
+  const draft = createEntityDraftRecord(values, recordId);
   return fields.every((field) => {
-    if (isEntityComputedFieldType(field.type)) return true;
+    if (
+      isEntityComputedFieldType(field.type) &&
+      !isEntityFieldManualInputEnabled(field)
+    ) {
+      return true;
+    }
     // Entity name template soft-fills the title; empty name still has a
     // display fallback from the template, so do not block create/edit.
     if (
@@ -125,6 +136,13 @@ function canSubmitRecord(
     if (field.type === "boolean") return true;
     if (field.type === "file") {
       return parseEntityFieldFileValue(raw) != null;
+    }
+    // Manual-enabled computed: required only when auto is empty.
+    if (isEntityComputedFieldType(field.type)) {
+      if (!isEntityComputedAutoValueEmpty(ctx, entity, draft, field)) {
+        return true;
+      }
+      return raw.trim().length > 0;
     }
     return raw.trim().length > 0;
   });
@@ -184,13 +202,13 @@ function EntityRecordForm({
     () =>
       entity.fields.filter((field) => {
         if (hiddenFieldIds?.has(field.id)) return false;
-        const mode = isEdit ? "edit" : "view";
-        // On create, show fields the role may view; writes still strip via RPC.
         if (isEdit) {
           return canField(role, entity.id, field.id, "edit");
         }
+        // Create: need entity create + field view/edit (create counts as edit).
+        if (!canEntity(role, entity.id, "create")) return false;
         return (
-          canField(role, entity.id, field.id, mode) ||
+          canField(role, entity.id, field.id, "view") ||
           canField(role, entity.id, field.id, "edit")
         );
       }),
@@ -258,7 +276,13 @@ function EntityRecordForm({
   );
   const needsPassword = requireAccountPassword && !isEdit;
   const canSubmit =
-    canSubmitRecord(entity, visibleFields, values) &&
+    canSubmitRecord(
+      entity,
+      visibleFields,
+      values,
+      valueContext,
+      draftRecordId,
+    ) &&
     (!needsPassword || password.length >= 6);
   const nameField = useMemo(
     () => visibleFields.find((field) => isEntityNameField(field)) ?? null,
@@ -430,6 +454,13 @@ function EntityRecordForm({
               placeholder="Не менее 6 символов"
             />
           </div>
+        ) : null}
+
+        {!isEdit && visibleFields.length === 0 ? (
+          <p className="rounded-lg border border-border bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
+            Нет доступных полей для создания. Проверьте права роли на поля этой
+            сущности (раздел «Поля»), либо включите «Все поля».
+          </p>
         ) : null}
 
         {fieldGroups

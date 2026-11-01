@@ -421,6 +421,7 @@ function RecordsTable({
   parentLinkFieldId,
   onEdit,
   onDelete,
+  onOpenRecord,
   onOpenNested,
   onCreateNestedChild,
   onCreateInHierarchy,
@@ -430,6 +431,8 @@ function RecordsTable({
   parentLinkFieldId: string | null;
   onEdit?: (record: EntityRecord) => void;
   onDelete?: (record: EntityRecord) => void;
+  /** Row click — open full record page. */
+  onOpenRecord?: (record: EntityRecord) => void;
   onOpenNested?: (entityId: string, recordId: string) => void;
   /** Create a nested-entity record under this host row (nested hierarchy). */
   onCreateNestedChild?: (parentRecordId: string) => void;
@@ -787,10 +790,14 @@ function RecordsTable({
                     <TableRow
                       className={cn(
                         "border-border/70 hover:bg-muted/35",
-                        onEdit && "cursor-pointer",
+                        onOpenRecord && "cursor-pointer",
                         expanded && "border-b-transparent",
                       )}
-                      onClick={onEdit ? () => onEdit(parentRecord) : undefined}
+                      onClick={
+                        onOpenRecord
+                          ? () => onOpenRecord(parentRecord)
+                          : undefined
+                      }
                     >
                       {columns.map((column, index) => (
                         <RecordsTableFieldCell
@@ -1152,9 +1159,9 @@ function RecordsTable({
                 key={rowKey}
                 className={cn(
                   "border-border/70 hover:bg-muted/35",
-                  onEdit && "cursor-pointer",
+                  onOpenRecord && "cursor-pointer",
                 )}
-                onClick={onEdit ? () => onEdit(record) : undefined}
+                onClick={onOpenRecord ? () => onOpenRecord(record) : undefined}
               >
                 {columns.map((column, index) => (
                   <RecordsTableFieldCell
@@ -1993,6 +2000,11 @@ export function RecordEntityTabPanel({
             onEdit={readOnly ? undefined : (record) => setDialogRecord(record)}
             onDelete={
               readOnly ? undefined : (record) => setPendingDelete(record)
+            }
+            onOpenRecord={
+              onOpenRelation
+                ? (record) => onOpenRelation(linkedEntity.id, record.id)
+                : undefined
             }
             onOpenNested={onOpenRelation}
             onCreateNestedChild={

@@ -1,7 +1,10 @@
 export {
   findProjectsEntity,
+  findProjectTasksLinkedEntity,
   isProjectsEntity,
+  isProjectTasksEntity,
   PROJECT_GANTT_ENTITY_KEYS,
+  PROJECT_GANTT_TASKS_ENTITY_KEYS,
 } from "./match";
 export {
   PROJECT_GANTT_HARDCODE_TAB_ID,
@@ -14,6 +17,10 @@ export {
   resolveProjectGanttVisibility,
   type ProjectGanttVisibility,
 } from "./model/visibility";
+export {
+  findProjectLeadingDepartmentField,
+  resolveProjectLeadingDepartmentFromRecord,
+} from "./model/leading-department";
 export { ProjectGanttHardcodeSlot } from "./ui/ProjectGanttHardcodeSlot";
 export { ProjectGanttView } from "./ui/ProjectGanttView";
 export { ProjectGanttLifecyclePanel } from "./ui/ProjectGanttLifecyclePanel";

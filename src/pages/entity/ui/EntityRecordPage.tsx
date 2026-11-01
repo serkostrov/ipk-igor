@@ -1367,6 +1367,7 @@ export function EntityRecordPage({
                       entity={entity}
                       record={record}
                       readOnly={!canUpdate}
+                      onOpenRelation={onOpenRelation}
                     />
                   </TabsContent>
                 );

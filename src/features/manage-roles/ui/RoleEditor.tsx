@@ -24,6 +24,7 @@ import {
   createEmptyEntityAccess,
   createFullEntityAccess,
   isDataScope,
+  normalizeEntityAccess,
   type DataScope,
   type EntityAccess,
   type FieldAccess,
@@ -409,8 +410,10 @@ function getEntityAccessList(role: Role, entities: Entity[]): EntityAccess[] {
   const byId = new Map(
     role.permissions.entities.map((item) => [item.entityId, item]),
   );
-  return entities.map(
-    (entity) => byId.get(entity.id) ?? createEmptyEntityAccess(entity.id),
+  return entities.map((entity) =>
+    normalizeEntityAccess(
+      byId.get(entity.id) ?? createEmptyEntityAccess(entity.id),
+    ),
   );
 }
 
@@ -589,7 +592,8 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
       if (next.scope !== "filter") {
         delete next.scopeFilter;
       }
-      return next;
+      // Turning on CRUD with an empty field map used to blank create forms.
+      return normalizeEntityAccess(next);
     };
     if (entitiesAll) {
       const list = entities.map((entity) => {
@@ -640,7 +644,15 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
       updateEntityAccess(entityId, { fields: "*" });
       return;
     }
-    updateEntityAccess(entityId, { fields: {} });
+    // Explicit per-field deny — empty `{}` means «all fields» once CRUD is on.
+    updateEntityAccess(entityId, {
+      fields: Object.fromEntries(
+        entity.fields.map((field) => [
+          field.id,
+          { view: false, edit: false } satisfies FieldAccess,
+        ]),
+      ),
+    });
   };
 
   return (

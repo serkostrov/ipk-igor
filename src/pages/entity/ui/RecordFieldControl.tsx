@@ -20,7 +20,9 @@ import {
   getRelationFieldOptions,
   getRelationNestedParentField,
   getRelationRecordOptions,
+  isEntityComputedAutoValueEmpty,
   isEntityComputedFieldType,
+  isEntityFieldManualInputEnabled,
   isEntityNameField,
   isValidEntityEmail,
   resolveTkpGipDepartmentRecordId,
@@ -32,6 +34,8 @@ import {
   parseEntityPeriod,
   parseEntityRelationIds,
   serializeEntityPeriod,
+  resolveEntityComputedManualEditField,
+  resolveEntityListFieldOptions,
   resolveEntityLookupTarget,
   type Entity,
   type EntityField,
@@ -280,13 +284,58 @@ export function RecordFieldControl({
   );
 
   if (isEntityComputedFieldType(field.type)) {
-    const display = formatRecordFieldValue(
+    const draftRecord = createEntityDraftRecord(values, recordId);
+    const sourceCaption = getComputedSourceCaption(entity, field, entities);
+    const autoEmpty = isEntityComputedAutoValueEmpty(
       ctx,
       entity,
-      createEntityDraftRecord(values, recordId),
+      draftRecord,
       field,
     );
-    const sourceCaption = getComputedSourceCaption(entity, field, entities);
+    const manualEditField =
+      isEntityFieldManualInputEnabled(field) && autoEmpty
+        ? resolveEntityComputedManualEditField(entity, field, entities)
+        : null;
+
+    if (manualEditField) {
+      const manualHint =
+        manualEditField.hint.trim() ||
+        (sourceCaption
+          ? `${sourceCaption}. Автозначение пусто — укажите вручную`
+          : "Автозначение пусто — укажите вручную");
+      return (
+        <RecordFieldControl
+          ctx={ctx}
+          entity={entity}
+          field={{ ...manualEditField, hint: manualHint }}
+          value={value}
+          values={values}
+          onChange={onChange}
+          entities={entities}
+          listOptions={
+            manualEditField.type === "list"
+              ? resolveEntityListFieldOptions(manualEditField, entities)
+              : listOptions
+          }
+          listMultiple={
+            manualEditField.type === "list"
+              ? manualEditField.listMultiple
+              : undefined
+          }
+          showColors={
+            manualEditField.type === "list"
+              ? manualEditField.listUseColors
+              : undefined
+          }
+          relationGroupsMode={relationGroupsMode}
+          softFillParent={softFillParent}
+          recordId={recordId}
+          required={required}
+        />
+      );
+    }
+
+    const display = formatRecordFieldValue(ctx, entity, draftRecord, field);
     return (
       <div className="flex flex-col gap-2">
         <div className="flex min-w-0 items-baseline gap-x-1.5 gap-y-0.5">
