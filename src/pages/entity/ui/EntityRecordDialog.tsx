@@ -25,6 +25,7 @@ import {
   getVisibleListOptions,
   groupEntityFields,
   isEntityFieldGroupTitleHidden,
+  computeAllowManualFormulaSoftFill,
   isEntityComputedAutoValueEmpty,
   isEntityComputedFieldType,
   isEntityFieldManualInputEnabled,
@@ -258,9 +259,27 @@ function EntityRecordForm({
   const [password, setPassword] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const formulaSoftFill = useMemo(
+    () =>
+      computeAllowManualFormulaSoftFill({
+        ctx: getEntityPreviewValueContext(valueContext),
+        entity,
+        values,
+        recordId: draftRecordId,
+      }),
+    [valueContext, entity, values, draftRecordId],
+  );
+  const displayValues = useMemo(
+    () => ({ ...formulaSoftFill, ...values }),
+    [formulaSoftFill, values],
+  );
   const draftRecord = useMemo(
-    () => createEntityDraftRecord(values, draftRecordId),
-    [values, draftRecordId],
+    () => createEntityDraftRecord(displayValues, draftRecordId),
+    [displayValues, draftRecordId],
+  );
+  const previewContext = useMemo(
+    () => getEntityPreviewValueContext(valueContext),
+    [valueContext],
   );
   const visibleFields = useMemo(
     () =>
@@ -279,11 +298,10 @@ function EntityRecordForm({
     canSubmitRecord(
       entity,
       visibleFields,
-      values,
+      displayValues,
       valueContext,
       draftRecordId,
-    ) &&
-    (!needsPassword || password.length >= 6);
+    ) && (!needsPassword || password.length >= 6);
   const nameField = useMemo(
     () => visibleFields.find((field) => isEntityNameField(field)) ?? null,
     [visibleFields],
@@ -351,7 +369,6 @@ function EntityRecordForm({
   }, [bodyFields, entity.fieldGroups, isSubEntity, isInternal, isEdit]);
   const entityLabel =
     entity.name.trim() || entity.namePlural.trim() || "Без названия";
-  const previewContext = getEntityPreviewValueContext(valueContext);
 
   function setValue(fieldId: string, value: string) {
     setValues((current) => {
@@ -401,8 +418,8 @@ function EntityRecordForm({
         ctx={previewContext}
         entity={entity}
         field={field}
-        value={values[field.id] ?? ""}
-        values={values}
+        value={displayValues[field.id] ?? ""}
+        values={displayValues}
         onChange={(value) => setValue(field.id, value)}
         listOptions={listOptions}
         listDisabled={listDisabled}
@@ -523,7 +540,10 @@ function EntityRecordForm({
                 presetValues,
                 currentUserRecordId,
               ),
-              ...normalizeRecordValues(editableFields, values),
+              ...normalizeRecordValues(editableFields, {
+                ...formulaSoftFill,
+                ...values,
+              }),
             };
             const meta: EntityRecordSubmitMeta = needsPassword
               ? { password }

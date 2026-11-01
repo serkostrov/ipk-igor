@@ -482,7 +482,9 @@ function isFormulaAutoSourceEmpty(
   if (parsed.refs.length === 0) {
     return getFormulaResult(ctx, entity, record, field) == null;
   }
-  return parsed.refs.some((refId) =>
+  // Empty only when every referenced field is blank — otherwise the formula
+  // can run (missing allow-manual siblings resolve via iteration / 0).
+  return parsed.refs.every((refId) =>
     isFieldMissingForManualSource(ctx, entity, record, refId, depth),
   );
 }
@@ -517,6 +519,80 @@ export function isEntityComputedAutoValueEmpty(
     default:
       return true;
   }
+}
+
+function formatNumberForSoftFill(
+  value: number,
+  decimals: EntityNumberDecimals | undefined,
+): string {
+  const digits = normalizeEntityNumberDecimals(decimals);
+  const factor = 10 ** digits;
+  const rounded = Math.round((value + Number.EPSILON) * factor) / factor;
+  if (digits === 0) return String(Math.trunc(rounded));
+  const fixed = rounded.toFixed(digits);
+  return fixed.replace(".", ",").replace(/,?0+$/, "").replace(/,$/, "") || "0";
+}
+
+/**
+ * Iteratively fill empty allow-manual formula fields from each other and from
+ * user-entered anchors (e.g. VAT: enter «С НДС» → soft-fill «НДС» / «Без НДС»).
+ * Keys are only fields that were empty in `values` and received a computed value.
+ */
+export function computeAllowManualFormulaSoftFill(input: {
+  ctx: EntityValueContext;
+  entity: Entity;
+  values: Record<string, string | undefined>;
+  recordId: string;
+}): Record<string, string> {
+  const formulaFields = input.entity.fields.filter(
+    (field) =>
+      field.type === "formula" && isEntityFieldManualInputEnabled(field),
+  );
+  if (formulaFields.length === 0) return {};
+
+  const userLocked = new Set(
+    formulaFields
+      .filter((field) => (input.values[field.id] ?? "").trim().length > 0)
+      .map((field) => field.id),
+  );
+
+  const working: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input.values)) {
+    if (value != null) working[key] = value;
+  }
+
+  for (let round = 0; round < 12; round += 1) {
+    let changed = false;
+    const roundCtx = getEntityPreviewValueContext(input.ctx);
+    for (const field of formulaFields) {
+      if (userLocked.has(field.id)) continue;
+      const draft = createEntityDraftRecord(working, input.recordId);
+      const raw = getFormulaResult(roundCtx, input.entity, draft, field);
+      const numeric =
+        typeof raw === "number"
+          ? raw
+          : typeof raw === "boolean"
+            ? raw
+              ? 1
+              : 0
+            : null;
+      if (numeric == null || !Number.isFinite(numeric)) continue;
+      const next = formatNumberForSoftFill(numeric, field.formula?.decimals);
+      if ((working[field.id] ?? "") === next) continue;
+      working[field.id] = next;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+
+  const soft: Record<string, string> = {};
+  for (const field of formulaFields) {
+    if (userLocked.has(field.id)) continue;
+    const next = (working[field.id] ?? "").trim();
+    if (!next) continue;
+    soft[field.id] = next;
+  }
+  return soft;
 }
 
 /**
@@ -788,16 +864,12 @@ export function getRecordFieldNumber(
       return readManualNumberFallback(field, record);
     }
     case "formula": {
-      if (
-        isEntityFieldManualInputEnabled(field) &&
-        isEntityComputedAutoValueEmpty(ctx, entity, record, field)
-      ) {
-        return readManualNumberFallback(field, record);
-      }
+      const stored = readManualNumberFallback(field, record);
+      if (stored != null) return stored;
       const value = getFormulaResult(ctx, entity, record, field);
       if (typeof value === "number") return value;
       if (typeof value === "boolean") return value ? 1 : 0;
-      return readManualNumberFallback(field, record);
+      return null;
     }
     case "rollup": {
       const rolled = getRollupResult(ctx, record, field);
@@ -901,15 +973,11 @@ export function getRecordFieldFormulaValue(
     case "rollup":
       return getRecordFieldNumber(ctx, entity, record, field);
     case "formula": {
-      if (
-        isEntityFieldManualInputEnabled(field) &&
-        isEntityComputedAutoValueEmpty(ctx, entity, record, field)
-      ) {
-        return readManualNumberFallback(field, record);
-      }
+      const stored = readManualNumberFallback(field, record);
+      if (stored != null) return stored;
       const computed = getFormulaResult(ctx, entity, record, field);
       if (computed != null) return computed;
-      return readManualNumberFallback(field, record);
+      return null;
     }
     case "boolean":
       return record.values[field.id] === "true";
@@ -1340,18 +1408,12 @@ export function formatRecordFieldValue(
       return formatManualNumberDisplay(field, record, field.decimals);
     }
     case "formula": {
-      // Empty operands coerce to 0 in the engine — don't treat that as auto
-      // when manual input is enabled and sources are still blank.
-      if (
-        isEntityFieldManualInputEnabled(field) &&
-        isEntityComputedAutoValueEmpty(ctx, entity, record, field)
-      ) {
-        return formatManualNumberDisplay(
-          field,
-          record,
-          field.formula?.decimals,
-        );
-      }
+      const stored = formatManualNumberDisplay(
+        field,
+        record,
+        field.formula?.decimals,
+      );
+      if (stored !== "—") return stored;
       const computed = getFormulaResult(ctx, entity, record, field);
       if (computed != null) {
         return formatFormulaValue(
@@ -1360,7 +1422,7 @@ export function formatRecordFieldValue(
           field.unitSuffix,
         );
       }
-      return formatManualNumberDisplay(field, record, field.formula?.decimals);
+      return "—";
     }
     case "rollup": {
       const rolled = getRollupResult(ctx, record, field);

@@ -292,13 +292,19 @@ export function RecordFieldControl({
       draftRecord,
       field,
     );
-    const hasStoredManual =
-      isEntityFieldManualInputEnabled(field) && value.trim().length > 0;
-    // Editable when auto cannot run yet, or user already typed an override.
-    const manualEditField =
-      isEntityFieldManualInputEnabled(field) && (autoEmpty || hasStoredManual)
-        ? resolveEntityComputedManualEditField(entity, field, entities)
-        : null;
+    const manualEnabled = isEntityFieldManualInputEnabled(field);
+    // Formula / rollup / sum with manual: always editable (soft-fill from parent).
+    // Lookup: editable only when auto is empty (or already overridden).
+    const preferManualEdit =
+      manualEnabled &&
+      (field.type === "formula" ||
+        field.type === "rollup" ||
+        field.type === "numberSum" ||
+        autoEmpty ||
+        value.trim().length > 0);
+    const manualEditField = preferManualEdit
+      ? resolveEntityComputedManualEditField(entity, field, entities)
+      : null;
 
     if (manualEditField) {
       return (
