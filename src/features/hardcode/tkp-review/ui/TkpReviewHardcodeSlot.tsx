@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useCurrentRole } from "@/entities/access";
 import { collectRecordsLinkedToParent } from "@/entities/automation";
 import {
+  filterDeptCalculationRecordsForAssignee,
   getSystemUserName,
   updateEntityRecord,
   useCurrentUserRecordId,
@@ -15,6 +16,7 @@ import {
   type Entity,
   type EntityRecord,
 } from "@/entities/entity";
+import { getSessionUser } from "@/entities/session";
 import { adaptDeptRecordsToGipDepartments } from "../../tkp-gip-cost/model/adapt-departments";
 import {
   calculateReviewCostBreakdown,
@@ -41,10 +43,9 @@ import {
   PENDING_NEW_PRICE_KEY,
 } from "../lib/tkp-file-bind";
 import {
+  isTkpApprovalInProgress,
   readTkpApprovalState,
-  resolveTkpApprovalChainReady,
 } from "../lib/tkp-approval";
-import { submitTkpDocumentForApproval } from "../lib/submit-tkp-document";
 import {
   countTkpRevisionFilesById,
   listTkpRevisionFiles,
@@ -111,8 +112,28 @@ export function TkpReviewHardcodeSlot({
       host: liveEntity,
     });
     const idSet = new Set(ids);
-    return deptEntity.records.filter((item) => idSet.has(item.id));
-  }, [deptEntity, liveEntity, liveRecord.id]);
+    const linked = deptEntity.records.filter((item) => idSet.has(item.id));
+    if (!visibility.showDepartmentRestrictedTotals) return linked;
+    const sessionId = getSessionUser()?.id ?? null;
+    return filterDeptCalculationRecordsForAssignee({
+      entity: deptEntity,
+      records: linked,
+      entities,
+      assigneeUserId: currentUserId ?? sessionId,
+      assigneeUserIds: [currentUserId, sessionId].filter((id): id is string =>
+        Boolean(id),
+      ),
+      leadParent: { entity: liveEntity, record: liveRecord },
+      restrictToOwnDepartments: true,
+    });
+  }, [
+    currentUserId,
+    deptEntity,
+    entities,
+    liveEntity,
+    liveRecord,
+    visibility.showDepartmentRestrictedTotals,
+  ]);
 
   const gipBreakdown = useMemo(() => {
     if (!deptEntity) {
@@ -148,10 +169,27 @@ export function TkpReviewHardcodeSlot({
   const pendingNewPriceVersion =
     liveRecord.values[PENDING_NEW_PRICE_KEY] === "1";
   const approvalState = readTkpApprovalState(liveRecord.values);
-  const approvalChain = useMemo(
-    () => resolveTkpApprovalChainReady(liveEntity, entities),
-    [liveEntity, entities],
-  );
+  const approvalInProgress = useMemo(() => {
+    if (
+      isTkpApprovalInProgress({
+        entity: liveEntity,
+        values: liveRecord.values,
+        entities,
+      })
+    ) {
+      return true;
+    }
+    // Soft keys after «На согласование» — even when the list field is absent.
+    const submittedId = approvalState.revisionId;
+    if (!submittedId) return false;
+    return history[0]?.id === submittedId;
+  }, [
+    approvalState.revisionId,
+    entities,
+    history,
+    liveEntity,
+    liveRecord.values,
+  ]);
   const revisionFileEntries = useMemo(
     () =>
       readTkpDocumentFileEntries({
@@ -248,39 +286,17 @@ export function TkpReviewHardcodeSlot({
     }
   }
 
-  async function handleSubmitForApproval(revision: TkpPriceRevisionSummary) {
-    const result = await submitTkpDocumentForApproval({
-      entity: liveEntity,
-      record: liveRecord,
-      revision,
-      entities,
-    });
-    setAutoExpandRevisionId(revision.id);
-    const tabHint = result.createdFilesTab
-      ? ` Создана вкладка «${result.filesTabName}».`
-      : "";
-    if (result.approvalFieldUpdated) {
-      toast.success(
-        `Документ «${result.fileName}» сохранён у ревизии и отправлен на согласование.${tabHint}`,
-      );
-    } else {
-      toast.success(
-        `Документ «${result.fileName}» сохранён у ревизии в «Истории цен».${tabHint} Для автозапуска цепочки добавьте поле списка «Согласование ТКП» со значением «На согласовании».`,
-      );
-    }
-  }
-
   const wantGip = sections.includes("gip");
   const wantCommercial = sections.includes("commercial");
 
-  const showGipBlock =
-    wantGip &&
-    (visibility.showGipCalculation ||
-      visibility.showDepartmentRestrictedTotals);
+  const showGipBlock = wantGip && visibility.showGipCalculation;
   const showCommercialBlock =
     wantCommercial && visibility.showCommercialPricing;
 
-  const canEditCommercial = !readOnly && showCommercialBlock;
+  const canEditCommercial =
+    !readOnly &&
+    showCommercialBlock &&
+    visibility.canEditCommercialPricing;
   const canEditGipDuration =
     !readOnly &&
     (visibility.showGipCalculation || visibility.showCommercialPricing);
@@ -319,14 +335,10 @@ export function TkpReviewHardcodeSlot({
             onStartNewPriceVersion={
               canEditCommercial ? handleStartNewPriceVersion : undefined
             }
-            onSubmitForApproval={
-              canEditCommercial ? handleSubmitForApproval : undefined
-            }
             pendingNewPriceVersion={pendingNewPriceVersion}
+            approvalInProgress={approvalInProgress}
             approvalRevisionId={approvalState.revisionId}
             approvalSubmittedAt={approvalState.submittedAt}
-            approvalChainReady={approvalChain.ready}
-            approvalFieldName={approvalChain.fieldName}
             fileCountByRevisionId={fileCountByRevisionId}
             autoExpandRevisionId={autoExpandRevisionId}
             renderRevisionFiles={(entry) => (

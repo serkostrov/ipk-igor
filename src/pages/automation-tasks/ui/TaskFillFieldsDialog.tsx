@@ -94,7 +94,11 @@ import { TaskViewContextFields } from "@/features/automation-tasks/ui/TaskViewCo
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
 import { TaskUploadPanel } from "@/features/automation-tasks/ui/TaskUploadPanel";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
-import { maybeEnsureDeptCalculationGipForTask } from "@/features/hardcode/tkp-gip/gip-filling-phase";
+import { useCurrentRole } from "@/entities/access";
+import {
+  isTkpDepartmentHeadRole,
+  maybeEnsureDeptCalculationGipForTask,
+} from "@/features/hardcode";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 
 type TaskFillFieldsDialogProps = {
@@ -117,6 +121,8 @@ function TaskFillFieldsDialogBody({
   onOpenRecord?: (entityId: string, recordId: string) => void;
 }) {
   const sessionUser = useSessionUser();
+  const role = useCurrentRole();
+  const restrictDeptToOwn = isTkpDepartmentHeadRole(role);
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const previewContext = getEntityPreviewValueContext(valueContext);
@@ -643,6 +649,12 @@ function TaskFillFieldsDialogBody({
       values: mergedValues,
       triggerRecordId: record?.id ?? task.recordId,
       assigneeUserId: task.assigneeUserId,
+      assigneeUserIds: [
+        task.assigneeUserId,
+        getCurrentUserRecordId(),
+        sessionUser?.id ?? null,
+      ].filter((id): id is string => Boolean(id)),
+      restrictToOwnDepartments: restrictDeptToOwn,
       leadParent:
         entity && record
           ? {

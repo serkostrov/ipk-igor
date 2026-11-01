@@ -87,6 +87,8 @@ import {
   resolveEntityTableSubgroupField,
   RecordValue,
   serializeEntityRelationIds,
+  filterDeptCalculationRecordsForAssignee,
+  useCurrentUserRecordId,
   useEntityConfig,
   useEntityValueContext,
   type Entity,
@@ -101,9 +103,12 @@ import {
   collectRecordsLinkedToParent,
   resolveLinkedTabParentLinkFieldId,
 } from "@/entities/automation";
+import { useCurrentRole } from "@/entities/access";
+import { getSessionUser } from "@/entities/session";
 import {
   isDeptCalculationsEntity,
   isTkpAnalysisEntity,
+  isTkpDepartmentHeadRole,
   TkpReviewHardcodeSlot,
 } from "@/features/hardcode";
 import { cn } from "@/shared/lib/cn";
@@ -1738,6 +1743,9 @@ export function RecordEntityTabPanel({
   readOnly = false,
 }: RecordEntityTabPanelProps) {
   const valueContext = useEntityValueContext();
+  const role = useCurrentRole();
+  const currentUserRecordId = useCurrentUserRecordId();
+  const restrictDeptToOwn = isTkpDepartmentHeadRole(role);
   const parentLinkFieldId =
     resolveLinkedTabParentLinkFieldId(tab, linkedEntity, parentEntityId) ??
     tab.parentLinkFieldId;
@@ -1801,10 +1809,39 @@ export function RecordEntityTabPanel({
     const byId = new Map(
       (linkedEntity.records ?? []).map((record) => [record.id, record]),
     );
-    return ids
+    const linked = ids
       .map((id) => byId.get(id))
       .filter((record): record is EntityRecord => record != null);
-  }, [hostEntity, linkedEntity, parentEntityId, parentRecordId, tab]);
+    if (!restrictDeptToOwn || !isDeptCalculationsEntity(linkedEntity)) {
+      return linked;
+    }
+    const sessionId = getSessionUser()?.id ?? null;
+    const leadParent =
+      hostEntity && parentRecord
+        ? { entity: hostEntity, record: parentRecord }
+        : null;
+    return filterDeptCalculationRecordsForAssignee({
+      entity: linkedEntity,
+      records: linked,
+      entities,
+      assigneeUserId: currentUserRecordId ?? sessionId,
+      assigneeUserIds: [currentUserRecordId, sessionId].filter(
+        (id): id is string => Boolean(id),
+      ),
+      leadParent,
+      restrictToOwnDepartments: true,
+    });
+  }, [
+    currentUserRecordId,
+    entities,
+    hostEntity,
+    linkedEntity,
+    parentEntityId,
+    parentRecord,
+    parentRecordId,
+    restrictDeptToOwn,
+    tab,
+  ]);
 
   const linkedRecordIds = useMemo(
     () => new Set(records.map((record) => record.id)),

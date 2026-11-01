@@ -1,12 +1,11 @@
 import { Fragment, useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, FileText, Paperclip } from "lucide-react";
+import { ChevronRight, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 
 import { PROJECT_TIMEZONE } from "@/shared/config/project-time";
 import { cn } from "@/shared/lib/cn";
 import { pluralRu } from "@/shared/lib/plural";
 import { Button } from "@/shared/ui/button";
-import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import {
@@ -433,30 +432,26 @@ export function CommercialPricingPanel({
   history,
   onSaveRevision,
   onStartNewPriceVersion,
-  onSubmitForApproval,
   pendingNewPriceVersion = false,
+  approvalInProgress = false,
   approvalRevisionId = null,
   approvalSubmittedAt = null,
-  approvalChainReady = false,
-  approvalFieldName = null,
   fileCountByRevisionId,
   autoExpandRevisionId = null,
   renderRevisionFiles,
 }: {
   basis: ReviewGipCommercialBasis;
+  /** Manager / sysadmin may author price versions. */
   canEdit: boolean;
   latestRevision?: TkpPriceRevisionSummary | null;
   history: TkpPriceRevisionSummary[];
   onSaveRevision: (input: CommercialPricingPanelSaveInput) => Promise<void>;
   onStartNewPriceVersion?: () => Promise<void>;
-  /** Generate document from latest revision and send to approval chain. */
-  onSubmitForApproval?: (revision: TkpPriceRevisionSummary) => Promise<void>;
   pendingNewPriceVersion?: boolean;
+  /** Host list status is «На согласовании» — hide price params for everyone. */
+  approvalInProgress?: boolean;
   approvalRevisionId?: string | null;
   approvalSubmittedAt?: string | null;
-  /** List field «Согласование ТКП» + option «На согласовании» are configured. */
-  approvalChainReady?: boolean;
-  approvalFieldName?: string | null;
   fileCountByRevisionId?: ReadonlyMap<string, number>;
   autoExpandRevisionId?: string | null;
   renderRevisionFiles?: (entry: TkpPriceRevisionSummary) => ReactNode;
@@ -487,8 +482,6 @@ export function CommercialPricingPanel({
   );
   const [saving, setSaving] = useState(false);
   const [startingVersion, setStartingVersion] = useState(false);
-  const [submittingApproval, setSubmittingApproval] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const input = useMemo(
     () => buildPriceInput(mode, coefficient, manualTotalBeforeVat, retroAmount),
@@ -517,7 +510,15 @@ export function CommercialPricingPanel({
 
   const visibleCalculation =
     preview.calculation ?? latestRevision?.calculation ?? null;
-  const priceEditorVisible = canEdit || pendingNewPriceVersion;
+  /**
+   * «Параметры цены» — only manager/sysadmin while creating a version:
+   * first price (empty history) or explicit «Новая версия цены».
+   * Hidden for everyone while approval is in progress (unless creating N+1).
+   */
+  const priceEditorVisible =
+    canEdit &&
+    (pendingNewPriceVersion ||
+      (history.length === 0 && !approvalInProgress));
 
   async function handleSave() {
     if (!input || !preview.calculation) return;
@@ -544,19 +545,6 @@ export function CommercialPricingPanel({
     }
   }
 
-  async function handleSubmitForApproval() {
-    if (!onSubmitForApproval || !latestRevision?.calculation) return;
-    setSubmittingApproval(true);
-    try {
-      await onSubmitForApproval(latestRevision);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Ошибка");
-      throw err;
-    } finally {
-      setSubmittingApproval(false);
-    }
-  }
-
   const modeLabel =
     mode === "coefficient"
       ? tkpSalePriceModeLabel("coefficient")
@@ -565,24 +553,12 @@ export function CommercialPricingPanel({
     latestRevision != null &&
     approvalRevisionId != null &&
     approvalRevisionId === latestRevision.id;
-  const canSubmitApproval =
+  const canStartNewPriceVersion =
     canEdit &&
-    Boolean(onSubmitForApproval) &&
-    Boolean(latestRevision?.calculation) &&
-    !pendingNewPriceVersion;
-  const revisionLabel =
-    latestRevision?.revisionNumber != null
-      ? `№${latestRevision.revisionNumber}`
-      : null;
-  const confirmDescription = [
-    revisionLabel
-      ? `По сохранённой ревизии цены ${revisionLabel} будет сформирован документ ТКП.`
-      : "По сохранённой ревизии цены будет сформирован документ ТКП.",
-    "Файл появится в «Истории цен» у этой ревизии и во вкладке «Файлы» → «ТКП».",
-    approvalChainReady
-      ? `Статус «${approvalFieldName ?? "Согласование ТКП"}» станет «На согласовании» — дальше сработает цепочка согласования.`
-      : "Документ сохранится. Чтобы запустить цепочку, добавьте на сущность поле списка «Согласование ТКП» со значением «На согласовании» и настройте автоматизацию.",
-  ].join("\n\n");
+    Boolean(onStartNewPriceVersion) &&
+    !pendingNewPriceVersion &&
+    !approvalInProgress &&
+    history.length > 0;
 
   return (
     <section
@@ -595,42 +571,23 @@ export function CommercialPricingPanel({
             Цена ТКП
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Сохраните ревизию → сформируйте документ → отправьте на согласование
-            · НДС {TKP_COMMERCIAL_VAT_RATE}%
+            Сохраните ревизию и загрузите файлы · согласование запускается
+            автоматизацией · НДС {TKP_COMMERCIAL_VAT_RATE}%
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {canSubmitApproval ? (
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 shrink-0 gap-1.5"
-              onClick={() => setConfirmOpen(true)}
-              disabled={submittingApproval || !canEdit}
-              data-testid="submit-tkp-document-approval"
-            >
-              <FileText className="size-3.5" aria-hidden />
-              {submittingApproval
-                ? "Формирование…"
-                : approvalMatchesLatest
-                  ? "Отправить снова"
-                  : "На согласование"}
-            </Button>
-          ) : null}
-          {onStartNewPriceVersion && !pendingNewPriceVersion ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 shrink-0"
-              onClick={() => void handleStartNewPriceVersion()}
-              disabled={startingVersion || !canEdit}
-              data-testid="start-customer-price-revision"
-            >
-              {startingVersion ? "Создание…" : "Новая версия цены"}
-            </Button>
-          ) : null}
-        </div>
+        {canStartNewPriceVersion ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 shrink-0"
+            onClick={() => void handleStartNewPriceVersion()}
+            disabled={startingVersion || !canEdit}
+            data-testid="start-customer-price-revision"
+          >
+            {startingVersion ? "Создание…" : "Новая версия цены"}
+          </Button>
+        ) : null}
       </header>
 
       {approvalMatchesLatest && approvalSubmittedAt ? (
@@ -638,41 +595,18 @@ export function CommercialPricingPanel({
           className="border-b border-border/70 bg-emerald-500/10 px-4 py-2.5 text-xs text-emerald-950 dark:text-emerald-100 sm:px-5"
           data-testid="tkp-approval-submitted-banner"
         >
-          Документ по текущей ревизии сформирован и отправлен на согласование
+          Текущая ревизия отправлена на согласование
           {` · ${fmtDateTime(approvalSubmittedAt)}`}. Откройте строку ревизии в
           «Истории цен» или вкладку «Файлы» → «ТКП».
-        </p>
-      ) : canSubmitApproval ? (
-        <p
-          className="border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground sm:px-5"
-          data-testid="tkp-approval-hint"
-        >
-          {approvalChainReady
-            ? "Кнопка «На согласование» сформирует документ из сохранённой цены и запустит цепочку согласования. Файлы также можно загрузить в строке ревизии ниже."
-            : "Кнопка «На согласование» сформирует документ из сохранённой цены. Для автозапуска цепочки нужно поле «Согласование ТКП». Файлы можно загрузить в строке ревизии ниже."}
         </p>
       ) : null}
 
       {pendingNewPriceVersion ? (
         <p className="border-b border-border/70 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground sm:px-5">
           Сохранение создаст цену N+1. Затем загрузите файлы ТКП в раскрытой
-          строке новой ревизии — после этого снова станет доступна кнопка «На
-          согласование».
+          строке новой ревизии — согласование запустит автоматизация.
         </p>
       ) : null}
-
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="Сформировать документ и отправить на согласование?"
-        description={confirmDescription}
-        confirmLabel={
-          approvalMatchesLatest ? "Отправить снова" : "Сформировать и отправить"
-        }
-        cancelLabel="Отмена"
-        destructive={false}
-        onConfirm={handleSubmitForApproval}
-      />
 
       <div className="space-y-4 p-3 sm:p-4">
         {visibleCalculation ? (

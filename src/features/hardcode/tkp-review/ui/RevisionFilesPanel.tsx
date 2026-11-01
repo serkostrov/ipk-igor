@@ -150,8 +150,8 @@ export function RevisionFilesPanel({
           </p>
           {canEdit && isLatest ? (
             <p className="max-w-sm text-[11px] text-muted-foreground/80">
-              Либо сформируйте документ кнопкой «На согласование» — HTML
-              сохранится и привяжется к этой ревизии автоматически.
+              Согласование запускается автоматизацией после сохранения цены и
+              загрузки файлов.
             </p>
           ) : null}
         </div>

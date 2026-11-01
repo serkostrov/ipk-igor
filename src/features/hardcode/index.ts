@@ -141,7 +141,10 @@ export {
   TkpReviewHardcodeSlot,
   type TkpReviewHardcodeSection,
 } from "./tkp-review/ui/TkpReviewHardcodeSlot";
-export { resolveTkpReviewCostVisibility } from "./tkp-review/model/visibility";
+export {
+  isTkpDepartmentHeadRole,
+  resolveTkpReviewCostVisibility,
+} from "./tkp-review/model/visibility";
 export type { TkpReviewCostVisibility } from "./tkp-review/model/visibility";
 export {
   TKP_PRICE_HARDCODE_TAB_ID,

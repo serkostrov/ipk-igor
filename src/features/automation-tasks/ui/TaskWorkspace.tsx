@@ -92,7 +92,11 @@ import {
   resolveTaskLeadManagerName,
 } from "../lib/task-people";
 import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
-import { maybeEnsureDeptCalculationGipForTask } from "@/features/hardcode/tkp-gip/gip-filling-phase";
+import { useCurrentRole } from "@/entities/access";
+import {
+  isTkpDepartmentHeadRole,
+  maybeEnsureDeptCalculationGipForTask,
+} from "@/features/hardcode";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewContextFields } from "./TaskViewContextFields";
@@ -229,6 +233,8 @@ function TaskWorkspaceBody({
   onCompleted: () => void;
 }) {
   const sessionUser = useSessionUser();
+  const role = useCurrentRole();
+  const restrictDeptToOwn = isTkpDepartmentHeadRole(role);
   const valueContext = useEntityValueContext();
   const previewContext = getEntityPreviewValueContext(valueContext);
 
@@ -750,6 +756,12 @@ function TaskWorkspaceBody({
       triggerRecordId: record?.id ?? task.recordId,
       ctx: previewContext,
       assigneeUserId: task.assigneeUserId,
+      assigneeUserIds: [
+        task.assigneeUserId,
+        getCurrentUserRecordId(),
+        sessionUser?.id ?? null,
+      ].filter((id): id is string => Boolean(id)),
+      restrictToOwnDepartments: restrictDeptToOwn,
       leadParent:
         entity && record
           ? {
@@ -1003,7 +1015,6 @@ function TaskWorkspaceBody({
           tabIds={earlyViewTabIds}
           filesTabEntryIds={taskAsk.viewFilesTabEntryIds}
           filesTabAllowMove={taskAsk.viewFilesTabAllowMove}
-          readOnly={busy}
           fillBadge={
             showFillTab && missingRequiredCount > 0 ? (
               <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">

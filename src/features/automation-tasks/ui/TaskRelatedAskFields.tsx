@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import { useCurrentRole } from "@/entities/access";
 import {
   collectDeptCalculationSiblingRecords,
   collectTkpStageDepartmentPairs,
@@ -12,13 +13,16 @@ import {
   parseEntityListValueIds,
   resolveEntityListFieldPresentation,
   serializeTkpStageDepartmentPairs,
+  useCurrentUserRecordId,
   type Entity,
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+import { getSessionUser } from "@/entities/session";
 import {
   filterDeptCalculationRecordsForAssignee,
   isTkpAnalysisEntity,
+  isTkpDepartmentHeadRole,
   resolveDeptCalculationsHostFields,
   resolveEditableDeptCalculationRecordIds,
   TkpReviewHardcodeSlot,
@@ -200,6 +204,16 @@ export function TaskRelatedAskFields({
   /** Task assignee — filters «Расчёты отделов» to this head’s stages. */
   assigneeUserId?: string | null;
 }) {
+  const role = useCurrentRole();
+  const currentUserRecordId = useCurrentUserRecordId();
+  const restrictToOwnDepartments = isTkpDepartmentHeadRole(role);
+  const viewerUserIds = useMemo(() => {
+    const sessionId = getSessionUser()?.id ?? null;
+    return [assigneeUserId, currentUserRecordId, sessionId].filter(
+      (id): id is string => Boolean(id),
+    );
+  }, [assigneeUserId, currentUserRecordId]);
+
   const displayGroups = useMemo(
     () => collapseDeptCalculationGroups(groups, entities, softFillParent),
     [groups, entities, softFillParent],
@@ -229,9 +243,18 @@ export function TaskRelatedAskFields({
       records: linked,
       entities,
       assigneeUserId,
+      assigneeUserIds: viewerUserIds,
       leadParent: softFillParent,
+      restrictToOwnDepartments,
     });
-  }, [deptBundle, entities, assigneeUserId, softFillParent]);
+  }, [
+    assigneeUserId,
+    deptBundle,
+    entities,
+    restrictToOwnDepartments,
+    softFillParent,
+    viewerUserIds,
+  ]);
 
   const editableDeptRecordIds = useMemo(() => {
     if (!deptBundle) return null;
@@ -243,9 +266,19 @@ export function TaskRelatedAskFields({
       records: deptTableRecords,
       entities,
       assigneeUserId,
+      assigneeUserIds: viewerUserIds,
       leadParent: softFillParent,
+      restrictToOwnDepartments,
     });
-  }, [deptBundle, deptTableRecords, entities, assigneeUserId, softFillParent]);
+  }, [
+    assigneeUserId,
+    deptBundle,
+    deptTableRecords,
+    entities,
+    restrictToOwnDepartments,
+    softFillParent,
+    viewerUserIds,
+  ]);
 
   const flatGroups = useMemo(() => {
     if (!deptBundle) return displayGroups;

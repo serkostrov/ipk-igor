@@ -516,7 +516,9 @@ export function validateRelatedAskRequired(options: {
   triggerRecordId: string;
   ctx?: EntityValueContext;
   assigneeUserId?: string | null;
+  assigneeUserIds?: readonly string[] | null;
   leadParent?: { entity: Entity; record: EntityRecord } | null;
+  restrictToOwnDepartments?: boolean;
   isFieldFilled: (
     field: EntityField,
     value: string,
@@ -531,7 +533,9 @@ export function validateRelatedAskRequired(options: {
     triggerRecordId,
     ctx,
     assigneeUserId = null,
+    assigneeUserIds = null,
     leadParent = null,
+    restrictToOwnDepartments = false,
     isFieldFilled,
   } = options;
   if (fieldAccess.relatedRequiredIds.length === 0) return null;
@@ -626,14 +630,18 @@ export function validateRelatedAskRequired(options: {
         records: linked,
         entities,
         assigneeUserId,
+        assigneeUserIds,
         leadParent: parent,
+        restrictToOwnDepartments,
       });
       const editableIds = resolveEditableDeptCalculationRecordIds({
         entity: resolved.relatedEntity,
         records: visible,
         entities,
         assigneeUserId,
+        assigneeUserIds,
         leadParent: parent,
+        restrictToOwnDepartments,
       });
       const scoped = visible.filter((record) => editableIds.has(record.id));
       if (scoped.length === 0) {

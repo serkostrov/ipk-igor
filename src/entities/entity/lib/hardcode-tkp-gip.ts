@@ -1606,6 +1606,77 @@ function recordManagerUserIds(
   return ids;
 }
 
+function collectAssigneeUserIds(options: {
+  assigneeUserId?: string | null;
+  assigneeUserIds?: readonly string[] | null;
+}): Set<string> {
+  const ids = new Set<string>();
+  const primary = options.assigneeUserId?.trim() ?? "";
+  if (primary) ids.add(primary);
+  for (const raw of options.assigneeUserIds ?? []) {
+    const id = raw?.trim() ?? "";
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+function assigneeOwnsNonGipDepartment(options: {
+  entity: Entity;
+  records: readonly EntityRecord[];
+  entities: readonly Entity[];
+  userIds: ReadonlySet<string>;
+}): boolean {
+  if (options.userIds.size === 0) return false;
+  return options.records.some((record) => {
+    if (
+      childValuesSelectGipDepartment({
+        childEntity: options.entity,
+        childValues: record.values,
+        entities: options.entities,
+      })
+    ) {
+      return false;
+    }
+    return recordManagerUserIds(options.entity, record, options.entities).some(
+      (id) => options.userIds.has(id),
+    );
+  });
+}
+
+function resolveAssigneeIsLeadGip(options: {
+  entity: Entity;
+  records: readonly EntityRecord[];
+  entities: readonly Entity[];
+  userIds: ReadonlySet<string>;
+  leadParent?: { entity: Entity; record: EntityRecord } | null;
+  restrictToOwnDepartments?: boolean;
+}): boolean {
+  if (options.restrictToOwnDepartments) return false;
+  if (options.userIds.size === 0 || !options.leadParent) return false;
+  const listedAsGip = [...options.userIds].some((userId) =>
+    isTkpLeadGipUser({
+      hostEntity: options.leadParent!.entity,
+      hostValues: options.leadParent!.record.values,
+      entities: options.entities,
+      userId,
+    }),
+  );
+  if (!listedAsGip) return false;
+  // Prefer department-head scope when the person manages real departments
+  // (avoids full GIP table if they were also listed on the lead «ГИП» field).
+  if (
+    assigneeOwnsNonGipDepartment({
+      entity: options.entity,
+      records: options.records,
+      entities: options.entities,
+      userIds: options.userIds,
+    })
+  ) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Rows visible in a department-fill / GIP-fill task:
  * - department head → their departments across stages (no GIP);
@@ -1617,26 +1688,33 @@ export function filterDeptCalculationRecordsForAssignee(options: {
   records: readonly EntityRecord[];
   entities: readonly Entity[];
   assigneeUserId?: string | null;
+  /** Extra ids for the same person (auth + users-entity record). */
+  assigneeUserIds?: readonly string[] | null;
   /** «Разбор ТКП» / lead host — used to recognise the lead GIP assignee. */
   leadParent?: { entity: Entity; record: EntityRecord } | null;
+  /**
+   * Force department-head scope (role «руководитель отдела»): never open the
+   * full lead-GIP table even if the user is listed on «ГИП».
+   */
+  restrictToOwnDepartments?: boolean;
 }): EntityRecord[] {
   const {
     entity,
     records,
     entities,
-    assigneeUserId = null,
     leadParent = null,
+    restrictToOwnDepartments = false,
   } = options;
+  const userIds = collectAssigneeUserIds(options);
 
-  const assigneeIsGip =
-    Boolean(assigneeUserId) &&
-    Boolean(leadParent) &&
-    isTkpLeadGipUser({
-      hostEntity: leadParent!.entity,
-      hostValues: leadParent!.record.values,
-      entities,
-      userId: assigneeUserId,
-    });
+  const assigneeIsGip = resolveAssigneeIsLeadGip({
+    entity,
+    records,
+    entities,
+    userIds,
+    leadParent,
+    restrictToOwnDepartments,
+  });
 
   // GIP review task: every department is visible; editability is separate.
   if (assigneeIsGip) return [...records];
@@ -1648,9 +1726,13 @@ export function filterDeptCalculationRecordsForAssignee(options: {
       entities,
     });
     if (isGip) return false;
-    if (!assigneeUserId) return true;
-    return recordManagerUserIds(entity, record, entities).includes(
-      assigneeUserId,
+    if (userIds.size === 0) {
+      // Department-head viewer without a resolved profile: show nothing safer
+      // than every department.
+      return !restrictToOwnDepartments;
+    }
+    return recordManagerUserIds(entity, record, entities).some((id) =>
+      userIds.has(id),
     );
   });
 }
@@ -1664,24 +1746,26 @@ export function resolveEditableDeptCalculationRecordIds(options: {
   records: readonly EntityRecord[];
   entities: readonly Entity[];
   assigneeUserId?: string | null;
+  assigneeUserIds?: readonly string[] | null;
   leadParent?: { entity: Entity; record: EntityRecord } | null;
+  restrictToOwnDepartments?: boolean;
 }): Set<string> {
   const {
     entity,
     entities,
-    assigneeUserId = null,
     leadParent = null,
+    restrictToOwnDepartments = false,
   } = options;
   const visible = filterDeptCalculationRecordsForAssignee(options);
-  const assigneeIsGip =
-    Boolean(assigneeUserId) &&
-    Boolean(leadParent) &&
-    isTkpLeadGipUser({
-      hostEntity: leadParent!.entity,
-      hostValues: leadParent!.record.values,
-      entities,
-      userId: assigneeUserId,
-    });
+  const userIds = collectAssigneeUserIds(options);
+  const assigneeIsGip = resolveAssigneeIsLeadGip({
+    entity,
+    records: options.records,
+    entities,
+    userIds,
+    leadParent,
+    restrictToOwnDepartments,
+  });
   if (!assigneeIsGip) {
     return new Set(visible.map((record) => record.id));
   }

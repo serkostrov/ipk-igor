@@ -83,6 +83,8 @@ import {
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
   updateEntityRecord,
+  filterDeptCalculationRecordsForAssignee,
+  useCurrentUserRecordId,
   useEntityConfig,
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
   ENTITY_TABLE_PAGE_SIZES,
@@ -97,7 +99,12 @@ import {
   type EntityRecordSortDirection,
   type EntityTablePageSize,
 } from "@/entities/entity";
-import { isDeptCalculationsEntity } from "@/features/hardcode";
+import { useCurrentRole } from "@/entities/access";
+import { getSessionUser } from "@/entities/session";
+import {
+  isDeptCalculationsEntity,
+  isTkpDepartmentHeadRole,
+} from "@/features/hardcode";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { pluralRu } from "@/shared/lib/plural";
 import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
@@ -461,15 +468,41 @@ function FieldEmptyState({ title }: { title: string }) {
   );
 }
 
+function DeptCalculationsEntityTableView({
+  entity,
+  records,
+  onEditRecord,
+}: EntityTableViewProps) {
+  const role = useCurrentRole();
+  const { entities } = useEntityConfig();
+  const currentUserRecordId = useCurrentUserRecordId();
+  const visibleRecords = useMemo(() => {
+    if (!isTkpDepartmentHeadRole(role)) return records;
+    const sessionId = getSessionUser()?.id ?? null;
+    return filterDeptCalculationRecordsForAssignee({
+      entity,
+      records,
+      entities,
+      assigneeUserId: currentUserRecordId ?? sessionId,
+      assigneeUserIds: [currentUserRecordId, sessionId].filter(
+        (id): id is string => Boolean(id),
+      ),
+      restrictToOwnDepartments: true,
+    });
+  }, [currentUserRecordId, entities, entity, records, role]);
+
+  return (
+    <DeptCalculationsView
+      entity={entity}
+      records={visibleRecords}
+      onEditRecord={onEditRecord}
+    />
+  );
+}
+
 export function EntityTableView(props: EntityTableViewProps) {
   if (isDeptCalculationsEntity(props.entity)) {
-    return (
-      <DeptCalculationsView
-        entity={props.entity}
-        records={props.records}
-        onEditRecord={props.onEditRecord}
-      />
-    );
+    return <DeptCalculationsEntityTableView {...props} />;
   }
   return <EntityTableViewInner {...props} />;
 }

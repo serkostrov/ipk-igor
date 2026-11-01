@@ -6,6 +6,7 @@
 import {
   getEntityFieldDisplayName,
   getEntityFieldListOptions,
+  parseEntityListValueIds,
   type Entity,
   type EntityField,
 } from "@/entities/entity";
@@ -75,6 +76,27 @@ export function readTkpApprovalState(values: Record<string, string>): {
   const revisionId = values[TKP_APPROVAL_REVISION_KEY]?.trim() || null;
   const submittedAt = values[TKP_APPROVAL_SUBMITTED_AT_KEY]?.trim() || null;
   return { revisionId, submittedAt };
+}
+
+/**
+ * List field is currently «На согласовании» (approval chain in progress).
+ * Soft submit keys alone are not enough — status can move on without clearing them.
+ */
+export function isTkpApprovalInProgress(options: {
+  entity: Entity;
+  values: Record<string, string | undefined>;
+  entities?: readonly Entity[];
+}): boolean {
+  const field = findTkpApprovalListField(options.entity);
+  if (!field) return false;
+  const pendingOptionId = resolveTkpApprovalPendingOptionId(
+    field,
+    options.entities ?? [],
+  );
+  if (!pendingOptionId) return false;
+  const currentId =
+    parseEntityListValueIds(options.values[field.id] ?? "")[0]?.trim() ?? "";
+  return currentId === pendingOptionId;
 }
 
 /** Whether the host has a list field + «На согласовании» option for the chain. */
