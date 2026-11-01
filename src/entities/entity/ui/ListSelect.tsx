@@ -122,7 +122,7 @@ function ListChip({
   return (
     <span
       className={cn(
-        "inline-flex h-5 max-w-full shrink-0 items-center gap-1 rounded-md px-1.5 text-xs leading-none font-medium",
+        "inline-flex h-5 max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 text-xs leading-none font-medium",
         showColors
           ? "border border-black/5 text-foreground"
           : "bg-muted text-foreground",
@@ -131,7 +131,7 @@ function ListChip({
       style={showColors ? { backgroundColor: `${option.color}28` } : undefined}
       title={option.name}
     >
-      <span className="whitespace-nowrap">{option.name}</span>
+      <span className="min-w-0 truncate">{option.name}</span>
       {removable ? (
         <span
           role="button"
@@ -740,8 +740,8 @@ export function ListSelect({
             "min-w-0 font-medium shadow-none",
             plain
               ? cn(
-                  "h-5 min-h-5 justify-start gap-1 rounded-md border-0 bg-transparent px-0 py-0 text-sm data-[size=default]:h-5 data-[size=sm]:h-5 hover:bg-muted/45 data-popup-open:bg-muted/45 [&_svg:not([class*='size-'])]:size-3.5 [&_svg]:opacity-55",
-                  triggerContent ? "w-full" : "w-fit",
+                  "h-5 min-h-5 max-w-full justify-start gap-1 rounded-md border-0 bg-transparent px-0 py-0 text-sm data-[size=default]:h-5 data-[size=sm]:h-5 hover:bg-muted/45 data-popup-open:bg-muted/45 [&_svg:not([class*='size-'])]:size-3.5 [&_svg]:opacity-55",
+                  triggerContent ? "w-full" : "w-fit max-w-full",
                 )
               : "h-auto w-full justify-between gap-1.5 rounded-full border-border/60 bg-background px-2.5",
             !plain && (size === "sm" ? "h-7 text-xs" : "h-8 text-sm"),

@@ -150,6 +150,20 @@ export {
   isTkpPriceHardcodeTab,
   withTkpPriceHardcodeTab,
 } from "./tkp-review/model/price-tab";
+
+export {
+  findProjectsEntity,
+  isProjectsEntity,
+  PROJECT_GANTT_ENTITY_KEYS,
+  PROJECT_GANTT_HARDCODE_TAB_ID,
+  PROJECT_GANTT_HARDCODE_TAB_NAME,
+  createProjectGanttHardcodeTab,
+  isProjectGanttHardcodeTab,
+  withProjectGanttHardcodeTab,
+  resolveProjectGanttVisibility,
+  ProjectGanttHardcodeSlot,
+  type ProjectGanttVisibility,
+} from "./project-gantt";
 export {
   findTkpApprovalListField,
   readTkpApprovalState,

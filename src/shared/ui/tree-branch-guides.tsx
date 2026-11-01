@@ -9,8 +9,11 @@ type TreeBranchGuidesProps = {
   /**
    * Left offset of the stem (border-l / 1px line).
    * Must equal the horizontal center of the parent chevron / icon.
+   * Prefer `leftPx` for dynamic nesting depth.
    */
   className?: string;
+  /** Absolute left offset in px (overrides Tailwind left from className). */
+  leftPx?: number;
   /**
    * Horizontal arm length to the right of the stem.
    * Keep short enough that the arm ends before child content.
@@ -47,12 +50,14 @@ export function TreeBranchGuides({
   isFirst = false,
   isLast = false,
   className,
+  leftPx,
   armClassName = "w-2",
   tone = "default",
   elbowTopPx,
 }: TreeBranchGuidesProps) {
   const border = TONE_BORDER[tone];
   const stem = TONE_STEM[tone];
+  const leftStyle = leftPx != null ? ({ left: leftPx } as const) : undefined;
 
   if (elbowTopPx != null) {
     return (
@@ -66,6 +71,7 @@ export function TreeBranchGuides({
             className,
           )}
           style={{
+            ...leftStyle,
             top: isFirst ? -FIRST_EXTEND : 0,
             height: isFirst ? elbowTopPx + FIRST_EXTEND : elbowTopPx,
           }}
@@ -78,7 +84,7 @@ export function TreeBranchGuides({
               stem,
               className,
             )}
-            style={{ top: elbowTopPx - SEAL }}
+            style={{ ...leftStyle, top: elbowTopPx - SEAL }}
           />
         ) : null}
       </>
@@ -96,6 +102,7 @@ export function TreeBranchGuides({
           isFirst ? "-top-2.5 h-[calc(50%+10px)]" : "top-0 h-1/2",
           className,
         )}
+        style={leftStyle}
       />
       {!isLast ? (
         <div
@@ -105,7 +112,10 @@ export function TreeBranchGuides({
             stem,
             className,
           )}
-          style={{ top: `calc(50% - ${SEAL}px)` }}
+          style={{
+            ...leftStyle,
+            top: `calc(50% - ${SEAL}px)`,
+          }}
         />
       ) : null}
     </>

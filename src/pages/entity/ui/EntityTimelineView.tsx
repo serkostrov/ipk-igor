@@ -67,9 +67,10 @@ const SCALE_LABELS: Record<TimelineScale, string> = {
   day: "День",
   week: "Неделя",
   month: "Месяц",
+  year: "Год",
 };
 
-/** Compact day/week/month switch for the page header description row. */
+/** Compact day/week/month/year switch for the page header description row. */
 export function TimelineScaleTabs({
   value,
   onChange,
@@ -268,7 +269,8 @@ export function EntityTimelineView({
     [scale, range],
   );
   const monthBands = useMemo(() => {
-    if (scale === "month") return [];
+    // Month / year columns are the header themselves — no secondary band.
+    if (scale === "month" || scale === "year") return [];
     return getTimelineMonths(range);
   }, [scale, range]);
 

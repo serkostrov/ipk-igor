@@ -24,16 +24,19 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 
-export type TimelineScale = "day" | "week" | "month";
+export type TimelineScale = "day" | "week" | "month" | "year";
 
 /**
- * Fixed width of one date column (day / week / month cell).
+ * Fixed width of one date column (day / week / month / year cell).
  * Wide enough for sums like «1 225 000 ₽»; row height stays compact.
  */
 export const TIMELINE_COLUMN_WIDTH = 100;
 
 export function parseTimelineScale(value: unknown): TimelineScale | null {
-  return value === "day" || value === "week" || value === "month"
+  return value === "day" ||
+    value === "week" ||
+    value === "month" ||
+    value === "year"
     ? value
     : null;
 }
@@ -531,6 +534,7 @@ const TIMELINE_RANGE_PAD: Record<TimelineScale, number> = {
   day: 56, // 8 weeks each side
   week: 126, // ~18 weeks each side
   month: 366, // ~12 months each side
+  year: 365 * 3, // ~3 years each side
 };
 
 /** Hard cap on total span so a wide data range stays usable. */
@@ -538,12 +542,16 @@ const TIMELINE_RANGE_MAX_SPAN: Record<TimelineScale, number> = {
   day: 450,
   week: 900,
   month: 1500,
+  year: 365 * 20, // ~20 year columns
 };
 
 function alignTimelineRangeStart(day: number, scale: TimelineScale) {
-  if (scale === "month") {
+  if (scale === "month" || scale === "year") {
     const iso = fromDayNumber(day);
     const [year, month] = iso.split("-").map(Number);
+    if (scale === "year") {
+      return toDayNumber(`${year}-01-01`)!;
+    }
     return toDayNumber(`${year}-${String(month).padStart(2, "0")}-01`)!;
   }
   let start = day;
@@ -623,6 +631,25 @@ export function getTimelineWeeks(range: { start: number; end: number }) {
   return segments;
 }
 
+export function getTimelineYears(range: { start: number; end: number }) {
+  const segments: TimelineSegment[] = [];
+  let day = range.start;
+  while (day <= range.end) {
+    const iso = fromDayNumber(day);
+    const [year] = iso.split("-").map(Number);
+    const next = toDayNumber(`${year! + 1}-01-01`)!;
+    const end = Math.min(next - 1, range.end);
+    segments.push({
+      key: String(year),
+      label: String(year),
+      start: day,
+      days: end - day + 1,
+    });
+    day = end + 1;
+  }
+  return segments;
+}
+
 /** Date columns for the selected scale (one cell per period). */
 export function getTimelineColumns(
   scale: TimelineScale,
@@ -642,6 +669,7 @@ export function getTimelineColumns(
     return columns;
   }
   if (scale === "week") return getTimelineWeeks(range);
+  if (scale === "year") return getTimelineYears(range);
   return getTimelineMonths(range);
 }
 

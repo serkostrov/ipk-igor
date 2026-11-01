@@ -53,6 +53,7 @@ import {
   entityTableDisplayColumnIncludeInTotal,
   flattenEntityTableHierarchyRows,
   flattenEntityTableNestedRows,
+  isEntityTableSelfHierarchyField,
   formatEntityDecimalTotal,
   formatRecordFieldValue,
   ENTITY_FIELD_GROUP_COLUMNS,
@@ -316,14 +317,17 @@ function RecordsTableFieldCell({
   entities: Entity[];
   valueContext: EntityValueContext;
   indent?: boolean;
-  /** 1 — under root group; 2 — under subgroup. */
-  indentLevel?: 1 | 2;
+  /** Nesting depth for tree guides (1 = under root, 2+ = deeper). */
+  indentLevel?: number;
   isGroupStart?: boolean;
   isGroupEnd?: boolean;
   /** Content before the value (e.g. hierarchy expand control). */
   leading?: ReactNode;
   emphasize?: boolean;
 }) {
+  const guideLevel = Math.max(1, indentLevel);
+  const guideLeftPx = 11 + (guideLevel - 1) * 24;
+  const contentPadPx = 20 + (guideLevel - 1) * 24;
   const field =
     resolveEntityTableDisplayColumnField(
       valueContext,
@@ -386,22 +390,23 @@ function RecordsTableFieldCell({
         <TreeBranchGuides
           isFirst={isGroupStart}
           isLast={isGroupEnd}
-          className={indentLevel === 2 ? "left-[35px]" : "left-[11px]"}
+          leftPx={guideLeftPx}
           armClassName="w-3"
           elbowTopPx={18}
         />
       ) : null}
       {leading ? (
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div
+          className="flex min-w-0 items-center gap-1.5"
+          style={indent ? { paddingLeft: contentPadPx } : undefined}
+        >
           {leading}
           <div className="min-w-0 flex-1">{value}</div>
         </div>
       ) : (
         <div
-          className={cn(
-            indent && "relative",
-            indent && (indentLevel === 2 ? "pl-11" : "pl-5"),
-          )}
+          className={cn(indent && "relative")}
+          style={indent ? { paddingLeft: contentPadPx } : undefined}
         >
           {value}
         </div>
@@ -441,6 +446,11 @@ function RecordsTable({
   const subgroupField = nestedTarget
     ? null
     : resolveEntityTableSubgroupField(entity);
+  const isSelfHierarchy = Boolean(
+    parentField &&
+    !subgroupField &&
+    isEntityTableSelfHierarchyField(parentField, entity.id),
+  );
   /** `null` — all groups expanded by default until the user toggles. */
   const [expandedIds, setExpandedIds] = useState<Set<string> | null>(null);
 
@@ -456,6 +466,21 @@ function RecordsTable({
         .map((row) => row.id);
     }
     if (!parentField) return [] as string[];
+    if (isSelfHierarchy) {
+      const fullyExpanded = new Set(records.map((record) => record.id));
+      return flattenEntityTableHierarchyRows(
+        records,
+        parentField,
+        fullyExpanded,
+        entities,
+        subgroupField,
+        entity.id,
+      ).flatMap((row) =>
+        row.kind === "record" && (row.childCount ?? 0) > 0
+          ? [row.record.id]
+          : [],
+      );
+    }
     // Fully expand roots so subgroup row ids are included.
     const rootIds = flattenEntityTableHierarchyRows(
       records,
@@ -463,6 +488,7 @@ function RecordsTable({
       new Set(),
       entities,
       subgroupField,
+      entity.id,
     ).flatMap((row) =>
       row.kind === "group" && row.depth === 0 ? [row.id] : [],
     );
@@ -472,10 +498,12 @@ function RecordsTable({
       new Set(rootIds),
       entities,
       subgroupField,
+      entity.id,
     ).flatMap((row) => (row.kind === "group" ? [row.id] : []));
   }, [
     entities,
     entity,
+    isSelfHierarchy,
     nestedTarget,
     parentField,
     records,
@@ -504,6 +532,7 @@ function RecordsTable({
       effectiveExpandedIds,
       entities,
       subgroupField,
+      entity.id,
     );
   }, [
     effectiveExpandedIds,
@@ -599,30 +628,66 @@ function RecordsTable({
     if (!hierarchyRows) return null;
     const meta = new Map<
       string,
-      { isGroupStart: boolean; isGroupEnd: boolean; depth: number }
+      {
+        isGroupStart: boolean;
+        isGroupEnd: boolean;
+        depth: number;
+        childCount: number;
+        expanded: boolean;
+      }
     >();
     for (let i = 0; i < hierarchyRows.length; i += 1) {
       const row = hierarchyRows[i];
       if (!row || (row.kind !== "record" && row.kind !== "nested")) continue;
-      const prev = hierarchyRows[i - 1];
-      const next = hierarchyRows[i + 1];
-      // Same immediate parent: start/end of the contiguous record block.
-      const prevSame =
-        prev?.kind === "record" || prev?.kind === "nested"
-          ? prev.groupId === row.groupId
-          : false;
-      const nextSame =
-        next?.kind === "record" || next?.kind === "nested"
-          ? next.groupId === row.groupId
-          : false;
+      let isGroupStart = true;
+      let isGroupEnd = true;
+      if (isSelfHierarchy && row.kind === "record" && row.depth > 0) {
+        for (let j = i - 1; j >= 0; j -= 1) {
+          const prev = hierarchyRows[j]!;
+          if (prev.kind !== "record") break;
+          if (prev.depth < row.depth) break;
+          if (prev.depth === row.depth && prev.groupId === row.groupId) {
+            isGroupStart = false;
+            break;
+          }
+        }
+        for (let j = i + 1; j < hierarchyRows.length; j += 1) {
+          const next = hierarchyRows[j]!;
+          if (next.kind !== "record") break;
+          if (next.depth < row.depth) break;
+          if (next.depth === row.depth && next.groupId === row.groupId) {
+            isGroupEnd = false;
+            break;
+          }
+        }
+      } else {
+        const prev = hierarchyRows[i - 1];
+        const next = hierarchyRows[i + 1];
+        const prevSame =
+          prev?.kind === "record" || prev?.kind === "nested"
+            ? prev.groupId === row.groupId
+            : false;
+        const nextSame =
+          next?.kind === "record" || next?.kind === "nested"
+            ? next.groupId === row.groupId
+            : false;
+        isGroupStart = !prevSame;
+        isGroupEnd = !nextSame;
+      }
+      const childCount = row.kind === "record" ? (row.childCount ?? 0) : 0;
       meta.set(`${row.groupId}:${row.record.id}`, {
-        isGroupStart: !prevSame,
-        isGroupEnd: !nextSame,
+        isGroupStart,
+        isGroupEnd,
         depth: "depth" in row ? row.depth : 1,
+        childCount,
+        expanded:
+          isSelfHierarchy && childCount > 0
+            ? effectiveExpandedIds.has(row.record.id)
+            : false,
       });
     }
     return meta;
-  }, [hierarchyRows]);
+  }, [effectiveExpandedIds, hierarchyRows, isSelfHierarchy]);
 
   return (
     <div className="min-w-0 overflow-x-auto">
@@ -1043,9 +1108,44 @@ function RecordsTable({
             const record = row.record;
             const rowKey = `${row.groupId}:${record.id}`;
             const meta = recordMeta?.get(rowKey);
-            const indented = Boolean(parentField);
-            const indentLevel: 1 | 2 =
-              meta?.depth === 2 || row.depth === 2 ? 2 : 1;
+            const recordDepth = meta?.depth ?? row.depth;
+            const childCount = meta?.childCount ?? 0;
+            const recordExpanded = meta?.expanded === true;
+            const indented =
+              Boolean(parentField) &&
+              (isSelfHierarchy ? recordDepth > 0 : true);
+            const indentLevel = isSelfHierarchy
+              ? Math.max(1, recordDepth)
+              : recordDepth >= 2
+                ? 2
+                : 1;
+            const expandLeading =
+              isSelfHierarchy && childCount > 0 ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "relative z-[1] inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                    recordExpanded && "bg-muted text-foreground",
+                  )}
+                  aria-label={recordExpanded ? "Свернуть" : "Развернуть"}
+                  aria-expanded={recordExpanded}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setExpandedIds((prev) => {
+                      const next = new Set(prev ?? effectiveExpandedIds);
+                      if (recordExpanded) next.delete(record.id);
+                      else next.add(record.id);
+                      return next;
+                    });
+                  }}
+                >
+                  {recordExpanded ? (
+                    <ChevronDown className="size-3.5" />
+                  ) : (
+                    <ChevronRight className="size-3.5" />
+                  )}
+                </button>
+              ) : null;
 
             return (
               <TableRow
@@ -1068,6 +1168,7 @@ function RecordsTable({
                     indentLevel={indentLevel}
                     isGroupStart={meta?.isGroupStart}
                     isGroupEnd={meta?.isGroupEnd}
+                    leading={index === 0 ? expandLeading : null}
                   />
                 ))}
                 {canMutate ? (
@@ -1076,6 +1177,28 @@ function RecordsTable({
                       className="inline-flex items-center justify-end gap-0"
                       onClick={(event) => event.stopPropagation()}
                     >
+                      {isSelfHierarchy && onCreateInHierarchy && parentField ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 text-foreground"
+                          aria-label="Добавить дочернюю запись"
+                          title="Добавить дочернюю запись"
+                          onClick={() => {
+                            setExpandedIds((prev) => {
+                              const next = new Set(
+                                prev ?? effectiveExpandedIds,
+                              );
+                              next.add(record.id);
+                              return next;
+                            });
+                            onCreateInHierarchy(record.id);
+                          }}
+                        >
+                          <Plus className="size-3.5" />
+                        </Button>
+                      ) : null}
                       {onEdit ? (
                         <Button
                           type="button"

@@ -88,9 +88,13 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 import {
+  isProjectGanttHardcodeTab,
   isTkpPriceHardcodeTab,
+  ProjectGanttHardcodeSlot,
+  resolveProjectGanttVisibility,
   resolveTkpReviewCostVisibility,
   TkpReviewHardcodeSlot,
+  withProjectGanttHardcodeTab,
   withTkpPriceHardcodeTab,
 } from "@/features/hardcode";
 import { EntityRecordDialog } from "./EntityRecordDialog";
@@ -1160,16 +1164,29 @@ export function EntityRecordPage({
     () => resolveTkpReviewCostVisibility(role),
     [role],
   );
-  const entityTabs = useMemo(
-    () =>
-      withTkpPriceHardcodeTab(
-        entity.tabs,
-        entity,
-        entities,
-        tkpCostVisibility.showCommercialPricing,
-      ),
-    [entities, entity, tkpCostVisibility.showCommercialPricing],
+  const projectGanttVisibility = useMemo(
+    () => resolveProjectGanttVisibility(role),
+    [role],
   );
+  const entityTabs = useMemo(() => {
+    const withTkp = withTkpPriceHardcodeTab(
+      entity.tabs,
+      entity,
+      entities,
+      tkpCostVisibility.showCommercialPricing,
+    );
+    const withGantt = projectGanttVisibility.showGanttTab
+      ? withProjectGanttHardcodeTab(withTkp, entity)
+      : withTkp;
+    if (!projectGanttVisibility.ganttReviewOnly) return withGantt;
+    return withGantt.filter((tab) => isProjectGanttHardcodeTab(tab));
+  }, [
+    entities,
+    entity,
+    projectGanttVisibility.ganttReviewOnly,
+    projectGanttVisibility.showGanttTab,
+    tkpCostVisibility.showCommercialPricing,
+  ]);
   const resolvedActiveTabId =
     entityTabs.find((tab) => tab.id === locationTabId)?.id ??
     entityTabs[0]?.id ??
@@ -1338,6 +1355,18 @@ export function EntityRecordPage({
                       record={record}
                       readOnly={!canUpdate}
                       sections={["commercial"]}
+                    />
+                  </TabsContent>
+                );
+              }
+
+              if (isProjectGanttHardcodeTab(tab)) {
+                return (
+                  <TabsContent key={tab.id} value={tab.id} className="mt-0">
+                    <ProjectGanttHardcodeSlot
+                      entity={entity}
+                      record={record}
+                      readOnly={!canUpdate}
                     />
                   </TabsContent>
                 );

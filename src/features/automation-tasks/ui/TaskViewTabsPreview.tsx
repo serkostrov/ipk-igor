@@ -58,9 +58,12 @@ import { useCurrentRole } from "@/entities/access";
 import { useEntityRecordEvents } from "@/entities/history";
 import { RecordEntityTabPanel } from "@/pages/entity/ui/RecordEntityTabPanel";
 import {
+  isProjectGanttHardcodeTab,
   isTkpPriceHardcodeTab,
+  ProjectGanttHardcodeSlot,
   resolveTkpReviewCostVisibility,
   TkpReviewHardcodeSlot,
+  withProjectGanttHardcodeTab,
   withTkpPriceHardcodeTab,
 } from "@/features/hardcode";
 import {
@@ -228,6 +231,8 @@ function collectFilesPreviewRows(
 function TabKindIcon({ tab }: { tab: EntityTab }) {
   if (isTkpPriceHardcodeTab(tab))
     return <FileText className="size-3.5" aria-hidden />;
+  if (isProjectGanttHardcodeTab(tab))
+    return <Table2 className="size-3.5" aria-hidden />;
   if (isEntityFilesTab(tab)) return <Folder className="size-3.5" aria-hidden />;
   if (isEntityHistoryTab(tab))
     return <History className="size-3.5" aria-hidden />;
@@ -1007,6 +1012,15 @@ function TabPreviewBody({
       />
     );
   }
+  if (isProjectGanttHardcodeTab(tab)) {
+    return (
+      <ProjectGanttHardcodeSlot
+        entity={entity}
+        record={record}
+        readOnly={readOnly}
+      />
+    );
+  }
   if (isEntityRecordsTab(tab)) {
     return <RecordsPreview entity={entity} record={record} tab={tab} />;
   }
@@ -1070,11 +1084,14 @@ export function TaskViewTabsPreview({
     const selected = tabIds
       .map((id) => entity.tabs.find((tab) => tab.id === id))
       .filter((tab): tab is EntityTab => tab != null);
-    return withTkpPriceHardcodeTab(
-      selected,
+    return withProjectGanttHardcodeTab(
+      withTkpPriceHardcodeTab(
+        selected,
+        entity,
+        entities,
+        showCommercialPricing,
+      ),
       entity,
-      entities,
-      showCommercialPricing,
     );
   }, [entities, entity, showCommercialPricing, tabIds]);
 

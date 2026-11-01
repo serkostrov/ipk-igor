@@ -75,6 +75,7 @@ import {
   flattenEntityTableHierarchyRows,
   getSystemUserName,
   isEntityTableRelationGroupsNestedSubgroup,
+  isEntityTableSelfHierarchyField,
   parseEntityTableParentGroupIds,
   parseEntityTableRelationGroupsNestedIds,
   resolveEntityTableHierarchyGroupRecord,
@@ -353,27 +354,34 @@ function TableSelectCheckbox({
   );
 }
 
+/** Compact step per nesting level — keeps names readable at depth 3+. */
+const HIERARCHY_DEPTH_STEP_PX = 18;
+/** Guide stem inset for depth 1 (aligns with size-5 chevron center). */
+const HIERARCHY_GUIDE_BASE_LEFT_PX = 10;
+/** First column floor when the table is a belonging / self tree. */
+const HIERARCHY_NAME_COL_MIN_WIDTH = 300;
+
 /**
- * Tree gutter matches the group chevron column (size-6).
- * Placed at left-3 so it lines up with in-flow content after cell px-3;
- * stem at left-1/2 = exact chevron center. Arm w-2 ends before pl-9 content.
- * `level` 1 — under a root group; 2 — under a subgroup (extra inset).
+ * Tree gutter matches the group / record chevron column (size-6).
+ * Stem centers on the chevron; arm ends before padded content.
+ * `depth` 1 — under a root; 2+ — deeper nest (arbitrary belonging levels).
  */
 function HierarchyTreeGuides({
   isFirst,
   isLast,
-  level = 1,
+  depth = 1,
 }: {
   isFirst: boolean;
   isLast: boolean;
-  level?: 1 | 2;
+  depth?: number;
 }) {
+  const level = Math.max(1, depth);
+  const leftPx =
+    HIERARCHY_GUIDE_BASE_LEFT_PX + (level - 1) * HIERARCHY_DEPTH_STEP_PX;
   return (
     <div
-      className={cn(
-        "pointer-events-none absolute inset-y-0 w-6",
-        level === 2 ? "left-12" : "left-3",
-      )}
+      className="pointer-events-none absolute inset-y-0 w-6"
+      style={{ left: leftPx }}
     >
       <TreeBranchGuides
         isFirst={isFirst}
@@ -383,6 +391,11 @@ function HierarchyTreeGuides({
       />
     </div>
   );
+}
+
+function hierarchyContentPadPx(depth: number) {
+  if (depth <= 0) return 0;
+  return depth * HIERARCHY_DEPTH_STEP_PX;
 }
 
 type EntityTableViewProps = {
@@ -504,6 +517,11 @@ function EntityTableViewInner({
     () => resolveEntityTableSubgroupField(entity),
     [entity],
   );
+  const isSelfHierarchy = Boolean(
+    parentField &&
+    !subgroupField &&
+    isEntityTableSelfHierarchyField(parentField, entity.id),
+  );
   const nestedTarget = useMemo(
     () => resolveEntityTableNestedTarget(entity, entities),
     [entity, entities],
@@ -581,6 +599,24 @@ function EntityTableViewInner({
 
   const hierarchyGroupIds = useMemo(() => {
     if (!parentField) return new Set<string>();
+    if (isSelfHierarchy) {
+      // Fully expand once to discover every node that has children.
+      const fullyExpanded = new Set(filteredRecords.map((record) => record.id));
+      return new Set(
+        flattenEntityTableHierarchyRows(
+          filteredRecords,
+          parentField,
+          fullyExpanded,
+          entities,
+          subgroupField,
+          entity.id,
+        ).flatMap((row) =>
+          row.kind === "record" && (row.childCount ?? 0) > 0
+            ? [row.record.id]
+            : [],
+        ),
+      );
+    }
     const rootIds = new Set<string>();
     for (const record of filteredRecords) {
       for (const id of parseEntityTableParentGroupIds(
@@ -598,11 +634,19 @@ function EntityTableViewInner({
         rootIds,
         entities,
         subgroupField,
+        entity.id,
       )
         .filter((row) => row.kind === "group")
         .map((row) => row.id),
     );
-  }, [entities, filteredRecords, parentField, subgroupField]);
+  }, [
+    entities,
+    entity.id,
+    filteredRecords,
+    isSelfHierarchy,
+    parentField,
+    subgroupField,
+  ]);
 
   const effectiveExpandedIds = useMemo(() => {
     const next = new Set<string>();
@@ -620,10 +664,12 @@ function EntityTableViewInner({
       effectiveExpandedIds,
       entities,
       subgroupField,
+      entity.id,
     );
   }, [
     effectiveExpandedIds,
     entities,
+    entity.id,
     filteredRecords,
     parentField,
     subgroupField,
@@ -631,10 +677,15 @@ function EntityTableViewInner({
 
   const hierarchyRootRows = useMemo(() => {
     if (!hierarchyRows) return null;
+    if (isSelfHierarchy) {
+      return hierarchyRows.filter(
+        (row) => row.kind === "record" && row.depth === 0,
+      );
+    }
     return hierarchyRows.flatMap((row) =>
       row.kind === "group" && row.depth === 0 ? [row] : [],
     );
-  }, [hierarchyRows]);
+  }, [hierarchyRows, isSelfHierarchy]);
 
   const total = hierarchyRootRows
     ? hierarchyRootRows.length
@@ -646,7 +697,9 @@ function EntityTableViewInner({
     if (!hierarchyRows || !hierarchyRootRows) return null;
     const start = (currentPage - 1) * pageSize;
     const pagedRoots = new Set(
-      hierarchyRootRows.slice(start, start + pageSize).map((row) => row.id),
+      hierarchyRootRows
+        .slice(start, start + pageSize)
+        .map((row) => (row.kind === "record" ? row.record.id : row.id)),
     );
     return hierarchyRows.filter((row) =>
       row.kind === "group"
@@ -672,33 +725,65 @@ function EntityTableViewInner({
       `${groupId}:${recordId}`;
     const groupStart = new Set<string>();
     const groupEnd = new Set<string>();
-    for (let i = 0; i < pagedHierarchyRows.length; i += 1) {
-      const row = pagedHierarchyRows[i]!;
-      if (row.kind !== "group" || !effectiveExpandedIds.has(row.id)) continue;
-      let start = -1;
-      let end = i;
-      for (let j = i + 1; j < pagedHierarchyRows.length; j += 1) {
-        const next = pagedHierarchyRows[j]!;
-        // Stop at next sibling-or-ancestor group (same or shallower depth).
-        if (next.kind === "group" && next.depth <= row.depth) break;
-        if (next.kind !== "record") continue;
-        if (next.groupId !== row.id) continue;
-        if (start < 0) start = j;
-        end = j;
-      }
-      if (start > i) {
-        const startRow = pagedHierarchyRows[start]!;
-        if (startRow.kind === "record") {
-          groupStart.add(rowKey(startRow.groupId, startRow.record.id));
+
+    if (isSelfHierarchy) {
+      for (let i = 0; i < pagedHierarchyRows.length; i += 1) {
+        const row = pagedHierarchyRows[i]!;
+        if (row.kind !== "record" || row.depth === 0) continue;
+        let hasPrevSibling = false;
+        for (let j = i - 1; j >= 0; j -= 1) {
+          const prev = pagedHierarchyRows[j]!;
+          if (prev.kind !== "record") break;
+          if (prev.depth < row.depth) break;
+          if (prev.depth === row.depth && prev.groupId === row.groupId) {
+            hasPrevSibling = true;
+            break;
+          }
         }
+        let hasNextSibling = false;
+        for (let j = i + 1; j < pagedHierarchyRows.length; j += 1) {
+          const next = pagedHierarchyRows[j]!;
+          if (next.kind !== "record") break;
+          if (next.depth < row.depth) break;
+          if (next.depth === row.depth && next.groupId === row.groupId) {
+            hasNextSibling = true;
+            break;
+          }
+        }
+        const key = rowKey(row.groupId, row.record.id);
+        if (!hasPrevSibling) groupStart.add(key);
+        if (!hasNextSibling) groupEnd.add(key);
       }
-      if (end > i) {
-        const endRow = pagedHierarchyRows[end]!;
-        if (endRow.kind === "record") {
-          groupEnd.add(rowKey(endRow.groupId, endRow.record.id));
+    } else {
+      for (let i = 0; i < pagedHierarchyRows.length; i += 1) {
+        const row = pagedHierarchyRows[i]!;
+        if (row.kind !== "group" || !effectiveExpandedIds.has(row.id)) continue;
+        let start = -1;
+        let end = i;
+        for (let j = i + 1; j < pagedHierarchyRows.length; j += 1) {
+          const next = pagedHierarchyRows[j]!;
+          // Stop at next sibling-or-ancestor group (same or shallower depth).
+          if (next.kind === "group" && next.depth <= row.depth) break;
+          if (next.kind !== "record") continue;
+          if (next.groupId !== row.id) continue;
+          if (start < 0) start = j;
+          end = j;
+        }
+        if (start > i) {
+          const startRow = pagedHierarchyRows[start]!;
+          if (startRow.kind === "record") {
+            groupStart.add(rowKey(startRow.groupId, startRow.record.id));
+          }
+        }
+        if (end > i) {
+          const endRow = pagedHierarchyRows[end]!;
+          if (endRow.kind === "record") {
+            groupEnd.add(rowKey(endRow.groupId, endRow.record.id));
+          }
         }
       }
     }
+
     const meta = new Map<
       string,
       {
@@ -731,12 +816,17 @@ function EntityTableViewInner({
         continue;
       }
       const key = rowKey(row.groupId, row.record.id);
+      const childCount = row.childCount ?? 0;
+      const expanded =
+        isSelfHierarchy && childCount > 0
+          ? effectiveExpandedIds.has(row.record.id)
+          : false;
       meta.set(key, {
         depth: row.depth,
-        hasChildren: false,
-        childCount: 0,
-        expanded: false,
-        inOpenGroup: true,
+        hasChildren: childCount > 0,
+        childCount,
+        expanded,
+        inOpenGroup: isSelfHierarchy ? row.depth > 0 || expanded : true,
         isGroupStart: groupStart.has(key),
         isGroupEnd: groupEnd.has(key),
         isGroup: false,
@@ -745,7 +835,7 @@ function EntityTableViewInner({
       });
     }
     return meta;
-  }, [effectiveExpandedIds, pagedHierarchyRows]);
+  }, [effectiveExpandedIds, isSelfHierarchy, pagedHierarchyRows]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
@@ -795,12 +885,17 @@ function EntityTableViewInner({
             (option) => option.name,
           )
         : undefined;
-    return getEntityTableHeaderMinWidth(column.label, {
+    let width = getEntityTableHeaderMinWidth(column.label, {
       first: index === 0,
       numberLike: isEntityTableDisplayColumnNumeric(column),
       listLabels,
       sortable: true,
     });
+    // Belonging tree: keep the name column wide enough for nested labels.
+    if (index === 0 && (isSelfHierarchy || parentField)) {
+      width = Math.max(width, HIERARCHY_NAME_COL_MIN_WIDTH);
+    }
+    return width;
   });
   const pageIds = pagedRecords.map((record) => record.id);
   const pageSelectedCount = pageIds.filter((id) => selectedSet.has(id)).length;
@@ -838,11 +933,15 @@ function EntityTableViewInner({
     width: `max(100%, ${tableMinWidth}px)`,
     minWidth: tableMinWidth,
   } as const;
-  // Equal share of remaining width for data columns; actions stay fixed.
-  // Absolute px widths used to stretch proportionally to header length
-  // (short «Название» stayed narrow while «Описание» ate empty space).
-  const contentColCount = Math.max(tableColumns.length, 1);
-  const contentColWidth = `calc((100% - ${fixedColsWidth}px) / ${contentColCount})`;
+  // Prefer the name column (esp. with belonging nest) over equal split —
+  // short boolean headers used to steal the same share as «Название».
+  const columnWidthWeights = columnMinWidths.map((width, index) =>
+    index === 0 && (isSelfHierarchy || parentField) ? width * 1.55 : width,
+  );
+  const columnWeightSum = columnWidthWeights.reduce(
+    (sum, weight) => sum + weight,
+    0,
+  );
   const bodyRows = pagedHierarchyRows;
   const isEmpty = bodyRows ? bodyRows.length === 0 : pagedRecords.length === 0;
 
@@ -861,7 +960,7 @@ function EntityTableViewInner({
           <col
             key={column.id}
             style={{
-              width: contentColWidth,
+              width: `calc((100% - ${fixedColsWidth}px) * ${columnWidthWeights[index]} / ${columnWeightSum})`,
               minWidth: columnMinWidths[index],
             }}
           />
@@ -921,7 +1020,7 @@ function EntityTableViewInner({
                   isEmpty && "border-b-0",
                 )}
                 style={{
-                  width: contentColWidth,
+                  width: `calc((100% - ${fixedColsWidth}px) * ${columnWidthWeights[index]} / ${columnWeightSum})`,
                   minWidth: columnMinWidths[index],
                 }}
               >
@@ -1282,6 +1381,7 @@ function EntityTableViewInner({
                                         <HierarchyTreeGuides
                                           isFirst={false}
                                           isLast={!expanded}
+                                          depth={1}
                                         />
                                         {nameCell}
                                       </>
@@ -1322,8 +1422,9 @@ function EntityTableViewInner({
                     const rowSelected = selectedSet.has(record.id);
                     const hierarchyMeta = hierarchyMetaById?.get(rowKey);
                     const hierarchyDepth = hierarchyMeta?.depth ?? 0;
-                    const hierarchyTreeLevel: 1 | 2 =
-                      hierarchyDepth >= 2 ? 2 : 1;
+                    const hierarchyHasChildren =
+                      hierarchyMeta?.hasChildren === true;
+                    const hierarchyExpanded = hierarchyMeta?.expanded === true;
                     const hierarchyInOpenGroup =
                       hierarchyMeta?.inOpenGroup === true;
                     const hierarchyIsGroupStart =
@@ -1332,7 +1433,19 @@ function EntityTableViewInner({
                       hierarchyMeta?.isGroupEnd === true;
                     /** Inset separators so they don't cut through tree guides. */
                     const hierarchySepInset =
-                      hierarchyInOpenGroup && !hierarchyIsGroupEnd;
+                      hierarchyInOpenGroup &&
+                      !hierarchyIsGroupEnd &&
+                      !(isSelfHierarchy && hierarchyExpanded);
+                    const hierarchyPadPx =
+                      hierarchyContentPadPx(hierarchyDepth);
+                    const toggleRecordExpand = () => {
+                      setExpandedHierarchyIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(record.id)) next.delete(record.id);
+                        else next.add(record.id);
+                        return next;
+                      });
+                    };
                     return (
                       <TableRow
                         key={rowKey}
@@ -1443,23 +1556,20 @@ function EntityTableViewInner({
                               key={column.id}
                               className={cn(
                                 "min-w-0 px-3 py-2 text-foreground/90",
-                                index === 0 && hierarchyDepth > 0
+                                index === 0 &&
+                                  (hierarchyDepth > 0 ||
+                                    (isSelfHierarchy && hierarchyHasChildren))
                                   ? "relative overflow-visible font-medium text-foreground"
                                   : "overflow-hidden",
                                 index === 0 && "font-medium text-foreground",
+                                // Keep a clear gap from the left grid line (incl. belonging roots).
                                 index === 0 &&
                                   !massSelection &&
                                   hierarchyDepth === 0 &&
                                   "pl-3.5",
                                 hierarchySepInset &&
-                                  (index === 0 && hierarchyDepth > 0
-                                    ? cn(
-                                        "after:pointer-events-none after:absolute after:right-0 after:bottom-0 after:h-px after:bg-border/50",
-                                        hierarchyTreeLevel === 2
-                                          ? "after:left-[4.5rem]"
-                                          : "after:left-9",
-                                      )
-                                    : "border-b border-border/50"),
+                                  !(index === 0 && hierarchyDepth > 0) &&
+                                  "border-b border-border/50",
                               )}
                               title={
                                 field.type === "list" ||
@@ -1473,221 +1583,288 @@ function EntityTableViewInner({
                               }
                             >
                               {index === 0 && hierarchyDepth > 0 ? (
-                                <HierarchyTreeGuides
-                                  isFirst={hierarchyIsGroupStart}
-                                  isLast={hierarchyIsGroupEnd}
-                                  level={hierarchyTreeLevel}
-                                />
+                                <>
+                                  <HierarchyTreeGuides
+                                    isFirst={hierarchyIsGroupStart}
+                                    isLast={hierarchyIsGroupEnd}
+                                    depth={hierarchyDepth}
+                                  />
+                                  {hierarchySepInset ? (
+                                    <div
+                                      aria-hidden
+                                      className="pointer-events-none absolute right-0 bottom-0 h-px bg-border/50"
+                                      style={{ left: hierarchyPadPx }}
+                                    />
+                                  ) : null}
+                                </>
                               ) : null}
                               <div
                                 className={cn(
                                   "min-w-0",
                                   index === 0 &&
-                                    hierarchyDepth > 0 &&
+                                    (hierarchyDepth > 0 ||
+                                      (isSelfHierarchy &&
+                                        hierarchyHasChildren)) &&
                                     "overflow-hidden",
                                   index === 0 &&
-                                    hierarchyDepth > 0 &&
-                                    (hierarchyTreeLevel === 2
-                                      ? "pl-[4.5rem]"
-                                      : "pl-9"),
+                                    isSelfHierarchy &&
+                                    "flex items-center gap-1.5",
                                 )}
+                                style={
+                                  index === 0 && hierarchyPadPx > 0
+                                    ? { paddingLeft: hierarchyPadPx }
+                                    : undefined
+                                }
                               >
-                                {field.type === "boolean" &&
-                                field.booleanInline ? (
-                                  <div
-                                    className="flex items-center"
-                                    onClick={(event) => event.stopPropagation()}
-                                    onPointerDown={(event) =>
-                                      event.stopPropagation()
+                                {index === 0 &&
+                                isSelfHierarchy &&
+                                hierarchyHasChildren ? (
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "relative z-[1] inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/80 bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground",
+                                      hierarchyExpanded &&
+                                        "border-transparent bg-foreground/5",
+                                    )}
+                                    aria-label={
+                                      hierarchyExpanded
+                                        ? "Свернуть"
+                                        : "Развернуть"
                                     }
+                                    aria-expanded={hierarchyExpanded}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      toggleRecordExpand();
+                                    }}
                                   >
-                                    <Switch
-                                      checked={raw === "true"}
-                                      aria-label={getEntityFieldDisplayName(
-                                        field,
-                                      )}
-                                      onCheckedChange={(checked) => {
-                                        const values = applyEntityFieldValue(
-                                          entity,
-                                          record.values,
-                                          field.id,
-                                          checked ? "true" : "false",
-                                          entities,
-                                        );
-                                        updateEntityRecord(
-                                          entity.id,
-                                          record.id,
-                                          values,
-                                        );
-                                      }}
-                                    />
-                                  </div>
-                                ) : field.type === "list" &&
-                                  listPresentation &&
-                                  !listPresentation.listFixed ? (
-                                  <div
-                                    className="w-full min-w-0"
-                                    onClick={(event) => event.stopPropagation()}
-                                    onPointerDown={(event) =>
-                                      event.stopPropagation()
-                                    }
-                                  >
-                                    {(() => {
-                                      const parentField =
-                                        getEntityListParentField(entity, field);
-                                      const parentValue = parentField
-                                        ? record.values[parentField.id]
-                                        : undefined;
-                                      const visibleOptions =
-                                        getVisibleListOptions(
+                                    {hierarchyExpanded ? (
+                                      <ChevronDown className="size-3" />
+                                    ) : (
+                                      <ChevronRight className="size-3" />
+                                    )}
+                                  </button>
+                                ) : null}
+                                <div
+                                  className={cn(
+                                    "min-w-0",
+                                    index === 0 &&
+                                      isSelfHierarchy &&
+                                      "min-w-0 flex-1 overflow-hidden",
+                                  )}
+                                >
+                                  {field.type === "boolean" &&
+                                  field.booleanInline ? (
+                                    <div
+                                      className="flex items-center"
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                      onPointerDown={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                    >
+                                      <Switch
+                                        checked={raw === "true"}
+                                        aria-label={getEntityFieldDisplayName(
                                           field,
-                                          parentValue,
+                                        )}
+                                        onCheckedChange={(checked) => {
+                                          const values = applyEntityFieldValue(
+                                            entity,
+                                            record.values,
+                                            field.id,
+                                            checked ? "true" : "false",
+                                            entities,
+                                          );
+                                          updateEntityRecord(
+                                            entity.id,
+                                            record.id,
+                                            values,
+                                          );
+                                        }}
+                                      />
+                                    </div>
+                                  ) : field.type === "list" &&
+                                    listPresentation &&
+                                    !listPresentation.listFixed ? (
+                                    <div
+                                      className="w-full min-w-0"
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                      onPointerDown={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                    >
+                                      {(() => {
+                                        const parentField =
+                                          getEntityListParentField(
+                                            entity,
+                                            field,
+                                          );
+                                        const parentValue = parentField
+                                          ? record.values[parentField.id]
+                                          : undefined;
+                                        const visibleOptions =
+                                          getVisibleListOptions(
+                                            field,
+                                            parentValue,
+                                            parentField,
+                                            entities,
+                                          );
+                                        const listDisabled =
+                                          parentField != null &&
+                                          parseEntityListValueIds(parentValue)
+                                            .length === 0;
+                                        return (
+                                          <ListSelect
+                                            size="sm"
+                                            variant="plain"
+                                            options={visibleOptions}
+                                            value={raw ?? ""}
+                                            allowEmpty={!field.required}
+                                            allowOther={
+                                              field.listAllowOther &&
+                                              !listPresentation.listMultiple
+                                            }
+                                            multiple={
+                                              listPresentation.listMultiple
+                                            }
+                                            showColors={
+                                              listPresentation.listUseColors
+                                            }
+                                            disabled={listDisabled}
+                                            aria-label={
+                                              field.name.trim() || "Список"
+                                            }
+                                            onChange={(next) => {
+                                              void requestListChange(
+                                                entity,
+                                                record,
+                                                field,
+                                                next,
+                                              );
+                                            }}
+                                          />
+                                        );
+                                      })()}
+                                    </div>
+                                  ) : field.type === "list" &&
+                                    listPresentation ? (
+                                    <ListValueDisplay
+                                      options={(() => {
+                                        const parentField =
+                                          getEntityListParentField(
+                                            entity,
+                                            field,
+                                          );
+                                        return getVisibleListOptions(
+                                          field,
+                                          parentField
+                                            ? record.values[parentField.id]
+                                            : undefined,
                                           parentField,
                                           entities,
                                         );
-                                      const listDisabled =
-                                        parentField != null &&
-                                        parseEntityListValueIds(parentValue)
-                                          .length === 0;
+                                      })()}
+                                      value={raw}
+                                      multiple={listPresentation.listMultiple}
+                                      showColors={
+                                        listPresentation.listUseColors
+                                      }
+                                    />
+                                  ) : field.type === "relation" &&
+                                    relationIds.length > 0 ? (
+                                    (() => {
+                                      const primaryId = relationIds[0]!;
+                                      const primaryLabel =
+                                        resolveRelationRecordLabel(
+                                          relationTarget,
+                                          primaryId,
+                                        ) ?? "Без названия";
+                                      const extraCount = relationIds.length - 1;
+                                      const fullTitle =
+                                        cellTitle === "—"
+                                          ? undefined
+                                          : cellTitle;
                                       return (
-                                        <ListSelect
-                                          size="sm"
-                                          variant="plain"
-                                          options={visibleOptions}
-                                          value={raw ?? ""}
-                                          allowEmpty={!field.required}
-                                          allowOther={
-                                            field.listAllowOther &&
-                                            !listPresentation.listMultiple
+                                        <div
+                                          className="flex min-w-0 items-center gap-1.5"
+                                          title={fullTitle}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
                                           }
-                                          multiple={
-                                            listPresentation.listMultiple
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
                                           }
-                                          showColors={
-                                            listPresentation.listUseColors
-                                          }
-                                          disabled={listDisabled}
-                                          aria-label={
-                                            field.name.trim() || "Список"
-                                          }
-                                          onChange={(next) => {
-                                            void requestListChange(
-                                              entity,
-                                              record,
-                                              field,
-                                              next,
-                                            );
-                                          }}
-                                        />
+                                        >
+                                          {canOpenRelation ? (
+                                            <button
+                                              type="button"
+                                              className="min-w-0 truncate text-left font-medium text-primary underline-offset-2 hover:underline"
+                                              onClick={() =>
+                                                onOpenRelation(
+                                                  relationTargetId!,
+                                                  primaryId,
+                                                )
+                                              }
+                                            >
+                                              {primaryLabel}
+                                            </button>
+                                          ) : (
+                                            <span className="min-w-0 truncate">
+                                              {primaryLabel}
+                                            </span>
+                                          )}
+                                          {extraCount > 0 ? (
+                                            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none font-semibold text-muted-foreground tabular-nums">
+                                              +{extraCount}
+                                            </span>
+                                          ) : null}
+                                        </div>
                                       );
-                                    })()}
-                                  </div>
-                                ) : field.type === "list" &&
-                                  listPresentation ? (
-                                  <ListValueDisplay
-                                    options={(() => {
-                                      const parentField =
-                                        getEntityListParentField(entity, field);
-                                      return getVisibleListOptions(
-                                        field,
-                                        parentField
-                                          ? record.values[parentField.id]
-                                          : undefined,
-                                        parentField,
-                                        entities,
-                                      );
-                                    })()}
-                                    value={raw}
-                                    multiple={listPresentation.listMultiple}
-                                    showColors={listPresentation.listUseColors}
-                                  />
-                                ) : field.type === "relation" &&
-                                  relationIds.length > 0 ? (
-                                  (() => {
-                                    const primaryId = relationIds[0]!;
-                                    const primaryLabel =
-                                      resolveRelationRecordLabel(
-                                        relationTarget,
-                                        primaryId,
-                                      ) ?? "Без названия";
-                                    const extraCount = relationIds.length - 1;
-                                    const fullTitle =
-                                      cellTitle === "—" ? undefined : cellTitle;
-                                    return (
-                                      <div
-                                        className="flex min-w-0 items-center gap-1.5"
-                                        title={fullTitle}
-                                        onClick={(event) =>
-                                          event.stopPropagation()
-                                        }
-                                        onPointerDown={(event) =>
-                                          event.stopPropagation()
-                                        }
-                                      >
-                                        {canOpenRelation ? (
-                                          <button
-                                            type="button"
-                                            className="min-w-0 truncate text-left font-medium text-primary underline-offset-2 hover:underline"
-                                            onClick={() =>
-                                              onOpenRelation(
-                                                relationTargetId!,
-                                                primaryId,
-                                              )
-                                            }
-                                          >
-                                            {primaryLabel}
-                                          </button>
-                                        ) : (
-                                          <span className="min-w-0 truncate">
-                                            {primaryLabel}
-                                          </span>
-                                        )}
-                                        {extraCount > 0 ? (
-                                          <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none font-semibold text-muted-foreground tabular-nums">
-                                            +{extraCount}
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                    );
-                                  })()
-                                ) : contactHref ? (
-                                  <a
-                                    href={contactHref}
-                                    className="block cursor-default truncate font-medium text-primary underline-offset-2 hover:underline"
-                                    title={cellTitle}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onPointerDown={(event) =>
-                                      event.stopPropagation()
-                                    }
-                                    {...(field.type === "url"
-                                      ? {
-                                          target: "_blank",
-                                          rel: "noopener noreferrer",
-                                        }
-                                      : {})}
-                                  >
-                                    {cellTitle}
-                                  </a>
-                                ) : isRecordValueDecorated(field) ? (
-                                  <RecordValue
-                                    ctx={valueContext}
-                                    entity={entity}
-                                    record={record}
-                                    field={field}
-                                    className="text-[13px]"
-                                  />
-                                ) : fileValue &&
-                                  fileSummary &&
-                                  fileSummary !== "—" ? (
-                                  <EntityTableFileButton
-                                    file={fileValue}
-                                    summary={fileSummary}
-                                  />
-                                ) : (
-                                  <span className="block truncate">
-                                    {cellTitle}
-                                  </span>
-                                )}
+                                    })()
+                                  ) : contactHref ? (
+                                    <a
+                                      href={contactHref}
+                                      className="block cursor-default truncate font-medium text-primary underline-offset-2 hover:underline"
+                                      title={cellTitle}
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                      onPointerDown={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                      {...(field.type === "url"
+                                        ? {
+                                            target: "_blank",
+                                            rel: "noopener noreferrer",
+                                          }
+                                        : {})}
+                                    >
+                                      {cellTitle}
+                                    </a>
+                                  ) : isRecordValueDecorated(field) ? (
+                                    <RecordValue
+                                      ctx={valueContext}
+                                      entity={entity}
+                                      record={record}
+                                      field={field}
+                                      className="text-[13px]"
+                                    />
+                                  ) : fileValue &&
+                                    fileSummary &&
+                                    fileSummary !== "—" ? (
+                                    <EntityTableFileButton
+                                      file={fileValue}
+                                      summary={fileSummary}
+                                    />
+                                  ) : (
+                                    <span className="block truncate">
+                                      {cellTitle}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </TableCell>
                           );
@@ -1702,6 +1879,36 @@ function EntityTableViewInner({
                             className="inline-flex items-center justify-end gap-0"
                             onClick={(event) => event.stopPropagation()}
                           >
+                            {isSelfHierarchy &&
+                            onCreateChildRecord &&
+                            parentField ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="size-7 text-foreground"
+                                aria-label="Добавить дочернюю запись"
+                                title="Добавить дочернюю запись"
+                                onClick={() => {
+                                  setExpandedHierarchyIds((prev) => {
+                                    const next = new Set(prev);
+                                    next.add(record.id);
+                                    return next;
+                                  });
+                                  onCreateChildRecord(record.id);
+                                }}
+                              >
+                                <Plus className="size-3.5" />
+                              </Button>
+                            ) : null}
+                            {hierarchyHasChildren && isSelfHierarchy ? (
+                              <span
+                                className="px-0.5 text-[11px] font-medium tabular-nums text-muted-foreground"
+                                title="Дочерних записей"
+                              >
+                                {hierarchyMeta?.childCount ?? 0}
+                              </span>
+                            ) : null}
                             {onEditRecord ? (
                               <Button
                                 type="button"

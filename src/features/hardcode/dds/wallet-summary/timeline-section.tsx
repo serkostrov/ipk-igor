@@ -10,6 +10,7 @@ import {
 } from "@/entities/entity";
 import { fromDayNumber } from "@/shared/lib/business-days";
 import { cn } from "@/shared/lib/cn";
+import { WALLET_PARTS, WALLET_PART_LABELS } from "../wallet-parts";
 import {
   buildDdsWalletSummaryRows,
   resolveDdsWalletSummarySetup,
@@ -98,6 +99,18 @@ export function DdsWalletTimelineSection({
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const [collapsed, setCollapsed] = useState(false);
+  const [expandedWallets, setExpandedWallets] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  function toggleWalletExpanded(walletKey: string) {
+    setExpandedWallets((prev) => {
+      const next = new Set(prev);
+      if (next.has(walletKey)) next.delete(walletKey);
+      else next.add(walletKey);
+      return next;
+    });
+  }
 
   const setup = useMemo(
     () => resolveDdsWalletSummarySetup(entity, entities),
@@ -178,6 +191,19 @@ export function DdsWalletTimelineSection({
     }
     return totals;
   }, [columns, walletRows]);
+
+  const stubByColumn = useMemo(() => {
+    const byColumn: Record<string, WalletColumnCashFlow> = {};
+    for (const column of columns) {
+      byColumn[column.key] = {
+        opening: 0,
+        income: 0,
+        expense: 0,
+        closing: 0,
+      };
+    }
+    return byColumn;
+  }, [columns]);
 
   if (!setup || walletRows.length === 0) return null;
 
@@ -316,15 +342,37 @@ export function DdsWalletTimelineSection({
       )}
       {collapsed
         ? null
-        : walletRows.map((row) =>
-            renderAmountRow(
-              `hardcode-dds-wallet-${row.key}`,
-              row.label,
-              1,
-              row.byColumn,
-              "opening",
-            ),
-          )}
+        : walletRows.flatMap((row) => {
+            const isWalletCollapsed = !expandedWallets.has(row.key);
+            const rows = [
+              renderAmountRow(
+                `hardcode-dds-wallet-${row.key}`,
+                row.label,
+                1,
+                row.byColumn,
+                "opening",
+                {
+                  expandable: true,
+                  collapsed: isWalletCollapsed,
+                  onToggle: () => toggleWalletExpanded(row.key),
+                },
+              ),
+            ];
+            if (!isWalletCollapsed) {
+              for (const part of WALLET_PARTS) {
+                rows.push(
+                  renderAmountRow(
+                    `hardcode-dds-wallet-${row.key}:${part}`,
+                    WALLET_PART_LABELS[part],
+                    2,
+                    stubByColumn,
+                    "opening",
+                  ),
+                );
+              }
+            }
+            return rows;
+          })}
     </>
   );
 }

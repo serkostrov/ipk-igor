@@ -23,6 +23,7 @@ import {
   isEntityNameField,
   isEntityFieldVisibleOnRecord,
   isEntityTableDisplayColumnNumeric,
+  isEntityTableSelfHierarchyField,
   isRecordValueDecorated,
   ListValueDisplay,
   normalizeEntityRecordColumns,
@@ -112,6 +113,7 @@ function CreateAskFieldCell({
   indentLevel = 1,
   isGroupStart = false,
   isGroupEnd = false,
+  leading = null,
 }: {
   entity: Entity;
   record: EntityRecord;
@@ -119,10 +121,15 @@ function CreateAskFieldCell({
   entities: Entity[];
   ctx: EntityValueContext;
   indent?: boolean;
-  indentLevel?: 1 | 2;
+  /** Nesting depth for tree guides (1 = under root, 2+ = deeper). */
+  indentLevel?: number;
   isGroupStart?: boolean;
   isGroupEnd?: boolean;
+  leading?: ReactNode;
 }) {
+  const guideLevel = Math.max(1, indentLevel);
+  const guideLeftPx = 11 + (guideLevel - 1) * 24;
+  const contentPadPx = 20 + (guideLevel - 1) * 24;
   const field =
     resolveEntityTableDisplayColumnField(ctx, entity, record, column) ??
     column.fields[0];
@@ -166,7 +173,7 @@ function CreateAskFieldCell({
     <TableCell
       className={cn(
         "relative min-w-0 overflow-hidden px-3 py-2 text-foreground/90",
-        indent && "pl-3.5",
+        (indent || leading) && "pl-3.5",
       )}
       title={display === "—" ? undefined : display}
     >
@@ -174,19 +181,27 @@ function CreateAskFieldCell({
         <TreeBranchGuides
           isFirst={isGroupStart}
           isLast={isGroupEnd}
-          className={indentLevel === 2 ? "left-[35px]" : "left-[11px]"}
+          leftPx={guideLeftPx}
           armClassName="w-3"
           elbowTopPx={18}
         />
       ) : null}
-      <div
-        className={cn(
-          indent && "relative",
-          indent && (indentLevel === 2 ? "pl-11" : "pl-5"),
-        )}
-      >
-        {value}
-      </div>
+      {leading ? (
+        <div
+          className="flex min-w-0 items-center gap-1.5"
+          style={indent ? { paddingLeft: contentPadPx } : undefined}
+        >
+          {leading}
+          <div className="min-w-0 flex-1">{value}</div>
+        </div>
+      ) : (
+        <div
+          className={cn(indent && "relative")}
+          style={indent ? { paddingLeft: contentPadPx } : undefined}
+        >
+          {value}
+        </div>
+      )}
     </TableCell>
   );
 }
@@ -212,6 +227,11 @@ function CreateAskDraftsTable({
 }) {
   const parentField = resolveEntityTableParentField(entity);
   const subgroupField = resolveEntityTableSubgroupField(entity);
+  const isSelfHierarchy = Boolean(
+    parentField &&
+    !subgroupField &&
+    isEntityTableSelfHierarchyField(parentField, entity.id),
+  );
   const hierarchyHide = useMemo(() => {
     const ids = new Set(hideFieldIds);
     if (parentField) ids.add(parentField.id);
@@ -228,12 +248,28 @@ function CreateAskDraftsTable({
 
   const hierarchyGroupIds = useMemo(() => {
     if (!parentField) return [] as string[];
+    if (isSelfHierarchy) {
+      const fullyExpanded = new Set(records.map((record) => record.id));
+      return flattenEntityTableHierarchyRows(
+        records,
+        parentField,
+        fullyExpanded,
+        entities,
+        subgroupField,
+        entity.id,
+      ).flatMap((row) =>
+        row.kind === "record" && (row.childCount ?? 0) > 0
+          ? [row.record.id]
+          : [],
+      );
+    }
     const rootIds = flattenEntityTableHierarchyRows(
       records,
       parentField,
       new Set(),
       entities,
       subgroupField,
+      entity.id,
     ).flatMap((row) =>
       row.kind === "group" && row.depth === 0 ? [row.id] : [],
     );
@@ -243,8 +279,16 @@ function CreateAskDraftsTable({
       new Set(rootIds),
       entities,
       subgroupField,
+      entity.id,
     ).flatMap((row) => (row.kind === "group" ? [row.id] : []));
-  }, [entities, parentField, records, subgroupField]);
+  }, [
+    entities,
+    entity.id,
+    isSelfHierarchy,
+    parentField,
+    records,
+    subgroupField,
+  ]);
 
   const effectiveExpandedIds = useMemo(
     () => expandedIds ?? new Set(hierarchyGroupIds),
@@ -259,8 +303,16 @@ function CreateAskDraftsTable({
       effectiveExpandedIds,
       entities,
       subgroupField,
+      entity.id,
     );
-  }, [effectiveExpandedIds, entities, parentField, records, subgroupField]);
+  }, [
+    effectiveExpandedIds,
+    entities,
+    entity.id,
+    parentField,
+    records,
+    subgroupField,
+  ]);
 
   const bodyRows =
     hierarchyRows ??
@@ -276,25 +328,62 @@ function CreateAskDraftsTable({
     if (!hierarchyRows) return null;
     const meta = new Map<
       string,
-      { isGroupStart: boolean; isGroupEnd: boolean; depth: number }
+      {
+        isGroupStart: boolean;
+        isGroupEnd: boolean;
+        depth: number;
+        childCount: number;
+        expanded: boolean;
+      }
     >();
     for (let i = 0; i < hierarchyRows.length; i += 1) {
       const row = hierarchyRows[i];
       if (!row || row.kind !== "record") continue;
-      const prev = hierarchyRows[i - 1];
-      const next = hierarchyRows[i + 1];
-      const prevSame =
-        prev?.kind === "record" ? prev.groupId === row.groupId : false;
-      const nextSame =
-        next?.kind === "record" ? next.groupId === row.groupId : false;
+      let isGroupStart = true;
+      let isGroupEnd = true;
+      if (isSelfHierarchy && row.depth > 0) {
+        for (let j = i - 1; j >= 0; j -= 1) {
+          const prev = hierarchyRows[j]!;
+          if (prev.kind !== "record") break;
+          if (prev.depth < row.depth) break;
+          if (prev.depth === row.depth && prev.groupId === row.groupId) {
+            isGroupStart = false;
+            break;
+          }
+        }
+        for (let j = i + 1; j < hierarchyRows.length; j += 1) {
+          const next = hierarchyRows[j]!;
+          if (next.kind !== "record") break;
+          if (next.depth < row.depth) break;
+          if (next.depth === row.depth && next.groupId === row.groupId) {
+            isGroupEnd = false;
+            break;
+          }
+        }
+      } else {
+        const prev = hierarchyRows[i - 1];
+        const next = hierarchyRows[i + 1];
+        const prevSame =
+          prev?.kind === "record" ? prev.groupId === row.groupId : false;
+        const nextSame =
+          next?.kind === "record" ? next.groupId === row.groupId : false;
+        isGroupStart = !prevSame;
+        isGroupEnd = !nextSame;
+      }
+      const childCount = row.childCount ?? 0;
       meta.set(`${row.groupId}:${row.record.id}`, {
-        isGroupStart: !prevSame,
-        isGroupEnd: !nextSame,
+        isGroupStart,
+        isGroupEnd,
         depth: row.depth,
+        childCount,
+        expanded:
+          isSelfHierarchy && childCount > 0
+            ? effectiveExpandedIds.has(row.record.id)
+            : false,
       });
     }
     return meta;
-  }, [hierarchyRows]);
+  }, [effectiveExpandedIds, hierarchyRows, isSelfHierarchy]);
 
   const columnMinWidths = columns.map((column, index) => {
     const primary = column.fields[0];
@@ -461,9 +550,44 @@ function CreateAskDraftsTable({
             const record = row.record;
             const rowKey = `${row.groupId}:${record.id}`;
             const meta = recordMeta?.get(rowKey);
-            const indented = Boolean(parentField);
-            const indentLevel: 1 | 2 =
-              meta?.depth === 2 || row.depth === 2 ? 2 : 1;
+            const recordDepth = meta?.depth ?? row.depth;
+            const childCount = meta?.childCount ?? 0;
+            const recordExpanded = meta?.expanded === true;
+            const indented =
+              Boolean(parentField) &&
+              (isSelfHierarchy ? recordDepth > 0 : true);
+            const indentLevel = isSelfHierarchy
+              ? Math.max(1, recordDepth)
+              : recordDepth >= 2
+                ? 2
+                : 1;
+            const expandLeading =
+              isSelfHierarchy && childCount > 0 ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "relative z-[1] inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                    recordExpanded && "bg-muted text-foreground",
+                  )}
+                  aria-label={recordExpanded ? "Свернуть" : "Развернуть"}
+                  aria-expanded={recordExpanded}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setExpandedIds((prev) => {
+                      const next = new Set(prev ?? effectiveExpandedIds);
+                      if (recordExpanded) next.delete(record.id);
+                      else next.add(record.id);
+                      return next;
+                    });
+                  }}
+                >
+                  {recordExpanded ? (
+                    <ChevronDown className="size-3.5" />
+                  ) : (
+                    <ChevronRight className="size-3.5" />
+                  )}
+                </button>
+              ) : null;
 
             return (
               <TableRow
@@ -486,6 +610,7 @@ function CreateAskDraftsTable({
                     indentLevel={indentLevel}
                     isGroupStart={meta?.isGroupStart}
                     isGroupEnd={meta?.isGroupEnd}
+                    leading={index === 0 ? expandLeading : null}
                   />
                 ))}
                 <TableCell className="w-24 min-w-24 max-w-24 px-2 py-1.5 text-right">

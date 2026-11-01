@@ -251,8 +251,8 @@ export type EntityTableHierarchyGroupRow = {
   id: string;
   label: string;
   childCount: number;
-  /** 0 — root group; 1 — subgroup inside a root group. */
-  depth: 0 | 1;
+  /** 0 — root group; 1+ — nested subgroup / belonging depth. */
+  depth: number;
   /** For subgroups: id of the root group. */
   parentGroupId?: string;
   /**
@@ -265,16 +265,41 @@ export type EntityTableHierarchyGroupRow = {
 export type EntityTableHierarchyRecordRow = {
   kind: "record";
   record: EntityRecord;
-  /** Immediate parent group/subgroup row id (for expand / tree guides). */
+  /** Immediate parent group/subgroup/record id (for expand / tree guides). */
   groupId: string;
-  /** Root group id (for pagination when subgroups are used). */
+  /** Root group / forest root id (for pagination). */
   rootGroupId: string;
-  /** 1 — under a root group; 2 — under a subgroup. */
-  depth: 1 | 2;
+  /**
+   * Group-by: 1 under root / 2 under subgroup.
+   * Belonging forest: 0 = root record, 1+ = nested child.
+   */
+  depth: number;
+  /** Direct children count (belonging forest); omitted in group-by mode. */
+  childCount?: number;
 };
 
 export type EntityTableHierarchyRow =
   EntityTableHierarchyGroupRow | EntityTableHierarchyRecordRow;
+
+/**
+ * Belonging or single relation targeting the same entity — record forest tree,
+ * not flat group-by with «Без значения».
+ */
+export function isEntityTableSelfHierarchyField(
+  field: EntityField,
+  hostEntityId: string,
+): boolean {
+  const hostId = hostEntityId.trim();
+  if (!hostId) return false;
+  if (field.type === "belonging") {
+    const targetId = getEntityRelationTargetId(field);
+    return !targetId || targetId === hostId;
+  }
+  if (field.type === "relation" && !field.relationMultiple) {
+    return getEntityRelationTargetId(field) === hostId;
+  }
+  return false;
+}
 
 function resolveHierarchyGroupLabels(
   parentField: EntityField,
@@ -406,12 +431,70 @@ function hierarchyGroupLabel(id: string, labels: Map<string, string>): string {
 }
 
 /**
+ * Record forest for belonging / self-relation: empty parent → root rows
+ * (no «Без значения» folder); children nest recursively under the parent record.
+ */
+export function flattenEntityTableBelongingTreeRows(
+  records: readonly EntityRecord[],
+  parentField: EntityField,
+  expandedIds: ReadonlySet<string>,
+): EntityTableHierarchyRow[] {
+  const idSet = new Set(records.map((record) => record.id));
+  const parentIdOf = new Map<string, string>();
+  const childrenOf = new Map<string, EntityRecord[]>();
+
+  for (const record of records) {
+    const parentId = parseEntityTableParentId(record.values[parentField.id]);
+    parentIdOf.set(record.id, parentId);
+    if (!parentId || !idSet.has(parentId)) continue;
+    const list = childrenOf.get(parentId) ?? [];
+    list.push(record);
+    childrenOf.set(parentId, list);
+  }
+
+  const roots = records.filter((record) => {
+    const parentId = parentIdOf.get(record.id) ?? "";
+    return !parentId || !idSet.has(parentId);
+  });
+
+  const rows: EntityTableHierarchyRow[] = [];
+  const visited = new Set<string>();
+
+  function emit(
+    record: EntityRecord,
+    depth: number,
+    groupId: string,
+    rootGroupId: string,
+  ) {
+    if (visited.has(record.id)) return;
+    visited.add(record.id);
+    const children = childrenOf.get(record.id) ?? [];
+    rows.push({
+      kind: "record",
+      record,
+      groupId,
+      rootGroupId,
+      depth,
+      childCount: children.length,
+    });
+    if (children.length === 0 || !expandedIds.has(record.id)) return;
+    for (const child of children) {
+      emit(child, depth + 1, record.id, rootGroupId);
+    }
+  }
+
+  for (const root of roots) {
+    emit(root, 0, ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID, root.id);
+  }
+  return rows;
+}
+
+/**
  * Flat group → [subgroup →] records rows for a hierarchy table.
  * Groups follow option / related-record order; empty value is last when present.
  *
- * When the parent field points at records of this same table (belonging /
- * self-relation), a parent is already the group header — do not also list it
- * under «Без значения».
+ * Belonging / self-relation (no subgroup): record forest via
+ * `flattenEntityTableBelongingTreeRows` — roots without parent, multi-level nest.
  *
  * For `relationGroups`, a record with several roots appears under each root.
  * With `subgroupField`, each root expands into subgroup headers, then records.
@@ -422,7 +505,22 @@ export function flattenEntityTableHierarchyRows(
   expandedIds: ReadonlySet<string>,
   entities: readonly Entity[] = [],
   subgroupField: EntityField | null = null,
+  hostEntityId: string | null = null,
 ): EntityTableHierarchyRow[] {
+  const hostId =
+    hostEntityId?.trim() || getEntityRelationTargetId(parentField) || "";
+  if (
+    hostId &&
+    isEntityTableSelfHierarchyField(parentField, hostId) &&
+    !subgroupField
+  ) {
+    return flattenEntityTableBelongingTreeRows(
+      records,
+      parentField,
+      expandedIds,
+    );
+  }
+
   const labels = resolveHierarchyGroupLabels(parentField, entities);
   const byGroup = groupRecordsByHierarchyField(records, parentField);
   omitSelfParentsFromEmptyGroup(byGroup, records);

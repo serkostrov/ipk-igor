@@ -8,7 +8,10 @@ export const ENTITY_TABLE_SELECT_WIDTH = 44;
 const ENTITY_TABLE_NUMBER_MIN_WIDTH = 112;
 
 /** Chip padding (px-1.5×2) + cell padding allowance for list labels. */
-const ENTITY_TABLE_LIST_CHIP_PAD = 28;
+const ENTITY_TABLE_LIST_CHIP_PAD = 36;
+
+/** Soft cap so list columns don't steal the name column. */
+const ENTITY_TABLE_LIST_COL_MAX = 200;
 
 /** Sort chevron + gap in the header button. */
 const ENTITY_TABLE_SORT_ICON_WIDTH = 18;
@@ -49,7 +52,7 @@ export function getEntityTableHeaderMinWidth(
     }
     // text-xs chip label (~7px/char for Cyrillic) + chip/cell padding
     const fromList = ENTITY_TABLE_LIST_CHIP_PAD + Math.ceil(longest * 7);
-    width = Math.max(width, Math.min(fromList, 280));
+    width = Math.max(width, Math.min(fromList, ENTITY_TABLE_LIST_COL_MAX));
   }
 
   return width;
