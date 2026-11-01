@@ -269,8 +269,9 @@ function EntityRecordForm({
       }),
     [valueContext, entity, values, draftRecordId],
   );
+  // Soft-fill must win over empty "" so sibling formulas stay visible until typed.
   const displayValues = useMemo(
-    () => ({ ...formulaSoftFill, ...values }),
+    () => ({ ...values, ...formulaSoftFill }),
     [formulaSoftFill, values],
   );
   const draftRecord = useMemo(
@@ -301,7 +302,8 @@ function EntityRecordForm({
       displayValues,
       valueContext,
       draftRecordId,
-    ) && (!needsPassword || password.length >= 6);
+    ) &&
+    (!needsPassword || password.length >= 6);
   const nameField = useMemo(
     () => visibleFields.find((field) => isEntityNameField(field)) ?? null,
     [visibleFields],
@@ -541,8 +543,8 @@ function EntityRecordForm({
                 currentUserRecordId,
               ),
               ...normalizeRecordValues(editableFields, {
-                ...formulaSoftFill,
                 ...values,
+                ...formulaSoftFill,
               }),
             };
             const meta: EntityRecordSubmitMeta = needsPassword

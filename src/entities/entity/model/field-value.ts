@@ -577,6 +577,13 @@ export function computeAllowManualFormulaSoftFill(input: {
               : 0
             : null;
       if (numeric == null || !Number.isFinite(numeric)) continue;
+      // Empty operands coerce to 0 in evaluateFormula — do not soft-fill that.
+      if (
+        numeric === 0 &&
+        isFormulaAutoSourceEmpty(roundCtx, input.entity, draft, field)
+      ) {
+        continue;
+      }
       const next = formatNumberForSoftFill(numeric, field.formula?.decimals);
       if ((working[field.id] ?? "") === next) continue;
       working[field.id] = next;

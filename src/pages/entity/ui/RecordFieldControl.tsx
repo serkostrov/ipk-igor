@@ -228,6 +228,7 @@ export function RecordFieldControl({
   required: requiredOverride,
   relationGroupsMode = "full",
   softFillParent = null,
+  emptyNumberPlaceholder = false,
 }: {
   /** Preview context: computed values follow the unsaved `values`. */
   ctx: EntityValueContext;
@@ -254,6 +255,8 @@ export function RecordFieldControl({
   recordId: string;
   /** Overrides `field.required` (e.g. required by the chosen status). */
   required?: boolean;
+  /** Soft-fill formula/manual: no grey `0,00` when the value is still empty. */
+  emptyNumberPlaceholder?: boolean;
 }) {
   const id = `record-${field.id}`;
   const label = getEntityFieldDisplayName(field);
@@ -307,6 +310,10 @@ export function RecordFieldControl({
       : null;
 
     if (manualEditField) {
+      const softManualNumber =
+        field.type === "formula" ||
+        field.type === "rollup" ||
+        field.type === "numberSum";
       return (
         <RecordFieldControl
           ctx={ctx}
@@ -335,6 +342,7 @@ export function RecordFieldControl({
           softFillParent={softFillParent}
           recordId={recordId}
           required={required}
+          emptyNumberPlaceholder={softManualNumber}
         />
       );
     }
@@ -696,7 +704,11 @@ export function RecordFieldControl({
             type="text"
             inputMode="decimal"
             value={value}
-            placeholder={hint || entityNumberInputPlaceholder(field.decimals)}
+            placeholder={
+              emptyNumberPlaceholder
+                ? hint
+                : hint || entityNumberInputPlaceholder(field.decimals)
+            }
             style={unit ? { paddingRight: `${unitPadCh}ch` } : undefined}
             onChange={(event) =>
               onChange(
