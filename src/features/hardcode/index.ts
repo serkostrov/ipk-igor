@@ -141,8 +141,15 @@ export {
   TkpReviewHardcodeSlot,
   type TkpReviewHardcodeSection,
 } from "./tkp-review/ui/TkpReviewHardcodeSlot";
+export { TkpGipExecutionDurationAsk } from "./tkp-review/ui/TkpGipExecutionDurationAsk";
+export { isTkpGipFillAutomationTask } from "./tkp-review/lib/assert-gip-execution-duration";
+export {
+  readTkpGipExecutionDurationDays,
+  writeTkpGipExecutionDurationPatch,
+} from "./tkp-review/model/match-related";
 export {
   isTkpDepartmentHeadRole,
+  isTkpGipRole,
   resolveTkpReviewCostVisibility,
 } from "./tkp-review/model/visibility";
 export type { TkpReviewCostVisibility } from "./tkp-review/model/visibility";

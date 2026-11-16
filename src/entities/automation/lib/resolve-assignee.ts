@@ -21,6 +21,7 @@ import {
   isDeptCalculationsEntity,
   isEntityRelationLikeFieldType,
   isTkpAnalysisEntity,
+  parseEntityListValueIds,
   parseEntityRelationGroups,
   parseEntityRelationIds,
   resolveTkpGipAssigneeUserIds,
@@ -336,8 +337,9 @@ function resolveLeaf(
       return users.records
         .filter(
           (record) =>
-            (record.values[SYSTEM_USERS_FIELD_ROLE_ID] ?? "").trim() ===
-            resolver.roleId,
+            parseEntityListValueIds(
+              record.values[SYSTEM_USERS_FIELD_ROLE_ID],
+            )[0] === resolver.roleId,
         )
         .map((record) => record.id);
     }

@@ -17,6 +17,7 @@ import {
   notifyRecordMentions,
   parseEntityListValueIds,
   parseEntityTabRecordEntries,
+  resolveEntityListFieldOptions,
   serializeEntityTabRecordEntries,
   setEntityRecordValuesLocal,
   updateEntityRecord,
@@ -40,13 +41,20 @@ import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
 import {
   getOutcomeStageOptionId,
+  isAffirmativeDecisionOutcome,
+  nextProcessStageOptionId,
   normalizeProcessStageOptionId,
   outcomeChangesProcessStage,
   processStageOptionIdsMatch,
 } from "./outcome-stage-action";
 import { pickAutomationOutcome } from "./pick-outcome";
 import { runBeforeAutomationTaskCompleteHook } from "./hardcode-hooks";
+import { mirrorFileFieldsToFilesTab } from "./mirror-file-fields-to-tab";
 import { assertAutomationUploadRequired } from "./upload-required";
+import {
+  resolveEffectiveUploadTarget,
+  setAutomationUploadTarget,
+} from "./upload-target";
 import {
   emptyAutomationOutcomeFieldAccess,
   isAutomationSilentTaskKind,
@@ -558,8 +566,48 @@ export async function completeAutomationTask(
   const valuesBefore = record?.values ?? {};
   const valuesForForm = { ...valuesBefore, ...formValues };
 
+  // Legacy «файл результата» fields → Files tab before the required check.
+  if (entity && record) {
+    try {
+      await mirrorFileFieldsToFilesTab({
+        entity,
+        record,
+        values: valuesForForm,
+        materials: task.config.materials,
+        target: resolveEffectiveUploadTarget({
+          materials: task.config.materials,
+          requireAttachment:
+            task.config.fieldAccess?.requireAttachment === true ||
+            outcome.fieldAccess.requireAttachment === true,
+          entity,
+        }),
+      });
+    } catch (error: unknown) {
+      console.error(
+        "[automation] mirror file fields to files tab failed",
+        error,
+      );
+    }
+  }
+
   // Required file upload from template materials («Обязательно для завершения»).
-  assertAutomationUploadRequired(task.config.materials, entity, record);
+  const uploadTarget = resolveEffectiveUploadTarget({
+    materials: task.config.materials,
+    requireAttachment:
+      task.config.fieldAccess?.requireAttachment === true ||
+      outcome.fieldAccess.requireAttachment === true,
+    entity,
+  });
+  if (uploadTarget?.required) {
+    assertAutomationUploadRequired(
+      setAutomationUploadTarget(task.config.materials ?? [], uploadTarget),
+      entity,
+      // Re-read after mirror so freshly copied files count.
+      entity?.records.find((item) => item.id === task.recordId) ?? record,
+    );
+  } else {
+    assertAutomationUploadRequired(task.config.materials, entity, record);
+  }
 
   // Product hardcode gates (e.g. GIP «Общий срок расчёта»).
   runBeforeAutomationTaskCompleteHook({
@@ -815,13 +863,12 @@ export async function completeAutomationTask(
   // column and the «ТОГДА» gateway keeps blocking manual moves.
   // Skip if SQL already landed (avoids a second fieldEnter / duplicate spawn).
   const launchPhase = task.config.launchPhase ?? "onEnter";
+  const hasExplicitStage = outcome.actions.some(
+    (action) => action.kind === "setField" && action.fieldId === triggerFieldId,
+  );
   if (launchPhase === "beforeEnter") {
     const destination = normalizeProcessStageOptionId(
       task.config.triggerOptionId?.trim() ?? "",
-    );
-    const hasExplicitStage = outcome.actions.some(
-      (action) =>
-        action.kind === "setField" && action.fieldId === triggerFieldId,
     );
     const currentStageId =
       parseEntityListValueIds(patchedValues[triggerFieldId] ?? "")[0] ??
@@ -844,6 +891,38 @@ export async function completeAutomationTask(
         });
       } catch (error: unknown) {
         console.error("[automation] beforeEnter stage advance failed", error);
+      }
+    }
+  }
+
+  // Decision «Да» without «Перейти на стадию» — advance to the next process
+  // stage so the BP does not stay stuck on the approval column.
+  if (
+    entity &&
+    triggerFieldId &&
+    launchPhase === "onEnter" &&
+    task.config.kind === "decision" &&
+    !hasExplicitStage &&
+    isAffirmativeDecisionOutcome(outcome)
+  ) {
+    const stageField = entity.fields.find((item) => item.id === triggerFieldId);
+    if (stageField?.type === "list") {
+      const currentStageId =
+        parseEntityListValueIds(patchedValues[triggerFieldId] ?? "")[0] ??
+        normalizeProcessStageOptionId(task.triggerOptionId ?? "");
+      const nextStageId = nextProcessStageOptionId(
+        resolveEntityListFieldOptions(stageField, entities),
+        currentStageId,
+      );
+      if (nextStageId) {
+        patchedValues[triggerFieldId] = nextStageId;
+        try {
+          await updateEntityRecord(entity.id, task.recordId, {
+            [triggerFieldId]: nextStageId,
+          });
+        } catch (error: unknown) {
+          console.error("[automation] decision stage advance failed", error);
+        }
       }
     }
   }

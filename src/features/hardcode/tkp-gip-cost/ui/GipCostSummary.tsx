@@ -59,13 +59,16 @@ export function GipCostSummary({
   executionDurationDays,
   canEditExecutionDuration = false,
   onSaveExecutionDuration,
+  /** When duration is pinned in the task form, hide the footer duplicate. */
+  hideExecutionDuration = false,
 }: {
   calculation: ReviewGipCostCalculation;
   executionDurationDays?: number | null;
   canEditExecutionDuration?: boolean;
   onSaveExecutionDuration?: (days: number) => Promise<void>;
+  hideExecutionDuration?: boolean;
 }) {
-  const durationControl = (
+  const durationControl = hideExecutionDuration ? null : (
     <GipExecutionDurationControl
       key={String(executionDurationDays ?? "")}
       executionDurationDays={executionDurationDays ?? null}
@@ -330,21 +333,27 @@ function SummaryShell({
         {children}
       </div>
 
-      <footer className="border-t border-border/70 bg-muted/25 px-4 py-3 sm:px-5">
-        {durationControl}
-      </footer>
+      {durationControl ? (
+        <footer className="border-t border-border/70 bg-muted/25 px-4 py-3 sm:px-5">
+          {durationControl}
+        </footer>
+      ) : null}
     </section>
   );
 }
 
-function GipExecutionDurationControl({
+/** Standalone «Общий срок расчёта» control (task ask + GIP summary footer). */
+export function GipExecutionDurationControl({
   executionDurationDays,
   canEdit,
   onSave,
+  required = false,
 }: {
   executionDurationDays: number | null;
   canEdit: boolean;
   onSave?: (days: number) => Promise<void>;
+  /** Mark as required for task completion (amber empty state). */
+  required?: boolean;
 }) {
   const [value, setValue] = useState(executionDurationDays?.toString() ?? "");
   const [saving, setSaving] = useState(false);
@@ -375,7 +384,7 @@ function GipExecutionDurationControl({
     executionDurationDays != null &&
     Number.isFinite(executionDurationDays) &&
     executionDurationDays > 0;
-  const highlightEmpty = canEdit && !filled;
+  const highlightEmpty = (canEdit || required) && !filled;
 
   return (
     <div

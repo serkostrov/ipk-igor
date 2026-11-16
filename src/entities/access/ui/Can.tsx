@@ -3,8 +3,11 @@ import {
   canAccessAutomationTasks,
   canDeleteAutomationTasks,
   canAccessHistory,
+  canAccessMessenger,
+  canAccessNewsFeed,
   canAccessNotifications,
   canAccessSettings,
+  canCreateNewsPosts,
   canEntity,
   canField,
   canInviteUsers,
@@ -69,6 +72,21 @@ export function CanAccessNotifications({
 }: CanProps) {
   const role = useCurrentRole();
   return canAccessNotifications(role) ? <>{children}</> : <>{fallback}</>;
+}
+
+export function CanAccessMessenger({ children, fallback = null }: CanProps) {
+  const role = useCurrentRole();
+  return canAccessMessenger(role) ? <>{children}</> : <>{fallback}</>;
+}
+
+export function CanAccessNewsFeed({ children, fallback = null }: CanProps) {
+  const role = useCurrentRole();
+  return canAccessNewsFeed(role) ? <>{children}</> : <>{fallback}</>;
+}
+
+export function CanCreateNewsPosts({ children, fallback = null }: CanProps) {
+  const role = useCurrentRole();
+  return canCreateNewsPosts(role) ? <>{children}</> : <>{fallback}</>;
 }
 
 export function CanEntity({

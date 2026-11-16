@@ -13,6 +13,8 @@ import {
   DEFAULT_MENU_GROUP_ICON,
   DEFAULT_MENU_ITEM_ICON,
   AUTOMATION_TASKS_ITEM_ID,
+  CHATS_ITEM_ID,
+  FEED_ITEM_ID,
   HISTORY_ITEM_ID,
   OPIU_ITEM_ID,
   FINANCE_DASHBOARDS_ITEM_ID,
@@ -154,6 +156,8 @@ const SYSTEM_PAGE_ITEMS: MenuItem[] = [
     icon: "kanban",
   },
   { id: NOTIFICATIONS_ITEM_ID, label: "Уведомления", icon: "bell" },
+  { id: CHATS_ITEM_ID, label: "Чаты", icon: "message-circle" },
+  { id: FEED_ITEM_ID, label: "Лента", icon: "newspaper" },
   { id: OPIU_ITEM_ID, label: "ОПиУ", icon: "calculator" },
   { id: FINANCE_DASHBOARDS_ITEM_ID, label: "Дашборды", icon: "layout" },
 ];

@@ -6,6 +6,8 @@ const SETTINGS_ID = "settings";
 const HISTORY_ID = "history";
 const TASKS_ID = "automation-tasks";
 const NOTIFICATIONS_ID = "notifications";
+const FEED_ID = "feed";
+const CHATS_ID = "chats";
 const OPIU_ID = "opiu";
 const FINANCE_DASHBOARDS_ID = "finance-dashboards";
 const ENTITY_PREFIX = "entity-";
@@ -46,6 +48,9 @@ export type AppLocation =
   | { type: "tasks" }
   | { type: "task"; taskId: string }
   | { type: "notifications" }
+  | { type: "feed" }
+  | { type: "feed-post"; postId: string }
+  | { type: "chats" }
   | { type: "opiu" }
   | { type: "finance-dashboards" }
   | { type: "entity"; entityId: string; view?: EntityBrowsePathView }
@@ -77,6 +82,12 @@ export function toPath(location: AppLocation): string {
       return `/tasks/${encodeURIComponent(location.taskId)}`;
     case "notifications":
       return "/notifications";
+    case "feed":
+      return "/feed";
+    case "feed-post":
+      return `/feed/${encodeURIComponent(location.postId)}`;
+    case "chats":
+      return "/chats";
     case "opiu":
       return "/opiu";
     case "finance-dashboards":
@@ -106,6 +117,15 @@ export function parsePath(pathname: string): AppLocation | null {
   if (path === "/history") return { type: "history" };
   if (path === "/tasks") return { type: "tasks" };
   if (path === "/notifications") return { type: "notifications" };
+  if (path === "/feed") return { type: "feed" };
+  const feedPostPath = /^\/feed\/([^/]+)$/.exec(path);
+  if (feedPostPath) {
+    return {
+      type: "feed-post",
+      postId: decodeURIComponent(feedPostPath[1]!),
+    };
+  }
+  if (path === "/chats") return { type: "chats" };
   if (path === "/opiu") return { type: "opiu" };
   if (path === "/finance-dashboards") return { type: "finance-dashboards" };
 
@@ -191,6 +211,11 @@ export function locationToMenuId(location: AppLocation): string {
       return TASKS_ID;
     case "notifications":
       return NOTIFICATIONS_ID;
+    case "feed":
+    case "feed-post":
+      return FEED_ID;
+    case "chats":
+      return CHATS_ID;
     case "opiu":
       return OPIU_ID;
     case "finance-dashboards":
@@ -207,6 +232,8 @@ export function menuIdToLocation(menuId: string): AppLocation {
   if (menuId === HISTORY_ID) return { type: "history" };
   if (menuId === TASKS_ID) return { type: "tasks" };
   if (menuId === NOTIFICATIONS_ID) return { type: "notifications" };
+  if (menuId === FEED_ID) return { type: "feed" };
+  if (menuId === CHATS_ID) return { type: "chats" };
   if (menuId === OPIU_ID) return { type: "opiu" };
   if (menuId === FINANCE_DASHBOARDS_ID) return { type: "finance-dashboards" };
   if (menuId.startsWith(ENTITY_PREFIX)) {
@@ -259,6 +286,10 @@ export function taskLocation(taskId: string): AppLocation {
   return { type: "task", taskId };
 }
 
+export function feedPostLocation(postId: string): AppLocation {
+  return { type: "feed-post", postId };
+}
+
 export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
   if (a.type !== b.type) return false;
   switch (a.type) {
@@ -273,12 +304,18 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     case "history":
     case "tasks":
     case "notifications":
+    case "feed":
+    case "chats":
     case "opiu":
     case "finance-dashboards":
       return true;
     case "task": {
       const other = b as typeof a;
       return a.taskId === other.taskId;
+    }
+    case "feed-post": {
+      const other = b as typeof a;
+      return a.postId === other.postId;
     }
     case "entity": {
       const other = b as typeof a;

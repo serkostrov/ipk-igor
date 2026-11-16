@@ -72,6 +72,7 @@ import {
   getSystemUsersEntity,
   syncUsersRoleFieldOptions,
 } from "../model/system-entities";
+import { canMutateEntityRecord } from "../model/record-mutation-policy";
 import { buildTimeTrackingJournalPlan } from "../model/time-tracking-setup";
 import { isEntityTableParentField } from "../model/table-hierarchy";
 import {
@@ -1244,9 +1245,7 @@ export function addEntityField(
         ? Boolean(data?.listAllowOther)
         : false,
     listDependsOnFieldId:
-      type === "list" && !data?.listSourceFieldId?.trim()
-        ? data?.listDependsOnFieldId?.trim() || null
-        : null,
+      type === "list" ? data?.listDependsOnFieldId?.trim() || null : null,
     listUseColors: type === "list" ? data?.listUseColors !== false : true,
     listShowEmptyValue:
       type === "list" ? data?.listShowEmptyValue !== false : true,
@@ -1380,7 +1379,7 @@ export function updateEntityField(
         return normalizeEntityField({
           ...merged,
           listOptions: [],
-          listDependsOnFieldId: null,
+          // Keep listDependsOnFieldId — sourced catalogs still filter by parent.
         });
       }
       if (
@@ -3846,6 +3845,14 @@ export function setEntityPageLayout(
 }
 
 export function removeEntityRecord(entityId: string, recordId: string) {
+  if (!canMutateEntityRecord(entityId, "delete")) {
+    console.warn(
+      "[entity] removeEntityRecord denied by access policy",
+      entityId,
+      recordId,
+    );
+    return;
+  }
   let structureChanged = false;
   const entities = config.entities.map((entity) => {
     const nextRecords =

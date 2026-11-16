@@ -16,6 +16,11 @@ type RelationSelectProps = {
   options: RelationRecordOption[];
   value: string;
   onChange: (value: string) => void;
+  /**
+   * Open a selected related record (chip label click).
+   * Does not change the selection.
+   */
+  onOpenOption?: (optionId: string) => void;
   multiple?: boolean;
   placeholder?: string;
   disabled?: boolean;
@@ -28,11 +33,13 @@ function RelationChip({
   option,
   removable = false,
   onRemove,
+  onOpen,
   expand = false,
 }: {
   option: RelationRecordOption;
   removable?: boolean;
   onRemove?: (optionId: string) => void;
+  onOpen?: (optionId: string) => void;
   /** Single select: use full trigger width instead of a fixed chip max. */
   expand?: boolean;
 }) {
@@ -43,9 +50,28 @@ function RelationChip({
         expand ? "min-w-0 max-w-full" : "max-w-[16rem] shrink-0",
       )}
     >
-      <span className="truncate" title={option.label}>
-        {option.label}
-      </span>
+      {onOpen ? (
+        <button
+          type="button"
+          className="min-w-0 truncate underline-offset-2 hover:underline"
+          title={`Открыть «${option.label}»`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpen(option.id);
+          }}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          {option.label}
+        </button>
+      ) : (
+        <span className="truncate" title={option.label}>
+          {option.label}
+        </span>
+      )}
       {removable ? (
         <span
           role="button"
@@ -122,9 +148,11 @@ function visibleChipCount(
 function RelationOverflowChips({
   options,
   onRemove,
+  onOpen,
 }: {
   options: RelationRecordOption[];
   onRemove: (optionId: string) => void;
+  onOpen?: (optionId: string) => void;
 }) {
   const containerRef = useRef<HTMLSpanElement>(null);
   const measureRef = useRef<HTMLSpanElement>(null);
@@ -195,6 +223,7 @@ function RelationOverflowChips({
             option={option}
             removable
             onRemove={onRemove}
+            onOpen={onOpen}
           />
         ))}
         {hidden.length > 0 ? (
@@ -209,6 +238,7 @@ export function RelationSelect({
   options,
   value,
   onChange,
+  onOpenOption,
   multiple = false,
   placeholder = "Не выбран",
   disabled = false,
@@ -292,7 +322,11 @@ export function RelationSelect({
             {placeholder}
           </span>
         ) : multiple ? (
-          <RelationOverflowChips options={selectedOptions} onRemove={remove} />
+          <RelationOverflowChips
+            options={selectedOptions}
+            onRemove={remove}
+            onOpen={onOpenOption}
+          />
         ) : (
           <span className="flex min-w-0 flex-1 items-center overflow-hidden">
             <RelationChip
@@ -300,6 +334,7 @@ export function RelationSelect({
               expand
               removable
               onRemove={remove}
+              onOpen={onOpenOption}
             />
           </span>
         )}

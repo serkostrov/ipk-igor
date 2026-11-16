@@ -4,13 +4,17 @@ import {
   canAccessAutomationTasks,
   canDeleteAutomationTasks,
   canAccessHistory,
+  canAccessMessenger,
+  canAccessNewsFeed,
   canAccessNotifications,
+  canCreateNewsPosts,
   canAccessSettings,
   canEntity,
   canField,
   canInviteUsers,
   canMenuItem,
   canSettingsTab,
+  canTab,
   entityScope,
   isAdminRole,
 } from "../model/permissions";
@@ -100,6 +104,14 @@ export function useCanField(
   return canField(useCurrentRole(), entityId, fieldId, mode);
 }
 
+export function useCanTab(
+  entityId: string,
+  tabId: string,
+  mode: FieldAccessMode,
+) {
+  return canTab(useCurrentRole(), entityId, tabId, mode);
+}
+
 export function useEntityScope(entityId: string) {
   return entityScope(useCurrentRole(), entityId);
 }
@@ -134,6 +146,18 @@ export function useAutomationTasksScope() {
 
 export function useCanAccessNotifications() {
   return canAccessNotifications(useCurrentRole());
+}
+
+export function useCanAccessMessenger() {
+  return canAccessMessenger(useCurrentRole());
+}
+
+export function useCanAccessNewsFeed() {
+  return canAccessNewsFeed(useCurrentRole());
+}
+
+export function useCanCreateNewsPosts() {
+  return canCreateNewsPosts(useCurrentRole());
 }
 
 export function useCanMenuItem(

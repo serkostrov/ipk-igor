@@ -46,6 +46,8 @@ import {
   isEntityListOptionProblem,
 } from "./list-process";
 import { softFillEntityNameFromTemplate } from "./name-template";
+import { applyEntityScheduleFieldSync } from "./schedule-fields";
+import { SYSTEM_USERS_FIELD_ROLE_ID } from "./system-entities";
 import {
   buildEntityTabDefaultFileEntries,
   getEntityTabFilesValueKey,
@@ -568,13 +570,22 @@ export function computeAllowManualFormulaSoftFill(input: {
   recordId: string;
   anchorFieldId?: string | null;
 }): Record<string, string> {
-  const formulaFields = input.entity.fields.filter(
+  const manualFormulaFields = input.entity.fields.filter(
     (field) =>
       field.type === "formula" && isEntityFieldManualInputEnabled(field),
   );
-  if (formulaFields.length === 0) return {};
+  // Date-returning formulas (even without «ручной ввод») must soft-fill so
+  // the ISO date is persisted on save — live display alone does not store it.
+  const dateFormulaFields = input.entity.fields.filter(
+    (field) =>
+      field.type === "formula" && !isEntityFieldManualInputEnabled(field),
+  );
 
-  const formulaIds = new Set(formulaFields.map((field) => field.id));
+  if (manualFormulaFields.length === 0 && dateFormulaFields.length === 0) {
+    return {};
+  }
+
+  const formulaIds = new Set(manualFormulaFields.map((field) => field.id));
   const anchorId =
     input.anchorFieldId && formulaIds.has(input.anchorFieldId)
       ? input.anchorFieldId
@@ -586,7 +597,7 @@ export function computeAllowManualFormulaSoftFill(input: {
   if (anchorLocked && anchorId) {
     userLocked.add(anchorId);
   } else {
-    for (const field of formulaFields) {
+    for (const field of manualFormulaFields) {
       if ((input.values[field.id] ?? "").trim().length > 0) {
         userLocked.add(field.id);
       }
@@ -601,10 +612,18 @@ export function computeAllowManualFormulaSoftFill(input: {
   for (let round = 0; round < 12; round += 1) {
     let changed = false;
     const roundCtx = getEntityPreviewValueContext(input.ctx);
-    for (const field of formulaFields) {
+    for (const field of manualFormulaFields) {
       if (userLocked.has(field.id)) continue;
       const draft = createEntityDraftRecord(working, input.recordId);
       const raw = getFormulaResult(roundCtx, input.entity, draft, field);
+      if (typeof raw === "string") {
+        const date = extractIsoDate(raw);
+        if (!date) continue;
+        if ((working[field.id] ?? "") === date) continue;
+        working[field.id] = date;
+        changed = true;
+        continue;
+      }
       const numeric =
         typeof raw === "number"
           ? raw
@@ -626,12 +645,27 @@ export function computeAllowManualFormulaSoftFill(input: {
       working[field.id] = next;
       changed = true;
     }
+    for (const field of dateFormulaFields) {
+      const draft = createEntityDraftRecord(working, input.recordId);
+      const raw = getFormulaResult(roundCtx, input.entity, draft, field);
+      if (typeof raw !== "string") continue;
+      const date = extractIsoDate(raw);
+      if (!date) continue;
+      if ((working[field.id] ?? "") === date) continue;
+      working[field.id] = date;
+      changed = true;
+    }
     if (!changed) break;
   }
 
   const soft: Record<string, string> = {};
-  for (const field of formulaFields) {
+  for (const field of manualFormulaFields) {
     if (userLocked.has(field.id)) continue;
+    const next = (working[field.id] ?? "").trim();
+    if (!next) continue;
+    soft[field.id] = next;
+  }
+  for (const field of dateFormulaFields) {
     const next = (working[field.id] ?? "").trim();
     if (!next) continue;
     soft[field.id] = next;
@@ -998,10 +1032,7 @@ function resolveFormulaNumber(
   const value = getFormulaResult(ctx, entity, record, field);
   if (typeof value === "boolean") return value ? 1 : 0;
   if (typeof value === "number") {
-    if (
-      value === 0 &&
-      isFormulaAutoSourceEmpty(ctx, entity, record, field)
-    ) {
+    if (value === 0 && isFormulaAutoSourceEmpty(ctx, entity, record, field)) {
       return readStoredNumberRaw(field, record);
     }
     return value;
@@ -1475,13 +1506,23 @@ export function formatRecordFieldValue(
       return formatManualNumberDisplay(field, record, field.decimals);
     }
     case "formula": {
+      const formulaValue = getFormulaResult(ctx, entity, record, field);
+      if (typeof formulaValue === "string") {
+        const date = extractIsoDate(formulaValue);
+        if (date) return formatDateDisplay(date);
+      }
       const resolved = resolveFormulaNumber(ctx, entity, record, field);
-      if (resolved == null) return "—";
-      return formatEntityComputedNumber(
-        resolved,
-        normalizeEntityNumberDecimals(field.formula?.decimals),
-        field.unitSuffix,
-      );
+      if (resolved != null) {
+        return formatEntityComputedNumber(
+          resolved,
+          normalizeEntityNumberDecimals(field.formula?.decimals),
+          field.unitSuffix,
+        );
+      }
+      // Soft-filled / schedule-synced ISO date stored on the formula field.
+      const storedDate = extractIsoDate(record.values[field.id]);
+      if (storedDate) return formatDateDisplay(storedDate);
+      return "—";
     }
     case "rollup": {
       const rolled = getRollupResult(ctx, record, field);
@@ -1712,6 +1753,30 @@ function matchesEntityCondition(
           ctx.currentUserRecordId,
         )
       );
+    case "userRoleIn":
+    case "userRoleNotIn": {
+      const wanted = new Set(
+        (condition.values ?? [])
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+      );
+      if (wanted.size === 0) {
+        return condition.operator === "userRoleNotIn";
+      }
+      const userIds = isEntityNameField(field)
+        ? [record.id]
+        : getRecordFieldIds(ctx, entity, record, field);
+      const hit = userIds.some((userId) => {
+        const ref = ctx.recordById.get(userId);
+        if (!ref) return false;
+        const roleId =
+          parseEntityListValueIds(
+            ref.record.values[SYSTEM_USERS_FIELD_ROLE_ID],
+          )[0]?.trim() ?? "";
+        return roleId.length > 0 && wanted.has(roleId);
+      });
+      return condition.operator === "userRoleIn" ? hit : !hit;
+    }
     case "equalsCurrentUserField":
     case "notEqualsCurrentUserField": {
       const user = ctx.currentUserRecordId
@@ -2434,9 +2499,16 @@ export function applyEntityFieldValue(
       ? groupsClean
       : sanitizeDependentRelationValues(entity, mirrored, entities);
   const cleaned = sanitizeRelationGroupsValues(entity, afterDeps, entities);
-  if (!entity.nameTemplate.trim()) return cleaned;
+  const scheduled = applyEntityScheduleFieldSync(entity, cleaned, fieldId);
+  if (!entity.nameTemplate.trim()) return scheduled;
   const ctx = getEntityValueContext(entities);
-  return softFillEntityNameFromTemplate(ctx, entity, values, cleaned, fieldId);
+  return softFillEntityNameFromTemplate(
+    ctx,
+    entity,
+    values,
+    scheduled,
+    fieldId,
+  );
 }
 
 /** Drop relation values that no longer match filters / nested parent scope. */
@@ -2636,7 +2708,7 @@ export function resolveEntityFieldDefaultValue(
   }
 }
 
-/** Field renders through `RecordValue` (computed value, progress, deadline). */
+/** Field renders through `RecordValue` (computed value, progress, deadline, file). */
 export function isRecordValueDecorated(field: EntityField) {
   return (
     field.numberDisplay === "progress" ||
@@ -2646,7 +2718,8 @@ export function isRecordValueDecorated(field: EntityField) {
     field.type === "rollup" ||
     field.type === "lookup" ||
     field.type === "dependencies" ||
-    field.type === "relationGroups"
+    field.type === "relationGroups" ||
+    field.type === "file"
   );
 }
 

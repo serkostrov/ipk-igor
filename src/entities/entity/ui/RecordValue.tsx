@@ -18,6 +18,7 @@ import type {
 } from "../model/types";
 import { DeadlineChip } from "./DeadlineChip";
 import { ProgressValue } from "./ProgressValue";
+import { RecordFileValue } from "./RecordFileValue";
 import { RelationGroupsRecordValue } from "./RelationGroupsRecordValue";
 
 /**
@@ -43,6 +44,12 @@ export function RecordValue({
         value={getRecordFieldNumber(ctx, entity, record, field)}
         className={className}
       />
+    );
+  }
+
+  if (field.type === "file") {
+    return (
+      <RecordFileValue value={record.values[field.id]} className={className} />
     );
   }
 

@@ -4,6 +4,8 @@ import {
   SYSTEM_USERS_FIELD_ROLE_ID,
   findSystemUserByAuthId,
   getEntityConfig,
+  parseEntityListValueIds,
+  setEntityRecordMutationGuard,
   syncUsersRoleOptions,
   updateEntityRecord,
 } from "@/entities/entity";
@@ -13,12 +15,29 @@ import {
   ensureSystemRoles,
   toRolesDocument,
 } from "../lib/parse-roles-config";
+import { canEntity } from "../model/permissions";
 import {
   ROLE_ADMIN_ID,
   ROLE_EMPLOYEE_ID,
   type Role,
   type RolesConfig,
 } from "../model/types";
+
+/** Users «Роль» is a list field — values may be CSV / JSON-array encoded. */
+function resolveProfileRoleId(
+  values: Record<string, string> | null | undefined,
+): string {
+  return (
+    parseEntityListValueIds(values?.[SYSTEM_USERS_FIELD_ROLE_ID])[0]?.trim() ??
+    ""
+  );
+}
+
+function installRecordMutationGuard() {
+  setEntityRecordMutationGuard((entityId, action) =>
+    canEntity(currentRole, entityId, action),
+  );
+}
 
 export type AccessStatus = "idle" | "loading" | "ready" | "error";
 
@@ -34,6 +53,7 @@ let initPromise: Promise<void> | null = null;
 const listeners = new Set<Listener>();
 
 function notify() {
+  installRecordMutationGuard();
   listeners.forEach((listener) => listener());
 }
 
@@ -45,6 +65,8 @@ function setStatus(next: AccessStatus, message: string | null = null) {
 
 function resolveCurrentRole(authUserId: string | null): Role | null {
   const admin = config.roles.find((role) => role.id === ROLE_ADMIN_ID) ?? null;
+  const employee =
+    config.roles.find((role) => role.id === ROLE_EMPLOYEE_ID) ?? null;
 
   // Offline / no session — full local access.
   if (!authUserId) {
@@ -53,9 +75,32 @@ function resolveCurrentRole(authUserId: string | null): Role | null {
 
   const entities = getEntityConfig().entities;
   const profile = findSystemUserByAuthId(entities, authUserId);
-  const roleId =
-    profile?.values[SYSTEM_USERS_FIELD_ROLE_ID]?.trim() || ROLE_ADMIN_ID;
-  return config.roles.find((role) => role.id === roleId) ?? admin;
+  // Users records not loaded yet — deny (do not elevate to employee `entities:"*"`).
+  if (!profile) return null;
+
+  const roleId = resolveProfileRoleId(profile.values);
+  if (!roleId) {
+    // Empty role field: least-privilege session until ensureProfileRole assigns.
+    return employee;
+  }
+  const found = config.roles.find((role) => role.id === roleId) ?? null;
+  // Unknown id must not silently become Employee (full CRUD via entities:"*").
+  return found;
+}
+
+/** Persist plain role id when the Users field still holds list encoding. */
+function healProfileRoleEncoding(
+  profileId: string,
+  values: Record<string, string>,
+) {
+  const raw = values[SYSTEM_USERS_FIELD_ROLE_ID] ?? "";
+  const roleId = resolveProfileRoleId(values);
+  if (!roleId || raw === roleId) return;
+  if (!config.roles.some((role) => role.id === roleId)) return;
+  updateEntityRecord(SYSTEM_USERS_ENTITY_ID, profileId, {
+    ...values,
+    [SYSTEM_USERS_FIELD_ROLE_ID]: roleId,
+  });
 }
 
 function applyRoles(next: RolesConfig, persistRemote: boolean) {
@@ -77,18 +122,24 @@ function applyRoles(next: RolesConfig, persistRemote: boolean) {
   });
 }
 
-/** Assign Administrator to the current profile when role is missing. */
+/**
+ * Assign Employee only when the role field is empty.
+ * Never overwrite a non-empty value (encoded list / temporarily unknown id).
+ */
 async function ensureProfileRole(authUserId: string) {
   const entities = getEntityConfig().entities;
   const profile = findSystemUserByAuthId(entities, authUserId);
   if (!profile) return;
-  const roleId = profile.values[SYSTEM_USERS_FIELD_ROLE_ID]?.trim() ?? "";
-  if (roleId && config.roles.some((role) => role.id === roleId)) return;
 
-  const nextRoleId = ROLE_ADMIN_ID;
+  const roleId = resolveProfileRoleId(profile.values);
+  if (roleId) {
+    healProfileRoleEncoding(profile.id, profile.values);
+    return;
+  }
+
   updateEntityRecord(SYSTEM_USERS_ENTITY_ID, profile.id, {
     ...profile.values,
-    [SYSTEM_USERS_FIELD_ROLE_ID]: nextRoleId,
+    [SYSTEM_USERS_FIELD_ROLE_ID]: ROLE_EMPLOYEE_ID,
   });
 }
 

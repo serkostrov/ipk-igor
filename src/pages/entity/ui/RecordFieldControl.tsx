@@ -9,6 +9,7 @@ import { useMemo } from "react";
 import {
   createEntityDraftRecord,
   formatTkpGipDepartmentExtras,
+  getFormulaResult,
   ListSelect,
   RelationGroupsFieldControl,
   RelationSelect,
@@ -37,6 +38,7 @@ import {
   resolveEntityComputedManualEditField,
   resolveEntityListFieldOptions,
   resolveEntityLookupTarget,
+  resolveEntityScheduleFields,
   type Entity,
   type EntityField,
   type EntityListOption,
@@ -45,7 +47,12 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
-import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
+import { extractIsoDate } from "@/shared/lib/business-days";
+import {
+  formatDateDisplay,
+  joinDatetime,
+  splitDatetime,
+} from "@/shared/lib/format-date";
 import { DependenciesFieldControl } from "./DependenciesFieldControl";
 import { FileFieldControl } from "./FileFieldControl";
 
@@ -229,6 +236,7 @@ export function RecordFieldControl({
   relationGroupsMode = "full",
   softFillParent = null,
   emptyNumberPlaceholder = false,
+  onOpenRelation,
 }: {
   /** Preview context: computed values follow the unsaved `values`. */
   ctx: EntityValueContext;
@@ -257,6 +265,8 @@ export function RecordFieldControl({
   required?: boolean;
   /** Soft-fill formula/manual: no grey `0,00` when the value is still empty. */
   emptyNumberPlaceholder?: boolean;
+  /** Open a related / belonging record from the chip label. */
+  onOpenRelation?: (entityId: string, recordId: string) => void;
 }) {
   const id = `record-${field.id}`;
   const label = getEntityFieldDisplayName(field);
@@ -295,10 +305,20 @@ export function RecordFieldControl({
       draftRecord,
       field,
     );
+    const formulaDate =
+      field.type === "formula"
+        ? (() => {
+            const raw = getFormulaResult(ctx, entity, draftRecord, field);
+            if (typeof raw === "string") return extractIsoDate(raw);
+            return extractIsoDate(value);
+          })()
+        : null;
     const manualEnabled = isEntityFieldManualInputEnabled(field);
+    // Date formulas stay in the computed date UI — not the number editor.
     // Formula / rollup / sum with manual: always editable (soft-fill from parent).
     // Lookup: editable only when auto is empty (or already overridden).
     const preferManualEdit =
+      !formulaDate &&
       manualEnabled &&
       (field.type === "formula" ||
         field.type === "rollup" ||
@@ -353,6 +373,7 @@ export function RecordFieldControl({
         <div className="flex min-w-0 items-baseline gap-x-1.5 gap-y-0.5">
           <Label htmlFor={id} className="shrink-0">
             {label}
+            <RequiredMark required={required} />
           </Label>
           <span className="min-w-0 truncate text-[11px] leading-snug text-muted-foreground">
             {sourceCaption}
@@ -520,6 +541,11 @@ export function RecordFieldControl({
                   : "Не выбран"
             }
             onChange={onChange}
+            onOpenOption={
+              onOpenRelation && belongingTarget
+                ? (optionId) => onOpenRelation(belongingTarget.id, optionId)
+                : undefined
+            }
           />
         )}
       </div>
@@ -595,12 +621,69 @@ export function RecordFieldControl({
   if (field.type === "datetime") {
     const { date, time } = splitDatetime(value);
     const withTime = field.datetimeWithTime !== false;
+    const schedule = resolveEntityScheduleFields(entity);
+    const isScheduleEnd = schedule?.endField.id === field.id;
+    const scheduleCaption = isScheduleEnd
+      ? "считается от даты постановки и длительности (раб. дни)"
+      : null;
+
+    // Synced planned end: show like other computed fields («авто»).
+    if (isScheduleEnd && date && !withTime) {
+      return (
+        <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 items-baseline gap-x-1.5 gap-y-0.5">
+            <Label htmlFor={`${id}-date`} className="shrink-0">
+              {label}
+              <RequiredMark required={required} />
+            </Label>
+            <span className="min-w-0 truncate text-[11px] leading-snug text-muted-foreground">
+              {scheduleCaption}
+            </span>
+          </div>
+          {hint ? (
+            <span className="text-xs text-muted-foreground">{hint}</span>
+          ) : null}
+          <div
+            id={id}
+            className="flex h-9 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-sm text-foreground"
+          >
+            <span className="font-medium tabular-nums">
+              {formatDateDisplay(date)}
+            </span>
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              авто
+            </span>
+          </div>
+          <details>
+            <summary className="cursor-pointer text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+              Изменить вручную
+            </summary>
+            <div className="mt-2">
+              <DatePicker
+                id={`${id}-date`}
+                value={date}
+                aria-label={`${label}: изменить вручную`}
+                onChange={(next) => onChange(next)}
+              />
+            </div>
+          </details>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col gap-2">
-        <Label htmlFor={`${id}-date`}>
-          {label}
-          <RequiredMark required={required} />
-        </Label>
+        <div className="flex min-w-0 items-baseline gap-x-1.5 gap-y-0.5">
+          <Label htmlFor={`${id}-date`} className="shrink-0">
+            {label}
+            <RequiredMark required={required} />
+          </Label>
+          {scheduleCaption ? (
+            <span className="min-w-0 truncate text-[11px] leading-snug text-muted-foreground">
+              {scheduleCaption}
+            </span>
+          ) : null}
+        </div>
         {hint ? (
           <span className="text-xs text-muted-foreground">{hint}</span>
         ) : null}

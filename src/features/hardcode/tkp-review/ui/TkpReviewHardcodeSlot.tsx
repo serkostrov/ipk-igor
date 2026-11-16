@@ -68,11 +68,14 @@ export function TkpReviewHardcodeSlot({
   readOnly = false,
   /** Which blocks to render (GIP on dept tab, commercial on «Цена ТКП»). */
   sections = ALL_TKP_REVIEW_SECTIONS,
+  /** Task form pins duration above the table — skip footer duplicate. */
+  hideExecutionDuration = false,
 }: {
   entity: Entity;
   record: EntityRecord;
   readOnly?: boolean;
   sections?: readonly TkpReviewHardcodeSection[];
+  hideExecutionDuration?: boolean;
 }) {
   const role = useCurrentRole();
   const visibility = useMemo(
@@ -294,9 +297,7 @@ export function TkpReviewHardcodeSlot({
     wantCommercial && visibility.showCommercialPricing;
 
   const canEditCommercial =
-    !readOnly &&
-    showCommercialBlock &&
-    visibility.canEditCommercialPricing;
+    !readOnly && showCommercialBlock && visibility.canEditCommercialPricing;
   const canEditGipDuration =
     !readOnly &&
     (visibility.showGipCalculation || visibility.showCommercialPricing);
@@ -312,8 +313,11 @@ export function TkpReviewHardcodeSlot({
           calculation={gipCalculation}
           executionDurationDays={executionDurationDays}
           canEditExecutionDuration={canEditGipDuration}
+          hideExecutionDuration={hideExecutionDuration}
           onSaveExecutionDuration={
-            canEditGipDuration ? handleSaveDuration : undefined
+            canEditGipDuration && !hideExecutionDuration
+              ? handleSaveDuration
+              : undefined
           }
         />
       ) : null}

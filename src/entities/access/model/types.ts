@@ -1,7 +1,7 @@
 import type { EntityCondition } from "@/entities/entity";
 
 /** Record visibility for a role on an entity. */
-export type DataScope = "all" | "own" | "filter";
+export type DataScope = "all" | "own" | "department" | "filter";
 
 export type FieldAccess = {
   view: boolean;
@@ -22,22 +22,35 @@ export type EntityAccess = {
   scopeFilter?: EntityCondition[];
   /** `"*"` — все поля; объект — явная матрица (нет ключа = запрет). */
   fields: Record<string, FieldAccess> | "*";
+  /**
+   * Access to entity tabs (files folders, notes, …).
+   * `"*"` — все вкладки; объект — явная матрица (нет ключа = запрет).
+   * `undefined` — как `"*"` (совместимость со старыми ролями).
+   */
+  tabs?: Record<string, FieldAccess> | "*";
 };
 
 export const DATA_SCOPE_LABELS: Record<DataScope, string> = {
   all: "Все записи",
   own: "Только свои",
+  department: "Своего отдела",
   filter: "По полям",
 };
 
 export const DATA_SCOPE_DESCRIPTIONS: Record<DataScope, string> = {
   all: "Все записи сущности",
-  own: "Только записи, где вы создатель",
+  own: "Записи, где вы создатель или указаны в карточке (исполнитель, наблюдатель и т.п.)",
+  department: "Записи своего отдела: по полю «Отдел», коллегам отдела и своим",
   filter: "Только записи, у которых поля совпадают с условиями",
 };
 
 export function isDataScope(value: string): value is DataScope {
-  return value === "all" || value === "own" || value === "filter";
+  return (
+    value === "all" ||
+    value === "own" ||
+    value === "department" ||
+    value === "filter"
+  );
 }
 
 export type SettingsTabId =
@@ -58,8 +71,10 @@ export type RolePermissions = {
   canDeleteAutomationTasks: boolean;
   /**
    * Which automation tasks the role sees in the list / task page.
-   * `own` — assigned to the current user; `filter` — linked record matches
-   * `automationTasksScopeFilter` on `automationTasksScopeEntityId`.
+   * `own` — assigned to the current user;
+   * `department` — assignee or linked record in the viewer’s department;
+   * `filter` — linked record matches `automationTasksScopeFilter`
+   * on `automationTasksScopeEntityId`.
    */
   automationTasksScope: DataScope;
   /** Entity for `automationTasksScope === "filter"`. */
@@ -67,6 +82,12 @@ export type RolePermissions = {
   /** Record conditions when `automationTasksScope === "filter"`. */
   automationTasksScopeFilter?: EntityCondition[];
   canAccessNotifications: boolean;
+  /** Internal messenger («Чаты»). Default true for all roles. */
+  canAccessMessenger: boolean;
+  /** System page «Лента». Default true for all roles. */
+  canAccessNewsFeed: boolean;
+  /** Create / publish posts in «Лента». Default false (admin true). */
+  canCreateNewsPosts: boolean;
   /**
    * «Вижу только» выбранные юрлица (multi-select).
    * Empty — без ограничения по юрлицу.
@@ -124,6 +145,9 @@ export function createAdminRole(): Role {
       canDeleteAutomationTasks: true,
       automationTasksScope: "all",
       canAccessNotifications: true,
+      canAccessMessenger: true,
+      canAccessNewsFeed: true,
+      canCreateNewsPosts: true,
       legalEntityIds: [],
       entities: "*",
     },
@@ -146,6 +170,9 @@ export function createEmployeeRole(): Role {
       canDeleteAutomationTasks: false,
       automationTasksScope: "own",
       canAccessNotifications: true,
+      canAccessMessenger: true,
+      canAccessNewsFeed: true,
+      canCreateNewsPosts: false,
       legalEntityIds: [],
       entities: "*",
     },
@@ -161,6 +188,7 @@ export function createEmptyEntityAccess(entityId: string): EntityAccess {
     delete: false,
     scope: "own",
     fields: {},
+    tabs: {},
   };
 }
 
@@ -173,21 +201,34 @@ export function createFullEntityAccess(entityId: string): EntityAccess {
     delete: true,
     scope: "all",
     fields: "*",
+    tabs: "*",
   };
 }
 
 /**
  * Entity CRUD without a field map used to leave `fields: {}`, which made
  * `canField` deny every field — empty create/edit forms (often on «ГИП»).
- * Empty map + any CRUD means «all fields», same as `"*"`. Explicit denials
- * must list each field as `{ view: false, edit: false }`.
+ * Empty map + any CRUD means «all fields», same as `"*"`.
+ * Field ids missing from a non-empty map (new fields after the role was
+ * saved) inherit from peers in `canField` — explicit denials must list
+ * each field as `{ view: false, edit: false }`.
+ * No read ⇒ no create/update/delete (visibility is the master switch).
  */
 export function normalizeEntityAccess(access: EntityAccess): EntityAccess {
-  if (access.fields === "*") return access;
-  const hasFieldEntries = Object.keys(access.fields).length > 0;
-  if (hasFieldEntries) return access;
-  if (!(access.create || access.read || access.update || access.delete)) {
-    return access;
+  const next =
+    !access.read && (access.create || access.update || access.delete)
+      ? {
+          ...access,
+          create: false,
+          update: false,
+          delete: false,
+        }
+      : access;
+  if (next.fields === "*") return next;
+  const hasFieldEntries = Object.keys(next.fields).length > 0;
+  if (hasFieldEntries) return next;
+  if (!(next.create || next.read || next.update || next.delete)) {
+    return next;
   }
-  return { ...access, fields: "*" };
+  return { ...next, fields: "*" };
 }

@@ -81,6 +81,7 @@ import {
   missingDeptCalculationGipStageIds,
   syncDeptCalculationCatalogManagers,
 } from "@/features/hardcode/tkp-gip/fan-out-related-persist";
+import { useCanEntity } from "@/entities/access";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 
@@ -209,6 +210,7 @@ export function DeptCalculationsView({
 }: DeptCalculationsViewProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
+  const canDeleteHost = useCanEntity(entity.id, "delete");
   const hostFields = useMemo(
     () => resolveDeptCalculationsHostFields(entity),
     [entity],
@@ -217,6 +219,7 @@ export function DeptCalculationsView({
     () => resolveDeptCalculationsNestedTarget(entity, entities),
     [entity, entities],
   );
+  const canDeleteLine = useCanEntity(nested?.entity.id ?? entity.id, "delete");
   const lineFields = useMemo(
     () => (nested ? resolveDeptCalculationsSubtaskFields(nested.entity) : null),
     [nested],
@@ -565,6 +568,10 @@ export function DeptCalculationsView({
                         total={breakdown.total}
                         statusLabel={statusLabel}
                         canEdit={canEdit}
+                        canDelete={canEdit && canDeleteHost}
+                        canDeleteLine={
+                          canEdit && Boolean(nested) && canDeleteLine
+                        }
                         onToggle={() =>
                           setExpandedId(expanded ? null : record.id)
                         }
@@ -706,9 +713,11 @@ export function DeptCalculationsView({
         onConfirm={() => {
           if (!deleteTarget) return;
           if (deleteTarget.kind === "host") {
+            if (!canDeleteHost) return;
             removeEntityRecord(entity.id, deleteTarget.record.id);
             if (expandedId === deleteTarget.record.id) setExpandedId(null);
           } else if (nested) {
+            if (!canDeleteLine) return;
             removeEntityRecord(nested.entity.id, deleteTarget.record.id);
           }
           setDeleteTarget(null);
@@ -777,6 +786,8 @@ function DepartmentBlock({
   total,
   statusLabel,
   canEdit = true,
+  canDelete = true,
+  canDeleteLine = true,
   onToggle,
   onAddLine,
   onEdit,
@@ -812,6 +823,8 @@ function DepartmentBlock({
   total: number;
   statusLabel: string;
   canEdit?: boolean;
+  canDelete?: boolean;
+  canDeleteLine?: boolean;
   onToggle: () => void;
   onAddLine: () => void;
   onEdit?: () => void;
@@ -954,16 +967,18 @@ function DepartmentBlock({
                   <Pencil className="size-3.5" />
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="size-7 hover:text-destructive"
-                aria-label="Удалить"
-                onClick={onDelete}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
+              {canDelete ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-7 hover:text-destructive"
+                  aria-label="Удалить"
+                  onClick={onDelete}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              ) : null}
             </div>
           ) : (
             <div className="flex justify-end">
@@ -1322,12 +1337,14 @@ function DepartmentBlock({
                                         >
                                           Редактировать
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          className="text-destructive"
-                                          onClick={() => onDeleteLine(line)}
-                                        >
-                                          Удалить
-                                        </DropdownMenuItem>
+                                        {canDeleteLine ? (
+                                          <DropdownMenuItem
+                                            className="text-destructive"
+                                            onClick={() => onDeleteLine(line)}
+                                          >
+                                            Удалить
+                                          </DropdownMenuItem>
+                                        ) : null}
                                       </DropdownMenuContent>
                                     </DropdownMenu>
                                   ) : (

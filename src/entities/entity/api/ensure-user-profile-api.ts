@@ -8,6 +8,7 @@ import {
   SYSTEM_USERS_FIELD_PHONE_ID,
   SYSTEM_USERS_FIELD_ROLE_ID,
 } from "../model/system-entities";
+import { parseEntityListValueIds } from "../model/field";
 import {
   entityRecordsSelect,
   entityRecordsSupportsCreatedBy,
@@ -17,8 +18,8 @@ import {
   markEntityRecordsSchemaVersionUnsupported,
 } from "./entity-record-columns";
 
-/** Keep in sync with `ROLE_ADMIN_ID` in entities/access. */
-const DEFAULT_ROLE_ID = "role-system-admin";
+/** Keep in sync with `ROLE_EMPLOYEE_ID` in entities/access — never default to admin. */
+const DEFAULT_ROLE_ID = "role-system-employee";
 
 type EntityRecordRow = {
   id: string;
@@ -97,7 +98,11 @@ export async function ensureCurrentUserProfile(input: {
   if (existingError) throw existingError;
   if (existing) {
     const record = rowToRecord(existing as unknown as EntityRecordRow);
-    const roleId = record.values[SYSTEM_USERS_FIELD_ROLE_ID]?.trim() ?? "";
+    // List-encoded role (CSV / JSON array) still counts as assigned.
+    const roleId =
+      parseEntityListValueIds(
+        record.values[SYSTEM_USERS_FIELD_ROLE_ID],
+      )[0]?.trim() ?? "";
     if (!roleId) {
       const nextValues = {
         ...record.values,

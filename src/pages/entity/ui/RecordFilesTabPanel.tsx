@@ -62,6 +62,8 @@ type RecordFilesTabPanelProps = {
   entity: Entity;
   record: EntityRecord;
   tab: EntityTab;
+  /** Hide upload / rename / delete when the role may only view files. */
+  readOnly?: boolean;
 };
 
 type RenameState = {
@@ -179,6 +181,7 @@ export function RecordFilesTabPanel({
   entity,
   record,
   tab,
+  readOnly = false,
 }: RecordFilesTabPanelProps) {
   const valueKey = getEntityTabFilesValueKey(tab.id);
   const entries = useMemo(
@@ -359,6 +362,7 @@ export function RecordFilesTabPanel({
   }
 
   async function handleUpload(files: FileList | null) {
+    if (readOnly) return;
     if (!files || files.length === 0) return;
     setBusy(true);
     setError(null);
@@ -566,34 +570,38 @@ export function RecordFilesTabPanel({
             <Download className="size-3.5" />
           </Button>
         ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="size-7 text-muted-foreground"
-          aria-label="Переименовать"
-          disabled={busy}
-          onClick={() =>
-            setRenameState({
-              entry,
-              name: entry.name,
-              color: resolveFolderColor(entry.color),
-            })
-          }
-        >
-          <Pencil className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="size-7 text-muted-foreground hover:text-destructive"
-          aria-label="Удалить"
-          disabled={busy}
-          onClick={() => setPendingDeleteIds([entry.id])}
-        >
-          <Trash2 className="size-3.5" />
-        </Button>
+        {!readOnly ? (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-7 text-muted-foreground"
+              aria-label="Переименовать"
+              disabled={busy}
+              onClick={() =>
+                setRenameState({
+                  entry,
+                  name: entry.name,
+                  color: resolveFolderColor(entry.color),
+                })
+              }
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-7 text-muted-foreground hover:text-destructive"
+              aria-label="Удалить"
+              disabled={busy}
+              onClick={() => setPendingDeleteIds([entry.id])}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </>
+        ) : null}
       </div>
     );
   }
@@ -809,85 +817,89 @@ export function RecordFilesTabPanel({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            {selectedCount > 0 ? (
-              <>
-                <span className="mr-1 text-xs text-muted-foreground">
-                  Выбрано: {selectedCount}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy || visibleEntries.length === 0}
-                  onClick={
-                    allVisibleSelected ? clearSelection : selectAllVisible
-                  }
-                >
-                  {allVisibleSelected ? "Снять все" : "Выбрать все"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={clearSelection}
-                >
-                  Отменить
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => setPendingDeleteIds(selectedIds)}
-                >
-                  <Trash2 className="size-3.5" />
-                  Удалить
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="size-3.5" />
-                  Файл
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={openCreateFolderDialog}
-                >
-                  <FolderPlus className="size-3.5" />
-                  Папка
-                </Button>
-                {visibleEntries.length > 0 ? (
+          {!readOnly ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {selectedCount > 0 ? (
+                <>
+                  <span className="mr-1 text-xs text-muted-foreground">
+                    Выбрано: {selectedCount}
+                  </span>
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || visibleEntries.length === 0}
+                    onClick={
+                      allVisibleSelected ? clearSelection : selectAllVisible
+                    }
+                  >
+                    {allVisibleSelected ? "Снять все" : "Выбрать все"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
                     size="sm"
                     disabled={busy}
-                    onClick={selectAllVisible}
+                    onClick={clearSelection}
                   >
-                    Выбрать все
+                    Отменить
                   </Button>
-                ) : null}
-              </>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(event) => void handleUpload(event.target.files)}
-            />
-          </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => setPendingDeleteIds(selectedIds)}
+                  >
+                    <Trash2 className="size-3.5" />
+                    Удалить
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="size-3.5" />
+                    Файл
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={openCreateFolderDialog}
+                  >
+                    <FolderPlus className="size-3.5" />
+                    Папка
+                  </Button>
+                  {visibleEntries.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={selectAllVisible}
+                    >
+                      Выбрать все
+                    </Button>
+                  ) : null}
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => void handleUpload(event.target.files)}
+              />
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">Только просмотр</p>
+          )}
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col p-3">
@@ -929,7 +941,7 @@ export function RecordFilesTabPanel({
               event.stopPropagation();
               dragDepthRef.current = 0;
               setDragOver(false);
-              void handleUpload(event.dataTransfer.files);
+              if (!readOnly) void handleUpload(event.dataTransfer.files);
             }}
           >
             {dragOver ? (

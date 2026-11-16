@@ -111,11 +111,20 @@ export function AutomationNotificationRuleEditor({
               <SelectContent>
                 {AUTOMATION_NOTIFICATION_EVENT_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    <span className="flex flex-col gap-0.5">
+                      <span>{option.label}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {option.description}
+                      </span>
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-[11px] text-muted-foreground">
+              {eventOption.description}. Смена стадии сущности — в Настройки →
+              Уведомления (правила записи / стадия).
+            </p>
           </Field>
         </div>
         <Button

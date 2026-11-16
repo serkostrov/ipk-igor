@@ -43,6 +43,20 @@ function parseFields(value: unknown): Record<string, FieldAccess> | "*" {
   return fields;
 }
 
+function parseTabsAccess(
+  value: unknown,
+): Record<string, FieldAccess> | "*" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "*") return "*";
+  if (!isRecord(value)) return undefined;
+  const tabs: Record<string, FieldAccess> = {};
+  for (const [tabId, item] of Object.entries(value)) {
+    const parsed = parseFieldAccess(item);
+    if (parsed) tabs[tabId] = parsed;
+  }
+  return tabs;
+}
+
 function parseEntityAccess(value: unknown): EntityAccess | null {
   if (!isRecord(value)) return null;
   if (typeof value.entityId !== "string" || !value.entityId.trim()) return null;
@@ -56,6 +70,8 @@ function parseEntityAccess(value: unknown): EntityAccess | null {
     scope,
     fields: parseFields(value.fields),
   };
+  const tabs = parseTabsAccess(value.tabs);
+  if (tabs !== undefined) access.tabs = tabs;
   if (scope === "filter") {
     access.scopeFilter = normalizeEntityConditions(value.scopeFilter);
   }
@@ -125,6 +141,9 @@ function parsePermissions(value: unknown): RolePermissions {
     canDeleteAutomationTasks: value.canDeleteAutomationTasks === true,
     automationTasksScope,
     canAccessNotifications: value.canAccessNotifications !== false,
+    canAccessMessenger: value.canAccessMessenger !== false,
+    canAccessNewsFeed: value.canAccessNewsFeed !== false,
+    canCreateNewsPosts: value.canCreateNewsPosts === true,
     legalEntityIds: parseLegalEntityIds(value.legalEntityIds),
     entities: parseEntities(value.entities),
   };

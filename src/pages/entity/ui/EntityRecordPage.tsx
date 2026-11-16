@@ -25,6 +25,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { cn } from "@/shared/lib/cn";
 import {
   canField,
+  canTab,
+  canViewRecordForDataScope,
   canViewRecordForLegalEntities,
   useCanEntity,
   useCurrentRole,
@@ -34,6 +36,7 @@ import {
   waitForEntityRecordInsert,
   ENTITY_FIELD_GROUP_COLUMNS,
   ENTITY_OVERVIEW_TAB_ID,
+  getCurrentUserRecordId,
   getEntityRecordCopyValues,
   formatEntityScalarFieldValue,
   formatRecordFieldValue,
@@ -46,6 +49,7 @@ import {
   getEntityHeaderField,
   getEntityListOptions,
   getEntityListParentField,
+  getEntityParentLinkField,
   getEntityRelationTargetId,
   getEntityUrlHref,
   getVisibleListOptions,
@@ -69,10 +73,8 @@ import {
   OverflowCommaLabels,
   PRIMARY_ENTITY_FIELD_GROUP,
   RecordValue,
+  RecordFileValue,
   removeEntityRecord,
-  EntityFileViewer,
-  formatEntityFieldFilesSummary,
-  parseEntityFieldFileValue,
   parseEntityListValueIds,
   parseEntityRelationIds,
   filterEntityFieldGroupsForTab,
@@ -87,8 +89,10 @@ import {
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+import { useSessionUser } from "@/entities/session";
 import {
   isProjectGanttHardcodeTab,
+  isProjectsEntity,
   isTkpPriceHardcodeTab,
   ProjectGanttHardcodeSlot,
   resolveProjectGanttVisibility,
@@ -102,6 +106,7 @@ import { RecordEntityTabPanel } from "./RecordEntityTabPanel";
 import { useRecordListChange } from "./use-record-list-change";
 import { useRecordTimers } from "./use-record-timers";
 import { RecordTimer } from "./RecordTimer";
+import { CreateRecordChatButton } from "@/features/messenger-crm-chat";
 import { RecordFilesTabPanel } from "./RecordFilesTabPanel";
 import { RecordHistoryTabPanel } from "./RecordHistoryTabPanel";
 import { RecordMirrorTabPanel } from "./RecordMirrorTabPanel";
@@ -155,49 +160,6 @@ function RecordContactValue({
     >
       {display}
     </a>
-  );
-}
-
-function RecordFileValue({
-  value,
-  className,
-}: {
-  value: string | undefined;
-  className?: string;
-}) {
-  const [viewerOpen, setViewerOpen] = useState(false);
-  const summary = formatEntityFieldFilesSummary(value);
-  const file = parseEntityFieldFileValue(value);
-  if (!file || summary === "—") {
-    return <span className={cn("text-muted-foreground/70", className)}>—</span>;
-  }
-  const attached = file;
-  const viewerFile = {
-    id: "field-file",
-    name: attached.name,
-    mimeType: attached.mimeType,
-    size: attached.size,
-    storagePath: attached.storagePath,
-    dataUrl: attached.dataUrl,
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        className={cn(CONTACT_LINK_CLASS, "text-left", className)}
-        title={summary}
-        onClick={() => setViewerOpen(true)}
-      >
-        {summary}
-      </button>
-      <EntityFileViewer
-        open={viewerOpen}
-        onOpenChange={setViewerOpen}
-        files={[viewerFile]}
-        activeId={viewerFile.id}
-      />
-    </>
   );
 }
 
@@ -320,9 +282,70 @@ function RecordMetricTile({
   );
 }
 
+/**
+ * Related record to open from the page title — parent link, protocol relation,
+ * or any single relation whose label matches the title (name often mirrors parent).
+ */
+function resolveRecordTitleOpenTarget(
+  entity: Entity,
+  record: EntityRecord,
+  entities: Entity[],
+  title: string,
+): { entityId: string; recordId: string } | null {
+  const parentLink = getEntityParentLinkField(entity);
+  if (parentLink) {
+    const targetId = getEntityRelationTargetId(parentLink);
+    const recordId = parseEntityRelationIds(record.values[parentLink.id])[0];
+    if (
+      targetId &&
+      recordId &&
+      !(targetId === entity.id && recordId === record.id)
+    ) {
+      return { entityId: targetId, recordId };
+    }
+  }
+
+  const titleNorm = title.trim().toLocaleLowerCase("ru");
+  const softNameHits: Array<{ entityId: string; recordId: string }> = [];
+
+  for (const field of entity.fields) {
+    if (field.type !== "relation" && field.type !== "belonging") continue;
+    if (field.type === "relation" && field.relationMultiple) continue;
+    const targetId =
+      field.type === "belonging" ? entity.id : getEntityRelationTargetId(field);
+    if (!targetId) continue;
+    const ids = parseEntityRelationIds(record.values[field.id] ?? "");
+    if (ids.length !== 1) continue;
+    const recordId = ids[0]!;
+    if (targetId === entity.id && recordId === record.id) continue;
+
+    const target =
+      field.type === "belonging"
+        ? entity
+        : (entities.find((item) => item.id === targetId) ?? null);
+    const label =
+      resolveRelationRecordLabel(target, recordId)
+        ?.trim()
+        .toLocaleLowerCase("ru") ?? "";
+    if (titleNorm && label === titleNorm) {
+      return { entityId: targetId, recordId };
+    }
+
+    const fieldName = getEntityFieldDisplayName(field)
+      .trim()
+      .toLocaleLowerCase("ru");
+    if (fieldName.includes("протокол") || fieldName.includes("родител")) {
+      softNameHits.push({ entityId: targetId, recordId });
+    }
+  }
+
+  return softNameHits[0] ?? null;
+}
+
 function RecordToolbar({
   onBack,
   title,
+  onTitleOpen,
   actions,
   extra,
   onEdit,
@@ -333,6 +356,8 @@ function RecordToolbar({
 }: {
   onBack: () => void;
   title?: string;
+  /** Open related parent / protocol from the title. */
+  onTitleOpen?: () => void;
   /** Extra controls shown before the header field (e.g. timer). */
   actions?: ReactNode;
   extra?: ReactNode;
@@ -356,9 +381,27 @@ function RecordToolbar({
           <ArrowLeft />
         </Button>
         {title ? (
-          <h1 className="truncate text-2xl font-semibold tracking-tight">
-            {title}
-          </h1>
+          onTitleOpen ? (
+            <button
+              type="button"
+              className="group/title flex min-w-0 items-center gap-1.5 text-left"
+              onClick={onTitleOpen}
+              title="Открыть связанную запись"
+              aria-label={`Открыть связанную запись «${title}»`}
+            >
+              <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground transition-colors group-hover/title:text-primary group-hover/title:underline group-hover/title:underline-offset-4">
+                {title}
+              </h1>
+              <ArrowUpRight
+                className="size-4 shrink-0 text-muted-foreground transition-colors group-hover/title:text-primary"
+                aria-hidden
+              />
+            </button>
+          ) : (
+            <h1 className="truncate text-2xl font-semibold tracking-tight">
+              {title}
+            </h1>
+          )
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -592,7 +635,7 @@ function RecordHeaderField({
             allowEmpty={!field.required}
             allowOther={field.listAllowOther && !listPresentation.listMultiple}
             multiple={listPresentation.listMultiple}
-            showColors={false}
+            showColors={showColors}
             disabled={listDisabled}
             variant="plain"
             emptyLabel="—"
@@ -788,6 +831,78 @@ function RecordFieldDisplay({
     const tall =
       field.type === "relationGroups" ||
       lookupTarget?.field.type === "relationGroups";
+
+    // Lookup through a relation → open the related record(s).
+    if (
+      field.type === "lookup" &&
+      field.lookup &&
+      onOpenRelation &&
+      lookupTarget
+    ) {
+      const bridge = entity.fields.find(
+        (item) => item.id === field.lookup!.relationFieldId,
+      );
+      if (bridge?.type === "relation") {
+        const bridgeTargetId = getEntityRelationTargetId(bridge);
+        const relationIds = parseEntityRelationIds(
+          record.values[bridge.id] ?? "",
+        );
+        if (bridgeTargetId && relationIds.length > 0) {
+          const display = formatRecordFieldValue(ctx, entity, record, field);
+          const empty = !display || display === "—";
+          return (
+            <div
+              className={cn(
+                "flex w-full min-w-0 flex-col gap-1",
+                tall
+                  ? "min-h-0 justify-start py-0.5"
+                  : "h-full min-h-0 justify-center",
+              )}
+            >
+              {label ? (
+                <p className="truncate text-[11px] font-medium text-muted-foreground">
+                  {label}
+                </p>
+              ) : null}
+              {empty ? (
+                <p className="w-full text-sm text-muted-foreground/70">—</p>
+              ) : relationIds.length === 1 ? (
+                <button
+                  type="button"
+                  className="w-full truncate text-left text-sm font-medium text-primary underline-offset-2 hover:underline"
+                  onClick={() =>
+                    onOpenRelation(bridgeTargetId, relationIds[0]!)
+                  }
+                >
+                  {display}
+                </button>
+              ) : (
+                <div className="flex flex-wrap gap-x-2 gap-y-1">
+                  {relationIds.map((recordId) => {
+                    const itemLabel =
+                      resolveRelationRecordLabel(
+                        lookupTarget.entity,
+                        recordId,
+                      ) ?? display;
+                    return (
+                      <button
+                        key={recordId}
+                        type="button"
+                        className="truncate text-sm font-medium text-primary underline-offset-2 hover:underline"
+                        onClick={() => onOpenRelation(bridgeTargetId, recordId)}
+                      >
+                        {itemLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        }
+      }
+    }
+
     return (
       <div
         className={cn(
@@ -1105,6 +1220,7 @@ export function EntityRecordPage({
   const canDelete = useCanEntity(entity.id, "delete");
   const canCreate = useCanEntity(entity.id, "create");
   const role = useCurrentRole();
+  const sessionUser = useSessionUser();
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const locationTabId =
@@ -1178,13 +1294,22 @@ export function EntityRecordPage({
     const withGantt = projectGanttVisibility.showGanttTab
       ? withProjectGanttHardcodeTab(withTkp, entity)
       : withTkp;
-    if (!projectGanttVisibility.ganttReviewOnly) return withGantt;
-    return withGantt.filter((tab) => isProjectGanttHardcodeTab(tab));
+    // «Только график» — только на сущности «Проекты». На «Разбор ТКП» иначе
+    // схлопываются все вкладки (в т.ч. «Расчёты отделов») у рук. отделов.
+    const scoped =
+      projectGanttVisibility.ganttReviewOnly && isProjectsEntity(entity)
+        ? withGantt.filter((tab) => isProjectGanttHardcodeTab(tab))
+        : withGantt;
+    return scoped.filter((tab) => {
+      if (!isEntityFilesTab(tab)) return true;
+      return canTab(role, entity.id, tab.id, "view");
+    });
   }, [
     entities,
     entity,
     projectGanttVisibility.ganttReviewOnly,
     projectGanttVisibility.showGanttTab,
+    role,
     tkpCostVisibility.showCommercialPricing,
   ]);
   const resolvedActiveTabId =
@@ -1210,6 +1335,10 @@ export function EntityRecordPage({
     rawName === record.id
       ? "Без названия"
       : pageTitle;
+  const titleOpenTarget =
+    onOpenRelation && title !== "Без названия"
+      ? resolveRecordTitleOpenTarget(entity, record, entities, title)
+      : null;
 
   function handleDelete() {
     removeEntityRecord(entity.id, record.id);
@@ -1238,12 +1367,29 @@ export function EntityRecordPage({
     void requestListChange(entity, record, field, optionId);
   }
 
-  if (!canViewRecordForLegalEntities(role, entity, record, entities)) {
+  const authUserId = sessionUser?.id ?? null;
+  const currentUserRecordId = getCurrentUserRecordId();
+  const canViewByScope = canViewRecordForDataScope(role, entity, record, {
+    entities,
+    authUserId,
+    currentUserRecordId,
+    valueContext,
+  });
+  const canViewByLegal = canViewRecordForLegalEntities(
+    role,
+    entity,
+    record,
+    entities,
+  );
+
+  if (!canViewByScope || !canViewByLegal) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-start gap-3 overflow-auto p-8">
         <p className="text-sm font-medium text-foreground">Нет доступа</p>
         <p className="max-w-md text-sm text-muted-foreground">
-          Запись связана с другим юрлицом и скрыта настройками вашей роли.
+          {!canViewByLegal
+            ? "Запись связана с другим юрлицом и скрыта настройками вашей роли."
+            : "Запись скрыта областью доступа вашей роли (свои / отдел / фильтр)."}
         </p>
         <Button type="button" variant="outline" size="sm" onClick={onBack}>
           Назад
@@ -1257,10 +1403,22 @@ export function EntityRecordPage({
       <RecordToolbar
         onBack={onBack}
         title={isUsersEntity ? undefined : title}
+        onTitleOpen={
+          titleOpenTarget && onOpenRelation
+            ? () =>
+                onOpenRelation(
+                  titleOpenTarget.entityId,
+                  titleOpenTarget.recordId,
+                )
+            : undefined
+        }
         actions={
-          hasTimeSessionsTab ? null : (
-            <RecordTimer entity={entity} record={record} timers={timers} />
-          )
+          <>
+            <CreateRecordChatButton entity={entity} record={record} />
+            {hasTimeSessionsTab ? null : (
+              <RecordTimer entity={entity} record={record} timers={timers} />
+            )}
+          </>
         }
         extra={
           headerField ? (
@@ -1429,6 +1587,7 @@ export function EntityRecordPage({
                       entity={entity}
                       record={record}
                       tab={tab}
+                      readOnly={!canTab(role, entity.id, tab.id, "edit")}
                     />
                   </TabsContent>
                 );
@@ -1499,6 +1658,7 @@ export function EntityRecordPage({
         onOpenChange={setEditOpen}
         entity={entity}
         record={record}
+        onOpenRelation={onOpenRelation}
       />
 
       <RecordDeleteConfirmDialog

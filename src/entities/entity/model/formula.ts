@@ -1,4 +1,5 @@
 import {
+  addBusinessDays,
   addCalendarDays,
   businessDaysBetween,
   extractIsoDate,
@@ -73,10 +74,22 @@ export const FORMULA_FUNCTIONS: Array<{
     description: "Рабочих дней между датами (включительно)",
   },
   {
+    name: "WORKDAY",
+    alias: "РАБДЕНЬ",
+    signature: "WORKDAY(дата; сдвиг)",
+    description: "Дата через N рабочих дней (сдвиг 0 — та же дата)",
+  },
+  {
     name: "DAYS",
     alias: "ДНИ",
     signature: "DAYS(начало; конец)",
     description: "Календарных дней от начала до конца",
+  },
+  {
+    name: "ADDDAYS",
+    alias: "КАЛДНИ",
+    signature: "ADDDAYS(дата; сдвиг)",
+    description: "Дата через N календарных дней",
   },
   {
     name: "TODAY",
@@ -93,7 +106,10 @@ export const FORMULA_FUNCTION_GROUPS: Array<{
 }> = [
   { label: "Логика", names: ["IF"] },
   { label: "Числа", names: ["MIN", "MAX", "ROUND", "ABS", "COALESCE"] },
-  { label: "Даты", names: ["WORKDAYS", "DAYS", "TODAY"] },
+  {
+    label: "Даты",
+    names: ["WORKDAYS", "WORKDAY", "DAYS", "ADDDAYS", "TODAY"],
+  },
 ];
 
 const FUNCTION_ALIASES = new Map<string, string>(
@@ -460,11 +476,21 @@ function callFunction(
       if (!start || !end) return null;
       return businessDaysBetween(start, end);
     }
+    case "WORKDAY": {
+      const start = extractIsoDate(String(args[0] ?? ""));
+      if (!start) return null;
+      return addBusinessDays(start, Math.round(toNumber(args[1] ?? 0)));
+    }
     case "DAYS": {
       const start = parseIsoDate(String(args[0] ?? ""));
       const end = parseIsoDate(String(args[1] ?? ""));
       if (!start || !end) return null;
       return Math.round((end.getTime() - start.getTime()) / 86_400_000);
+    }
+    case "ADDDAYS": {
+      const start = extractIsoDate(String(args[0] ?? ""));
+      if (!start) return null;
+      return addCalendarDays(start, Math.round(toNumber(args[1] ?? 0)));
     }
     case "TODAY":
       return today;
@@ -514,11 +540,22 @@ function evaluateNode(
       if (node.op === "+") {
         const leftDate = typeof left === "string" ? extractIsoDate(left) : null;
         if (leftDate && typeof right === "number") {
-          return addCalendarDays(leftDate, right);
+          // Inclusive duration parity with schedule/gantt:
+          // «дата + N» = end of an N working-day span (N=1 → same day).
+          // Exclusive shift: WORKDAY(дата; N). Calendar: ADDDAYS(дата; N).
+          const shift = Math.round(right);
+          return addBusinessDays(leftDate, Math.max(0, shift) - 1);
         }
         return finiteOrNull(a + b);
       }
-      if (node.op === "-") return finiteOrNull(a - b);
+      if (node.op === "-") {
+        const leftDate = typeof left === "string" ? extractIsoDate(left) : null;
+        if (leftDate && typeof right === "number") {
+          const shift = Math.round(right);
+          return addBusinessDays(leftDate, -(Math.max(0, shift) - 1));
+        }
+        return finiteOrNull(a - b);
+      }
       if (node.op === "*") return finiteOrNull(a * b);
       if (b === 0) return null;
       return finiteOrNull(a / b);

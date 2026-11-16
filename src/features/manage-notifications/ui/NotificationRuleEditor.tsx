@@ -3,18 +3,24 @@ import { Trash2 } from "lucide-react";
 import {
   AssigneeEditor,
   type AutomationAssigneeResolver,
+  type AutomationProcess,
 } from "@/entities/automation";
 import { ConditionGroupBuilder } from "@/features/manage-automations/ui/ConditionGroupBuilder";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
 import {
   NOTIFICATION_TRIGGER_KIND_GROUPS,
+  NOTIFICATION_TRIGGER_KIND_HINTS,
   NOTIFICATION_TRIGGER_KIND_LABELS,
   describeNotificationTrigger,
   renderNotificationTemplate,
   type NotificationRule,
   type NotificationTriggerKind,
 } from "@/entities/notification";
-import { getEntityFieldDisplayName, type Entity } from "@/entities/entity";
+import {
+  getEntityFieldDisplayName,
+  resolveEntityListFieldOptions,
+  type Entity,
+} from "@/entities/entity";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -27,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { cn } from "@/shared/lib/cn";
 
 const TRIGGER_KINDS = Object.keys(
   NOTIFICATION_TRIGGER_KIND_LABELS,
@@ -41,23 +48,48 @@ function needsField(kind: NotificationTriggerKind) {
 export function NotificationRuleEditor({
   rule,
   entities,
+  processes = [],
   onSave,
   onDelete,
   onTest,
 }: {
   rule: NotificationRule;
   entities: Entity[];
+  /** Used to highlight the process stage field for the selected entity. */
+  processes?: readonly AutomationProcess[];
   onSave: (rule: NotificationRule) => void;
   onDelete: () => void;
   onTest?: (rule: NotificationRule) => void;
 }) {
   const [draft, setDraft] = useState(rule);
   const entity = entities.find((item) => item.id === draft.entityId) ?? null;
-  const listFields = useMemo(
-    () => (entity?.fields ?? []).filter((field) => field.type === "list"),
-    [entity],
-  );
+  const stageFieldId = useMemo(() => {
+    const process = processes.find(
+      (item) => item.entityId === draft.entityId && item.triggerFieldId.trim(),
+    );
+    return process?.triggerFieldId.trim() ?? "";
+  }, [processes, draft.entityId]);
+
+  const listFields = useMemo(() => {
+    const fields = (entity?.fields ?? []).filter(
+      (field) => field.type === "list",
+    );
+    if (!stageFieldId) return fields;
+    return fields.slice().sort((a, b) => {
+      if (a.id === stageFieldId) return -1;
+      if (b.id === stageFieldId) return 1;
+      return 0;
+    });
+  }, [entity, stageFieldId]);
+
   const triggerField = listFields.find((field) => field.id === draft.fieldId);
+  const listOptions = useMemo(
+    () =>
+      triggerField ? resolveEntityListFieldOptions(triggerField, entities) : [],
+    [triggerField, entities],
+  );
+  const isStageField = Boolean(draft.fieldId) && draft.fieldId === stageFieldId;
+
   const previewValues = entity?.records[0]?.values ?? {};
   const previewOpts = {
     entity,
@@ -118,9 +150,16 @@ export function NotificationRuleEditor({
           value={draft.entityId}
           onValueChange={(next) => {
             if (next == null) return;
+            const entityId = String(next);
+            const process = processes.find(
+              (item) =>
+                item.entityId === entityId && item.triggerFieldId.trim(),
+            );
+            const nextStageFieldId = process?.triggerFieldId.trim() ?? "";
+            const keepStageTrigger = needsField(draft.triggerKind);
             patch({
-              entityId: String(next),
-              fieldId: "",
+              entityId,
+              fieldId: keepStageTrigger ? nextStageFieldId : "",
               optionId: "",
               fromOptionId: "",
               toOptionId: "",
@@ -150,7 +189,21 @@ export function NotificationRuleEditor({
             if (next == null) return;
             const triggerKind = String(next) as NotificationTriggerKind;
             if (!(TRIGGER_KINDS as string[]).includes(triggerKind)) return;
-            patch({ triggerKind });
+            const nextNeedsField = needsField(triggerKind);
+            patch({
+              triggerKind,
+              fieldId:
+                nextNeedsField && !draft.fieldId && stageFieldId
+                  ? stageFieldId
+                  : nextNeedsField
+                    ? draft.fieldId
+                    : "",
+              optionId: nextNeedsField ? draft.optionId : "",
+              fromOptionId:
+                triggerKind === "fieldTransition" ? draft.fromOptionId : "",
+              toOptionId:
+                triggerKind === "fieldTransition" ? draft.toOptionId : "",
+            });
           }}
         >
           <SelectTrigger className="w-full">
@@ -167,17 +220,29 @@ export function NotificationRuleEditor({
           </SelectContent>
         </Select>
         <p className="text-[11px] text-muted-foreground">
+          {NOTIFICATION_TRIGGER_KIND_HINTS[draft.triggerKind]}
+        </p>
+        <p className="text-[11px] text-muted-foreground">
           Сработает при: {describeNotificationTrigger(draft)}
         </p>
       </div>
 
       {needsField(draft.triggerKind) ? (
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Поле списка</Label>
+          <Label className="text-xs">
+            {isStageField || stageFieldId ? "Поле стадии" : "Поле списка"}
+          </Label>
           <Select
             value={draft.fieldId || undefined}
             onValueChange={(next) => {
-              if (next != null) patch({ fieldId: String(next) });
+              if (next != null) {
+                patch({
+                  fieldId: String(next),
+                  optionId: "",
+                  fromOptionId: "",
+                  toOptionId: "",
+                });
+              }
             }}
           >
             <SelectTrigger className="w-full">
@@ -188,20 +253,48 @@ export function NotificationRuleEditor({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {listFields.map((field) => (
-                <SelectItem key={field.id} value={field.id}>
-                  {getEntityFieldDisplayName(field)}
-                </SelectItem>
-              ))}
+              {listFields.map((field) => {
+                const isProcessStage = field.id === stageFieldId;
+                return (
+                  <SelectItem key={field.id} value={field.id}>
+                    <span className="flex items-center gap-2">
+                      {getEntityFieldDisplayName(field)}
+                      {isProcessStage ? (
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          стадия процесса
+                        </span>
+                      ) : null}
+                    </span>
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
+          {stageFieldId && !draft.fieldId ? (
+            <button
+              type="button"
+              className="self-start text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() =>
+                patch({
+                  fieldId: stageFieldId,
+                  optionId: "",
+                  fromOptionId: "",
+                  toOptionId: "",
+                })
+              }
+            >
+              Подставить поле стадии процесса
+            </button>
+          ) : null}
         </div>
       ) : null}
 
       {draft.triggerKind === "fieldEnter" ||
       draft.triggerKind === "fieldLeave" ? (
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Значение (опционально)</Label>
+          <Label className="text-xs">
+            {isStageField ? "Стадия (опционально)" : "Значение (опционально)"}
+          </Label>
           <Select
             value={draft.optionId || "__any__"}
             onValueChange={(next) => {
@@ -214,15 +307,18 @@ export function NotificationRuleEditor({
             <SelectTrigger className="w-full">
               <SelectValue>
                 {draft.optionId
-                  ? (triggerField?.listOptions.find(
-                      (option) => option.id === draft.optionId,
-                    )?.name ?? draft.optionId)
-                  : "Любое значение"}
+                  ? (listOptions.find((option) => option.id === draft.optionId)
+                      ?.name ?? draft.optionId)
+                  : isStageField
+                    ? "Любая стадия"
+                    : "Любое значение"}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__any__">Любое значение</SelectItem>
-              {(triggerField?.listOptions ?? []).map((option) => (
+              <SelectItem value="__any__">
+                {isStageField ? "Любая стадия" : "Любое значение"}
+              </SelectItem>
+              {listOptions.map((option) => (
                 <SelectItem key={option.id} value={option.id}>
                   {option.name}
                 </SelectItem>
@@ -235,7 +331,9 @@ export function NotificationRuleEditor({
       {draft.triggerKind === "fieldTransition" ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Из значения</Label>
+            <Label className="text-xs">
+              {isStageField ? "Из стадии" : "Из значения"}
+            </Label>
             <Select
               value={draft.fromOptionId || "__any__"}
               onValueChange={(next) => {
@@ -248,15 +346,15 @@ export function NotificationRuleEditor({
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {draft.fromOptionId
-                    ? (triggerField?.listOptions.find(
+                    ? (listOptions.find(
                         (option) => option.id === draft.fromOptionId,
                       )?.name ?? draft.fromOptionId)
-                    : "Любое"}
+                    : "Любая"}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__any__">Любое</SelectItem>
-                {(triggerField?.listOptions ?? []).map((option) => (
+                <SelectItem value="__any__">Любая</SelectItem>
+                {listOptions.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
                     {option.name}
                   </SelectItem>
@@ -265,7 +363,9 @@ export function NotificationRuleEditor({
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">В значение</Label>
+            <Label className="text-xs">
+              {isStageField ? "В стадию" : "В значение"}
+            </Label>
             <Select
               value={draft.toOptionId || "__any__"}
               onValueChange={(next) => {
@@ -278,15 +378,15 @@ export function NotificationRuleEditor({
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {draft.toOptionId
-                    ? (triggerField?.listOptions.find(
+                    ? (listOptions.find(
                         (option) => option.id === draft.toOptionId,
                       )?.name ?? draft.toOptionId)
-                    : "Любое"}
+                    : "Любая"}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__any__">Любое</SelectItem>
-                {(triggerField?.listOptions ?? []).map((option) => (
+                <SelectItem value="__any__">Любая</SelectItem>
+                {listOptions.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
                     {option.name}
                   </SelectItem>
@@ -329,7 +429,11 @@ export function NotificationRuleEditor({
             id={`nr-title-${draft.id}`}
             title="Заголовок"
             value={draft.titleTemplate}
-            placeholder="Например: Вам назначено: «{{name}}»"
+            placeholder={
+              needsField(draft.triggerKind)
+                ? "Например: Стадия: {{поле_стадии}}"
+                : "Например: Вам назначено: «{{name}}»"
+            }
             fields={entity.fields}
             onChange={(titleTemplate) => patch({ titleTemplate })}
           />
@@ -337,7 +441,11 @@ export function NotificationRuleEditor({
             id={`nr-message-${draft.id}`}
             title="Текст"
             value={draft.messageTemplate}
-            placeholder="Текст уведомления"
+            placeholder={
+              needsField(draft.triggerKind)
+                ? "Запись перешла на новую стадию"
+                : "Текст уведомления"
+            }
             fields={entity.fields}
             multiline
             onChange={(messageTemplate) => patch({ messageTemplate })}
@@ -368,7 +476,11 @@ export function NotificationRuleEditor({
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-dashed border-border px-3 py-2">
+      <div
+        className={cn(
+          "rounded-lg border border-dashed border-border px-3 py-2",
+        )}
+      >
         <p className="text-[11px] font-medium text-muted-foreground">Превью</p>
         <p className="mt-1 text-sm font-medium">{previewTitle || "—"}</p>
         <p className="mt-0.5 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">

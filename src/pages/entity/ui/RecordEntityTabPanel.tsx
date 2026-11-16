@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  ArrowUpRight,
   ChevronDown,
   ChevronRight,
   Link2,
@@ -59,6 +60,7 @@ import {
   ENTITY_FIELD_GROUP_COLUMNS,
   getEntityFieldDisplayName,
   getEntityRecordTitle,
+  getEntityRelationTargetId,
   getEntityTableDisplayColumnNumber,
   getEntityTableFields,
   isEntityFieldGroupTitleHidden,
@@ -81,13 +83,16 @@ import {
   removeEntityRecord,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
+  resolveEntityLookupTarget,
   resolveEntityTableDisplayColumnField,
   resolveEntityTableNestedTarget,
   resolveEntityTableParentField,
   resolveEntityTableSubgroupField,
+  resolveRelationRecordLabel,
   RecordValue,
   serializeEntityRelationIds,
   filterDeptCalculationRecordsForAssignee,
+  resolveEditableDeptCalculationRecordIds,
   useCurrentUserRecordId,
   useEntityConfig,
   useEntityValueContext,
@@ -103,12 +108,13 @@ import {
   collectRecordsLinkedToParent,
   resolveLinkedTabParentLinkFieldId,
 } from "@/entities/automation";
-import { useCurrentRole } from "@/entities/access";
+import { canEntity, useCurrentRole } from "@/entities/access";
 import { getSessionUser } from "@/entities/session";
 import {
   isDeptCalculationsEntity,
   isTkpAnalysisEntity,
   isTkpDepartmentHeadRole,
+  isTkpGipRole,
   TkpReviewHardcodeSlot,
 } from "@/features/hardcode";
 import { cn } from "@/shared/lib/cn";
@@ -1316,18 +1322,81 @@ function fieldColSpanOf(value: number | string | undefined) {
   );
 }
 
+function resolveCardFieldOpenTargets(
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField,
+  entities: Entity[],
+  display: string,
+): Array<{ entityId: string; recordId: string; label: string }> {
+  if (field.type === "relation") {
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) return [];
+    const target = entities.find((item) => item.id === targetId) ?? null;
+    const ids = parseEntityRelationIds(record.values[field.id] ?? "");
+    if (ids.length === 0) return [];
+    if (ids.length === 1) {
+      return [
+        {
+          entityId: targetId,
+          recordId: ids[0]!,
+          label: display === "—" ? "Без названия" : display,
+        },
+      ];
+    }
+    return ids.map((recordId) => ({
+      entityId: targetId,
+      recordId,
+      label: resolveRelationRecordLabel(target, recordId) ?? "Без названия",
+    }));
+  }
+
+  if (field.type === "lookup" && field.lookup) {
+    const lookupTarget = resolveEntityLookupTarget(entity, field, entities);
+    if (!lookupTarget) return [];
+    const bridge = entity.fields.find(
+      (item) => item.id === field.lookup!.relationFieldId,
+    );
+    if (bridge?.type !== "relation") return [];
+    const targetId = getEntityRelationTargetId(bridge);
+    if (!targetId) return [];
+    const ids = parseEntityRelationIds(record.values[bridge.id] ?? "");
+    if (ids.length === 0) return [];
+    if (ids.length === 1) {
+      return [
+        {
+          entityId: targetId,
+          recordId: ids[0]!,
+          label: display === "—" ? "Без названия" : display,
+        },
+      ];
+    }
+    return ids.map((recordId) => ({
+      entityId: targetId,
+      recordId,
+      label:
+        resolveRelationRecordLabel(lookupTarget.entity, recordId) ??
+        "Без названия",
+    }));
+  }
+
+  return [];
+}
+
 function RecordCardFieldValue({
   entity,
   record,
   field,
   entities,
   valueContext,
+  onOpenRelation,
 }: {
   entity: Entity;
   record: EntityRecord;
   field: EntityField;
   entities: Entity[];
   valueContext: EntityValueContext;
+  onOpenRelation?: (entityId: string, recordId: string) => void;
 }) {
   const label = getEntityFieldDisplayName(field);
   const display = formatRecordFieldValue(valueContext, entity, record, field);
@@ -1336,6 +1405,10 @@ function RecordCardFieldValue({
     field.type === "list"
       ? resolveEntityListFieldPresentation(field, entities)
       : null;
+  const openTargets =
+    onOpenRelation && !empty
+      ? resolveCardFieldOpenTargets(entity, record, field, entities, display)
+      : [];
 
   return (
     <div className="min-w-0">
@@ -1350,6 +1423,31 @@ function RecordCardFieldValue({
             multiple={listPresentation.listMultiple}
             showColors={listPresentation.listUseColors}
           />
+        </div>
+      ) : openTargets.length === 1 ? (
+        <button
+          type="button"
+          className="mt-1 w-full truncate text-left text-sm font-medium text-primary underline-offset-2 hover:underline"
+          title={openTargets[0]!.label}
+          onClick={() =>
+            onOpenRelation?.(openTargets[0]!.entityId, openTargets[0]!.recordId)
+          }
+        >
+          {openTargets[0]!.label}
+        </button>
+      ) : openTargets.length > 1 ? (
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+          {openTargets.map((target) => (
+            <button
+              key={target.recordId}
+              type="button"
+              className="truncate text-sm font-medium text-primary underline-offset-2 hover:underline"
+              title={target.label}
+              onClick={() => onOpenRelation?.(target.entityId, target.recordId)}
+            >
+              {target.label}
+            </button>
+          ))}
         </div>
       ) : isRecordValueDecorated(field) ? (
         <RecordValue
@@ -1380,6 +1478,8 @@ function RecordCard({
   record,
   parentLinkFieldId,
   single = false,
+  onOpen,
+  onOpenRelation,
   onEdit,
   onDelete,
 }: {
@@ -1388,6 +1488,8 @@ function RecordCard({
   parentLinkFieldId: string | null;
   /** Full layout from field settings; never collapses. */
   single?: boolean;
+  onOpen?: () => void;
+  onOpenRelation?: (entityId: string, recordId: string) => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -1430,13 +1532,49 @@ function RecordCard({
     );
 
   return (
-    <article className="group/card overflow-hidden rounded-xl border border-border bg-card">
+    <article
+      className={cn(
+        "group/card overflow-hidden rounded-xl border border-border bg-card",
+        onOpen && "transition-colors hover:border-primary/35",
+      )}
+    >
       <header className="flex items-center gap-2 border-b border-border/80 px-4 py-3">
-        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-          {title}
-        </h3>
-        {onEdit || onDelete ? (
+        {onOpen ? (
+          <button
+            type="button"
+            className="group/title flex min-w-0 flex-1 items-center gap-1.5 text-left"
+            title={`Открыть «${title}»`}
+            aria-label={`Открыть запись «${title}»`}
+            onClick={onOpen}
+          >
+            <span className="min-w-0 truncate text-sm font-semibold text-primary underline-offset-2 group-hover/title:underline">
+              {title}
+            </span>
+            <ArrowUpRight
+              className="size-3.5 shrink-0 text-primary/70 transition-colors group-hover/title:text-primary"
+              aria-hidden
+            />
+          </button>
+        ) : (
+          <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+            {title}
+          </h3>
+        )}
+        {onOpen || onEdit || onDelete ? (
           <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/card:opacity-100 focus-within:opacity-100">
+            {onOpen ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-8"
+                aria-label="Открыть запись"
+                title="Открыть"
+                onClick={onOpen}
+              >
+                <ChevronRight className="size-3.5" />
+              </Button>
+            ) : null}
             {onEdit ? (
               <Button
                 type="button"
@@ -1516,6 +1654,7 @@ function RecordCard({
                         field={field}
                         entities={entities}
                         valueContext={valueContext}
+                        onOpenRelation={onOpenRelation}
                       />
                     </div>
                   ))}
@@ -1546,6 +1685,7 @@ function RecordCard({
                 field={field}
                 entities={entities}
                 valueContext={valueContext}
+                onOpenRelation={onOpenRelation}
               />
             ))}
           </div>
@@ -1744,6 +1884,8 @@ export function RecordEntityTabPanel({
 }: RecordEntityTabPanelProps) {
   const valueContext = useEntityValueContext();
   const role = useCurrentRole();
+  const canCreate = canEntity(role, linkedEntity.id, "create");
+  const canDelete = canEntity(role, linkedEntity.id, "delete");
   const currentUserRecordId = useCurrentUserRecordId();
   const restrictDeptToOwn = isTkpDepartmentHeadRole(role);
   const parentLinkFieldId =
@@ -1924,7 +2066,7 @@ export function RecordEntityTabPanel({
     linkedEntity.parentEntityId === parentEntityId;
 
   function openAdd() {
-    if (atSingleRecordLimit) return;
+    if (atSingleRecordLimit || !canCreate) return;
     setCreateHierarchy(null);
     if (ownsLinkedRecords) {
       setDialogRecord("new");
@@ -1934,7 +2076,7 @@ export function RecordEntityTabPanel({
   }
 
   function openAddInHierarchy(groupId: string, subgroupId?: string) {
-    if (atSingleRecordLimit) return;
+    if (atSingleRecordLimit || !canCreate) return;
     setCreateHierarchy({
       groupId,
       ...(subgroupId != null && subgroupId !== "" ? { subgroupId } : {}),
@@ -1949,6 +2091,42 @@ export function RecordEntityTabPanel({
         : null,
     [hostEntity, parentRecord],
   );
+
+  const deptCalcViewerUserIds = useMemo(() => {
+    const sessionId = getSessionUser()?.id ?? null;
+    return [currentUserRecordId, sessionId].filter((id): id is string =>
+      Boolean(id),
+    );
+  }, [currentUserRecordId]);
+
+  /**
+   * Constrain row edits for heads (own depts) and GIP (only «ГИП» rows).
+   * Admins / managers keep full edit (`null`).
+   */
+  const editableDeptRecordIds = useMemo(() => {
+    if (!isDeptCalculationsEntity(linkedEntity)) return null;
+    const forceLeadGip = isTkpGipRole(role);
+    if (!restrictDeptToOwn && !forceLeadGip) return null;
+    return resolveEditableDeptCalculationRecordIds({
+      entity: linkedEntity,
+      records,
+      entities,
+      assigneeUserId: currentUserRecordId,
+      assigneeUserIds: deptCalcViewerUserIds,
+      leadParent: deptCalcLeadParent,
+      restrictToOwnDepartments: restrictDeptToOwn,
+      forceLeadGip,
+    });
+  }, [
+    currentUserRecordId,
+    deptCalcLeadParent,
+    deptCalcViewerUserIds,
+    entities,
+    linkedEntity,
+    records,
+    restrictDeptToOwn,
+    role,
+  ]);
 
   /** Hardcode: GIP cost summary lives at the end of «Расчёты отделов» on TKP. */
   const tkpGipFooter =
@@ -1986,7 +2164,7 @@ export function RecordEntityTabPanel({
               {records.length} записей
             </span>
           )}
-          {!readOnly && !atSingleRecordLimit ? (
+          {!readOnly && !atSingleRecordLimit && canCreate ? (
             <Button
               type="button"
               size="sm"
@@ -2023,6 +2201,7 @@ export function RecordEntityTabPanel({
               entity={linkedEntity}
               records={records}
               leadParent={deptCalcLeadParent}
+              editableRecordIds={readOnly ? new Set() : editableDeptRecordIds}
               onEditRecord={
                 readOnly ? undefined : (record) => setDialogRecord(record)
               }
@@ -2036,7 +2215,9 @@ export function RecordEntityTabPanel({
             parentLinkFieldId={parentLinkFieldId}
             onEdit={readOnly ? undefined : (record) => setDialogRecord(record)}
             onDelete={
-              readOnly ? undefined : (record) => setPendingDelete(record)
+              !readOnly && canDelete
+                ? (record) => setPendingDelete(record)
+                : undefined
             }
             onOpenRecord={
               onOpenRelation
@@ -2063,8 +2244,18 @@ export function RecordEntityTabPanel({
               record={record}
               parentLinkFieldId={parentLinkFieldId}
               single={singleRecord}
+              onOpen={
+                onOpenRelation
+                  ? () => onOpenRelation(linkedEntity.id, record.id)
+                  : undefined
+              }
+              onOpenRelation={onOpenRelation}
               onEdit={readOnly ? undefined : () => setDialogRecord(record)}
-              onDelete={readOnly ? undefined : () => setPendingDelete(record)}
+              onDelete={
+                !readOnly && canDelete
+                  ? () => setPendingDelete(record)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -2142,6 +2333,7 @@ export function RecordEntityTabPanel({
             }
             titleOverride={dialogRecord !== null ? dialogTitle : undefined}
             submitLabel="Сохранить"
+            onOpenRelation={onOpenRelation}
             onSubmit={async (values) => {
               if (!parentLinkFieldId) return;
               if (dialogRecord === "new" && atSingleRecordLimit) return;
@@ -2162,7 +2354,10 @@ export function RecordEntityTabPanel({
                 // Nested hierarchy: open child create right after the parent.
                 if (nestedTarget) {
                   setNestedCreateParentId(created.id);
+                  return;
                 }
+                // Open the new card so the user can continue from the related entity.
+                onOpenRelation?.(linkedEntity.id, created.id);
                 return;
               }
               if (dialogRecord) {
@@ -2196,6 +2391,7 @@ export function RecordEntityTabPanel({
                 "элемент"
               }`}
               submitLabel="Сохранить"
+              onOpenRelation={onOpenRelation}
               onSubmit={async (values) => {
                 if (!nestedCreateParentId) return;
                 const nextValues = {
@@ -2204,6 +2400,7 @@ export function RecordEntityTabPanel({
                 };
                 const created = addEntityRecord(nestedEntity.id, nextValues);
                 await waitForEntityRecordInsert(created.id);
+                onOpenRelation?.(nestedEntity.id, created.id);
               }}
             />
           ) : null}
@@ -2224,7 +2421,7 @@ export function RecordEntityTabPanel({
               }
               confirmLabel="Удалить"
               onConfirm={() => {
-                if (!pendingDelete) return;
+                if (!canDelete || !pendingDelete) return;
                 removeEntityRecord(linkedEntity.id, pendingDelete.id);
               }}
             />

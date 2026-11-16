@@ -21,6 +21,7 @@ import {
 } from "@/entities/entity";
 import {
   AUTOMATION_TASKS_ITEM_ID,
+  CHATS_ITEM_ID,
   NOTIFICATIONS_ITEM_ID,
   filterVisibleMenuEntries,
   flattenMenuEntriesToItems,
@@ -37,6 +38,7 @@ import {
 } from "@/entities/menu";
 import { canMenuItem, roleMenuFlat, useCurrentRole } from "@/entities/access";
 import { useUnreadNotificationCount } from "@/entities/notification";
+import { useUnreadMessengerChatCount } from "@/entities/messenger";
 import { signOut, useSessionUser } from "@/entities/session";
 import { useMyOpenAutomationTaskCount } from "@/features/automation-tasks";
 import { NotificationBell } from "@/features/notification-inbox";
@@ -45,11 +47,13 @@ import { SidebarNavSkeleton } from "./SidebarNavSkeleton";
 type NavBadges = {
   openTasks: number;
   unreadNotifications: number;
+  unreadChats: number;
 };
 
 const EMPTY_NAV_BADGES: NavBadges = {
   openTasks: 0,
   unreadNotifications: 0,
+  unreadChats: 0,
 };
 
 function SidebarMenuIcon({
@@ -146,6 +150,7 @@ function NavCountBadge({
 function menuItemBadgeCount(itemId: string, badges: NavBadges) {
   if (itemId === AUTOMATION_TASKS_ITEM_ID) return badges.openTasks;
   if (itemId === NOTIFICATIONS_ITEM_ID) return badges.unreadNotifications;
+  if (itemId === CHATS_ITEM_ID) return badges.unreadChats;
   return 0;
 }
 
@@ -161,7 +166,14 @@ function menuItemBadgeAriaLabel(
   if (itemId === AUTOMATION_TASKS_ITEM_ID) {
     return `${label}, невыполненных: ${count}`;
   }
+  if (itemId === CHATS_ITEM_ID) {
+    return `${label}, чатов с непрочитанными: ${count}`;
+  }
   return `${label}, ${count}`;
+}
+
+function handleMenuNavigate(menuId: string, onNavigate?: (id: string) => void) {
+  onNavigate?.(menuId);
 }
 
 function SidebarTreeRow({
@@ -244,7 +256,7 @@ function renderNestedEntries({
                   entry.label,
                   badge,
                 )}
-                onClick={() => onNavigate?.(entry.id)}
+                onClick={() => handleMenuNavigate(entry.id, onNavigate)}
                 className={cn(
                   navItemClass({
                     collapsed: false,
@@ -312,7 +324,7 @@ function SidebarCollapsedLeaves({
             aria-current={isActive ? "page" : undefined}
             aria-label={menuItemBadgeAriaLabel(item.id, item.label, badge)}
             title={`${pathLabel} → ${item.label}`}
-            onClick={() => onNavigate?.(item.id)}
+            onClick={() => handleMenuNavigate(item.id, onNavigate)}
             className={cn(
               navItemClass({
                 collapsed: true,
@@ -368,7 +380,7 @@ function SidebarItemFolder({
           variant="ghost"
           aria-current={isActive ? "page" : undefined}
           title={item.label}
-          onClick={() => onNavigate?.(item.id)}
+          onClick={() => handleMenuNavigate(item.id, onNavigate)}
           className={cn(
             navItemClass({
               collapsed,
@@ -577,7 +589,7 @@ function renderSidebarEntries({
           aria-current={isActive ? "page" : undefined}
           aria-label={menuItemBadgeAriaLabel(entry.id, entry.label, badge)}
           title={entry.label}
-          onClick={() => onNavigate?.(entry.id)}
+          onClick={() => handleMenuNavigate(entry.id, onNavigate)}
           className={cn(navItemClass({ collapsed, isActive }), "relative")}
         >
           <SidebarMenuIcon name={entry.icon} className="size-4 shrink-0" />
@@ -637,13 +649,16 @@ export function Sidebar({
   const role = useCurrentRole();
   const openTaskCount = useMyOpenAutomationTaskCount();
   const unreadNotificationCount = useUnreadNotificationCount();
+  const unreadChatCount = useUnreadMessengerChatCount();
   const navBadges = useMemo<NavBadges>(
     () => ({
       openTasks: openTaskCount,
       unreadNotifications: unreadNotificationCount,
+      unreadChats: unreadChatCount,
     }),
-    [openTaskCount, unreadNotificationCount],
+    [openTaskCount, unreadNotificationCount, unreadChatCount],
   );
+  const effectiveActiveId = activeId;
 
   const navEntries = useMemo(() => {
     const internalIds = new Set(
@@ -746,7 +761,7 @@ export function Sidebar({
             {renderSidebarEntries({
               entries: navEntries,
               collapsed,
-              activeId,
+              activeId: effectiveActiveId ?? "",
               collapsedGroupIds,
               onToggleGroup: toggleGroup,
               onNavigate,

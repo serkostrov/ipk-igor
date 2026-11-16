@@ -33,7 +33,11 @@ import {
   getEntityFieldValueKind,
   resolveEntityFieldSource,
 } from "../model/field-value";
-import { getSystemUsersEntity } from "../model/system-entities";
+import { fieldTargetsUsers } from "../model/own-scope";
+import {
+  getSystemUsersEntity,
+  SYSTEM_USERS_FIELD_ROLE_ID,
+} from "../model/system-entities";
 import {
   getRelationRecordOptions,
   isEntityNameField,
@@ -68,6 +72,7 @@ type ConditionBuilderProps = {
 
 type OperandKind =
   | "ids"
+  | "roleIds"
   | "number"
   | "days"
   | "date"
@@ -88,6 +93,9 @@ function getOperandKind(operator: EntityConditionOperator): OperandKind {
     case "in":
     case "notIn":
       return "ids";
+    case "userRoleIn":
+    case "userRoleNotIn":
+      return "roleIds";
     case "gt":
     case "lt":
     case "eq":
@@ -200,6 +208,35 @@ function ConditionValueEditor({
   onChange: (patch: Partial<EntityCondition>) => void;
 }) {
   const operandKind = getOperandKind(condition.operator);
+
+  if (operandKind === "roleIds") {
+    const users = getSystemUsersEntity(entities);
+    const roleField =
+      users?.fields.find((item) => item.id === SYSTEM_USERS_FIELD_ROLE_ID) ??
+      null;
+    const options = roleField
+      ? resolveEntityListFieldOptions(roleField, entities)
+      : [];
+    if (options.length === 0) {
+      return (
+        <p className="px-1 text-xs text-muted-foreground">
+          Нет ролей для выбора
+        </p>
+      );
+    }
+    return (
+      <ListSelect
+        multiple
+        options={options}
+        value={serializeEntityListValueIds(condition.values ?? [])}
+        showColors={false}
+        emptyLabel="Выберите роли"
+        aria-label="Роли"
+        className="h-8"
+        onChange={(next) => onChange({ values: parseEntityListValueIds(next) })}
+      />
+    );
+  }
 
   if (operandKind === "ids") {
     // Title identifies the record — pick catalog rows by id.
@@ -441,7 +478,7 @@ export function ConditionBuilder({
       fieldKind(entity, field, entities),
     );
     // Name is the record identity — allow catalog id / current-user matches.
-    const operators = isEntityNameField(field)
+    let operators = isEntityNameField(field)
       ? Array.from(
           new Set<EntityConditionOperator>([
             ...base,
@@ -451,7 +488,17 @@ export function ConditionBuilder({
             "notEqualsCurrentUserField",
           ]),
         )
-      : base;
+      : [...base];
+    // Users relations: match linked people by their system role.
+    if (fieldTargetsUsers(entity, field, entities)) {
+      operators = Array.from(
+        new Set<EntityConditionOperator>([
+          ...operators,
+          "userRoleIn",
+          "userRoleNotIn",
+        ]),
+      );
+    }
     if (sourceEntity) return operators;
     return operators.filter((item) => item !== "equalsRecordField");
   }

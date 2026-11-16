@@ -7,6 +7,7 @@ import {
   isEntityInternal,
   setCurrentAuthUserId,
   subscribeEntityConfig,
+  syncUsersRoleOptions,
   useEntityConfig,
   useEntityStatus,
   type Entity,
@@ -22,10 +23,13 @@ import { initNotificationConfig } from "@/entities/notification";
 import {
   canAccessAutomationTasks,
   canAccessHistory,
+  canAccessMessenger,
+  canAccessNewsFeed,
   canAccessNotifications,
   canAccessSettings,
   canEntity,
   canMenuItem,
+  getRolesConfig,
   initAccessConfig,
   refreshCurrentRole,
   setAccessAuthUserId,
@@ -50,10 +54,13 @@ import {
 import { EntityPage } from "@/pages/entity";
 import { HistoryPage } from "@/pages/history";
 import { NotificationsPage } from "@/pages/notifications";
+import { NewsFeedPage, NewsFeedPostPage } from "@/pages/news-feed";
+import { MessengerPage } from "@/pages/messenger";
 import { OpiuPage } from "@/pages/opiu";
 import { FinanceDashboardsPage } from "@/pages/finance-dashboards";
 import { SettingsPage } from "@/pages/settings";
 import { NotificationsHost } from "@/widgets/notifications";
+import { MessengerHost } from "@/widgets/messenger";
 import { Sidebar } from "@/widgets/sidebar";
 import { useLocation } from "react-router-dom";
 
@@ -83,6 +90,10 @@ function isLocationAllowed(
     return canAccessAutomationTasks(role);
   }
   if (location.type === "notifications") return canAccessNotifications(role);
+  if (location.type === "feed" || location.type === "feed-post") {
+    return canAccessNewsFeed(role);
+  }
+  if (location.type === "chats") return canAccessMessenger(role);
   if (location.type === "opiu") return canMenuItem(role, "opiu");
   if (location.type === "finance-dashboards") {
     return canMenuItem(role, "finance-dashboards");
@@ -104,6 +115,8 @@ function firstAllowedLocation(
   if (role && canAccessHistory(role)) return { type: "history" };
   if (role && canAccessAutomationTasks(role)) return { type: "tasks" };
   if (role && canAccessNotifications(role)) return { type: "notifications" };
+  if (role && canAccessNewsFeed(role)) return { type: "feed" };
+  if (role && canAccessMessenger(role)) return { type: "chats" };
   for (const entity of entities) {
     if (
       role &&
@@ -242,10 +255,24 @@ export function AppShell() {
         }
 
         await withTimeout(initAccessConfig(authUserId), 3_000);
+        // Entity structure may land after the first roles sync — align
+        // Users «Роль» option labels with the roles catalog once more.
+        syncUsersRoleOptions(
+          getRolesConfig().roles.map((role) => ({
+            id: role.id,
+            name: role.name,
+          })),
+        );
       } catch (error: unknown) {
         console.error("[app] bootstrap failed", error);
         try {
           await withTimeout(initAccessConfig(authUserId), 2_000);
+          syncUsersRoleOptions(
+            getRolesConfig().roles.map((role) => ({
+              id: role.id,
+              name: role.name,
+            })),
+          );
         } catch (accessError: unknown) {
           console.error("[app] access bootstrap failed", accessError);
         }
@@ -296,6 +323,7 @@ export function AppShell() {
   return (
     <div className="flex h-svh overflow-hidden bg-background">
       <NotificationsHost />
+      <MessengerHost />
       <AutomationTasksHost />
       <Sidebar
         activeId={activeId}
@@ -330,6 +358,12 @@ export function AppShell() {
             onOpenRecord={handleOpenRecord}
             onOpenTasks={() => goMenu("automation-tasks")}
           />
+        ) : accessResolved.type === "feed" ? (
+          <NewsFeedPage />
+        ) : accessResolved.type === "feed-post" ? (
+          <NewsFeedPostPage postId={accessResolved.postId} />
+        ) : accessResolved.type === "chats" ? (
+          <MessengerPage onOpenRecord={handleOpenRecord} />
         ) : accessResolved.type === "opiu" ? (
           <OpiuPage />
         ) : accessResolved.type === "finance-dashboards" ? (

@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  feedPostLocation,
   locationsEqual,
   menuIdToLocation,
   parsePath,
@@ -102,6 +103,16 @@ export function useAppNavigate() {
         }
         return;
       }
+      // Re-clicking feed while on a post → list.
+      if (
+        (current.type === "feed" || current.type === "feed-post") &&
+        target.type === "feed"
+      ) {
+        if (current.type === "feed-post") {
+          replace(target);
+        }
+        return;
+      }
       go(target);
     },
     [current, go, replace],
@@ -126,5 +137,21 @@ export function useAppNavigate() {
     [go],
   );
 
-  return { go, replace, back, goMenu, openRecord, openTask, current };
+  const openFeedPost = useCallback(
+    (postId: string) => {
+      go(feedPostLocation(postId));
+    },
+    [go],
+  );
+
+  return {
+    go,
+    replace,
+    back,
+    goMenu,
+    openRecord,
+    openTask,
+    openFeedPost,
+    current,
+  };
 }

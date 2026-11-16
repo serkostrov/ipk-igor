@@ -427,7 +427,6 @@ export function normalizeEntityField(field: EntityField): EntityField {
     type === "list" && !listMultiple ? Boolean(field.listAllowOther) : false;
   const listDependsOnFieldId =
     type === "list" &&
-    !listSourceFieldId &&
     typeof field.listDependsOnFieldId === "string" &&
     field.listDependsOnFieldId.trim().length > 0
       ? field.listDependsOnFieldId.trim()

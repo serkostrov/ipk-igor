@@ -187,6 +187,12 @@ export const AUTOMATION_TASKS_ITEM_ID = "automation-tasks";
 /** System page «Уведомления». */
 export const NOTIFICATIONS_ITEM_ID = "notifications";
 
+/** System page «Чаты». */
+export const CHATS_ITEM_ID = "chats";
+
+/** System page «Лента». */
+export const FEED_ITEM_ID = "feed";
+
 /** Hardcoded page «ОПиУ». */
 export const OPIU_ITEM_ID = "opiu";
 
@@ -340,6 +346,8 @@ export function isSystemMenuItem(id: string) {
     id === HISTORY_ITEM_ID ||
     id === AUTOMATION_TASKS_ITEM_ID ||
     id === NOTIFICATIONS_ITEM_ID ||
+    id === CHATS_ITEM_ID ||
+    id === FEED_ITEM_ID ||
     id === OPIU_ITEM_ID ||
     id === FINANCE_DASHBOARDS_ITEM_ID ||
     id === SYSTEM_USERS_MENU_ITEM_ID

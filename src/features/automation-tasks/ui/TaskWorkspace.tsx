@@ -6,7 +6,7 @@ import {
   automationUploadTargetBlocksComplete,
   fetchAutomationTaskTimeSessions,
   fetchOpenAutomationTaskTimeSession,
-  getAutomationUploadTarget,
+  resolveEffectiveUploadTarget,
   resolveAutomationGateError,
   resolveViewEntityFieldsLayout,
   stopAutomationTaskTimeSession,
@@ -95,7 +95,11 @@ import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-chang
 import { useCurrentRole } from "@/entities/access";
 import {
   isTkpDepartmentHeadRole,
+  isTkpGipFillAutomationTask,
+  isTkpGipRole,
   maybeEnsureDeptCalculationGipForTask,
+  readTkpGipExecutionDurationDays,
+  TkpGipExecutionDurationAsk,
 } from "@/features/hardcode";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
@@ -237,6 +241,18 @@ function TaskWorkspaceBody({
   const restrictDeptToOwn = isTkpDepartmentHeadRole(role);
   const valueContext = useEntityValueContext();
   const previewContext = getEntityPreviewValueContext(valueContext);
+  const isGipFillTask = useMemo(
+    () =>
+      Boolean(entity) &&
+      isTkpGipFillAutomationTask({
+        entityId: task.entityId,
+        triggerOptionId: task.triggerOptionId,
+        taskName: task.name,
+      }),
+    [entity, task.entityId, task.name, task.triggerOptionId],
+  );
+  const showPinnedGipDuration =
+    isGipFillTask || (Boolean(entity) && isTkpGipRole(role));
 
   // Deferred ГИП: create stage×ГИП rows when this assignment is «На заполнении ГИПа».
   useEffect(() => {
@@ -341,7 +357,13 @@ function TaskWorkspaceBody({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requireTime = automationRequiresTimeTracking(task.config.materials);
-  const uploadTarget = getAutomationUploadTarget(task.config.materials);
+  const uploadTarget = resolveEffectiveUploadTarget({
+    materials: task.config.materials,
+    requireAttachment:
+      task.config.fieldAccess?.requireAttachment === true ||
+      taskAsk.requireAttachment,
+    entity,
+  });
   const uploadBlocksComplete = automationUploadTargetBlocksComplete(
     entity,
     record,
@@ -775,6 +797,14 @@ function TaskWorkspaceBody({
         }),
     });
     if (relatedError) return relatedError;
+
+    if (isGipFillTask) {
+      const days = readTkpGipExecutionDurationDays(mergedValues, entity);
+      if (days == null) {
+        return "Укажите «Общий срок расчёта» перед завершением задания";
+      }
+    }
+
     return validateCreateAskRequired({
       outcome,
       entities,
@@ -1129,6 +1159,15 @@ function TaskWorkspaceBody({
                   </div>
                 ) : null}
 
+                {showPinnedGipDuration && entity && record && !hasRelatedAsk ? (
+                  <TkpGipExecutionDurationAsk
+                    entity={entity}
+                    record={buildTkpGipSoftFillParentRecord(record, values)}
+                    readOnly={busy}
+                    required
+                  />
+                ) : null}
+
                 {hasRelatedAsk ? (
                   <TaskRelatedAskFields
                     groups={relatedLayout.groups}
@@ -1140,6 +1179,7 @@ function TaskWorkspaceBody({
                     onChange={setRelatedValue}
                     onSeedChange={seedRelatedValue}
                     assigneeUserId={task.assigneeUserId}
+                    pinGipExecutionDuration={showPinnedGipDuration}
                     softFillParent={
                       entity && record
                         ? {

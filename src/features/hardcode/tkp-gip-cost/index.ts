@@ -58,4 +58,7 @@ export { adaptDeptRecordsToGipDepartments } from "./model/adapt-departments";
 
 export type { ReviewCostSubcontractor, ReviewCostTrip } from "./model/gip-cost";
 
-export { GipCostSummary } from "./ui/GipCostSummary";
+export {
+  GipCostSummary,
+  GipExecutionDurationControl,
+} from "./ui/GipCostSummary";

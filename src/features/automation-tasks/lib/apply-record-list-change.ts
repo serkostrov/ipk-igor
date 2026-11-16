@@ -667,19 +667,14 @@ export async function applyRecordListChange(
 
   if (isSupabaseConfigured && toOptionId) {
     try {
-      const opened = await openDialogAfterStageChange({
+      // No toast when nothing spawned — empty stage is a valid outcome
+      // (no templates / conditions not matched), not a user-facing error.
+      await openDialogAfterStageChange({
         recordId: record.id,
         fieldId: field.id,
         toOptionId,
         knownTaskIds,
       });
-      if (!opened) {
-        toast.message("Задачи автоматизации не появились", {
-          description:
-            "Проверьте сценарий процесса: у нестандартных сценариев нужны условия входа, иначе задачи из «Основной» не создаются.",
-          duration: 8_000,
-        });
-      }
     } catch (error: unknown) {
       console.error("[automation] open spawned task dialog failed", error);
     }

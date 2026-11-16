@@ -15,7 +15,7 @@ import {
   completePendingSilentAutomationTasks,
   completePendingSilentAutomationTasksForRecord,
   fetchAutomationTask,
-  getAutomationUploadTarget,
+  resolveEffectiveUploadTarget,
   isAutomationSilentTaskKind,
   resolveAutomationGateError,
   resolveViewEntityFieldsLayout,
@@ -448,7 +448,13 @@ function TaskFillFieldsDialogBody({
     missingLocalRequiredCount + missingRelatedRequiredCount;
 
   const uploadTarget = task
-    ? getAutomationUploadTarget(task.config.materials)
+    ? resolveEffectiveUploadTarget({
+        materials: task.config.materials,
+        requireAttachment:
+          task.config.fieldAccess?.requireAttachment === true ||
+          taskAsk?.requireAttachment === true,
+        entity: entity ?? undefined,
+      })
     : null;
   const uploadBlocksComplete = automationUploadTargetBlocksComplete(
     entity ?? undefined,

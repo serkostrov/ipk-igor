@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, Layers3, ListTodo, Plus } from "lucide-react";
 import {
   createDefaultNotificationRule,
+  createStageChangeNotificationRule,
   describeNotificationTrigger,
   removeNotificationRule,
   saveNotificationRule,
@@ -14,7 +15,11 @@ import {
   useAutomationConfig,
   useAutomationStatus,
 } from "@/entities/automation";
-import { findSystemUserByAuthId, useEntityConfig } from "@/entities/entity";
+import {
+  findSystemUserByAuthId,
+  getEntityFieldDisplayName,
+  useEntityConfig,
+} from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
@@ -22,16 +27,22 @@ import { TreeBranchRow } from "@/shared/ui/tree-branch-guides";
 import { cn } from "@/shared/lib/cn";
 import { pluralRu } from "@/shared/lib/plural";
 import {
+  buildAnyStageChangeRule,
   buildNotificationRegistry,
+  buildStageEnterRule,
   countRegistryNotifications,
+  matchStageNotificationRules,
   type RegistryEntity,
+  type RegistryStage,
   type RegistryTask,
 } from "../model/notification-registry";
 import { AutomationTaskNotificationsPanel } from "./AutomationTaskNotificationsPanel";
 import { NotificationRuleEditor } from "./NotificationRuleEditor";
+import { StageNotificationsPanel } from "./StageNotificationsPanel";
 
 type Selection =
   | { kind: "entity-rule"; id: string }
+  | { kind: "stage"; entityId: string; stageKey: string }
   | { kind: "task"; templateId: string }
   | { kind: "automation-rule"; templateId: string; ruleId: string };
 
@@ -57,6 +68,18 @@ function revealSelectionPath(
       }
       continue;
     }
+    if (selection.kind === "stage") {
+      if (entity.entityId !== selection.entityId) continue;
+      if (
+        entity.stages.some((stage) => stage.stageKey === selection.stageKey)
+      ) {
+        return {
+          entityId: entity.entityId,
+          stageKey: `${entity.entityId}:${selection.stageKey}`,
+        };
+      }
+      continue;
+    }
     for (const stage of entity.stages) {
       for (const task of stage.tasks) {
         if (task.templateId !== selection.templateId) continue;
@@ -75,6 +98,18 @@ function revealSelectionPath(
     }
   }
   return null;
+}
+
+function findStage(
+  registry: readonly RegistryEntity[],
+  entityId: string,
+  stageKey: string,
+): { entity: RegistryEntity; stage: RegistryStage } | null {
+  const entity = registry.find((item) => item.entityId === entityId);
+  if (!entity) return null;
+  const stage = entity.stages.find((item) => item.stageKey === stageKey);
+  if (!stage) return null;
+  return { entity, stage };
 }
 
 function RegistryRowButton({
@@ -212,6 +247,19 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
       ? (rules.find((rule) => rule.id === selection.id) ?? null)
       : null;
 
+  const selectedStage =
+    selection?.kind === "stage"
+      ? findStage(registry, selection.entityId, selection.stageKey)
+      : null;
+
+  const selectedStageRules = selectedStage
+    ? matchStageNotificationRules(
+        selectedStage.entity.entityRules,
+        selectedStage.stage.stageFieldId || selectedStage.entity.stageFieldId,
+        selectedStage.stage.stageKey,
+      )
+    : [];
+
   const selectedTask =
     selection &&
     (selection.kind === "task" || selection.kind === "automation-rule")
@@ -226,12 +274,68 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
   async function handleAddEntityRule(entityId?: string) {
     const targetEntityId = entityId ?? entities[0]?.id;
     if (!targetEntityId) return;
-    const rule = createDefaultNotificationRule(targetEntityId);
+    const entity = entities.find((item) => item.id === targetEntityId);
+    const process = processes.find(
+      (item) => item.entityId === targetEntityId && item.triggerFieldId.trim(),
+    );
+    const stageFieldId = process?.triggerFieldId.trim() ?? "";
+    const stageField = entity?.fields.find(
+      (field) => field.id === stageFieldId,
+    );
+    const rule =
+      entity && stageFieldId
+        ? createStageChangeNotificationRule({
+            entityId: targetEntityId,
+            stageFieldId,
+            stageFieldLabel: stageField
+              ? getEntityFieldDisplayName(stageField)
+              : undefined,
+            triggerKind: "fieldTransition",
+          })
+        : (() => {
+            const next = createDefaultNotificationRule(targetEntityId);
+            next.name = "Смена стадии";
+            next.triggerKind = "fieldEnter";
+            next.titleTemplate = "Стадия изменена";
+            next.messageTemplate = "Запись сменила стадию.";
+            return next;
+          })();
     setBusy(true);
     try {
       await saveNotificationRule(rule);
       setDidInitExpand(true);
       setExpandedEntityIds((current) => new Set(current).add(targetEntityId));
+      selectInRegistry({ kind: "entity-rule", id: rule.id });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAddStageRule(
+    entityId: string,
+    stage: RegistryStage,
+    mode: "enter" | "any",
+  ) {
+    const entity = entities.find((item) => item.id === entityId);
+    const stageFieldId = stage.stageFieldId.trim();
+    if (!entity || !stageFieldId) return;
+    const rule =
+      mode === "enter"
+        ? buildStageEnterRule({
+            entity,
+            stageFieldId,
+            stageKey: stage.stageKey,
+            stageName: stage.stageName,
+          })
+        : buildAnyStageChangeRule({ entity, stageFieldId });
+    setBusy(true);
+    try {
+      await saveNotificationRule(rule);
+      setDidInitExpand(true);
+      setExpandedEntityIds((current) => new Set(current).add(entityId));
+      setExpandedStageKeys((current) =>
+        new Set(current).add(`${entityId}:${stage.stageKey}`),
+      );
       selectInRegistry({ kind: "entity-rule", id: rule.id });
     } finally {
       setBusy(false);
@@ -338,6 +442,13 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
                       )
                     }
                     onSelect={selectInRegistry}
+                    onSelectStage={(stageKey) =>
+                      selectInRegistry({
+                        kind: "stage",
+                        entityId: entity.entityId,
+                        stageKey,
+                      })
+                    }
                     onToggleEntityRule={(rule, enabled) => {
                       void handleSaveEntityRule({ ...rule, enabled });
                     }}
@@ -357,11 +468,45 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
               key={selectedEntityRule.id}
               rule={selectedEntityRule}
               entities={entities}
+              processes={processes}
               onSave={(rule) => void handleSaveEntityRule(rule)}
               onDelete={() =>
                 void handleDeleteEntityRule(selectedEntityRule.id)
               }
               onTest={(rule) => void handleTest(rule)}
+            />
+          ) : selectedStage ? (
+            <StageNotificationsPanel
+              key={`${selectedStage.entity.entityId}:${selectedStage.stage.stageKey}`}
+              entity={selectedStage.entity.entity}
+              stage={selectedStage.stage}
+              stageFieldId={
+                selectedStage.stage.stageFieldId ||
+                selectedStage.entity.stageFieldId
+              }
+              rules={selectedStageRules}
+              selectedRuleId={null}
+              busy={busy}
+              onSelectRule={(ruleId) =>
+                selectInRegistry({ kind: "entity-rule", id: ruleId })
+              }
+              onToggleRule={(rule, enabled) => {
+                void handleSaveEntityRule({ ...rule, enabled });
+              }}
+              onAddStageEnter={() =>
+                void handleAddStageRule(
+                  selectedStage.entity.entityId,
+                  selectedStage.stage,
+                  "enter",
+                )
+              }
+              onAddAnyStageChange={() =>
+                void handleAddStageRule(
+                  selectedStage.entity.entityId,
+                  selectedStage.stage,
+                  "any",
+                )
+              }
             />
           ) : selectedTask ? (
             <AutomationTaskNotificationsPanel
@@ -377,9 +522,8 @@ export function NotificationSettings({ leading }: { leading?: ReactNode }) {
               />
               <p className="text-sm font-medium">Выберите узел в реестре</p>
               <p className="max-w-sm text-xs text-muted-foreground">
-                Откройте сущность, стадию и задание — справа появятся
-                уведомления этого задания. Правила записи редактируются из ветки
-                «Правила записи».
+                Откройте стадию, чтобы настроить уведомление о смене стадии
+                сущности, или задание — для уведомлений назначения и завершения.
               </p>
             </div>
           )}
@@ -399,6 +543,7 @@ function RegistryEntityNode({
   onToggleStage,
   onToggleTask,
   onSelect,
+  onSelectStage,
   onToggleEntityRule,
   onAddEntityRule,
 }: {
@@ -411,6 +556,7 @@ function RegistryEntityNode({
   onToggleStage: (stageKey: string) => void;
   onToggleTask: (templateId: string) => void;
   onSelect: (selection: Selection) => void;
+  onSelectStage: (stageKey: string) => void;
   onToggleEntityRule: (rule: NotificationRule, enabled: boolean) => void;
   onAddEntityRule: () => void;
 }) {
@@ -471,7 +617,7 @@ function RegistryEntityNode({
               </div>
               {entity.entityRules.length === 0 ? (
                 <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
-                  Нет правил по полям записи
+                  Нет правил записи. Добавьте уведомление о смене стадии.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-0.5">
@@ -515,6 +661,15 @@ function RegistryEntityNode({
             const stageFullKey = `${entity.entityId}:${stage.stageKey}`;
             const stageOpen = expandedStageKeys.has(stageFullKey);
             const isLastStage = stageIndex === entity.stages.length - 1;
+            const stageActive =
+              selection?.kind === "stage" &&
+              selection.entityId === entity.entityId &&
+              selection.stageKey === stage.stageKey;
+            const stageRuleCount = matchStageNotificationRules(
+              entity.entityRules,
+              stage.stageFieldId || entity.stageFieldId,
+              stage.stageKey,
+            ).length;
             return (
               <TreeBranchRow
                 key={stage.stageKey}
@@ -531,8 +686,11 @@ function RegistryEntityNode({
                       }
                     />
                     <RegistryRowButton
-                      active={false}
-                      onClick={() => onToggleStage(stage.stageKey)}
+                      active={stageActive}
+                      onClick={() => {
+                        onSelectStage(stage.stageKey);
+                        if (!stageOpen) onToggleStage(stage.stageKey);
+                      }}
                       className="flex-1"
                     >
                       <span className="min-w-0 flex-1">
@@ -547,6 +705,9 @@ function RegistryEntityNode({
                             "задания",
                             "заданий",
                           )}
+                          {stageRuleCount > 0
+                            ? ` · ${stageRuleCount} ${pluralRu(stageRuleCount, "уведомление", "уведомления", "уведомлений")} о стадии`
+                            : ""}
                         </span>
                       </span>
                     </RegistryRowButton>

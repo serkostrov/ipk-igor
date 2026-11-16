@@ -517,8 +517,7 @@ export function CommercialPricingPanel({
    */
   const priceEditorVisible =
     canEdit &&
-    (pendingNewPriceVersion ||
-      (history.length === 0 && !approvalInProgress));
+    (pendingNewPriceVersion || (history.length === 0 && !approvalInProgress));
 
   async function handleSave() {
     if (!input || !preview.calculation) return;

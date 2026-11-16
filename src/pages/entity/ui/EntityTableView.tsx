@@ -60,9 +60,6 @@ import {
   useEntityValueContext,
   usePrefetchEntitySchemaVersions,
   type EntityValueContext,
-  EntityFileViewer,
-  formatEntityFieldFilesSummary,
-  parseEntityFieldFileValue,
   parseEntityListValueIds,
   parseEntityRelationIds,
   applyEntityFieldValue,
@@ -70,7 +67,6 @@ import {
   resolveEntityTableDisplayColumnField,
   resolveRelationRecordLabel,
   countEntityTableNestedChildren,
-  type EntityFieldFileValue,
   findEntityManagerUserField,
   flattenEntityTableHierarchyRows,
   getSystemUserName,
@@ -99,7 +95,7 @@ import {
   type EntityRecordSortDirection,
   type EntityTablePageSize,
 } from "@/entities/entity";
-import { useCurrentRole } from "@/entities/access";
+import { useCanEntity, useCurrentRole } from "@/entities/access";
 import { getSessionUser } from "@/entities/session";
 import {
   isDeptCalculationsEntity,
@@ -123,46 +119,6 @@ import {
   recordMatchesSearch,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
-
-function EntityTableFileButton({
-  file,
-  summary,
-}: {
-  file: EntityFieldFileValue;
-  summary: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const viewerFile = {
-    id: "table-file",
-    name: file.name,
-    mimeType: file.mimeType,
-    size: file.size,
-    storagePath: file.storagePath,
-    dataUrl: file.dataUrl,
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        className="block w-full truncate text-left font-medium text-primary underline-offset-2 hover:underline"
-        title={summary}
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen(true);
-        }}
-      >
-        {summary}
-      </button>
-      <EntityFileViewer
-        open={open}
-        onOpenChange={setOpen}
-        files={[viewerFile]}
-        activeId={viewerFile.id}
-      />
-    </>
-  );
-}
 
 function getVisiblePages(current: number, total: number) {
   if (total <= 7) {
@@ -519,6 +475,7 @@ function EntityTableViewInner({
 }: EntityTableViewProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
+  const canDelete = useCanEntity(entity.id, "delete");
   usePrefetchEntitySchemaVersions(entity.id, records);
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
   const [search, setSearch] = useState("");
@@ -541,7 +498,7 @@ function EntityTableViewInner({
   const [expandedHierarchyIds, setExpandedHierarchyIds] = useState(
     () => new Set<string>(),
   );
-  const massSelection = entity.tableMassSelection === true;
+  const massSelection = entity.tableMassSelection === true && canDelete;
   const parentField = useMemo(
     () => resolveEntityTableParentField(entity),
     [entity],
@@ -1548,14 +1505,6 @@ function EntityTableViewInner({
                               : field.type === "url"
                                 ? getEntityUrlHref(raw)
                                 : null;
-                          const fileValue =
-                            field.type === "file"
-                              ? parseEntityFieldFileValue(raw)
-                              : null;
-                          const fileSummary =
-                            field.type === "file"
-                              ? formatEntityFieldFilesSummary(raw)
-                              : null;
                           const relationTargetId =
                             field.type === "relation"
                               ? getEntityRelationTargetId(field)
@@ -1885,13 +1834,6 @@ function EntityTableViewInner({
                                       field={field}
                                       className="text-[13px]"
                                     />
-                                  ) : fileValue &&
-                                    fileSummary &&
-                                    fileSummary !== "—" ? (
-                                    <EntityTableFileButton
-                                      file={fileValue}
-                                      summary={fileSummary}
-                                    />
                                   ) : (
                                     <span className="block truncate">
                                       {cellTitle}
@@ -1954,16 +1896,18 @@ function EntityTableViewInner({
                                 <Pencil className="size-3.5" />
                               </Button>
                             ) : null}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="size-7 text-foreground hover:text-destructive"
-                              aria-label="Удалить запись"
-                              onClick={() => setPendingDelete(record)}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
+                            {canDelete ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="size-7 text-foreground hover:text-destructive"
+                                aria-label="Удалить запись"
+                                onClick={() => setPendingDelete(record)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            ) : null}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -2090,7 +2034,7 @@ function EntityTableViewInner({
         }
         confirmLabel="Удалить"
         onConfirm={() => {
-          if (!pendingDelete) return;
+          if (!canDelete || !pendingDelete) return;
           const deletedId = pendingDelete.id;
           removeEntityRecord(entity.id, deletedId);
           setSelectedIds((prev) => prev.filter((id) => id !== deletedId));
@@ -2106,6 +2050,7 @@ function EntityTableViewInner({
         description={`Вы уверены, что хотите удалить ${selectedCount} ${pluralRu(selectedCount, "запись", "записи", "записей")}? Это действие нельзя отменить.`}
         confirmLabel="Удалить"
         onConfirm={() => {
+          if (!canDelete) return;
           const ids = [...selectedIds];
           for (const id of ids) {
             removeEntityRecord(entity.id, id);

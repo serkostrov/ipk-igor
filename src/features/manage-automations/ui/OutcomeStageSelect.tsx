@@ -87,7 +87,8 @@ export function OutcomeStageSelect({
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium">Перейти на стадию</p>
           <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
-            После завершения задания запись сразу окажется на выбранной стадии
+            После завершения задания запись сразу окажется на выбранной стадии.
+            Для кнопки «Да» без стадии процесс останется на текущей колонке.
           </p>
           <div className="mt-2">{select}</div>
         </div>

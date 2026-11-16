@@ -300,7 +300,8 @@ function TemplateUploadTargetSettings({
     patchTarget({
       filesTabId: tab.id,
       folderId: tab.defaultFolders[0]?.id ?? "",
-      required: false,
+      // Default required — file lands on the element Files tab for acceptance.
+      required: true,
     });
   }
 
@@ -313,7 +314,7 @@ function TemplateUploadTargetSettings({
           description={
             filesTabs.length === 0
               ? "Нужна вкладка «Файлы» у сущности"
-              : "Файлы попадут в выбранную папку записи"
+              : "Файлы сразу попадают во вкладку «Файлы» записи (не в отдельное поле)"
           }
           checked={enabled}
           disabled={filesTabs.length === 0}
@@ -399,7 +400,7 @@ function TemplateUploadTargetSettings({
             <SettingSwitch
               id="template-upload-required"
               title="Обязательно для завершения"
-              description="Без файла задание нельзя закрыть"
+              description="Без файла во вкладке «Файлы» задание нельзя закрыть"
               checked={target?.required === true}
               onCheckedChange={(required) => {
                 if (!target) return;
@@ -407,6 +408,11 @@ function TemplateUploadTargetSettings({
               }}
             />
           </InspectorSwitchRow>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Для приёмки результата добавьте текстовое поле в «Запрос полей»,
+            отметьте его обязательным и «в комментарии» — так рукО увидит и
+            файл, и пояснение.
+          </p>
         </div>
       ) : null}
     </div>
@@ -617,7 +623,13 @@ function OutcomeAskFieldsEditor({
     .map((id) => fields.find((field) => field.id === id))
     .filter((field): field is EntityField => field != null);
   const available = fields.filter(
-    (field) => !access.visibleFieldIds.includes(field.id),
+    (field) =>
+      !access.visibleFieldIds.includes(field.id) &&
+      // Files belong on the Files tab via «Загрузка в задании», not as ask fields.
+      field.type !== "file" &&
+      field.type !== "dependencies" &&
+      field.type !== "period" &&
+      !isEntityComputedFieldType(field.type),
   );
   const relationFields = fields.filter((field) => field.type === "relation");
   const relatedSelected = access.relatedVisibleFields;
@@ -2675,8 +2687,16 @@ export function TemplateInspector({
                 </Button>
               }
             >
+              <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
+                Здесь — уведомления задания (назначение, завершение, просрочка).
+                Уведомление о смене стадии сущности настраивается в{" "}
+                <span className="font-medium text-foreground/80">
+                  Настройки → Уведомления
+                </span>
+                : выберите стадию в реестре и добавьте правило «Вход на стадию».
+              </p>
               {notificationRules.length === 0 ? (
-                <InspectorEmpty>Нет уведомлений</InspectorEmpty>
+                <InspectorEmpty>Нет уведомлений задания</InspectorEmpty>
               ) : (
                 notificationRules.map((rule) => (
                   <AutomationNotificationRuleEditor

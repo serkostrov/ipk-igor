@@ -1,7 +1,9 @@
 import {
   createElement,
   Fragment,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -36,6 +38,7 @@ import {
   findLegalEntitiesEntity,
   getEntityFieldDisplayName,
   getRelationRecordOptions,
+  isEntityFilesTab,
   parseEntityRelationIds,
   RelationSelect,
   serializeEntityRelationIds,
@@ -508,7 +511,7 @@ function ScopeFilterPanel({
   conditions,
   onChange,
   title = "Условия видимости записей",
-  description = "Роль видит только записи, у которых все условия выполнены. Без условий записи не показываются.",
+  description = "Роль видит только записи, у которых все условия выполнены. Для полей-связей с пользователями доступны условия «роль — один из / не из». Без условий записи не показываются.",
 }: {
   entity: Entity;
   entities: Entity[];
@@ -540,7 +543,7 @@ function ScopeFilterPanel({
   );
 }
 
-export function RoleEditor({ role, onChange }: RoleEditorProps) {
+export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
   const { entries } = useMenuConfig();
   const { entities } = useEntityConfig();
   const menuItems = useMemo(() => collectMenuItems(entries), [entries]);
@@ -551,6 +554,27 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
   const [fieldsEntityId, setFieldsEntityId] = useState<string>(
     entities[0]?.id ?? "",
   );
+
+  // Keep the latest draft locally so rapid name edits are not overwritten by
+  // a stale `role` prop when toggling permissions before the parent re-renders.
+  const roleRef = useRef(role);
+  useEffect(() => {
+    roleRef.current = role;
+  }, [role]);
+  const onChange = (next: Role) => {
+    roleRef.current = next;
+    onChangeProp(next);
+  };
+  const patchRole = (partial: Partial<Role>) => {
+    onChange({ ...roleRef.current, ...partial });
+  };
+  const patchPerms = (partial: Partial<Role["permissions"]>) => {
+    const current = roleRef.current;
+    onChange({
+      ...current,
+      permissions: { ...current.permissions, ...partial },
+    });
+  };
 
   const entitiesAll = role.permissions.entities === "*";
   const menuAll = role.permissions.menuItemIds === "*";
@@ -600,13 +624,13 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
         const base = createFullEntityAccess(entity.id);
         return entity.id === entityId ? merge(base) : base;
       });
-      onChange(patchPermissions(role, { entities: list }));
+      patchPerms({ entities: list });
       return;
     }
     const list = entityAccessList.map((item) =>
       item.entityId === entityId ? merge(item) : item,
     );
-    onChange(patchPermissions(role, { entities: list }));
+    patchPerms({ entities: list });
   };
 
   const setFieldAccess = (
@@ -637,20 +661,55 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
     updateEntityAccess(entityId, { fields });
   };
 
+  const setTabAccess = (
+    entityId: string,
+    tabId: string,
+    patch: Partial<FieldAccess>,
+  ) => {
+    const current =
+      entityAccessList.find((item) => item.entityId === entityId) ??
+      createEmptyEntityAccess(entityId);
+    const entity = entities.find((item) => item.id === entityId);
+    const filesTabs = (entity?.tabs ?? []).filter(isEntityFilesTab);
+    let tabs: Record<string, FieldAccess>;
+    if (current.tabs == null || current.tabs === "*") {
+      tabs = Object.fromEntries(
+        filesTabs.map((tab) => [tab.id, { view: true, edit: true }]),
+      );
+    } else {
+      tabs = { ...current.tabs };
+    }
+    tabs[tabId] = {
+      view: tabs[tabId]?.view ?? false,
+      edit: tabs[tabId]?.edit ?? false,
+      ...patch,
+    };
+    updateEntityAccess(entityId, { tabs });
+  };
+
   const grantAllFields = (entityId: string, enabled: boolean) => {
     const entity = entities.find((item) => item.id === entityId);
     if (!entity) return;
     if (enabled) {
-      updateEntityAccess(entityId, { fields: "*" });
+      updateEntityAccess(entityId, { fields: "*", tabs: "*" });
       return;
     }
-    // Explicit per-field deny — empty `{}` means «all fields» once CRUD is on.
+    // Explicit per-field / per-tab deny — empty fields `{}` means «all fields»
+    // once CRUD is on (see normalizeEntityAccess).
     updateEntityAccess(entityId, {
       fields: Object.fromEntries(
         entity.fields.map((field) => [
           field.id,
           { view: false, edit: false } satisfies FieldAccess,
         ]),
+      ),
+      tabs: Object.fromEntries(
+        entity.tabs
+          .filter(isEntityFilesTab)
+          .map((tab) => [
+            tab.id,
+            { view: false, edit: false } satisfies FieldAccess,
+          ]),
       ),
     });
   };
@@ -663,9 +722,8 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
           <Input
             id="role-name"
             value={role.name}
-            onChange={(event) =>
-              onChange({ ...role, name: event.target.value })
-            }
+            autoComplete="off"
+            onChange={(event) => patchRole({ name: event.target.value })}
           />
         </div>
         <div className="space-y-2 sm:col-span-2">
@@ -673,9 +731,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
           <Textarea
             id="role-description"
             value={role.description}
-            onChange={(event) =>
-              onChange({ ...role, description: event.target.value })
-            }
+            onChange={(event) => patchRole({ description: event.target.value })}
             rows={2}
           />
         </div>
@@ -704,7 +760,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
               aria-label="Юрлица роли"
               onChange={(value) =>
                 onChange(
-                  patchPermissions(role, {
+                  patchPermissions(roleRef.current, {
                     legalEntityIds: parseEntityRelationIds(value),
                   }),
                 )
@@ -751,13 +807,13 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
           }
           onToggleAll={(checked) =>
             onChange(
-              patchPermissions(role, {
+              patchPermissions(roleRef.current, {
                 menuItemIds: checked ? "*" : menuItems.map((item) => item.id),
               }),
             )
           }
           onMenuFlatChange={(flat) =>
-            onChange(patchPermissions(role, { menuFlat: flat }))
+            onChange(patchPermissions(roleRef.current, { menuFlat: flat }))
           }
           onToggleItem={(itemId, checked) => {
             const current =
@@ -767,7 +823,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             const ids = checked
               ? [...new Set([...current, itemId])]
               : current.filter((id) => id !== itemId);
-            onChange(patchPermissions(role, { menuItemIds: ids }));
+            onChange(patchPermissions(roleRef.current, { menuItemIds: ids }));
           }}
           onToggleItems={(itemIds, checked) => {
             const current =
@@ -777,7 +833,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             const ids = checked
               ? [...new Set([...current, ...itemIds])]
               : current.filter((id) => !itemIds.includes(id));
-            onChange(patchPermissions(role, { menuItemIds: ids }));
+            onChange(patchPermissions(roleRef.current, { menuItemIds: ids }));
           }}
         />
 
@@ -791,7 +847,11 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             label="История изменений"
             checked={role.permissions.canAccessHistory}
             onCheckedChange={(checked) =>
-              onChange(patchPermissions(role, { canAccessHistory: checked }))
+              onChange(
+                patchPermissions(roleRef.current, {
+                  canAccessHistory: checked,
+                }),
+              )
             }
           />
           <ToggleRow
@@ -799,8 +859,42 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             checked={role.permissions.canAccessNotifications}
             onCheckedChange={(checked) =>
               onChange(
-                patchPermissions(role, {
+                patchPermissions(roleRef.current, {
                   canAccessNotifications: checked,
+                }),
+              )
+            }
+          />
+          <ToggleRow
+            label="Чаты"
+            checked={role.permissions.canAccessMessenger}
+            onCheckedChange={(checked) =>
+              onChange(
+                patchPermissions(roleRef.current, {
+                  canAccessMessenger: checked,
+                }),
+              )
+            }
+          />
+          <ToggleRow
+            label="Лента"
+            checked={role.permissions.canAccessNewsFeed}
+            onCheckedChange={(checked) =>
+              onChange(
+                patchPermissions(roleRef.current, {
+                  canAccessNewsFeed: checked,
+                }),
+              )
+            }
+          />
+          <ToggleRow
+            label="Создание публикаций в ленте"
+            description="Кнопка «Создать публикацию» и редактирование своих постов"
+            checked={role.permissions.canCreateNewsPosts}
+            onCheckedChange={(checked) =>
+              onChange(
+                patchPermissions(roleRef.current, {
+                  canCreateNewsPosts: checked,
                 }),
               )
             }
@@ -810,7 +904,9 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             description="Создание аккаунтов в сущности Пользователи"
             checked={role.permissions.canInviteUsers}
             onCheckedChange={(checked) =>
-              onChange(patchPermissions(role, { canInviteUsers: checked }))
+              onChange(
+                patchPermissions(roleRef.current, { canInviteUsers: checked }),
+              )
             }
           />
         </div>
@@ -829,7 +925,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             checked={settingsAll}
             onCheckedChange={(checked) =>
               onChange(
-                patchPermissions(role, {
+                patchPermissions(roleRef.current, {
                   settingsTabs: checked ? "*" : [...SETTINGS_TAB_IDS],
                 }),
               )
@@ -851,7 +947,11 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                       const tabs = next
                         ? [...new Set([...current, tab])]
                         : current.filter((item) => item !== tab);
-                      onChange(patchPermissions(role, { settingsTabs: tabs }));
+                      onChange(
+                        patchPermissions(roleRef.current, {
+                          settingsTabs: tabs,
+                        }),
+                      );
                     }}
                   />
                 );
@@ -865,9 +965,9 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
           <div>
             <h3 className="text-sm font-semibold text-foreground">Сущности</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              CRUD и область данных: все записи, только свои или фильтр по
-              полям. У заданий автоматизации — та же область: кто какие задания
-              видит.
+              CRUD и область данных: все записи, только свои, своего отдела или
+              фильтр по полям. У заданий автоматизации — та же область: кто
+              какие задания видит.
             </p>
           </div>
           <ToggleRow
@@ -875,7 +975,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
             checked={entitiesAll}
             onCheckedChange={(checked) =>
               onChange(
-                patchPermissions(role, {
+                patchPermissions(roleRef.current, {
                   entities: checked
                     ? "*"
                     : entities.map((entity) =>
@@ -952,11 +1052,21 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                             <PermissionCell key={action}>
                               <Switch
                                 checked={access[action]}
-                                onCheckedChange={(checked) =>
+                                disabled={action !== "read" && !access.read}
+                                onCheckedChange={(checked) => {
+                                  if (action === "read" && !checked) {
+                                    updateEntityAccess(row.entity.id, {
+                                      read: false,
+                                      create: false,
+                                      update: false,
+                                      delete: false,
+                                    });
+                                    return;
+                                  }
                                   updateEntityAccess(row.entity.id, {
                                     [action]: checked,
-                                  })
-                                }
+                                  });
+                                }}
                               />
                             </PermissionCell>
                           ),
@@ -977,7 +1087,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                               );
                             }}
                           >
-                            <SelectTrigger className="h-8 w-[148px]">
+                            <SelectTrigger className="h-8 w-[168px]">
                               <SelectValue>
                                 {DATA_SCOPE_LABELS[access.scope]}
                               </SelectValue>
@@ -988,6 +1098,9 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                               </SelectItem>
                               <SelectItem value="own">
                                 {DATA_SCOPE_LABELS.own}
+                              </SelectItem>
+                              <SelectItem value="department">
+                                {DATA_SCOPE_LABELS.department}
                               </SelectItem>
                               <SelectItem value="filter">
                                 {DATA_SCOPE_LABELS.filter}
@@ -1040,7 +1153,13 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                   <Switch
                     checked={hasSettingsTab(role, "automations")}
                     onCheckedChange={(checked) =>
-                      onChange(withSettingsTab(role, "automations", checked))
+                      onChange(
+                        withSettingsTab(
+                          roleRef.current,
+                          "automations",
+                          checked,
+                        ),
+                      )
                     }
                   />
                 </PermissionCell>
@@ -1078,7 +1197,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                       checked={role.permissions.canAccessAutomationTasks}
                       onCheckedChange={(checked) =>
                         onChange(
-                          patchPermissions(role, {
+                          patchPermissions(roleRef.current, {
                             canAccessAutomationTasks: checked,
                             ...(!checked
                               ? { canDeleteAutomationTasks: false }
@@ -1103,7 +1222,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                       disabled={!role.permissions.canAccessAutomationTasks}
                       onCheckedChange={(checked) =>
                         onChange(
-                          patchPermissions(role, {
+                          patchPermissions(roleRef.current, {
                             canDeleteAutomationTasks: checked,
                           }),
                         )
@@ -1121,7 +1240,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                           const scope = String(value) as DataScope;
                           if (scope === "filter") {
                             onChange(
-                              patchPermissions(role, {
+                              patchPermissions(roleRef.current, {
                                 automationTasksScope: scope,
                                 automationTasksScopeEntityId:
                                   role.permissions
@@ -1135,7 +1254,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                             return;
                           }
                           onChange(
-                            patchPermissions(role, {
+                            patchPermissions(roleRef.current, {
                               automationTasksScope: scope,
                               automationTasksScopeEntityId: undefined,
                               automationTasksScopeFilter: undefined,
@@ -1143,7 +1262,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                           );
                         }}
                       >
-                        <SelectTrigger className="h-8 w-[148px]">
+                        <SelectTrigger className="h-8 w-[168px]">
                           <SelectValue>
                             {
                               DATA_SCOPE_LABELS[
@@ -1158,6 +1277,9 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                           </SelectItem>
                           <SelectItem value="own">
                             {DATA_SCOPE_LABELS.own}
+                          </SelectItem>
+                          <SelectItem value="department">
+                            {DATA_SCOPE_LABELS.department}
                           </SelectItem>
                           <SelectItem value="filter">
                             {DATA_SCOPE_LABELS.filter}
@@ -1187,7 +1309,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                             onValueChange={(value) => {
                               if (typeof value !== "string" || !value) return;
                               onChange(
-                                patchPermissions(role, {
+                                patchPermissions(roleRef.current, {
                                   automationTasksScopeEntityId: value,
                                   automationTasksScopeFilter: [],
                                 }),
@@ -1239,7 +1361,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                               description="Роль видит только задания по записям этой сущности, у которых все условия выполнены. Без условий задания не показываются."
                               onChange={(conditions) =>
                                 onChange(
-                                  patchPermissions(role, {
+                                  patchPermissions(roleRef.current, {
                                     automationTasksScopeEntityId:
                                       filterEntity.id,
                                     automationTasksScopeFilter: conditions,
@@ -1261,9 +1383,12 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
 
       <section className="space-y-3">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Поля</h3>
+          <h3 className="text-sm font-semibold text-foreground">
+            Поля и файлы
+          </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Видимость и редактирование полей выбранной сущности
+            Видимость и редактирование полей и вкладок с файлами выбранной
+            сущности
           </p>
         </div>
         {entities.length === 0 ? (
@@ -1300,7 +1425,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                     variant="outline"
                     onClick={() => grantAllFields(fieldsEntity.id, true)}
                   >
-                    Все поля
+                    Всё разрешить
                   </Button>
                   <Button
                     type="button"
@@ -1318,7 +1443,7 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                 <table className="w-full min-w-[420px] text-left text-sm">
                   <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
                     <tr>
-                      <th className="px-3 py-2 font-medium">Поле</th>
+                      <th className="px-3 py-2 font-medium">Элемент</th>
                       <th className="px-3 py-2 font-medium">Видеть</th>
                       <th className="px-3 py-2 font-medium">Редактировать</th>
                     </tr>
@@ -1369,6 +1494,74 @@ export function RoleEditor({ role, onChange }: RoleEditorProps) {
                         </tr>
                       );
                     })}
+                    {(() => {
+                      const filesTabs =
+                        fieldsEntity.tabs.filter(isEntityFilesTab);
+                      if (filesTabs.length === 0) return null;
+                      const allTabs =
+                        fieldsAccess.tabs == null || fieldsAccess.tabs === "*";
+                      const tabMap =
+                        fieldsAccess.tabs == null || fieldsAccess.tabs === "*"
+                          ? null
+                          : fieldsAccess.tabs;
+                      return (
+                        <>
+                          <tr className="border-b border-border bg-muted/25">
+                            <td
+                              colSpan={3}
+                              className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+                            >
+                              Вкладки с файлами
+                            </td>
+                          </tr>
+                          {filesTabs.map((tab) => {
+                            const access = allTabs
+                              ? { view: true, edit: true }
+                              : (tabMap?.[tab.id] ?? {
+                                  view: false,
+                                  edit: false,
+                                });
+                            return (
+                              <tr
+                                key={tab.id}
+                                className="border-b border-border last:border-0"
+                              >
+                                <td className="px-3 py-2">
+                                  <span className="font-medium">
+                                    {tab.name.trim() || "Файлы"}
+                                  </span>
+                                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                                    Папки и документы записи
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Switch
+                                    checked={access.view}
+                                    onCheckedChange={(checked) =>
+                                      setTabAccess(fieldsEntity.id, tab.id, {
+                                        view: checked,
+                                        edit: checked ? access.edit : false,
+                                      })
+                                    }
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Switch
+                                    checked={access.edit}
+                                    onCheckedChange={(checked) =>
+                                      setTabAccess(fieldsEntity.id, tab.id, {
+                                        view: checked ? true : access.view,
+                                        edit: checked,
+                                      })
+                                    }
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
                   </tbody>
                 </table>
               </div>

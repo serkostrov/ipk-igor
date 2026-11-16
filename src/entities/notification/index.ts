@@ -1,7 +1,9 @@
 export {
   NOTIFICATION_TRIGGER_KIND_GROUPS,
+  NOTIFICATION_TRIGGER_KIND_HINTS,
   NOTIFICATION_TRIGGER_KIND_LABELS,
   createDefaultNotificationRule,
+  createStageChangeNotificationRule,
   createNotificationId,
   createNotificationRuleId,
   describeNotificationTrigger,

@@ -67,18 +67,19 @@ export function updateUsersRoleFromListOption(
   >,
 ) {
   const existing = getRolesConfig().roles.find((role) => role.id === optionId);
-  if (existing) {
-    const nextName = data.name.trim() || existing.name;
-    if (nextName !== existing.name) {
-      upsertRole(normalizeRole({ ...existing, name: nextName }));
-    }
+  const nextName = data.name.trim() || existing?.name || "Роль";
+  if (existing && nextName !== existing.name) {
+    upsertRole(normalizeRole({ ...existing, name: nextName }));
   }
 
+  // Keep list option name aligned with the roles catalog immediately
+  // (upsertRole also syncs, but color/flags must land in the same write).
   updateEntityListOption(
     SYSTEM_USERS_ENTITY_ID,
     SYSTEM_USERS_FIELD_ROLE_ID,
     optionId,
     {
+      name: nextName,
       color: data.color,
       final: data.final,
       problem: data.problem,

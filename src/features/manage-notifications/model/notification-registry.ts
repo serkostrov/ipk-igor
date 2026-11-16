@@ -12,10 +12,14 @@ import {
 } from "@/entities/automation";
 import {
   getEntityDisplayName,
+  getEntityFieldDisplayName,
   resolveEntityListFieldOptions,
   type Entity,
 } from "@/entities/entity";
-import type { NotificationRule } from "@/entities/notification";
+import {
+  createStageChangeNotificationRule,
+  type NotificationRule,
+} from "@/entities/notification";
 import { formatTemplateLabel } from "@/features/manage-automations/lib/template-text";
 
 export type RegistryAutomationRule = {
@@ -36,6 +40,8 @@ export type RegistryTask = {
 export type RegistryStage = {
   stageKey: string;
   stageName: string;
+  /** Process list field used as stage for this entity (may be empty). */
+  stageFieldId: string;
   tasks: RegistryTask[];
 };
 
@@ -43,10 +49,75 @@ export type RegistryEntity = {
   entityId: string;
   entityName: string;
   entity: Entity;
+  /** Process stage/list field id when an automation process exists. */
+  stageFieldId: string;
   /** Record-level notification rules (not tied to a task). */
   entityRules: NotificationRule[];
   stages: RegistryStage[];
 };
+
+/** Rules that notify about entering / leaving / transitioning this stage. */
+export function matchStageNotificationRules(
+  rules: readonly NotificationRule[],
+  stageFieldId: string,
+  stageKey: string,
+): NotificationRule[] {
+  if (!stageFieldId) return [];
+  const anyStage = stageKey === "__any__" || !stageKey.trim();
+  return rules.filter((rule) => {
+    if (rule.fieldId !== stageFieldId) return false;
+    if (
+      rule.triggerKind !== "fieldEnter" &&
+      rule.triggerKind !== "fieldLeave" &&
+      rule.triggerKind !== "fieldTransition"
+    ) {
+      return false;
+    }
+    if (anyStage) return true;
+    if (rule.triggerKind === "fieldTransition") {
+      return !rule.toOptionId || rule.toOptionId === stageKey;
+    }
+    return !rule.optionId || rule.optionId === stageKey;
+  });
+}
+
+export function buildStageEnterRule(input: {
+  entity: Entity;
+  stageFieldId: string;
+  stageKey: string;
+  stageName: string;
+}): NotificationRule {
+  const stageField = input.entity.fields.find(
+    (field) => field.id === input.stageFieldId,
+  );
+  return createStageChangeNotificationRule({
+    entityId: input.entity.id,
+    stageFieldId: input.stageFieldId,
+    stageFieldLabel: stageField
+      ? getEntityFieldDisplayName(stageField)
+      : undefined,
+    optionId: input.stageKey === "__any__" ? "" : input.stageKey,
+    optionLabel: input.stageKey === "__any__" ? "" : input.stageName,
+    triggerKind: "fieldEnter",
+  });
+}
+
+export function buildAnyStageChangeRule(input: {
+  entity: Entity;
+  stageFieldId: string;
+}): NotificationRule {
+  const stageField = input.entity.fields.find(
+    (field) => field.id === input.stageFieldId,
+  );
+  return createStageChangeNotificationRule({
+    entityId: input.entity.id,
+    stageFieldId: input.stageFieldId,
+    stageFieldLabel: stageField
+      ? getEntityFieldDisplayName(stageField)
+      : undefined,
+    triggerKind: "fieldTransition",
+  });
+}
 
 export function buildNotificationRegistry(options: {
   entities: readonly Entity[];
@@ -82,6 +153,7 @@ export function buildNotificationRegistry(options: {
   type StageBucket = {
     stageKey: string;
     stageName: string;
+    stageFieldId: string;
     tasks: RegistryTask[];
   };
 
@@ -89,6 +161,7 @@ export function buildNotificationRegistry(options: {
     string,
     {
       entity: Entity;
+      stageFieldId: string;
       stages: Map<string, StageBucket>;
     }
   >();
@@ -101,9 +174,8 @@ export function buildNotificationRegistry(options: {
     const entity = entities.find((item) => item.id === process.entityId);
     if (!entity) continue;
 
-    const stageField = entity.fields.find(
-      (field) => field.id === process.triggerFieldId,
-    );
+    const stageFieldId = process.triggerFieldId.trim();
+    const stageField = entity.fields.find((field) => field.id === stageFieldId);
     const stageOptions = stageField
       ? resolveEntityListFieldOptions(stageField, entities)
       : [];
@@ -114,13 +186,15 @@ export function buildNotificationRegistry(options: {
 
     let entityBucket = byEntity.get(entity.id);
     if (!entityBucket) {
-      entityBucket = { entity, stages: new Map() };
+      entityBucket = { entity, stageFieldId, stages: new Map() };
       byEntity.set(entity.id, entityBucket);
+    } else if (!entityBucket.stageFieldId && stageFieldId) {
+      entityBucket.stageFieldId = stageFieldId;
     }
 
     let stageBucket = entityBucket.stages.get(stageKey);
     if (!stageBucket) {
-      stageBucket = { stageKey, stageName, tasks: [] };
+      stageBucket = { stageKey, stageName, stageFieldId, tasks: [] };
       entityBucket.stages.set(stageKey, stageBucket);
     }
 
@@ -144,8 +218,24 @@ export function buildNotificationRegistry(options: {
     if (byEntity.has(entityId)) continue;
     const entity = entities.find((item) => item.id === entityId);
     if (!entity) continue;
-    byEntity.set(entityId, { entity, stages: new Map() });
+    const process = processes.find(
+      (item) => item.entityId === entityId && item.triggerFieldId.trim(),
+    );
+    byEntity.set(entityId, {
+      entity,
+      stageFieldId: process?.triggerFieldId.trim() ?? "",
+      stages: new Map(),
+    });
     void rules;
+  }
+
+  // Ensure process stage field is known even when templates are missing.
+  for (const process of processes) {
+    const entityId = process.entityId;
+    const stageFieldId = process.triggerFieldId.trim();
+    if (!stageFieldId) continue;
+    const bucket = byEntity.get(entityId);
+    if (bucket && !bucket.stageFieldId) bucket.stageFieldId = stageFieldId;
   }
 
   const result: RegistryEntity[] = [];
@@ -154,6 +244,7 @@ export function buildNotificationRegistry(options: {
       .map((stage) => ({
         stageKey: stage.stageKey,
         stageName: stage.stageName,
+        stageFieldId: stage.stageFieldId || bucket.stageFieldId,
         tasks: stage.tasks
           .slice()
           .sort((a, b) => a.label.localeCompare(b.label, "ru")),
@@ -164,6 +255,7 @@ export function buildNotificationRegistry(options: {
       entityId,
       entityName: getEntityDisplayName(bucket.entity),
       entity: bucket.entity,
+      stageFieldId: bucket.stageFieldId,
       entityRules: (entityRulesByEntity.get(entityId) ?? [])
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name, "ru")),

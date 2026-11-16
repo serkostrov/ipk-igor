@@ -1,5 +1,7 @@
 import {
   AUTOMATION_TASKS_ITEM_ID,
+  CHATS_ITEM_ID,
+  FEED_ITEM_ID,
   HISTORY_ITEM_ID,
   OPIU_ITEM_ID,
   FINANCE_DASHBOARDS_ITEM_ID,
@@ -7,9 +9,16 @@ import {
   SETTINGS_ITEM_ID,
 } from "@/entities/menu";
 import {
+  collectUserDepartmentIds,
+  collectViewerDepartmentIds,
+  findDepartmentsEntity,
   findLegalEntitiesEntity,
+  findSystemUserByAuthId,
+  getSystemUsersEntity,
   matchesEntityConditions,
+  recordMatchesDepartmentScope,
   recordMatchesLegalEntityScope,
+  recordMatchesOwnScope,
   type Entity,
   type EntityCondition,
   type EntityRecord,
@@ -29,8 +38,9 @@ import {
 
 export function isAdminRole(role: Role | null | undefined): boolean {
   if (!role) return false;
-  if (role.id === ROLE_ADMIN_ID) return true;
-  return role.permissions.settingsTabs === "*";
+  // Only the system Administrator role bypasses entity ACL.
+  // Full settings access (`settingsTabs: "*"`) must not grant delete/create/etc.
+  return role.id === ROLE_ADMIN_ID;
 }
 
 export function getEntityAccess(
@@ -46,6 +56,7 @@ export function getEntityAccess(
       delete: true,
       scope: "all",
       fields: "*",
+      tabs: "*",
     };
   }
   const access =
@@ -61,7 +72,7 @@ export function canEntity(
   if (!role) return false;
   if (isAdminRole(role)) return true;
   const access = getEntityAccess(role.permissions, entityId);
-  if (!access) return false;
+  if (!access || !access.read) return false;
   return access[action] === true;
 }
 
@@ -113,6 +124,63 @@ export function canViewRecordForLegalEntities(
   );
 }
 
+/** Whether a record is visible under entity data scope (all / own / department / filter). */
+export function canViewRecordForDataScope(
+  role: Role | null | undefined,
+  entity: Entity,
+  record: EntityRecord,
+  options: {
+    entities: readonly Entity[];
+    authUserId: string | null;
+    currentUserRecordId: string | null;
+    valueContext?: EntityValueContext;
+  },
+): boolean {
+  if (!role || isAdminRole(role)) return true;
+  const scope = entityScope(role, entity.id);
+  if (scope === "all") return true;
+
+  if (scope === "own") {
+    return recordMatchesOwnScope(entity, record, {
+      authUserId: options.authUserId,
+      currentUserRecordId: options.currentUserRecordId,
+      entities: options.entities,
+      valueContext: options.valueContext,
+    });
+  }
+
+  if (scope === "department") {
+    const viewerDepartmentIds = collectViewerDepartmentIds(options.entities, {
+      authUserId: options.authUserId,
+      currentUserRecordId: options.currentUserRecordId,
+    });
+    return recordMatchesDepartmentScope(
+      entity,
+      record,
+      viewerDepartmentIds,
+      findDepartmentsEntity(options.entities),
+      options.entities,
+      {
+        authUserId: options.authUserId,
+        currentUserRecordId: options.currentUserRecordId,
+      },
+    );
+  }
+
+  if (scope === "filter") {
+    const conditions = entityScopeFilter(role, entity.id) ?? [];
+    if (conditions.length === 0 || !options.valueContext) return false;
+    return matchesEntityConditions(
+      options.valueContext,
+      entity,
+      record,
+      conditions,
+    );
+  }
+
+  return true;
+}
+
 export function canField(
   role: Role | null | undefined,
   entityId: string,
@@ -128,9 +196,51 @@ export function canField(
   if (mode === "edit" && !access.update && !access.create) return false;
   if (mode === "view" && !access.read) return false;
   if (access.fields === "*") return true;
+  const peers = Object.values(access.fields);
+  // Create is on but the field matrix grants edit nowhere (stale «сбросить»
+  // or only view flags) — treat like «Все поля» for writable checks so
+  // create dialogs (e.g. этапы в договоре) are not empty.
+  if (
+    mode === "edit" &&
+    access.create &&
+    peers.length > 0 &&
+    !peers.some((item) => item.edit)
+  ) {
+    return true;
+  }
   const field = access.fields[fieldId];
-  if (!field) return false;
+  if (!field) {
+    // Field id absent from an explicit map (entity grew after the role was
+    // saved). Inherit from peers: any allowed field ⇒ unknowns allowed;
+    // full-deny snapshot (every entry false) keeps denying unknowns for view.
+    // Explicit denials must set `{ view: false, edit: false }` for that id.
+    if (peers.length === 0) return true;
+    return peers.some((item) => item.view || item.edit);
+  }
   return mode === "edit" ? field.edit : field.view;
+}
+
+/**
+ * Access to an entity tab (files folders, notes, …).
+ * Legacy roles without `tabs` keep full tab access.
+ */
+export function canTab(
+  role: Role | null | undefined,
+  entityId: string,
+  tabId: string,
+  mode: FieldAccessMode,
+): boolean {
+  if (!role) return false;
+  if (isAdminRole(role)) return true;
+  const access = getEntityAccess(role.permissions, entityId);
+  if (!access) return false;
+  if (mode === "edit" && !access.update && !access.create) return false;
+  if (mode === "view" && !access.read) return false;
+  const tabs = access.tabs;
+  if (tabs == null || tabs === "*") return true;
+  const tab = tabs[tabId];
+  if (!tab) return false;
+  return mode === "edit" ? tab.edit : tab.view;
 }
 
 export function canSettingsTab(
@@ -206,6 +316,47 @@ type AutomationTaskVisibilityTarget = {
   recordId: string;
 };
 
+function taskAssigneeInViewerDepartment(
+  assigneeUserId: string | null,
+  options: {
+    authUserId: string | null;
+    userRecordId: string | null;
+    entities: Entity[];
+  },
+): boolean {
+  if (!assigneeUserId) return true;
+  if (options.authUserId != null && assigneeUserId === options.authUserId) {
+    return true;
+  }
+  if (options.userRecordId != null && assigneeUserId === options.userRecordId) {
+    return true;
+  }
+
+  const departmentsEntity = findDepartmentsEntity(options.entities);
+  const usersEntity = getSystemUsersEntity(options.entities);
+  if (!departmentsEntity || !usersEntity) return false;
+
+  const viewerDepartmentIds = new Set(
+    collectViewerDepartmentIds(options.entities, {
+      authUserId: options.authUserId,
+      currentUserRecordId: options.userRecordId,
+    }),
+  );
+  if (viewerDepartmentIds.size === 0) return false;
+
+  const assignee =
+    usersEntity.records.find((item) => item.id === assigneeUserId) ??
+    findSystemUserByAuthId(options.entities, assigneeUserId);
+  if (!assignee) return false;
+
+  return collectUserDepartmentIds(
+    assignee,
+    usersEntity,
+    departmentsEntity,
+    options.entities,
+  ).some((id) => viewerDepartmentIds.has(id));
+}
+
 function taskMatchesAutomationScope(
   role: Role | null | undefined,
   task: AutomationTaskVisibilityTarget,
@@ -234,6 +385,36 @@ function taskMatchesAutomationScope(
       return true;
     }
     return false;
+  }
+
+  if (scope === "department") {
+    if (
+      taskAssigneeInViewerDepartment(task.assigneeUserId, {
+        authUserId: options.authUserId,
+        userRecordId: options.userRecordId,
+        entities: options.entities,
+      })
+    ) {
+      return true;
+    }
+    const entity = options.entities.find((item) => item.id === task.entityId);
+    const record = entity?.records.find((item) => item.id === task.recordId);
+    if (!entity || !record) return false;
+    const viewerDepartmentIds = collectViewerDepartmentIds(options.entities, {
+      authUserId: options.authUserId,
+      currentUserRecordId: options.userRecordId,
+    });
+    return recordMatchesDepartmentScope(
+      entity,
+      record,
+      viewerDepartmentIds,
+      findDepartmentsEntity(options.entities),
+      options.entities,
+      {
+        authUserId: options.authUserId,
+        currentUserRecordId: options.userRecordId,
+      },
+    );
   }
 
   const filter = automationTasksScopeFilter(role);
@@ -297,6 +478,24 @@ export function canAccessNotifications(role: Role | null | undefined): boolean {
   return role.permissions.canAccessNotifications;
 }
 
+export function canAccessMessenger(role: Role | null | undefined): boolean {
+  if (!role) return false;
+  if (isAdminRole(role)) return true;
+  return role.permissions.canAccessMessenger;
+}
+
+export function canAccessNewsFeed(role: Role | null | undefined): boolean {
+  if (!role) return false;
+  if (isAdminRole(role)) return true;
+  return role.permissions.canAccessNewsFeed;
+}
+
+export function canCreateNewsPosts(role: Role | null | undefined): boolean {
+  if (!role) return false;
+  if (isAdminRole(role)) return true;
+  return role.permissions.canCreateNewsPosts;
+}
+
 /** Whether a sidebar / app menu item id is visible for the role. */
 export function canMenuItem(
   role: Role | null | undefined,
@@ -316,6 +515,12 @@ export function canMenuItem(
   }
   if (menuItemId === NOTIFICATIONS_ITEM_ID) {
     return canAccessNotifications(role);
+  }
+  if (menuItemId === CHATS_ITEM_ID) {
+    return canAccessMessenger(role);
+  }
+  if (menuItemId === FEED_ITEM_ID) {
+    return canAccessNewsFeed(role);
   }
   if (menuItemId === OPIU_ITEM_ID) {
     // Visible when role menu allows the item (admin "*" or explicit id).

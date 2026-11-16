@@ -222,9 +222,12 @@ export {
 export {
   AUTOMATION_UPLOAD_TARGET_PREFIX,
   getAutomationUploadTarget,
+  resolveEffectiveUploadTarget,
   setAutomationUploadTarget,
   type AutomationTaskUploadTarget,
 } from "./lib/upload-target";
+export { ensureUploadTargetFolderId } from "./lib/upload-folder";
+export { mirrorFileFieldsToFilesTab } from "./lib/mirror-file-fields-to-tab";
 export {
   assertAutomationUploadRequired,
   automationUploadTargetBlocksComplete,

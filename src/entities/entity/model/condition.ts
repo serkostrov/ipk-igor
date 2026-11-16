@@ -13,6 +13,8 @@ export type EntityConditionOperator =
   | "isCurrentUser"
   | "equalsCurrentUserField"
   | "notEqualsCurrentUserField"
+  | "userRoleIn"
+  | "userRoleNotIn"
   | "equalsRecordField"
   | "true"
   | "false"
@@ -57,6 +59,8 @@ export const ENTITY_CONDITION_OPERATOR_LABELS: Record<
   isCurrentUser: "текущий пользователь",
   equalsCurrentUserField: "как у текущего пользователя",
   notEqualsCurrentUserField: "не как у текущего пользователя",
+  userRoleIn: "роль — один из",
+  userRoleNotIn: "роль — не из",
   equalsRecordField: "как в этой записи",
   true: "да",
   false: "нет",
@@ -90,6 +94,8 @@ export const ENTITY_CONDITION_OPERATOR_GROUPS: Array<{
       "isCurrentUser",
       "equalsCurrentUserField",
       "notEqualsCurrentUserField",
+      "userRoleIn",
+      "userRoleNotIn",
       "equalsRecordField",
     ],
   },
@@ -126,6 +132,7 @@ const OPERATORS_BY_KIND: Record<EntityValueKind, EntityConditionOperator[]> = {
     "isCurrentUser",
     "equalsCurrentUserField",
     "notEqualsCurrentUserField",
+    // userRoleIn / userRoleNotIn — только для связей с Users (см. ConditionBuilder).
     "equalsRecordField",
     "empty",
     "notEmpty",
@@ -167,6 +174,8 @@ export function entityConditionNeedsValue(operator: EntityConditionOperator) {
     operator === "notIn" ||
     operator === "equalsCurrentUserField" ||
     operator === "notEqualsCurrentUserField" ||
+    operator === "userRoleIn" ||
+    operator === "userRoleNotIn" ||
     operator === "equalsRecordField" ||
     operator === "gt" ||
     operator === "lt" ||

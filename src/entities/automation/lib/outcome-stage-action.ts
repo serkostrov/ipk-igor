@@ -3,6 +3,7 @@ import {
   createAutomationActionId,
   type AutomationAction,
 } from "../model/actions";
+import type { AutomationOutcome } from "../model/types";
 
 /**
  * Stage moves for an outcome are stored as `setField` on the process
@@ -21,6 +22,56 @@ export function processStageOptionIdsMatch(a: string, b: string) {
   const right = normalizeProcessStageOptionId(b);
   if (!left || !right) return false;
   return left === right;
+}
+
+/** Affirmative decision button (default «Да») — used for fallback stage advance. */
+export function isAffirmativeDecisionOutcome(
+  outcome: Pick<AutomationOutcome, "label" | "color">,
+): boolean {
+  const label = outcome.label.trim().toLocaleLowerCase("ru");
+  if (
+    label === "да" ||
+    label === "yes" ||
+    label === "ок" ||
+    label === "ok" ||
+    label === "согласовано" ||
+    label === "утвердить" ||
+    label === "approve"
+  ) {
+    return true;
+  }
+  if (
+    label === "нет" ||
+    label === "no" ||
+    label === "отклонить" ||
+    label === "reject" ||
+    label === "на доработку"
+  ) {
+    return false;
+  }
+  const color = (outcome.color ?? "").trim().toLowerCase();
+  if (color === "#22c55e" || color === "#16a34a" || color === "#4ade80") {
+    return true;
+  }
+  if (color === "#ef4444" || color === "#dc2626" || color === "#f87171") {
+    return false;
+  }
+  return false;
+}
+
+/** Next visible process-stage option after `currentOptionId`, or null. */
+export function nextProcessStageOptionId(
+  options: ReadonlyArray<{ id: string; hiddenByDefault?: boolean }>,
+  currentOptionId: string,
+): string | null {
+  const visible = options.filter((option) => !option.hiddenByDefault);
+  const current = normalizeProcessStageOptionId(currentOptionId);
+  if (!current) return null;
+  const index = visible.findIndex((option) =>
+    processStageOptionIdsMatch(option.id, current),
+  );
+  if (index < 0 || index >= visible.length - 1) return null;
+  return visible[index + 1]!.id;
 }
 
 export function getOutcomeStageOptionId(

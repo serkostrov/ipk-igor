@@ -54,7 +54,7 @@ import {
   type EntityTab,
   type EntityTabFileEntry,
 } from "@/entities/entity";
-import { useCurrentRole } from "@/entities/access";
+import { canTab, useCurrentRole } from "@/entities/access";
 import { useEntityRecordEvents } from "@/entities/history";
 import { RecordEntityTabPanel } from "@/pages/entity/ui/RecordEntityTabPanel";
 import {
@@ -148,7 +148,9 @@ function filterFilesTabEntries(
       entry.kind === "folder" &&
       selectedNames.has(entry.name.trim().toLocaleLowerCase("ru")),
   );
-  if (matchedFolders.length === 0) return [];
+  // Folder not created yet (or renamed) — show the whole tab rather than a
+  // blank acceptance view for рукО.
+  if (matchedFolders.length === 0) return entries;
 
   const allowed = new Set(matchedFolders.map((folder) => folder.id));
   let grew = true;
@@ -1083,7 +1085,11 @@ export function TaskViewTabsPreview({
   const viewTabs = useMemo(() => {
     const selected = tabIds
       .map((id) => entity.tabs.find((tab) => tab.id === id))
-      .filter((tab): tab is EntityTab => tab != null);
+      .filter((tab): tab is EntityTab => tab != null)
+      .filter((tab) => {
+        if (!isEntityFilesTab(tab)) return true;
+        return canTab(role, entity.id, tab.id, "view");
+      });
     return withProjectGanttHardcodeTab(
       withTkpPriceHardcodeTab(
         selected,
@@ -1093,7 +1099,7 @@ export function TaskViewTabsPreview({
       ),
       entity,
     );
-  }, [entities, entity, showCommercialPricing, tabIds]);
+  }, [entities, entity, role, showCommercialPricing, tabIds]);
 
   const hasFill = fillSlot != null;
   const defaultTab = hasFill ? FILL_TAB_ID : (viewTabs[0]?.id ?? FILL_TAB_ID);

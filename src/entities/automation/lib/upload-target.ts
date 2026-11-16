@@ -4,7 +4,12 @@
  *
  * Format: `uploadTarget:<filesTabId>:<folderId|*>[:required]`
  * - `folderId` — `EntityTab.defaultFolders[].id`, or `*` for tab root
+ *
+ * Prefer this over a «файл» ask-field: uploads land on the entity Files tab
+ * and are visible during acceptance (рукО / view tabs).
  */
+
+import { isEntityFilesTab, type Entity } from "@/entities/entity";
 
 export const AUTOMATION_UPLOAD_TARGET_PREFIX = "uploadTarget:";
 
@@ -71,4 +76,25 @@ export function setAutomationUploadTarget(
     );
   }
   return next;
+}
+
+/**
+ * Effective upload target for a task. Falls back to the first files tab when
+ * legacy `requireAttachment` is set but materials have no uploadTarget yet.
+ */
+export function resolveEffectiveUploadTarget(options: {
+  materials?: string[] | null;
+  requireAttachment?: boolean;
+  entity?: Entity | null;
+}): AutomationTaskUploadTarget | null {
+  const fromMaterials = getAutomationUploadTarget(options.materials);
+  if (fromMaterials) return fromMaterials;
+  if (!options.requireAttachment || !options.entity) return null;
+  const tab = options.entity.tabs.find((item) => isEntityFilesTab(item));
+  if (!tab) return null;
+  return {
+    filesTabId: tab.id,
+    folderId: tab.defaultFolders[0]?.id ?? "",
+    required: true,
+  };
 }

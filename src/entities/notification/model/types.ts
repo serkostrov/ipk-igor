@@ -24,9 +24,20 @@ export const NOTIFICATION_TRIGGER_KIND_LABELS: Record<
 > = {
   recordCreated: "Создание записи",
   recordUpdated: "Изменение записи",
-  fieldEnter: "Попадание на значение",
-  fieldLeave: "Уход с значения",
-  fieldTransition: "Переход значения",
+  fieldEnter: "Вход на стадию",
+  fieldLeave: "Уход со стадии",
+  fieldTransition: "Смена стадии",
+};
+
+export const NOTIFICATION_TRIGGER_KIND_HINTS: Record<
+  NotificationTriggerKind,
+  string
+> = {
+  recordCreated: "Когда создаётся новая запись сущности",
+  recordUpdated: "Когда меняются любые поля записи",
+  fieldEnter: "Когда запись переходит на выбранную стадию (значение списка)",
+  fieldLeave: "Когда запись уходит с выбранной стадии",
+  fieldTransition: "Когда стадия меняется с одного значения на другое",
 };
 
 /** Trigger kind picker sections in notification rules. */
@@ -39,7 +50,7 @@ export const NOTIFICATION_TRIGGER_KIND_GROUPS: Array<{
     items: ["recordCreated", "recordUpdated"],
   },
   {
-    label: "События поля списка",
+    label: "Смена стадии",
     items: ["fieldEnter", "fieldLeave", "fieldTransition"],
   },
 ];
@@ -202,6 +213,61 @@ export function createDefaultNotificationRule(
   };
 }
 
+/**
+ * Prefills a record rule for stage change on the process list field.
+ * `optionId` empty = any stage; set for «вход на конкретную стадию».
+ */
+export function createStageChangeNotificationRule(input: {
+  entityId: string;
+  stageFieldId: string;
+  stageFieldLabel?: string;
+  optionId?: string;
+  optionLabel?: string;
+  triggerKind?: "fieldEnter" | "fieldLeave" | "fieldTransition";
+}): NotificationRule {
+  const triggerKind = input.triggerKind ?? "fieldEnter";
+  const optionId = input.optionId?.trim() ?? "";
+  const optionLabel = input.optionLabel?.trim() ?? "";
+  const fieldLabel = input.stageFieldLabel?.trim() || "стадия";
+  const stagePhrase = optionLabel
+    ? `«${optionLabel}»`
+    : `{{${input.stageFieldId}}}`;
+
+  const name =
+    triggerKind === "fieldEnter" && optionLabel
+      ? `Вход на стадию «${optionLabel}»`
+      : triggerKind === "fieldLeave" && optionLabel
+        ? `Уход со стадии «${optionLabel}»`
+        : triggerKind === "fieldTransition"
+          ? "Смена стадии"
+          : "Смена стадии";
+
+  return {
+    id: createNotificationRuleId(),
+    name,
+    enabled: true,
+    entityId: input.entityId,
+    triggerKind,
+    fieldId: input.stageFieldId,
+    optionId: triggerKind === "fieldTransition" ? "" : optionId,
+    fromOptionId: "",
+    toOptionId: triggerKind === "fieldTransition" ? optionId : "",
+    conditions: emptyAutomationConditions(),
+    recipients: defaultAssigneeResolver(),
+    titleTemplate:
+      triggerKind === "fieldLeave"
+        ? `Уход со стадии ${stagePhrase}`
+        : `Стадия: ${stagePhrase}`,
+    messageTemplate:
+      triggerKind === "fieldLeave"
+        ? `Запись покинула стадию ${stagePhrase} (поле «${fieldLabel}»).`
+        : triggerKind === "fieldTransition"
+          ? `Стадия записи изменилась. Текущее значение: ${stagePhrase}.`
+          : `Запись перешла на стадию ${stagePhrase}.`,
+    showToast: true,
+  };
+}
+
 export function describeNotificationTrigger(rule: NotificationRule): string {
   const base = NOTIFICATION_TRIGGER_KIND_LABELS[rule.triggerKind];
   if (
@@ -209,7 +275,7 @@ export function describeNotificationTrigger(rule: NotificationRule): string {
     rule.triggerKind === "fieldLeave" ||
     rule.triggerKind === "fieldTransition"
   ) {
-    return rule.fieldId ? `${base}` : `${base} (укажите поле)`;
+    return rule.fieldId ? base : `${base} (укажите поле стадии)`;
   }
   return base;
 }

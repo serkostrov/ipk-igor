@@ -69,7 +69,11 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
         <div className="min-h-0 flex-1 overflow-auto pb-8">
           <RoleEditor
             role={view.draft}
-            onChange={(draft) => setView({ ...view, draft })}
+            onChange={(draft) =>
+              setView((prev) =>
+                prev.mode === "edit" ? { ...prev, draft } : prev,
+              )
+            }
           />
         </div>
       </div>
@@ -127,13 +131,17 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
                     variant="ghost"
                     size="icon-sm"
                     aria-label="Настроить роль"
-                    onClick={() =>
+                    onClick={() => {
+                      // Always open a fresh clone from the store so the card
+                      // name matches the list (no stale draft / option drift).
+                      const fresh =
+                        roles.find((item) => item.id === role.id) ?? role;
                       setView({
                         mode: "edit",
-                        draft: structuredClone(role),
+                        draft: structuredClone(fresh),
                         isNew: false,
-                      })
-                    }
+                      });
+                    }}
                   >
                     <Pencil />
                   </Button>

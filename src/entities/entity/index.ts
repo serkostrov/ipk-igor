@@ -399,6 +399,26 @@ export {
   recordMatchesLegalEntityScope,
 } from "./model/legal-entities";
 export {
+  collectRecordDepartmentIds,
+  collectUserDepartmentIds,
+  collectViewerDepartmentIds,
+  findDepartmentsEntity,
+  getDepartmentLinkFields,
+  recordMatchesDepartmentScope,
+} from "./model/departments";
+export { fieldTargetsUsers, recordMatchesOwnScope } from "./model/own-scope";
+export {
+  canMutateEntityRecord,
+  setEntityRecordMutationGuard,
+  type EntityRecordMutationAction,
+} from "./model/record-mutation-policy";
+export {
+  applyEntityScheduleFieldSync,
+  reconcileEntityScheduleValues,
+  resolveEntityScheduleFields,
+  type EntityScheduleFields,
+} from "./model/schedule-fields";
+export {
   buildEntityFieldFileStoragePath,
   buildEntityFileStoragePath,
   buildEntityNoteAttachmentStoragePath,
@@ -516,6 +536,7 @@ export {
 export { DeadlineChip } from "./ui/DeadlineChip";
 export { ProgressValue } from "./ui/ProgressValue";
 export { RecordValue } from "./ui/RecordValue";
+export { RecordFileValue } from "./ui/RecordFileValue";
 export { RelationGroupsRecordValue } from "./ui/RelationGroupsRecordValue";
 export { ConditionBuilder } from "./ui/ConditionBuilder";
 export { RecordChangeList } from "./ui/RecordChangeList";
@@ -546,6 +567,7 @@ export {
   type RecordMentionSegment,
 } from "./lib/record-mentions";
 export { notifyRecordMentions } from "./lib/notify-record-mentions";
+export { softFillRelationsFromParentRecord } from "./lib/soft-fill-from-parent";
 export {
   applyTkpAnalysisCreateDefaults,
   applyTkpGipDepartmentUsers,

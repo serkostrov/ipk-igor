@@ -405,7 +405,8 @@ export type EntityField = {
   /**
    * Parent field id on the same entity (`list` or `relation`). Child options
    * are filtered by the parent's selected value(s). Depth 1 only (list parent
-   * must be independent). Ignored when `listSourceFieldId` is set.
+   * must be independent). Works together with `listSourceFieldId` — sourced
+   * options are still filtered by `parentOptionId`.
    */
   listDependsOnFieldId: string | null;
   /** When true, this list field shows color swatches. */
@@ -577,8 +578,9 @@ export function isEntityFieldVisibleOnCreate(
 ) {
   if (isEntityNameField(field)) return true;
   // Formula: opt-in live preview via formula.showOnCreate.
+  // Required formulas always show — e.g. planned end date on create.
   if (field.type === "formula") {
-    return field.formula?.showOnCreate === true;
+    return field.required || field.formula?.showOnCreate === true;
   }
   // Rollup / numberSum stay hidden on create (need saved / related data).
   if (field.type === "rollup" || field.type === "numberSum") {
@@ -2189,7 +2191,7 @@ export function getVisibleListOptions(
 ): EntityListOption[] {
   if (field.type !== "list") return [];
   const all = resolveEntityListFieldOptions(field, entities);
-  if (field.listSourceFieldId?.trim() || !field.listDependsOnFieldId) {
+  if (!field.listDependsOnFieldId) {
     return all;
   }
   if (

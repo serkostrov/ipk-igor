@@ -23,6 +23,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { cn } from "@/shared/lib/cn";
 import { formatEntityFileSize } from "../model/types";
 import {
@@ -375,27 +376,14 @@ export function EntityFileViewer({
     }
   }
 
-  async function copyText(value: string) {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-      return;
-    }
-    const input = document.createElement("textarea");
-    input.value = value;
-    input.setAttribute("readonly", "");
-    input.style.position = "fixed";
-    input.style.left = "-9999px";
-    document.body.appendChild(input);
-    input.select();
-    const ok = document.execCommand("copy");
-    input.remove();
-    if (!ok) throw new Error("Не удалось скопировать");
-  }
-
   async function handleCopy() {
     if (!file || !url) return;
     try {
-      if (kind === "image") {
+      if (
+        kind === "image" &&
+        typeof ClipboardItem !== "undefined" &&
+        navigator.clipboard?.write
+      ) {
         // Start clipboard.write in the click turn; put async work in the
         // ClipboardItem Promise so user activation is not lost after fetch.
         const pngPromise = fetch(url).then(async (response) => {
@@ -407,16 +395,18 @@ export function EntityFileViewer({
             new ClipboardItem({ "image/png": pngPromise }),
           ]);
           toast.success("Изображение скопировано");
+          markCopied();
+          return;
         } catch {
-          // Image clipboard is unsupported or blocked — fall back to the link.
-          await copyText(url);
-          toast.success("Ссылка скопирована");
+          // Image clipboard unsupported/blocked/CORS — fall back to the link.
         }
-      } else if (kind === "text" && textContent != null) {
-        await copyText(textContent);
+      }
+
+      if (kind === "text" && textContent != null) {
+        await copyTextToClipboard(textContent);
         toast.success("Текст скопирован");
       } else {
-        await copyText(url);
+        await copyTextToClipboard(url);
         toast.success("Ссылка скопирована");
       }
       markCopied();

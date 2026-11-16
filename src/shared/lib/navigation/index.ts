@@ -1,5 +1,6 @@
 export {
   entityListLocation,
+  feedPostLocation,
   isEntityBrowsePathView,
   isSettingsPathTab,
   locationToMenuId,

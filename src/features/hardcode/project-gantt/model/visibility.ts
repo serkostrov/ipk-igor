@@ -3,7 +3,12 @@ import { isAdminRole, type Role } from "@/entities/access";
 export type ProjectGanttVisibility = {
   /** Show the График tab on project records. */
   showGanttTab: boolean;
-  /** Restrict the record page to gantt + lifecycle only. */
+  /**
+   * Restrict a **Projects** record page to the «График» tab only
+   * (department-head review). Never apply on other entities — there is no
+   * gantt hardcode tab there, and filtering would hide every real tab
+   * (e.g. «Расчёты отделов» on «Разбор ТКП»).
+   */
   ganttReviewOnly: boolean;
   /** Can mutate schedule (deps, reorder, work items). */
   canEditSchedule: boolean;

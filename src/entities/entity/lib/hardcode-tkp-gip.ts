@@ -25,8 +25,11 @@ import {
   parseEntityRelationGroups,
   serializeEntityRelationGroups,
 } from "../model/relation-groups";
+import { collectViewerDepartmentIds } from "../model/departments";
 import {
+  findSystemUserByAuthId,
   getSystemUserName,
+  getSystemUsersEntity,
   SYSTEM_USERS_ENTITY_ID,
 } from "../model/system-entities";
 import {
@@ -1620,6 +1623,42 @@ function collectAssigneeUserIds(options: {
   return ids;
 }
 
+/**
+ * Expand auth user ids ↔ Users-entity record ids so manager/performer
+ * relations match regardless of which id the caller passed.
+ */
+function expandAssigneeUserIds(
+  entities: readonly Entity[],
+  userIds: ReadonlySet<string>,
+): Set<string> {
+  if (userIds.size === 0) return new Set();
+  const next = new Set(userIds);
+  const usersEntity = getSystemUsersEntity(entities);
+  if (!usersEntity) return next;
+
+  for (const id of userIds) {
+    const byRecord = usersEntity.records.find((record) => record.id === id);
+    if (byRecord?.authUserId) next.add(byRecord.authUserId);
+    const byAuth = findSystemUserByAuthId(entities, id);
+    if (byAuth) next.add(byAuth.id);
+  }
+  return next;
+}
+
+/** Department ids nested on a «Расчёты отделов» row (стадия × отдел). */
+function recordDepartmentIds(entity: Entity, record: EntityRecord): string[] {
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  if (!groupsField) return [];
+  const found = new Set<string>();
+  for (const pair of collectTkpStageDepartmentPairs(
+    record.values[groupsField.id],
+  )) {
+    const departmentId = pair.departmentId.trim();
+    if (departmentId) found.add(departmentId);
+  }
+  return [...found];
+}
+
 function assigneeOwnsNonGipDepartment(options: {
   entity: Entity;
   records: readonly EntityRecord[];
@@ -1705,7 +1744,8 @@ export function filterDeptCalculationRecordsForAssignee(options: {
     leadParent = null,
     restrictToOwnDepartments = false,
   } = options;
-  const userIds = collectAssigneeUserIds(options);
+  const rawUserIds = collectAssigneeUserIds(options);
+  const userIds = expandAssigneeUserIds(entities, rawUserIds);
 
   const assigneeIsGip = resolveAssigneeIsLeadGip({
     entity,
@@ -1719,6 +1759,32 @@ export function filterDeptCalculationRecordsForAssignee(options: {
   // GIP review task: every department is visible; editability is separate.
   if (assigneeIsGip) return [...records];
 
+  // Prefer catalog departments the viewer heads / belongs to — more stable
+  // than manager-field id matching alone (auth id vs Users record id).
+  let authUserId: string | null = null;
+  let currentUserRecordId: string | null = null;
+  const usersEntity = getSystemUsersEntity(entities);
+  for (const id of userIds) {
+    const byAuth = findSystemUserByAuthId(entities, id);
+    if (byAuth) {
+      authUserId = id;
+      currentUserRecordId = byAuth.id;
+      break;
+    }
+    const byRecord = usersEntity?.records.find((record) => record.id === id);
+    if (byRecord) {
+      currentUserRecordId = byRecord.id;
+      authUserId = byRecord.authUserId;
+      break;
+    }
+  }
+  const viewerDepartmentIds = new Set(
+    collectViewerDepartmentIds(entities, {
+      authUserId,
+      currentUserRecordId,
+    }),
+  );
+
   return records.filter((record) => {
     const isGip = childValuesSelectGipDepartment({
       childEntity: entity,
@@ -1726,6 +1792,12 @@ export function filterDeptCalculationRecordsForAssignee(options: {
       entities,
     });
     if (isGip) return false;
+
+    if (viewerDepartmentIds.size > 0) {
+      const deptIds = recordDepartmentIds(entity, record);
+      if (deptIds.some((id) => viewerDepartmentIds.has(id))) return true;
+    }
+
     if (userIds.size === 0) {
       // Department-head viewer without a resolved profile: show nothing safer
       // than every department.
@@ -1749,23 +1821,28 @@ export function resolveEditableDeptCalculationRecordIds(options: {
   assigneeUserIds?: readonly string[] | null;
   leadParent?: { entity: Entity; record: EntityRecord } | null;
   restrictToOwnDepartments?: boolean;
+  /** Role «ГИП» — treat as lead even if soft lead-field match is incomplete. */
+  forceLeadGip?: boolean;
 }): Set<string> {
   const {
     entity,
     entities,
     leadParent = null,
     restrictToOwnDepartments = false,
+    forceLeadGip = false,
   } = options;
   const visible = filterDeptCalculationRecordsForAssignee(options);
   const userIds = collectAssigneeUserIds(options);
-  const assigneeIsGip = resolveAssigneeIsLeadGip({
-    entity,
-    records: options.records,
-    entities,
-    userIds,
-    leadParent,
-    restrictToOwnDepartments,
-  });
+  const assigneeIsGip =
+    forceLeadGip ||
+    resolveAssigneeIsLeadGip({
+      entity,
+      records: options.records,
+      entities,
+      userIds,
+      leadParent,
+      restrictToOwnDepartments,
+    });
   if (!assigneeIsGip) {
     return new Set(visible.map((record) => record.id));
   }

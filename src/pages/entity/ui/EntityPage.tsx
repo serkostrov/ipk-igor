@@ -587,6 +587,7 @@ export function EntityPage({
           }}
           entity={currentEntity}
           record={editingRecord}
+          onOpenRelation={onOpenRelation}
         />
       ) : null}
       <EntityTimelineSettingsDialog

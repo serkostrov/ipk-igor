@@ -34,6 +34,13 @@ export function isTkpDepartmentHeadRole(
   );
 }
 
+/** Role is lead GIP («ГИП» / главный инженер). */
+export function isTkpGipRole(role: Role | null | undefined): boolean {
+  if (isAdminRole(role)) return false;
+  const name = normalizeRoleName(role?.name ?? "");
+  return name === "гип" || (name.includes("главн") && name.includes("инженер"));
+}
+
 function isTkpCommercialPricingEditorRole(
   role: Role | null | undefined,
 ): boolean {
@@ -71,11 +78,10 @@ export function resolveTkpReviewCostVisibility(
     };
   }
 
-  const name = normalizeRoleName(role?.name ?? "");
   const canEditCommercialPricing = isTkpCommercialPricingEditorRole(role);
 
   // «Цена ТКП» — всем, кроме руководителей отделов (выше).
-  if (name === "гип" || (name.includes("главн") && name.includes("инженер"))) {
+  if (isTkpGipRole(role)) {
     return {
       showGipCalculation: true,
       showDepartmentRestrictedTotals: false,

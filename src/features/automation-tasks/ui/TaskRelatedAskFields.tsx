@@ -23,8 +23,10 @@ import {
   filterDeptCalculationRecordsForAssignee,
   isTkpAnalysisEntity,
   isTkpDepartmentHeadRole,
+  isTkpGipRole,
   resolveDeptCalculationsHostFields,
   resolveEditableDeptCalculationRecordIds,
+  TkpGipExecutionDurationAsk,
   TkpReviewHardcodeSlot,
 } from "@/features/hardcode";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
@@ -187,6 +189,7 @@ export function TaskRelatedAskFields({
   softFillParent = null,
   assigneeUserId = null,
   onSeedChange,
+  pinGipExecutionDuration = false,
 }: {
   groups: RelatedAskGroup[];
   emptyRelations: RelatedAskEmptyRelation[];
@@ -203,16 +206,23 @@ export function TaskRelatedAskFields({
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
   /** Task assignee — filters «Расчёты отделов» to this head’s stages. */
   assigneeUserId?: string | null;
+  /** Pin «Общий срок расчёта» at the top of the fill form (GIP tasks). */
+  pinGipExecutionDuration?: boolean;
 }) {
   const role = useCurrentRole();
   const currentUserRecordId = useCurrentUserRecordId();
   const restrictToOwnDepartments = isTkpDepartmentHeadRole(role);
+  const forceLeadGip = isTkpGipRole(role);
   const viewerUserIds = useMemo(() => {
     const sessionId = getSessionUser()?.id ?? null;
     return [assigneeUserId, currentUserRecordId, sessionId].filter(
       (id): id is string => Boolean(id),
     );
   }, [assigneeUserId, currentUserRecordId]);
+  const showGipDurationAsk =
+    pinGipExecutionDuration &&
+    softFillParent != null &&
+    isTkpAnalysisEntity(softFillParent.entity);
 
   const displayGroups = useMemo(
     () => collapseDeptCalculationGroups(groups, entities, softFillParent),
@@ -269,12 +279,14 @@ export function TaskRelatedAskFields({
       assigneeUserIds: viewerUserIds,
       leadParent: softFillParent,
       restrictToOwnDepartments,
+      forceLeadGip,
     });
   }, [
     assigneeUserId,
     deptBundle,
     deptTableRecords,
     entities,
+    forceLeadGip,
     restrictToOwnDepartments,
     softFillParent,
     viewerUserIds,
@@ -372,6 +384,15 @@ export function TaskRelatedAskFields({
         </p>
       ))}
 
+      {showGipDurationAsk && softFillParent ? (
+        <TkpGipExecutionDurationAsk
+          entity={softFillParent.entity}
+          record={softFillParent.record}
+          readOnly={disabled}
+          required
+        />
+      ) : null}
+
       {showDeptTable && deptBundle ? (
         <div className="flex flex-col gap-2">
           <p className="truncate text-[11px] font-medium text-muted-foreground">
@@ -399,6 +420,7 @@ export function TaskRelatedAskFields({
               record={softFillParent.record}
               readOnly={disabled}
               sections={["gip"]}
+              hideExecutionDuration={showGipDurationAsk}
             />
           ) : null}
         </div>

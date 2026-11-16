@@ -15,6 +15,7 @@ import {
   addEntityRecord,
   applyEntityFieldValue,
   applyTkpGipDepartmentUsers,
+  softFillRelationsFromParentRecord,
   createEntityDraftRecord,
   sanitizeEntityRelationDependencies,
   getEntityFieldDisplayName,
@@ -27,6 +28,7 @@ import {
   isEntityFieldGroupTitleHidden,
   clearSiblingAllowManualFormulaValues,
   computeAllowManualFormulaSoftFill,
+  reconcileEntityScheduleValues,
   isEntityComputedAutoValueEmpty,
   isEntityComputedFieldType,
   isEntityFieldManualInputEnabled,
@@ -76,6 +78,7 @@ type EntityRecordDialogProps = {
   submitLabel?: string;
   /** When creating a Users account — require password and pass it in meta. */
   requireAccountPassword?: boolean;
+  onOpenRelation?: (entityId: string, recordId: string) => void;
   onSubmit?: (
     values: Record<string, string>,
     meta: EntityRecordSubmitMeta,
@@ -174,6 +177,7 @@ function EntityRecordForm({
   titleOverride,
   submitLabel,
   requireAccountPassword = false,
+  onOpenRelation,
   onCancel,
   onSubmit,
 }: {
@@ -186,6 +190,7 @@ function EntityRecordForm({
   titleOverride?: string;
   submitLabel?: string;
   requireAccountPassword?: boolean;
+  onOpenRelation?: (entityId: string, recordId: string) => void;
   onCancel: () => void;
   onSubmit: (
     values: Record<string, string>,
@@ -207,12 +212,9 @@ function EntityRecordForm({
         if (isEdit) {
           return canField(role, entity.id, field.id, "edit");
         }
-        // Create: need entity create + field view/edit (create counts as edit).
+        // Create: entity create + writable field (create counts as edit in ACL).
         if (!canEntity(role, entity.id, "create")) return false;
-        return (
-          canField(role, entity.id, field.id, "view") ||
-          canField(role, entity.id, field.id, "edit")
-        );
+        return canField(role, entity.id, field.id, "edit");
       }),
     [entity.fields, entity.id, hiddenFieldIds, isEdit, role],
   );
@@ -238,15 +240,24 @@ function EntityRecordForm({
       ),
       entities,
     );
-    if (!softFillParent) return sanitized;
-    return applyTkpGipDepartmentUsers({
-      childEntity: entity,
-      childValues: sanitized,
-      entities,
-      parentEntity: softFillParent.entity,
-      parentRecord: softFillParent.record,
-      changedFieldId: null,
-    }).values;
+    const withParent = softFillParent
+      ? applyTkpGipDepartmentUsers({
+          childEntity: entity,
+          childValues: softFillRelationsFromParentRecord({
+            childEntity: entity,
+            childValues: sanitized,
+            parentEntity: softFillParent.entity,
+            parentRecord: softFillParent.record,
+            entities,
+          }),
+          entities,
+          parentEntity: softFillParent.entity,
+          parentRecord: softFillParent.record,
+          changedFieldId: null,
+        }).values
+      : sanitized;
+    // Defaults often set start (today) + duration — fill «Срок (план)» immediately.
+    return reconcileEntityScheduleValues(entity, withParent);
   }, [
     entity,
     entities,
@@ -397,6 +408,13 @@ function EntityRecordForm({
         next = clearSiblingAllowManualFormulaValues(entity, next, fieldId);
       }
       if (softFillParent) {
+        next = softFillRelationsFromParentRecord({
+          childEntity: entity,
+          childValues: next,
+          parentEntity: softFillParent.entity,
+          parentRecord: softFillParent.record,
+          entities,
+        });
         next = applyTkpGipDepartmentUsers({
           childEntity: entity,
           childValues: next,
@@ -452,6 +470,7 @@ function EntityRecordForm({
         recordId={draftRecordId}
         required={field.required}
         softFillParent={softFillParent}
+        onOpenRelation={onOpenRelation}
       />
     );
   }
@@ -496,8 +515,9 @@ function EntityRecordForm({
 
         {!isEdit && visibleFields.length === 0 ? (
           <p className="rounded-lg border border-border bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
-            Нет доступных полей для создания. Проверьте права роли на поля этой
-            сущности (раздел «Поля»), либо включите «Все поля».
+            {!canEntity(role, entity.id, "create")
+              ? "Нет права на создание записей этой сущности. Выдайте роли действие «Создавать»."
+              : "Нет доступных полей для создания. Проверьте права роли на поля этой сущности (раздел «Поля») или включите «Все поля»."}
           </p>
         ) : null}
 
@@ -554,7 +574,7 @@ function EntityRecordForm({
           type="button"
           disabled={!canSubmit || pending}
           onClick={() => {
-            const nextValues = {
+            const nextValues = reconcileEntityScheduleValues(entity, {
               ...buildRecordValues(
                 editableFields,
                 record?.values,
@@ -565,7 +585,7 @@ function EntityRecordForm({
                 ...values,
                 ...formulaSoftFill,
               }),
-            };
+            });
             const meta: EntityRecordSubmitMeta = needsPassword
               ? { password }
               : {};
@@ -604,6 +624,7 @@ export function EntityRecordDialog({
   titleOverride,
   submitLabel,
   requireAccountPassword = false,
+  onOpenRelation,
   onSubmit,
 }: EntityRecordDialogProps) {
   const { entities: entitiesFromStore } = useEntityConfig();
@@ -626,6 +647,7 @@ export function EntityRecordDialog({
             titleOverride={titleOverride}
             submitLabel={submitLabel}
             requireAccountPassword={requireAccountPassword}
+            onOpenRelation={onOpenRelation}
             onCancel={() => onOpenChange(false)}
             onSubmit={async (values, meta) => {
               if (onSubmit) {
