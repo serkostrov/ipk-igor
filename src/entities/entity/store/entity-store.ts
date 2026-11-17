@@ -1,6 +1,7 @@
 import { isSupabaseConfigured } from "@/shared/api/supabase";
 import { parseLocalDatetime, toLocalDatetime } from "@/shared/lib/datetime";
 import { getErrorMessage } from "@/shared/lib/error-message";
+import { notifyError } from "@/shared/lib/notify";
 import { formatDateDisplay } from "@/shared/lib/format-date";
 import { withTimeout } from "@/shared/lib/with-timeout";
 import { purgeFieldFromAutomations } from "@/entities/automation/store/automation-store";
@@ -436,6 +437,7 @@ function menuLabels(entities: Entity[]) {
 function handlePersistError(error: unknown, fallback: string) {
   const message = getErrorMessage(error, fallback);
   console.error("[entity] save failed", error);
+  notifyError(fallback, error);
   setStatus("error", message);
 }
 

@@ -17,6 +17,22 @@ export function getErrorMessage(error: unknown, fallback = "Ошибка"): stri
   return fallback;
 }
 
+/**
+ * Full technical detail of an error.
+ */
+export function formatErrorDetail(error: unknown): string | null {
+  if (error == null) return null;
+  if (typeof error === "string") return error.trim() || null;
+  if (error instanceof Error) {
+    return error.stack?.trim() || error.message.trim() || error.name;
+  }
+  try {
+    return JSON.stringify(error, null, 2);
+  } catch {
+    return String(error);
+  }
+}
+
 /** Build a clear “do this first” message from blocking task titles. */
 export function formatAutomationBlockingMessage(
   taskNames: string[],
