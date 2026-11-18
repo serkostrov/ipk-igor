@@ -15,6 +15,15 @@ import type { RelatedAskGroup } from "./task-related-ask";
  * for «Расчёты отделов». Returns next form values; may persist overridden
  * user fields that are not part of the ask list.
  */
+/** In-flight related-record persists — await before task complete (ТЗ §10 п.7). */
+const pendingRelatedPersists = new Set<Promise<void>>();
+
+export async function flushRelatedAskPersists(): Promise<void> {
+  if (pendingRelatedPersists.size === 0) return;
+  const pending = [...pendingRelatedPersists];
+  await Promise.all(pending);
+}
+
 export function applyRelatedAskFieldChange(options: {
   groups: RelatedAskGroup[];
   valueKey: string;
@@ -118,13 +127,21 @@ export function applyRelatedAskFieldChange(options: {
       );
       nextForm = { ...nextForm, [askKey]: patch[fieldId]! };
     }
-    void updateEntityRecord(
+    const persist = updateEntityRecord(
       group.relatedEntity.id,
       group.relatedRecordId,
       patch,
-    ).catch((error: unknown) => {
-      console.error("[hardcode/tkp-gip] persist user fields failed", error);
-    });
+    )
+      .catch((error: unknown) => {
+        console.error("[hardcode/tkp-gip] persist user fields failed", error);
+        throw error instanceof Error
+          ? error
+          : new Error("Не удалось сохранить руководителей отделов");
+      })
+      .finally(() => {
+        pendingRelatedPersists.delete(persist);
+      });
+    pendingRelatedPersists.add(persist);
   }
 
   return nextForm;

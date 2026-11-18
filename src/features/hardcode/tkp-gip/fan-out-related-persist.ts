@@ -338,6 +338,39 @@ function resolveDepartmentCatalogManagerField(
  * «ГИП» rows stay for `withGipUsers` (lead). Used so spawn assignees can
  * resolve after fan-out even when the ask only stores stage×department ids.
  */
+function applyCatalogManagerToValues(options: {
+  entity: Entity;
+  values: Record<string, string>;
+  entities: readonly Entity[];
+  groupsFieldId: string;
+}): Record<string, string> {
+  const { entity, values, entities, groupsFieldId } = options;
+  const { manager } = findDeptCalculationUserFields(entity);
+  if (!manager) return values;
+  if (parseEntityRelationIds(values[manager.id]).length > 0) return values;
+  const departmentEntity = resolveDepartmentEntity(entity, entities);
+  if (!departmentEntity) return values;
+  const deptManager = resolveDepartmentCatalogManagerField(departmentEntity);
+  if (!deptManager) return values;
+  let catalogIds: string[] = [];
+  for (const pair of collectTkpStageDepartmentPairs(values[groupsFieldId])) {
+    if (!pair.departmentId.trim()) continue;
+    const deptRecord = departmentEntity.records.find(
+      (item) => item.id === pair.departmentId,
+    );
+    if (!deptRecord) continue;
+    if (isGipDepartmentRecord(departmentEntity, deptRecord, entities)) continue;
+    catalogIds = parseEntityRelationIds(deptRecord.values[deptManager.id]);
+    if (catalogIds.length > 0) break;
+  }
+  if (catalogIds.length === 0) return values;
+  const value =
+    manager.relationMultiple === true
+      ? serializeEntityRelationIds(catalogIds)
+      : serializeEntityRelationIds(catalogIds.slice(0, 1));
+  return { ...values, [manager.id]: value };
+}
+
 function withCatalogManagerIfEmpty(options: {
   entity: Entity;
   values: Record<string, string>;
@@ -560,9 +593,8 @@ export async function ensureDeptCalculationGipRows(options: {
   const gipId = findGipDepartmentRecordId(departmentEntity, entities);
   if (!gipId) {
     console.warn(
-      "[dept-calc] GIP catalog department not found — cannot ensure ГИП rows",
+      "[dept-calc] GIP catalog department not found — selected departments still fan out",
     );
-    return;
   }
 
   // Fresh view/task heal: allow another attempt at ГИП for every stage.
@@ -636,8 +668,10 @@ export async function ensureDeptCalculationGipRows(options: {
     }
   }
 
-  for (const stageId of stages) {
-    pushMissing(stageId, gipId);
+  if (gipId) {
+    for (const stageId of stages) {
+      pushMissing(stageId, gipId);
+    }
   }
   if (missingPairs.length === 0) return;
 
@@ -708,14 +742,26 @@ export async function ensureDeptCalculationGipRows(options: {
         seed[field.id] = "";
       }
       const createBase = withParentLinks(seed);
-      const createValues = withGipUsers({
+      const withUsers = applyCatalogManagerToValues({
         entity,
-        values: createBase,
+        values: withGipUsers({
+          entity,
+          values: createBase,
+          entities,
+          groupsFieldId: groupsField.id,
+          parentEntity,
+          parentRecord,
+        }),
         entities,
         groupsFieldId: groupsField.id,
-        parentEntity,
-        parentRecord,
       });
+      const nameField = entity.fields.find((field) =>
+        field.name.trim().toLocaleLowerCase("ru") === "название",
+      );
+      const createValues =
+        nameField && !(withUsers[nameField.id] ?? "").trim()
+          ? { ...withUsers, [nameField.id]: "Расчёт отдела" }
+          : withUsers;
       const created = addEntityRecord(entity.id, createValues);
       await waitForEntityRecordInsert(created.id);
       if (ensuredParentLinks.length > 0) {

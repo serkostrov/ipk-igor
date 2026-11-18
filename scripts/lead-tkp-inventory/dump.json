@@ -1,0 +1,418 @@
+{
+  "scenarios": [
+    {
+      "id": "ascen-7bb64fab-36db-4695-844e-86f3e62bf259",
+      "process_id": "aproc-41184a46-8b49-47e9-a09d-9ebcf57c5292",
+      "name": "Основной",
+      "is_default": true,
+      "entry_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "priority": 0,
+      "canvas_layout": {
+        "positions": {
+          "atpl-3b18cc02-1bce-4d56-adf4-9d7d85a6f5da": {
+            "x": -268.72856496842235,
+            "y": 242.40562241820305
+          },
+          "atpl-5758f945-6f59-4b46-bc7c-7fae826895ba": {
+            "x": -268.72856496842235,
+            "y": 636.9938577123207
+          },
+          "end:list-076966e5-8752-49dc-9fef-566defac3053": {
+            "x": 866.5354963571923,
+            "y": 269.21297814315386
+          },
+          "end:list-4babbda4-26bb-4a4b-bc2a-0ef614c8e2e5": {
+            "x": 2463.326282127742,
+            "y": -502.1669246328728
+          },
+          "end:list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe": {
+            "x": -206.72856496842238,
+            "y": 872.5232694770266
+          },
+          "end:list-7664cdee-dcec-4e20-95f8-84a76b09ecd5": {
+            "x": 3136.096183451131,
+            "y": 56.04464935511521
+          },
+          "end:list-7bf15acd-8df9-4863-a0cb-ddefc17b9c8f": {
+            "x": 2504.529835295469,
+            "y": 772.323301839043
+          },
+          "end:list-a4ba825e-4048-4c7a-ab60-b27002644a6e": {
+            "x": 1881.9755920055388,
+            "y": 210.25152549965384
+          },
+          "end:list-aad1e473-4c06-4e58-a615-f175c091d282": {
+            "x": 367.8864412474036,
+            "y": 119.54159835580757
+          },
+          "end:list-c1cc666d-75c5-42b6-a1cc-62e00622c27c": {
+            "x": -784.2129215732351,
+            "y": 232.67342829199208
+          },
+          "end:list-c98611ec-0345-4af2-8b7e-cf620a56f5e0": {
+            "x": 1351.578062395404,
+            "y": 119.54159835580757
+          },
+          "stage:list-076966e5-8752-49dc-9fef-566defac3053": {
+            "x": 804.5354963571923,
+            "y": 55.212978143153876
+          },
+          "stage:list-4babbda4-26bb-4a4b-bc2a-0ef614c8e2e5": {
+            "x": 2401.326282127742,
+            "y": -716.1669246328728
+          },
+          "stage:list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe": {
+            "x": -268.7285649684224,
+            "y": 38.05268124173245
+          },
+          "stage:list-7664cdee-dcec-4e20-95f8-84a76b09ecd5": {
+            "x": 3074.096183451131,
+            "y": -157.9553506448848
+          },
+          "stage:list-7bf15acd-8df9-4863-a0cb-ddefc17b9c8f": {
+            "x": 2442.529835295469,
+            "y": 558.323301839043
+          },
+          "stage:list-a4ba825e-4048-4c7a-ab60-b27002644a6e": {
+            "x": 1819.9755920055388,
+            "y": -3.7484745003461803
+          },
+          "stage:list-aad1e473-4c06-4e58-a615-f175c091d282": {
+            "x": 305.8864412474036,
+            "y": -94.45840164419243
+          },
+          "stage:list-c1cc666d-75c5-42b6-a1cc-62e00622c27c": {
+            "x": -846.2129215732351,
+            "y": 18.673428291992074
+          },
+          "stage:list-c98611ec-0345-4af2-8b7e-cf620a56f5e0": {
+            "x": 1289.578062395404,
+            "y": -94.45840164419243
+          },
+          "trigger:list-076966e5-8752-49dc-9fef-566defac3053": {
+            "x": 804.5354963571923,
+            "y": 157.21297814315386
+          },
+          "trigger:list-4babbda4-26bb-4a4b-bc2a-0ef614c8e2e5": {
+            "x": 2401.326282127742,
+            "y": -614.1669246328728
+          },
+          "trigger:list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe": {
+            "x": -267.5520943801871,
+            "y": 436.75856359467366
+          },
+          "trigger:list-7664cdee-dcec-4e20-95f8-84a76b09ecd5": {
+            "x": 3074.096183451131,
+            "y": -55.95535064488479
+          },
+          "trigger:list-7bf15acd-8df9-4863-a0cb-ddefc17b9c8f": {
+            "x": 2442.529835295469,
+            "y": 660.323301839043
+          },
+          "trigger:list-a4ba825e-4048-4c7a-ab60-b27002644a6e": {
+            "x": 1819.9755920055388,
+            "y": 98.25152549965382
+          },
+          "trigger:list-aad1e473-4c06-4e58-a615-f175c091d282": {
+            "x": 305.8864412474036,
+            "y": 7.541598355807565
+          },
+          "trigger:list-c1cc666d-75c5-42b6-a1cc-62e00622c27c": {
+            "x": -846.2129215732351,
+            "y": 120.67342829199207
+          },
+          "trigger:list-c98611ec-0345-4af2-8b7e-cf620a56f5e0": {
+            "x": 1289.578062395404,
+            "y": 7.541598355807565
+          }
+        },
+        "collapsedStageIds": [],
+        "hiddenStageLinkKeys": []
+      },
+      "created_at": "2026-11-16T14:41:33.131106+00:00",
+      "updated_at": "2026-11-16T21:23:16.199+00:00",
+      "stage_transitions": [
+        {
+          "id": "astr-025617de-1a08-4133-9fca-e22d67bba50e",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "toOptionId": "list-7664cdee-dcec-4e20-95f8-84a76b09ecd5",
+          "elseOptionId": "",
+          "fromOptionId": "list-a4ba825e-4048-4c7a-ab60-b27002644a6e"
+        }
+      ],
+      "stage_task_release": {}
+    },
+    {
+      "id": "ascen-7a0ba729-76d9-4532-b056-7c988a2b59d3",
+      "process_id": "aproc-8ec100a8-17c3-43c9-a413-8867550ee336",
+      "name": "Основной",
+      "is_default": true,
+      "entry_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "priority": 0,
+      "canvas_layout": {
+        "positions": {},
+        "collapsedStageIds": [],
+        "hiddenStageLinkKeys": []
+      },
+      "created_at": "2026-11-17T06:44:20.887525+00:00",
+      "updated_at": "2026-11-17T06:44:21.137+00:00",
+      "stage_transitions": [],
+      "stage_task_release": {}
+    },
+    {
+      "id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "process_id": "aproc-3f6245f2-5de5-45db-a2ee-fa11ab51245f",
+      "name": "Основной",
+      "is_default": true,
+      "entry_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "priority": 0,
+      "canvas_layout": {
+        "positions": {
+          "end:list-285210de-599f-4043-94e3-838bb22d89c6": {
+            "x": 4010.1254397599732,
+            "y": 199.5974178522845
+          },
+          "end:list-2940589b-616a-4975-a3c0-a0110a72558c": {
+            "x": -885.1233677995514,
+            "y": 372.2334690076069
+          },
+          "end:list-45e87a17-c9cd-4402-af54-6edb4250bee3": {
+            "x": 306.29342745801773,
+            "y": 163.25234743995694
+          },
+          "end:list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50": {
+            "x": 2747.7511735387925,
+            "y": 193.5399061168966
+          },
+          "end:list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd": {
+            "x": -1498.0624166267996,
+            "y": 834.3456937780624
+          },
+          "end:list-a325f76f-1775-4bee-8506-351fe3eb7b29": {
+            "x": 2164.6455398278445,
+            "y": 187.48239438150864
+          },
+          "end:list-acaaeb37-4846-4a54-8c78-2231a8ed403c": {
+            "x": -259.5314886323682,
+            "y": 275.1064864871512
+          },
+          "end:list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5": {
+            "x": 1626.971244132306,
+            "y": -79.0481219755602
+          },
+          "end:list-c69b63d0-45a6-4882-adcb-3a16b6449550": {
+            "x": 983.2904930674786,
+            "y": 45.13086859989235
+          },
+          "end:list-c9c28e55-dfe4-481f-8494-2a18d52ba661": {
+            "x": 3355.086854191292,
+            "y": 266.23004694155173
+          },
+          "end:list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1": {
+            "x": -2728.4422866288214,
+            "y": 285.59176622855335
+          },
+          "stage:list-285210de-599f-4043-94e3-838bb22d89c6": {
+            "x": 3948.1254397599732,
+            "y": -14.402582147715496
+          },
+          "stage:list-2940589b-616a-4975-a3c0-a0110a72558c": {
+            "x": -947.1233677995514,
+            "y": 158.23346900760694
+          },
+          "stage:list-45e87a17-c9cd-4402-af54-6edb4250bee3": {
+            "x": 244.29342745801767,
+            "y": -50.747652560043065
+          },
+          "stage:list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50": {
+            "x": 2685.7511735387925,
+            "y": -20.460093883103422
+          },
+          "stage:list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd": {
+            "x": -1553.923968528391,
+            "y": -52.91138879840477
+          },
+          "stage:list-a325f76f-1775-4bee-8506-351fe3eb7b29": {
+            "x": 2102.6455398278445,
+            "y": -26.517605618491352
+          },
+          "stage:list-acaaeb37-4846-4a54-8c78-2231a8ed403c": {
+            "x": -321.5314886323682,
+            "y": 61.10648648715115
+          },
+          "stage:list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5": {
+            "x": 1564.971244132306,
+            "y": -293.0481219755602
+          },
+          "stage:list-c69b63d0-45a6-4882-adcb-3a16b6449550": {
+            "x": 921.2904930674786,
+            "y": -168.86913140010765
+          },
+          "stage:list-c9c28e55-dfe4-481f-8494-2a18d52ba661": {
+            "x": 3293.086854191292,
+            "y": 52.23004694155171
+          },
+          "stage:list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1": {
+            "x": -2790.4422866288214,
+            "y": 71.59176622855333
+          },
+          "trigger:list-285210de-599f-4043-94e3-838bb22d89c6": {
+            "x": 3948.1254397599732,
+            "y": 87.5974178522845
+          },
+          "trigger:list-2940589b-616a-4975-a3c0-a0110a72558c": {
+            "x": -947.1233677995514,
+            "y": 260.2334690076069
+          },
+          "trigger:list-45e87a17-c9cd-4402-af54-6edb4250bee3": {
+            "x": 244.29342745801773,
+            "y": 51.252347439956935
+          },
+          "trigger:list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50": {
+            "x": 2685.7511735387925,
+            "y": 81.53990611689659
+          },
+          "trigger:list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd": {
+            "x": -1553.923968528391,
+            "y": 49.08861120159523
+          },
+          "trigger:list-a325f76f-1775-4bee-8506-351fe3eb7b29": {
+            "x": 2102.6455398278445,
+            "y": 75.48239438150864
+          },
+          "trigger:list-acaaeb37-4846-4a54-8c78-2231a8ed403c": {
+            "x": -321.5314886323682,
+            "y": 163.10648648715113
+          },
+          "trigger:list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5": {
+            "x": 1564.971244132306,
+            "y": -191.0481219755602
+          },
+          "trigger:list-c69b63d0-45a6-4882-adcb-3a16b6449550": {
+            "x": 921.2904930674786,
+            "y": -66.86913140010765
+          },
+          "trigger:list-c9c28e55-dfe4-481f-8494-2a18d52ba661": {
+            "x": 3293.086854191292,
+            "y": 154.2300469415517
+          },
+          "trigger:list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1": {
+            "x": -2790.4422866288214,
+            "y": 173.59176622855333
+          }
+        },
+        "collapsedStageIds": [],
+        "hiddenStageLinkKeys": []
+      },
+      "created_at": "2026-11-16T21:23:31.552551+00:00",
+      "updated_at": "2026-11-18T09:05:28.427+00:00",
+      "stage_transitions": [],
+      "stage_task_release": {}
+    }
+  ],
+  "templates": [
+    {
+      "id": "atpl-5758f945-6f59-4b46-bc7c-7fae826895ba",
+      "scenario_id": "ascen-7bb64fab-36db-4695-844e-86f3e62bf259",
+      "name": "Новая задача",
+      "name_template": "",
+      "kind": "decision",
+      "enabled": true,
+      "is_blocking": true,
+      "step_order": 0,
+      "launch_phase": "onEnter",
+      "trigger_option_id": "list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe",
+      "assignee": {
+        "type": "currentUser"
+      },
+      "outcomes": [
+        {
+          "id": "aout-71e0492b-7203-4371-b907-527c909dde03",
+          "label": "Да",
+          "actions": []
+        },
+        {
+          "id": "aout-f0ef7402-bc22-4398-8a61-b97def62dee2",
+          "label": "Нет",
+          "actions": []
+        }
+      ],
+      "sla": null,
+      "actions": [],
+      "field_access": {
+        "reasonFieldId": null,
+        "recordFieldIds": [],
+        "commentFieldIds": [],
+        "fieldAskOptions": {},
+        "relatedReasonId": null,
+        "visibleFieldIds": [],
+        "relatedRecordIds": [],
+        "requiredFieldIds": [],
+        "relatedCommentIds": [],
+        "requireAttachment": false,
+        "relatedRequiredIds": [],
+        "relatedVisibleFields": []
+      }
+    },
+    {
+      "id": "atpl-3b18cc02-1bce-4d56-adf4-9d7d85a6f5da",
+      "scenario_id": "ascen-7bb64fab-36db-4695-844e-86f3e62bf259",
+      "name": "Новая задача",
+      "name_template": "",
+      "kind": "decision",
+      "enabled": true,
+      "is_blocking": true,
+      "step_order": 0,
+      "launch_phase": "beforeEnter",
+      "trigger_option_id": "list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe",
+      "assignee": {
+        "type": "currentUser"
+      },
+      "outcomes": [
+        {
+          "id": "aout-6066b5ed-6e91-4ae3-9098-e07a98983656",
+          "label": "Да",
+          "actions": ["setField", "createRecord"]
+        },
+        {
+          "id": "aout-fcd5c62b-93a1-4560-ab34-afc7bce43fd5",
+          "label": "Нет",
+          "actions": ["setField"]
+        }
+      ],
+      "sla": null,
+      "actions": [],
+      "field_access": {
+        "reasonFieldId": null,
+        "recordFieldIds": [],
+        "commentFieldIds": [],
+        "fieldAskOptions": {},
+        "relatedReasonId": null,
+        "visibleFieldIds": [],
+        "relatedRecordIds": [],
+        "requiredFieldIds": [],
+        "relatedCommentIds": [],
+        "requireAttachment": false,
+        "relatedRequiredIds": [],
+        "relatedVisibleFields": []
+      }
+    }
+  ],
+  "notification_rules": []
+}

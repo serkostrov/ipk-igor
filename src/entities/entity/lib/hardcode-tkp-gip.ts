@@ -343,14 +343,22 @@ export function isGipDepartmentRecord(
   record: EntityRecord,
   entities?: readonly Entity[],
 ): boolean {
+  // Prefer catalog code `gip` when present (ТЗ §10 п.5).
+  const codeField = departmentEntity.fields.find((field) => {
+    const name = normalizeName(getEntityFieldDisplayName(field));
+    return name === "код" || name === "code";
+  });
+  if (codeField) {
+    const code = normalizeName(record.values[codeField.id] ?? "");
+    if (code === "gip" || code === "гип") return true;
+  }
+
   const label = normalizeName(
     departmentRecordLabel(departmentEntity, record, entities),
   );
   if (!label) return false;
-  return GIP_KEYS.some((key) => {
-    const needle = normalizeName(key);
-    return label === needle || label.startsWith(`${needle} `);
-  });
+  // Exact name «ГИП» only — not «Отдел ГИПов» / free-text «гип проверит».
+  return GIP_KEYS.some((key) => label === normalizeName(key));
 }
 
 /** Catalog id of the department named «ГИП», if present. */

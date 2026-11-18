@@ -20,6 +20,7 @@ import {
 } from "@/entities/entity";
 import { buildTkpCommercialDocumentFile } from "../../tkp-commercial/model/document";
 import type { TkpPriceRevisionSummary } from "../../tkp-commercial/model/types";
+import { assertTkpDocumentApprovalReady } from "./assert-tkp-approval-ready";
 import {
   findTkpApprovalListField,
   resolveTkpApprovalPendingOptionId,
@@ -27,6 +28,7 @@ import {
   TKP_APPROVAL_SUBMITTED_AT_KEY,
   writeTkpApprovalSubmittedPatch,
 } from "./tkp-approval";
+import { buildTkpApprovalResubmitPatch } from "./tkp-approval-progress";
 import { resolveTkpDocumentFilesTarget } from "./resolve-tkp-files-target";
 import { ensureTkpDocumentsFolder, uniqueTkpFileName } from "./revision-files";
 
@@ -45,9 +47,12 @@ export async function submitTkpDocumentForApproval(input: {
   revision: TkpPriceRevisionSummary;
   entities: readonly Entity[];
 }): Promise<SubmitTkpDocumentForApprovalResult> {
-  if (!input.revision.calculation) {
-    throw new Error("У ревизии цены нет расчёта — сначала сохраните цену");
-  }
+  assertTkpDocumentApprovalReady({
+    entity: input.entity,
+    record: input.record,
+    entities: input.entities,
+    revision: input.revision,
+  });
 
   const target = resolveTkpDocumentFilesTarget({
     entity: input.entity,
@@ -142,6 +147,13 @@ export async function submitTkpDocumentForApproval(input: {
   if (approvalField && pendingOptionId) {
     patch[approvalField.id] = pendingOptionId;
   }
+  Object.assign(
+    patch,
+    buildTkpApprovalResubmitPatch({
+      values: liveValues,
+      revisionId: input.revision.id,
+    }),
+  );
 
   await updateEntityRecord(target.entity.id, target.record.id, patch);
 

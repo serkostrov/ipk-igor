@@ -2,12 +2,19 @@
  * Ensure «ГИП» (+ selected departments) under every stage of «Разбор ТКП».
  */
 
-import { registerAfterAutomationTaskCompleteHook } from "@/entities/automation/lib/hardcode-hooks";
+import {
+  registerAfterAutomationTaskCompleteHook,
+  registerBeforeAutomationStageSpawnHook,
+} from "@/entities/automation/lib/hardcode-hooks";
 import "../tkp-review/lib/assert-gip-execution-duration";
 import {
+  collectDeptCalculationRecordsForParent,
+  findDeptCalculationUserFields,
   getEntityConfig,
   isDeptCalculationsEntity,
   isTkpAnalysisEntity,
+  parseEntityRelationIds,
+  updateEntityRecord,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -112,6 +119,97 @@ export async function maybeEnsureDeptCalculationGipForTask(options: {
     taskName,
   });
 }
+
+function isDeptCalcStageName(name: string): boolean {
+  const normalized = name.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
+  return normalized.includes("заполнении отделами");
+}
+
+/**
+ * Step 6 → «На заполнении отделами»: write stage×department rows (with
+ * руководители) before SQL fieldEnter spawns step 7.
+ */
+registerBeforeAutomationStageSpawnHook(async (args) => {
+  const entities = getEntityConfig().entities;
+  const parentEntity = entities.find((item) => item.id === args.entityId);
+  if (!parentEntity || !isTkpAnalysisEntity(parentEntity)) return;
+
+  const stageField =
+    parentEntity.fields.find(
+      (field) =>
+        field.type === "list" &&
+        field.listOptions.some((option) => option.id === args.destinationStageId),
+    ) ?? null;
+  const optionName =
+    stageField?.listOptions.find((option) => option.id === args.destinationStageId)
+      ?.name ?? "";
+  if (!isDeptCalcStageName(optionName)) return;
+
+  const groupsField =
+    parentEntity.fields.find(
+      (field) =>
+        field.type === "relationGroups" &&
+        Boolean(field.relationGroups?.levels.length),
+    ) ?? null;
+  if (!groupsField) {
+    throw new Error("На разборе ТКП нет поля «Стадия/отделы»");
+  }
+  const groupsValue = (args.values[groupsField.id] ?? "").trim();
+  if (!groupsValue || groupsValue === "[]") {
+    throw new Error("Выберите стадии и отделы до перехода к расчёту");
+  }
+
+  await updateEntityRecord(parentEntity.id, args.recordId, {
+    [groupsField.id]: groupsValue,
+  });
+
+  const liveParent =
+    getEntityConfig().entities.find((item) => item.id === parentEntity.id)
+      ?.records.find((item) => item.id === args.recordId) ?? null;
+  const parentRecord: EntityRecord = {
+    id: args.recordId,
+    values: {
+      ...(liveParent?.values ?? {}),
+      ...args.values,
+      [groupsField.id]: groupsValue,
+    },
+    authUserId: liveParent?.authUserId ?? null,
+    createdBy: liveParent?.createdBy ?? null,
+    schemaVersion: liveParent?.schemaVersion ?? 1,
+  };
+
+  await maybeEnsureDeptCalculationGipForParent({
+    parentEntity,
+    parentRecord,
+    entities: getEntityConfig().entities,
+    triggerOptionId: args.destinationStageId,
+    force: true,
+  });
+
+  const deptEntity = findDeptCalculationsEntity(getEntityConfig().entities);
+  if (!deptEntity) {
+    throw new Error("Не настроена сущность «Расчёты отделов»");
+  }
+  const rows = collectDeptCalculationRecordsForParent(deptEntity, {
+    entity: parentEntity,
+    recordId: args.recordId,
+  });
+  if (rows.length === 0) {
+    throw new Error(
+      "Не удалось создать строки «Расчёты отделов». Проверьте «Стадия/отделы».",
+    );
+  }
+  const { manager } = findDeptCalculationUserFields(deptEntity);
+  if (!manager) return;
+  const withoutHead = rows.filter(
+    (row) => parseEntityRelationIds(row.values[manager.id]).length === 0,
+  );
+  if (withoutHead.length > 0) {
+    throw new Error(
+      "Не у всех отделов есть руководитель. Заполните справочник отделов и ГИП лида — иначе задания расчёта некому выдать.",
+    );
+  }
+});
 
 /** Wire task-complete → ensure ГИП (FSD: feature registers into entity hook). */
 registerAfterAutomationTaskCompleteHook(

@@ -52,8 +52,12 @@ import {
   readTkpDocumentFileEntries,
   uploadTkpRevisionFiles,
 } from "../lib/revision-files";
+import { isTkpFullyApproved } from "../lib/tkp-approval-progress";
+import { collectTkpMissingSourceFromDeptRows } from "../../tkp-volumes/model/missing-source-data";
+import { TkpNoVolumeBanner } from "../../tkp-volumes/ui/TkpNoVolumeBanner";
 import { RevisionFilesPanel } from "./RevisionFilesPanel";
 import { TkpPendingPriceVersionBanner } from "./TkpPendingPriceVersionBanner";
+import { TkpSendToCustomerPanel } from "./TkpSendToCustomerPanel";
 
 export type TkpReviewHardcodeSection = "gip" | "commercial";
 
@@ -308,6 +312,7 @@ export function TkpReviewHardcodeSlot({
 
   return (
     <div className="flex flex-col gap-4" data-testid="tkp-review-hardcode-slot">
+      <TkpNoVolumeBanner entity={entity} record={record} readOnly={readOnly} />
       {showGipBlock ? (
         <GipCostSummary
           calculation={gipCalculation}
@@ -366,8 +371,33 @@ export function TkpReviewHardcodeSlot({
               Загрузка истории цен…
             </p>
           ) : null}
+          <TkpSendToCustomerPanel
+            entity={entity}
+            record={record}
+            revisionId={approvalState.revisionId}
+            fullyApproved={isTkpFullyApproved(record.values)}
+            readOnly={readOnly}
+          />
         </div>
       ) : null}
+      {showGipBlock
+        ? (() => {
+            const missing = collectTkpMissingSourceFromDeptRows(deptRecords);
+            if (missing.length === 0) return null;
+            return (
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                <p className="text-sm font-medium">
+                  Недостающие исходные данные (от отделов)
+                </p>
+                <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+                  {missing.map((item) => (
+                    <li key={item.id}>{item.text}</li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()
+        : null}
     </div>
   );
 }

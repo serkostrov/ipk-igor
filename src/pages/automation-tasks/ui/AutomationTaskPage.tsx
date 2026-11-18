@@ -26,6 +26,7 @@ import {
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import { TaskWorkspace } from "@/features/automation-tasks";
+import { flushRelatedAskPersists } from "@/features/automation-tasks/lib/apply-related-ask-field-change";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 
 export function AutomationTaskPage({
@@ -186,11 +187,16 @@ export function AutomationTaskPage({
             onOpenRecord={onOpenRecord}
             onCompleted={onBack}
             onComplete={async (outcomeId, formValues) => {
+              await flushRelatedAskPersists();
               await completeAutomationTask(
                 visibleTask.id,
                 outcomeId,
                 sessionUser?.id ?? null,
                 formValues,
+              );
+              await completePendingSilentAutomationTasksForRecord(
+                visibleTask.recordId,
+                sessionUser?.id ?? null,
               );
             }}
           />

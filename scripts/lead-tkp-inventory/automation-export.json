@@ -1,0 +1,1618 @@
+{
+  "exportedAt": "2026-11-18T21:50:44.598Z",
+  "processes": [
+    {
+      "id": "aproc-41184a46-8b49-47e9-a09d-9ebcf57c5292",
+      "name": "Лид · автоматизация",
+      "description": "",
+      "entity_id": "entity-92b11740-64de-40bc-9687-3194f33fdba0",
+      "trigger_field_id": "field-09cf11df-e26b-4d70-840a-9cc71c825016",
+      "trigger_kind": "fieldEnter",
+      "enabled": true,
+      "version": 1,
+      "created_at": "2026-11-16T14:41:32.800885+00:00",
+      "updated_at": "2026-11-16T14:41:32.498+00:00"
+    },
+    {
+      "id": "aproc-3f6245f2-5de5-45db-a2ee-fa11ab51245f",
+      "name": "Разбор ТКП · автоматизация",
+      "description": "",
+      "entity_id": "entity-33de9416-88f2-4360-9f96-9c71d0886fbc",
+      "trigger_field_id": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82",
+      "trigger_kind": "fieldEnter",
+      "enabled": true,
+      "version": 1,
+      "created_at": "2026-11-16T21:23:31.226385+00:00",
+      "updated_at": "2026-11-16T21:23:29.663+00:00"
+    },
+    {
+      "id": "aproc-8ec100a8-17c3-43c9-a413-8867550ee336",
+      "name": "Лид · автоматизация",
+      "description": "",
+      "entity_id": "entity-92b11740-64de-40bc-9687-3194f33fdba0",
+      "trigger_field_id": "field-fb994696-9b90-4aa9-ad37-4ac2322910e7",
+      "trigger_kind": "fieldEnter",
+      "enabled": false,
+      "version": 1,
+      "created_at": "2026-11-17T06:44:20.748315+00:00",
+      "updated_at": "2026-11-17T06:44:21.018+00:00"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "ascen-7bb64fab-36db-4695-844e-86f3e62bf259",
+      "process_id": "aproc-41184a46-8b49-47e9-a09d-9ebcf57c5292",
+      "name": "Основной",
+      "is_default": true,
+      "entry_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "priority": 0,
+      "canvas_layout": {
+        "positions": {
+          "atpl-3b18cc02-1bce-4d56-adf4-9d7d85a6f5da": {
+            "x": -268.72856496842235,
+            "y": 242.40562241820305
+          },
+          "atpl-5758f945-6f59-4b46-bc7c-7fae826895ba": {
+            "x": -268.72856496842235,
+            "y": 636.9938577123207
+          },
+          "end:list-076966e5-8752-49dc-9fef-566defac3053": {
+            "x": 866.5354963571923,
+            "y": 269.21297814315386
+          },
+          "end:list-4babbda4-26bb-4a4b-bc2a-0ef614c8e2e5": {
+            "x": 2463.326282127742,
+            "y": -502.1669246328728
+          },
+          "end:list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe": {
+            "x": -206.72856496842238,
+            "y": 872.5232694770266
+          },
+          "end:list-7664cdee-dcec-4e20-95f8-84a76b09ecd5": {
+            "x": 3136.096183451131,
+            "y": 56.04464935511521
+          },
+          "end:list-7bf15acd-8df9-4863-a0cb-ddefc17b9c8f": {
+            "x": 2504.529835295469,
+            "y": 772.323301839043
+          },
+          "end:list-a4ba825e-4048-4c7a-ab60-b27002644a6e": {
+            "x": 1881.9755920055388,
+            "y": 210.25152549965384
+          },
+          "end:list-aad1e473-4c06-4e58-a615-f175c091d282": {
+            "x": 367.8864412474036,
+            "y": 119.54159835580757
+          },
+          "end:list-c1cc666d-75c5-42b6-a1cc-62e00622c27c": {
+            "x": -784.2129215732351,
+            "y": 232.67342829199208
+          },
+          "end:list-c98611ec-0345-4af2-8b7e-cf620a56f5e0": {
+            "x": 1351.578062395404,
+            "y": 119.54159835580757
+          },
+          "stage:list-076966e5-8752-49dc-9fef-566defac3053": {
+            "x": 804.5354963571923,
+            "y": 55.212978143153876
+          },
+          "stage:list-4babbda4-26bb-4a4b-bc2a-0ef614c8e2e5": {
+            "x": 2401.326282127742,
+            "y": -716.1669246328728
+          },
+          "stage:list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe": {
+            "x": -268.7285649684224,
+            "y": 38.05268124173245
+          },
+          "stage:list-7664cdee-dcec-4e20-95f8-84a76b09ecd5": {
+            "x": 3074.096183451131,
+            "y": -157.9553506448848
+          },
+          "stage:list-7bf15acd-8df9-4863-a0cb-ddefc17b9c8f": {
+            "x": 2442.529835295469,
+            "y": 558.323301839043
+          },
+          "stage:list-a4ba825e-4048-4c7a-ab60-b27002644a6e": {
+            "x": 1819.9755920055388,
+            "y": -3.7484745003461803
+          },
+          "stage:list-aad1e473-4c06-4e58-a615-f175c091d282": {
+            "x": 305.8864412474036,
+            "y": -94.45840164419243
+          },
+          "stage:list-c1cc666d-75c5-42b6-a1cc-62e00622c27c": {
+            "x": -846.2129215732351,
+            "y": 18.673428291992074
+          },
+          "stage:list-c98611ec-0345-4af2-8b7e-cf620a56f5e0": {
+            "x": 1289.578062395404,
+            "y": -94.45840164419243
+          },
+          "trigger:list-076966e5-8752-49dc-9fef-566defac3053": {
+            "x": 804.5354963571923,
+            "y": 157.21297814315386
+          },
+          "trigger:list-4babbda4-26bb-4a4b-bc2a-0ef614c8e2e5": {
+            "x": 2401.326282127742,
+            "y": -614.1669246328728
+          },
+          "trigger:list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe": {
+            "x": -267.5520943801871,
+            "y": 436.75856359467366
+          },
+          "trigger:list-7664cdee-dcec-4e20-95f8-84a76b09ecd5": {
+            "x": 3074.096183451131,
+            "y": -55.95535064488479
+          },
+          "trigger:list-7bf15acd-8df9-4863-a0cb-ddefc17b9c8f": {
+            "x": 2442.529835295469,
+            "y": 660.323301839043
+          },
+          "trigger:list-a4ba825e-4048-4c7a-ab60-b27002644a6e": {
+            "x": 1819.9755920055388,
+            "y": 98.25152549965382
+          },
+          "trigger:list-aad1e473-4c06-4e58-a615-f175c091d282": {
+            "x": 305.8864412474036,
+            "y": 7.541598355807565
+          },
+          "trigger:list-c1cc666d-75c5-42b6-a1cc-62e00622c27c": {
+            "x": -846.2129215732351,
+            "y": 120.67342829199207
+          },
+          "trigger:list-c98611ec-0345-4af2-8b7e-cf620a56f5e0": {
+            "x": 1289.578062395404,
+            "y": 7.541598355807565
+          }
+        },
+        "collapsedStageIds": [],
+        "hiddenStageLinkKeys": []
+      },
+      "created_at": "2026-11-16T14:41:33.131106+00:00",
+      "updated_at": "2026-11-18T21:50:09.011+00:00",
+      "stage_transitions": [
+        {
+          "id": "astr-8b2b036e-bfcc-4708-9bd5-ce2df6a4e4da",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "toOptionId": "list-aad1e473-4c06-4e58-a615-f175c091d282",
+          "elseOptionId": "",
+          "fromOptionId": "list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe"
+        }
+      ],
+      "stage_task_release": {
+        "list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe": "sequential",
+        "list-aad1e473-4c06-4e58-a615-f175c091d282": "sequential"
+      }
+    },
+    {
+      "id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "process_id": "aproc-3f6245f2-5de5-45db-a2ee-fa11ab51245f",
+      "name": "Основной",
+      "is_default": true,
+      "entry_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "priority": 0,
+      "canvas_layout": {
+        "positions": {
+          "end:list-285210de-599f-4043-94e3-838bb22d89c6": {
+            "x": 4010.1254397599732,
+            "y": 199.5974178522845
+          },
+          "end:list-2940589b-616a-4975-a3c0-a0110a72558c": {
+            "x": -885.1233677995514,
+            "y": 372.2334690076069
+          },
+          "end:list-45e87a17-c9cd-4402-af54-6edb4250bee3": {
+            "x": 306.29342745801773,
+            "y": 163.25234743995694
+          },
+          "end:list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50": {
+            "x": 2747.7511735387925,
+            "y": 193.5399061168966
+          },
+          "end:list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd": {
+            "x": -1498.0624166267996,
+            "y": 834.3456937780624
+          },
+          "end:list-a325f76f-1775-4bee-8506-351fe3eb7b29": {
+            "x": 2164.6455398278445,
+            "y": 187.48239438150864
+          },
+          "end:list-acaaeb37-4846-4a54-8c78-2231a8ed403c": {
+            "x": -259.5314886323682,
+            "y": 275.1064864871512
+          },
+          "end:list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5": {
+            "x": 1626.971244132306,
+            "y": -79.0481219755602
+          },
+          "end:list-c69b63d0-45a6-4882-adcb-3a16b6449550": {
+            "x": 983.2904930674786,
+            "y": 45.13086859989235
+          },
+          "end:list-c9c28e55-dfe4-481f-8494-2a18d52ba661": {
+            "x": 3355.086854191292,
+            "y": 266.23004694155173
+          },
+          "end:list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1": {
+            "x": -2728.4422866288214,
+            "y": 285.59176622855335
+          },
+          "stage:list-285210de-599f-4043-94e3-838bb22d89c6": {
+            "x": 3948.1254397599732,
+            "y": -14.402582147715496
+          },
+          "stage:list-2940589b-616a-4975-a3c0-a0110a72558c": {
+            "x": -947.1233677995514,
+            "y": 158.23346900760694
+          },
+          "stage:list-45e87a17-c9cd-4402-af54-6edb4250bee3": {
+            "x": 244.29342745801767,
+            "y": -50.747652560043065
+          },
+          "stage:list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50": {
+            "x": 2685.7511735387925,
+            "y": -20.460093883103422
+          },
+          "stage:list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd": {
+            "x": -1553.923968528391,
+            "y": -52.91138879840477
+          },
+          "stage:list-a325f76f-1775-4bee-8506-351fe3eb7b29": {
+            "x": 2102.6455398278445,
+            "y": -26.517605618491352
+          },
+          "stage:list-acaaeb37-4846-4a54-8c78-2231a8ed403c": {
+            "x": -321.5314886323682,
+            "y": 61.10648648715115
+          },
+          "stage:list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5": {
+            "x": 1564.971244132306,
+            "y": -293.0481219755602
+          },
+          "stage:list-c69b63d0-45a6-4882-adcb-3a16b6449550": {
+            "x": 921.2904930674786,
+            "y": -168.86913140010765
+          },
+          "stage:list-c9c28e55-dfe4-481f-8494-2a18d52ba661": {
+            "x": 3293.086854191292,
+            "y": 52.23004694155171
+          },
+          "stage:list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1": {
+            "x": -2790.4422866288214,
+            "y": 71.59176622855333
+          },
+          "trigger:list-285210de-599f-4043-94e3-838bb22d89c6": {
+            "x": 3948.1254397599732,
+            "y": 87.5974178522845
+          },
+          "trigger:list-2940589b-616a-4975-a3c0-a0110a72558c": {
+            "x": -947.1233677995514,
+            "y": 260.2334690076069
+          },
+          "trigger:list-45e87a17-c9cd-4402-af54-6edb4250bee3": {
+            "x": 244.29342745801773,
+            "y": 51.252347439956935
+          },
+          "trigger:list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50": {
+            "x": 2685.7511735387925,
+            "y": 81.53990611689659
+          },
+          "trigger:list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd": {
+            "x": -1553.923968528391,
+            "y": 49.08861120159523
+          },
+          "trigger:list-a325f76f-1775-4bee-8506-351fe3eb7b29": {
+            "x": 2102.6455398278445,
+            "y": 75.48239438150864
+          },
+          "trigger:list-acaaeb37-4846-4a54-8c78-2231a8ed403c": {
+            "x": -321.5314886323682,
+            "y": 163.10648648715113
+          },
+          "trigger:list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5": {
+            "x": 1564.971244132306,
+            "y": -191.0481219755602
+          },
+          "trigger:list-c69b63d0-45a6-4882-adcb-3a16b6449550": {
+            "x": 921.2904930674786,
+            "y": -66.86913140010765
+          },
+          "trigger:list-c9c28e55-dfe4-481f-8494-2a18d52ba661": {
+            "x": 3293.086854191292,
+            "y": 154.2300469415517
+          },
+          "trigger:list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1": {
+            "x": -2790.4422866288214,
+            "y": 173.59176622855333
+          }
+        },
+        "collapsedStageIds": [],
+        "hiddenStageLinkKeys": []
+      },
+      "created_at": "2026-11-16T21:23:31.552551+00:00",
+      "updated_at": "2026-11-18T21:50:09.119+00:00",
+      "stage_transitions": [],
+      "stage_task_release": {
+        "list-2940589b-616a-4975-a3c0-a0110a72558c": "sequential",
+        "list-45e87a17-c9cd-4402-af54-6edb4250bee3": "sequential",
+        "list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50": "sequential",
+        "list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd": "sequential",
+        "list-a325f76f-1775-4bee-8506-351fe3eb7b29": "sequential",
+        "list-acaaeb37-4846-4a54-8c78-2231a8ed403c": "sequential",
+        "list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5": "sequential",
+        "list-c69b63d0-45a6-4882-adcb-3a16b6449550": "sequential",
+        "list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1": "sequential"
+      }
+    },
+    {
+      "id": "ascen-7a0ba729-76d9-4532-b056-7c988a2b59d3",
+      "process_id": "aproc-8ec100a8-17c3-43c9-a413-8867550ee336",
+      "name": "Основной",
+      "is_default": true,
+      "entry_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "priority": 0,
+      "canvas_layout": {
+        "positions": {},
+        "collapsedStageIds": [],
+        "hiddenStageLinkKeys": []
+      },
+      "created_at": "2026-11-17T06:44:20.887525+00:00",
+      "updated_at": "2026-11-17T06:44:21.137+00:00",
+      "stage_transitions": [],
+      "stage_task_release": {}
+    }
+  ],
+  "templates": [
+    {
+      "id": "atpl-tkp-after-depts-advance",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Переход на заполнение ГИПа",
+      "name_template": "",
+      "trigger_option_id": "list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd",
+      "step_order": 1,
+      "is_blocking": false,
+      "kind": "actions",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "none"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-1ef03414-59c8-4371-9170-acfb98cbebaa",
+          "color": null,
+          "label": "Авто",
+          "actions": [
+            {
+              "id": "aact-45d1d1a9-4e45-4b00-a739-49b7ddd1f9da",
+              "kind": "setField",
+              "value": "list-2940589b-616a-4975-a3c0-a0110a72558c",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": null,
+      "materials": [],
+      "created_at": "2026-11-18T21:50:09.969559+00:00",
+      "updated_at": "2026-11-18T21:50:09.969559+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-approve-gd",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Согласовать ТКП — Генеральный директор",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Согласовать ТКП — Генеральный директор",
+      "trigger_option_id": "list-a325f76f-1775-4bee-8506-351fe3eb7b29",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "decision",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "role",
+        "roleId": "role-system-admin",
+        "completeWhen": "any"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-32401271-beaf-47d4-9fc1-a9c2da82d3f7",
+          "color": "#22c55e",
+          "label": "Согласовать",
+          "actions": [
+            {
+              "id": "aact-2d781e36-5dee-4c4a-a881-82a877d88928",
+              "kind": "setField",
+              "value": "list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        },
+        {
+          "id": "aout-c18b7023-9c14-473d-9533-f393a6ede1b7",
+          "color": "#ef4444",
+          "label": "Вернуть менеджеру",
+          "actions": [
+            {
+              "id": "aact-bc9096e0-93dc-4675-8909-47f96a136906",
+              "kind": "setField",
+              "value": "list-45e87a17-c9cd-4402-af54-6edb4250bee3",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [
+              "field-tkp-heads-comment-seed"
+            ],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [
+              "field-tkp-heads-comment-seed"
+            ],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": null,
+      "materials": [],
+      "created_at": "2026-11-18T21:50:10.628285+00:00",
+      "updated_at": "2026-11-18T21:50:10.628285+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-lead-fill-required",
+      "scenario_id": "ascen-7bb64fab-36db-4695-844e-86f3e62bf259",
+      "name": "Заполнить обязательные поля в лиде",
+      "name_template": "{{field-c071107e-4baf-4926-ac0b-a1822a0d364b}}_Заполнить обязательные поля в лиде",
+      "trigger_option_id": "list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "single",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "field",
+        "fieldId": "field-d8ec5a44-6c39-4a73-8a38-103b271f3e17"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-4856ae78-c1df-4e76-aed8-0d44985b811e",
+          "color": "#22c55e",
+          "label": "Готово",
+          "actions": [],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [
+              "field-0d7e7514-84cf-498d-8660-556ce7f8b903",
+              "field-d2e21c46-caa0-4327-ab2d-8d5a4445eec9",
+              "field-fb994696-9b90-4aa9-ad37-4ac2322910e7",
+              "field-2a24689c-d3ac-41f7-b1b8-6feee69855f6",
+              "field-16700f42-1f14-4f3d-9a64-f123c2df3180",
+              "field-lead-chief-engineer-seed",
+              "field-17cec197-f54e-41fc-97e8-ad6c2f8d205b"
+            ],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [
+              "field-0d7e7514-84cf-498d-8660-556ce7f8b903",
+              "field-d2e21c46-caa0-4327-ab2d-8d5a4445eec9",
+              "field-fb994696-9b90-4aa9-ad37-4ac2322910e7",
+              "field-2a24689c-d3ac-41f7-b1b8-6feee69855f6",
+              "field-16700f42-1f14-4f3d-9a64-f123c2df3180",
+              "field-lead-chief-engineer-seed"
+            ],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": null,
+      "materials": [],
+      "created_at": "2026-11-18T21:50:09.309711+00:00",
+      "updated_at": "2026-11-18T21:50:09.309711+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-lead-chief-decision",
+      "scenario_id": "ascen-7bb64fab-36db-4695-844e-86f3e62bf259",
+      "name": "Принятие решения Главным инженером",
+      "name_template": "{{field-c071107e-4baf-4926-ac0b-a1822a0d364b}}_Принятие решения Главным инженером",
+      "trigger_option_id": "list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe",
+      "step_order": 1,
+      "is_blocking": true,
+      "kind": "decision",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "field",
+        "fieldId": "field-lead-chief-engineer-seed"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-ac034d8c-3ddf-43be-b96b-8f1c2d0bd83e",
+          "color": "#22c55e",
+          "label": "Берем в работу",
+          "actions": [
+            {
+              "id": "aact-070738cf-72a9-4398-b410-59b1b710e8e0",
+              "kind": "createRecord",
+              "entityId": "entity-33de9416-88f2-4360-9f96-9c71d0886fbc",
+              "mappings": [
+                {
+                  "source": "list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1",
+                  "targetFieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+                },
+                {
+                  "source": "{{field-c071107e-4baf-4926-ac0b-a1822a0d364b}}",
+                  "targetFieldId": "field-8a5551bb-3a87-4007-a03a-1d1c3102312d"
+                }
+              ],
+              "multiple": false,
+              "askFieldIds": []
+            },
+            {
+              "id": "aact-df619221-d0da-4085-8172-76462c783dbc",
+              "kind": "setField",
+              "value": "list-aad1e473-4c06-4e58-a615-f175c091d282",
+              "fieldId": "field-09cf11df-e26b-4d70-840a-9cc71c825016"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [
+              "field-b27adecc-4e17-40b1-8a9e-4af03d49ce66",
+              "field-lead-gip-comment-seed",
+              "field-lead-gip-assign-date-seed"
+            ],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [
+              "field-b27adecc-4e17-40b1-8a9e-4af03d49ce66",
+              "field-lead-gip-comment-seed",
+              "field-lead-gip-assign-date-seed"
+            ],
+            "requireAttachment": false
+          }
+        },
+        {
+          "id": "aout-309125ab-0882-41a9-84f9-1f28f29ba31c",
+          "color": "#ef4444",
+          "label": "Не берем в работу",
+          "actions": [
+            {
+              "id": "aact-a069ecc3-6bf0-4333-9dc9-a4a856604b64",
+              "kind": "setField",
+              "value": "list-c1cc666d-75c5-42b6-a1cc-62e00622c27c",
+              "fieldId": "field-09cf11df-e26b-4d70-840a-9cc71c825016"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [
+              "field-lead-reject-reason-seed"
+            ],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [
+              "field-lead-reject-reason-seed"
+            ],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": {
+        "hours": 24,
+        "calendar": "247"
+      },
+      "materials": [],
+      "created_at": "2026-11-18T21:50:09.420798+00:00",
+      "updated_at": "2026-11-18T21:50:09.420798+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false,
+        "requireTimeTracking": true
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-lead-choose-lead-dept",
+      "scenario_id": "ascen-7bb64fab-36db-4695-844e-86f3e62bf259",
+      "name": "Выбрать ведущий отдел для работы с лидом",
+      "name_template": "{{field-c071107e-4baf-4926-ac0b-a1822a0d364b}}_Выбрать ведущий отдел для работы с лидом",
+      "trigger_option_id": "list-aad1e473-4c06-4e58-a615-f175c091d282",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "single",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "field",
+        "fieldId": "field-b27adecc-4e17-40b1-8a9e-4af03d49ce66"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-4bf69362-46ff-48fd-b318-20f1d71fe3d8",
+          "color": "#22c55e",
+          "label": "Заполнить данные",
+          "actions": [],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [
+              {
+                "id": "rel-proto-dept",
+                "fieldId": "field-aeaa4a93-6c85-41e7-a1f1-b7305ea66ec6",
+                "required": true,
+                "linkedTabId": "tab-2f1f0176-8a95-4622-acb7-c5cc4683e16c"
+              },
+              {
+                "id": "rel-proto-stages",
+                "fieldId": "field-8411906a-c6a2-49cb-a357-eacced6eb371",
+                "required": true,
+                "linkedTabId": "tab-2f1f0176-8a95-4622-acb7-c5cc4683e16c"
+              },
+              {
+                "id": "rel-proto-gip-desc",
+                "fieldId": "field-114ed87b-6b59-48ed-a175-1220f2d55dc8",
+                "required": true,
+                "linkedTabId": "tab-2f1f0176-8a95-4622-acb7-c5cc4683e16c"
+              }
+            ],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": {
+        "hours": 24,
+        "calendar": "247"
+      },
+      "materials": [],
+      "created_at": "2026-11-18T21:50:09.531429+00:00",
+      "updated_at": "2026-11-18T21:50:09.531429+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false,
+        "requireTimeTracking": true
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-lead-dept-head-tz",
+      "scenario_id": "ascen-7bb64fab-36db-4695-844e-86f3e62bf259",
+      "name": "Ознакомиться с ТЗ и заполнить шаблон запуска проекта",
+      "name_template": "{{field-c071107e-4baf-4926-ac0b-a1822a0d364b}}_Ознакомиться с ТЗ и заполнить шаблон запуска проекта",
+      "trigger_option_id": "list-aad1e473-4c06-4e58-a615-f175c091d282",
+      "step_order": 1,
+      "is_blocking": true,
+      "kind": "single",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "relatedField",
+        "fanOut": false,
+        "fieldId": "field-640540ba-4b47-4e22-8270-b4bfbff081fd",
+        "linkedChild": {
+          "tabId": "tab-2f1f0176-8a95-4622-acb7-c5cc4683e16c",
+          "entityId": "entity-7ecbb3e8-ec93-4e16-9539-7272ff979839",
+          "parentFieldId": "field-5da97a4c-d240-43f2-80d8-d35eddecb7c1"
+        },
+        "relationFieldId": "field-aeaa4a93-6c85-41e7-a1f1-b7305ea66ec6"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-ca4a2b91-ed7a-427a-8ab9-623e70f2f178",
+          "color": "#22c55e",
+          "label": "Выполнено",
+          "actions": [
+            {
+              "id": "aact-ac2484a3-2cce-4bda-85f1-bb952c37d02f",
+              "kind": "setField",
+              "value": "list-076966e5-8752-49dc-9fef-566defac3053",
+              "fieldId": "field-09cf11df-e26b-4d70-840a-9cc71c825016"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [
+              {
+                "id": "rel-proto-dept-desc",
+                "fieldId": "field-343604c3-ff4d-4bca-a0e3-f57e1c11b4b5",
+                "required": true,
+                "linkedTabId": "tab-2f1f0176-8a95-4622-acb7-c5cc4683e16c"
+              },
+              {
+                "id": "rel-proto-gip-ro",
+                "fieldId": "field-114ed87b-6b59-48ed-a175-1220f2d55dc8",
+                "required": false,
+                "linkedTabId": "tab-2f1f0176-8a95-4622-acb7-c5cc4683e16c"
+              }
+            ],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": null,
+      "materials": [],
+      "created_at": "2026-11-18T21:50:09.641394+00:00",
+      "updated_at": "2026-11-18T21:50:09.641394+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false,
+        "requireTimeTracking": true
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-approve-rko",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Согласовать ТКП — Руководитель коммерческой группы",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Согласовать ТКП — Руководитель коммерческой группы",
+      "trigger_option_id": "list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "decision",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "via": [
+          "field-16700f42-1f14-4f3d-9a64-f123c2df3180"
+        ],
+        "type": "relatedField",
+        "fieldId": "field-d1e55e3e-b7d6-4ee1-8019-941ebf8ac667",
+        "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-e26aa7a8-3b0f-4269-9367-5019bc25efd7",
+          "color": "#22c55e",
+          "label": "Согласовать",
+          "actions": [
+            {
+              "id": "aact-29dd140b-8452-4e63-856b-61c67d35a324",
+              "kind": "setField",
+              "value": "list-a325f76f-1775-4bee-8506-351fe3eb7b29",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        },
+        {
+          "id": "aout-5db17e52-c1c4-4512-a016-e915b2a1fdfe",
+          "color": "#ef4444",
+          "label": "Вернуть менеджеру",
+          "actions": [
+            {
+              "id": "aact-b0af3aa0-d328-4897-a6ca-b11e0dcaae90",
+              "kind": "setField",
+              "value": "list-45e87a17-c9cd-4402-af54-6edb4250bee3",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [
+              "field-tkp-heads-comment-seed"
+            ],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [
+              "field-tkp-heads-comment-seed"
+            ],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": null,
+      "materials": [],
+      "created_at": "2026-11-18T21:50:10.520784+00:00",
+      "updated_at": "2026-11-18T21:50:10.520784+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-select-dept-heads",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Выбрать руководителей отделов для расчета трудозатрат по лиду",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Выбрать руководителей отделов для расчета трудозатрат по лиду",
+      "trigger_option_id": "list-e52005a1-7ef4-4e84-b3a4-51eae02b8fc1",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "single",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "relatedField",
+        "fanOut": false,
+        "fieldId": "field-b27adecc-4e17-40b1-8a9e-4af03d49ce66",
+        "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-b0051964-97e2-4a9b-b859-bddf93806090",
+          "color": "#22c55e",
+          "label": "Готово",
+          "actions": [
+            {
+              "id": "aact-2424c60d-f0b0-4bca-bd70-0c111ff4520e",
+              "kind": "createRecord",
+              "entityId": "entity-dept-calculations-seed",
+              "mappings": [
+                {
+                  "source": "{{field-tkp-stage-departments-seed}}",
+                  "targetFieldId": "field-deptcalc-groups-seed"
+                }
+              ],
+              "multiple": false,
+              "askFieldIds": []
+            },
+            {
+              "id": "aact-880a24ed-af55-45a7-8eef-705a44c6c14f",
+              "kind": "setField",
+              "value": "list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [
+              "field-tkp-project-stages-seed",
+              "field-tkp-stage-departments-seed",
+              "field-tkp-calc-deadline-seed",
+              "field-tkp-heads-comment-seed"
+            ],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [
+              "field-tkp-project-stages-seed",
+              "field-tkp-stage-departments-seed",
+              "field-tkp-calc-deadline-seed",
+              "field-tkp-heads-comment-seed"
+            ],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": null,
+      "materials": [],
+      "created_at": "2026-11-18T21:50:09.752315+00:00",
+      "updated_at": "2026-11-18T21:50:09.752315+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false,
+        "requireTimeTracking": true
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-dept-calc",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Заполнить разбор ТКП",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Заполнить разбор ТКП",
+      "trigger_option_id": "list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "decision",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "relatedField",
+        "fanOut": true,
+        "fieldId": "field-deptcalc-manager-seed",
+        "linkedChild": {
+          "tabId": "tab-tkp-dept-calculations-seed",
+          "entityId": "entity-dept-calculations-seed",
+          "parentFieldId": "field-deptcalc-parent-tkp-seed"
+        },
+        "completeWhen": "all",
+        "relationFieldId": ""
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-e0ef52f4-e8ce-4690-9748-29f1cff3dd98",
+          "color": "#22c55e",
+          "label": "Готово",
+          "actions": [],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        },
+        {
+          "id": "aout-2e4e3360-87fd-49c7-8593-ce30a7de003c",
+          "color": "#f59e0b",
+          "label": "Нет объёмов",
+          "actions": [],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": {
+        "hours": 4,
+        "calendar": "247"
+      },
+      "materials": [],
+      "created_at": "2026-11-18T21:50:09.861382+00:00",
+      "updated_at": "2026-11-18T21:50:09.861382+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false,
+        "requireTimeTracking": true
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-chief-approve",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Согласовать итоговый расчет по лиду",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Согласовать итоговый расчет по лиду",
+      "trigger_option_id": "list-acaaeb37-4846-4a54-8c78-2231a8ed403c",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "decision",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "relatedField",
+        "fieldId": "field-lead-chief-engineer-seed",
+        "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-4cf7774a-6bcc-4562-bb2b-d72c8b072b85",
+          "color": "#22c55e",
+          "label": "Согласовано",
+          "actions": [
+            {
+              "id": "aact-fd7db849-5d5a-4fd5-a217-ab8b111f2a47",
+              "kind": "setField",
+              "value": "list-45e87a17-c9cd-4402-af54-6edb4250bee3",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        },
+        {
+          "id": "aout-90bdba6c-2005-429b-8c2a-dae37e38a0fe",
+          "color": "#ef4444",
+          "label": "Не согласовано",
+          "actions": [
+            {
+              "id": "aact-9c033227-0a44-47c8-b196-3f35454f131d",
+              "kind": "setField",
+              "value": "list-2940589b-616a-4975-a3c0-a0110a72558c",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": {
+        "hours": 2,
+        "calendar": "247"
+      },
+      "materials": [],
+      "created_at": "2026-11-18T21:50:10.187684+00:00",
+      "updated_at": "2026-11-18T21:50:10.187684+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false,
+        "requireTimeTracking": true
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-approve-gip",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Согласовать ТКП — ГИП",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Согласовать ТКП — ГИП",
+      "trigger_option_id": "list-c69b63d0-45a6-4882-adcb-3a16b6449550",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "decision",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "relatedField",
+        "fieldId": "field-b27adecc-4e17-40b1-8a9e-4af03d49ce66",
+        "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-b77e6643-7120-4a80-8a6d-9d375e15e771",
+          "color": "#22c55e",
+          "label": "Согласовать",
+          "actions": [
+            {
+              "id": "aact-54989858-1859-499c-9d25-1fa3b6b4cf87",
+              "kind": "setField",
+              "value": "list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        },
+        {
+          "id": "aout-aca6042c-700f-4e2b-96f2-cf1fce26f5de",
+          "color": "#ef4444",
+          "label": "Вернуть менеджеру",
+          "actions": [
+            {
+              "id": "aact-f2c2e4bf-c38a-46b5-b322-82bc6e259413",
+              "kind": "setField",
+              "value": "list-45e87a17-c9cd-4402-af54-6edb4250bee3",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [
+              "field-tkp-heads-comment-seed"
+            ],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [
+              "field-tkp-heads-comment-seed"
+            ],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": null,
+      "materials": [],
+      "created_at": "2026-11-18T21:50:10.406515+00:00",
+      "updated_at": "2026-11-18T21:50:10.406515+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-gip-final",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Проверить и утвердить итоговый расчет ТКП",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Проверить и утвердить итоговый расчет ТКП",
+      "trigger_option_id": "list-2940589b-616a-4975-a3c0-a0110a72558c",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "single",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "relatedField",
+        "fieldId": "field-b27adecc-4e17-40b1-8a9e-4af03d49ce66",
+        "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-bc23038a-a084-4c98-8c2c-211c11510549",
+          "color": "#22c55e",
+          "label": "Готово",
+          "actions": [
+            {
+              "id": "aact-38c93f7e-fb30-4108-9b58-c2ef25563ff6",
+              "kind": "setField",
+              "value": "list-acaaeb37-4846-4a54-8c78-2231a8ed403c",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": {
+        "hours": 4,
+        "calendar": "247"
+      },
+      "materials": [],
+      "created_at": "2026-11-18T21:50:10.078054+00:00",
+      "updated_at": "2026-11-18T21:50:10.078054+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false,
+        "requireTimeTracking": true
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-form-commercial",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Сформировать ТКП",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Сформировать ТКП",
+      "trigger_option_id": "list-45e87a17-c9cd-4402-af54-6edb4250bee3",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "single",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "relatedField",
+        "fieldId": "field-d8ec5a44-6c39-4a73-8a38-103b271f3e17",
+        "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-df4e5180-adf5-4126-8cb9-0c5b1c4b1fd0",
+          "color": "#22c55e",
+          "label": "Готово",
+          "actions": [
+            {
+              "id": "aact-6499bbd7-d8d1-4860-b524-2475adf9b2c5",
+              "kind": "setField",
+              "value": "list-c69b63d0-45a6-4882-adcb-3a16b6449550",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": {
+        "hours": 2,
+        "calendar": "247"
+      },
+      "materials": [],
+      "created_at": "2026-11-18T21:50:10.295879+00:00",
+      "updated_at": "2026-11-18T21:50:10.295879+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false,
+        "requireTimeTracking": true
+      },
+      "actions": []
+    },
+    {
+      "id": "atpl-tkp-send-customer",
+      "scenario_id": "ascen-4c3941b1-1af1-44fb-bde8-70668370a8e9",
+      "name": "Зафиксировать отправку заказчику",
+      "name_template": "{{field-8a5551bb-3a87-4007-a03a-1d1c3102312d}}_Зафиксировать отправку заказчику",
+      "trigger_option_id": "list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50",
+      "step_order": 0,
+      "is_blocking": true,
+      "kind": "single",
+      "launch_conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "assignee": {
+        "type": "relatedField",
+        "fieldId": "field-d8ec5a44-6c39-4a73-8a38-103b271f3e17",
+        "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
+      },
+      "watchers": {
+        "type": "none"
+      },
+      "outcomes": [
+        {
+          "id": "aout-0ceca9d8-5d6d-4713-bf77-c8d03ee4aaa1",
+          "color": "#22c55e",
+          "label": "Отправлено",
+          "actions": [
+            {
+              "id": "aact-7ca39407-0435-4abb-8f68-32689251de3f",
+              "kind": "setField",
+              "value": "list-c9c28e55-dfe4-481f-8494-2a18d52ba661",
+              "fieldId": "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82"
+            }
+          ],
+          "buttonMode": "auto",
+          "conditions": {
+            "match": "all",
+            "rules": [],
+            "version": 1
+          },
+          "fieldAccess": {
+            "relatedFields": [],
+            "visibleFieldIds": [],
+            "readonlyFieldIds": [],
+            "requiredFieldIds": [],
+            "requireAttachment": false
+          }
+        }
+      ],
+      "sla": null,
+      "materials": [],
+      "created_at": "2026-11-18T21:50:10.739058+00:00",
+      "updated_at": "2026-11-18T21:50:10.739058+00:00",
+      "description": "",
+      "launch_phase": "onEnter",
+      "enabled": true,
+      "view_fields_placement": "afterSelect",
+      "field_access": {
+        "relatedFields": [],
+        "visibleFieldIds": [],
+        "readonlyFieldIds": [],
+        "requiredFieldIds": [],
+        "requireAttachment": false
+      },
+      "actions": []
+    }
+  ],
+  "notificationRules": [
+    {
+      "id": "anr-dept-calc-done",
+      "template_id": "atpl-tkp-dept-calc",
+      "event": "completed",
+      "recipients": {
+        "type": "relatedField",
+        "fieldId": "field-b27adecc-4e17-40b1-8a9e-4af03d49ce66",
+        "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
+      },
+      "conditions": {
+        "match": "all",
+        "rules": [],
+        "version": 1
+      },
+      "message_template": "Отдел завершил расчёт по «{{name}}» — {{outcome}}",
+      "created_at": "2026-11-18T21:50:10.851082+00:00",
+      "updated_at": "2026-11-18T21:50:10.851082+00:00"
+    }
+  ]
+}

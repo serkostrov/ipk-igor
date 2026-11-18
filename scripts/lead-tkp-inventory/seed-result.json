@@ -1,0 +1,132 @@
+{
+  "templates": [
+    {
+      "id": "atpl-tkp-send-customer",
+      "name": "Зафиксировать отправку заказчику",
+      "kind": "single",
+      "trigger_option_id": "list-721cd9b1-a00b-4b6a-8e57-24758a8c8b50",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-approve-rko",
+      "name": "Согласовать ТКП — Руководитель коммерческой группы",
+      "kind": "decision",
+      "trigger_option_id": "list-bf2ec7e4-daec-4b10-b6da-a9b2531a4fd5",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-approve-gd",
+      "name": "Согласовать ТКП — Генеральный директор",
+      "kind": "decision",
+      "trigger_option_id": "list-a325f76f-1775-4bee-8506-351fe3eb7b29",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-lead-fill-required",
+      "name": "Заполнить обязательные поля в лиде",
+      "kind": "single",
+      "trigger_option_id": "list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-lead-choose-lead-dept",
+      "name": "Выбрать ведущий отдел для работы с лидом",
+      "kind": "single",
+      "trigger_option_id": "list-aad1e473-4c06-4e58-a615-f175c091d282",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-select-dept-heads",
+      "name": "Выбрать руководителей отделов для расчета трудозатрат по лиду",
+      "kind": "single",
+      "trigger_option_id": "list-tkp-select-departments",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-dept-calc",
+      "name": "Заполнить разбор ТКП",
+      "kind": "decision",
+      "trigger_option_id": "list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-gip-final",
+      "name": "Проверить и утвердить итоговый расчет ТКП",
+      "kind": "single",
+      "trigger_option_id": "list-2940589b-616a-4975-a3c0-a0110a72558c",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-chief-approve",
+      "name": "Согласовать итоговый расчет по лиду",
+      "kind": "decision",
+      "trigger_option_id": "list-acaaeb37-4846-4a54-8c78-2231a8ed403c",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-form-commercial",
+      "name": "Сформировать ТКП",
+      "kind": "single",
+      "trigger_option_id": "list-45e87a17-c9cd-4402-af54-6edb4250bee3",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-approve-gip",
+      "name": "Согласовать ТКП — ГИП",
+      "kind": "decision",
+      "trigger_option_id": "list-c69b63d0-45a6-4882-adcb-3a16b6449550",
+      "step_order": 0,
+      "enabled": true
+    },
+    {
+      "id": "atpl-lead-chief-decision",
+      "name": "Принятие решения Главным инженером",
+      "kind": "decision",
+      "trigger_option_id": "list-50b1cc0b-593a-4fcf-bc18-be4250a91bfe",
+      "step_order": 1,
+      "enabled": true
+    },
+    {
+      "id": "atpl-tkp-after-depts-advance",
+      "name": "Переход на заполнение ГИПа",
+      "kind": "actions",
+      "trigger_option_id": "list-a2770d1f-b9f5-4d3a-bbc8-8285f985ffcd",
+      "step_order": 1,
+      "enabled": true
+    },
+    {
+      "id": "atpl-lead-dept-head-tz",
+      "name": "Ознакомиться с ТЗ и заполнить шаблон запуска проекта",
+      "kind": "single",
+      "trigger_option_id": "list-aad1e473-4c06-4e58-a615-f175c091d282",
+      "step_order": 1,
+      "enabled": true
+    }
+  ],
+  "newFields": {
+    "leadChief": "field-lead-chief-engineer-seed",
+    "leadGipComment": "field-lead-gip-comment-seed",
+    "leadRejectReason": "field-lead-reject-reason-seed",
+    "leadGipAssignDate": "field-lead-gip-assign-date-seed",
+    "tkpGroups": "field-tkp-stage-departments-seed",
+    "tkpCalcDeadline": "field-tkp-calc-deadline-seed",
+    "tkpHeadsComment": "field-tkp-heads-comment-seed",
+    "deptCalcEntity": "entity-dept-calculations-seed",
+    "deptCalcParent": "field-deptcalc-parent-tkp-seed",
+    "deptCalcName": "field-deptcalc-name-seed",
+    "deptCalcGroups": "field-deptcalc-groups-seed",
+    "deptCalcManager": "field-deptcalc-manager-seed",
+    "deptCalcPerformer": "field-deptcalc-performer-seed",
+    "tkpDeptTab": "tab-tkp-dept-calculations-seed"
+  }
+}

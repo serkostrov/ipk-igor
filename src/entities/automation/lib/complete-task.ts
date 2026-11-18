@@ -48,7 +48,11 @@ import {
   processStageOptionIdsMatch,
 } from "./outcome-stage-action";
 import { pickAutomationOutcome } from "./pick-outcome";
-import { runBeforeAutomationTaskCompleteHook } from "./hardcode-hooks";
+import {
+  runAfterAutomationTaskCompleteHook,
+  runBeforeAutomationStageSpawnHook,
+  runBeforeAutomationTaskCompleteHook,
+} from "./hardcode-hooks";
 import { mirrorFileFieldsToFilesTab } from "./mirror-file-fields-to-tab";
 import { assertAutomationUploadRequired } from "./upload-required";
 import {
@@ -765,6 +769,16 @@ export async function completeAutomationTask(
   // Lower bound with skew cushion so server `created_at` is not missed.
   const spawnAfterMs = Date.now() - 15_000;
 
+  // Child rows (расчёт отделов) must exist before SQL setField fires fieldEnter.
+  if (stageChanges && destinationStageId) {
+    await runBeforeAutomationStageSpawnHook({
+      entityId: task.entityId,
+      recordId: task.recordId,
+      values: valuesForForm,
+      destinationStageId,
+    });
+  }
+
   let rpcResult;
   try {
     rpcResult = await completeAutomationTaskRpc(
@@ -857,6 +871,20 @@ export async function completeAutomationTask(
     }
   }
 
+  // Product hardcode after complete (e.g. ensure stage×ГИП rows) — must run
+  // even when the task was closed from the list / dialog without Workspace.
+  await runAfterAutomationTaskCompleteHook({
+    entityId: task.entityId,
+    recordId: task.recordId,
+    values: patchedValues,
+    triggerOptionId: task.triggerOptionId,
+    taskId: task.id,
+    taskName: task.name,
+    outcomeId: outcome.id,
+    outcomeLabel: outcome.label ?? null,
+    assigneeUserId: task.assigneeUserId,
+  });
+
   // beforeEnter prep without «Перейти на стадию» must still land on the
   // destination stage (template.triggerOptionId). Default «Готово» buttons
   // ship with empty actions — otherwise the record stays on the previous
@@ -931,6 +959,20 @@ export async function completeAutomationTask(
     setEntityRecordValuesLocal(entity.id, task.recordId, patchedValues);
   }
 
+  // Silent «actions» steps (stage advance after all dept tasks) must run even
+  // when the task was closed from the inbox, not only from the fill dialog.
+  if (!flushingSilentTasks) {
+    flushingSilentTasks = true;
+    try {
+      await completePendingSilentAutomationTasksForRecord(
+        task.recordId,
+        actorUserId ?? null,
+      );
+    } finally {
+      flushingSilentTasks = false;
+    }
+  }
+
   return rpcResult;
 }
 
@@ -945,6 +987,8 @@ export async function returnAutomationTaskForRevision(
 
 /** One in-flight silent prep per record — Host + Dialog + Page must not race. */
 const silentCompleteByRecord = new Map<string, Promise<void>>();
+/** Prevents complete → silent flush → complete from recursing. */
+let flushingSilentTasks = false;
 
 async function runSilentCompletesForTasks(
   tasks: readonly AutomationTask[],
@@ -1056,11 +1100,17 @@ export async function completePendingSilentAutomationTasksForRecord(
     return;
   }
   const run = (async () => {
-    const pending = await fetchAutomationTasks({
-      recordId: id,
-      status: ["pending", "returned"],
-    });
-    await runSilentCompletesForTasks(pending, actorUserId ?? null);
+    for (let pass = 0; pass < 5; pass += 1) {
+      const pending = await fetchAutomationTasks({
+        recordId: id,
+        status: ["pending", "returned"],
+      });
+      const silent = pending.filter((task) =>
+        isAutomationSilentTaskKind(task.config.kind),
+      );
+      if (silent.length === 0) return;
+      await runSilentCompletesForTasks(pending, actorUserId ?? null);
+    }
   })().finally(() => {
     if (silentCompleteByRecord.get(id) === run) {
       silentCompleteByRecord.delete(id);

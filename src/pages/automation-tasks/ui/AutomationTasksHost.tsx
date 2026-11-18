@@ -20,8 +20,10 @@ import {
 } from "@/features/automation-tasks";
 import { pickEarliestAutomationTask } from "@/features/automation-tasks/lib/task-open-order";
 import { useAppLocation, useAppNavigate } from "@/shared/lib/navigation";
-// Registers after-complete hook for deferred «ГИП» fan-out.
+// Registers after-complete hooks: ГИП fan-out + «Нет объёмов».
 import "@/features/hardcode/tkp-gip/gip-filling-phase";
+import { registerTkpNoVolumeAfterCompleteHook } from "@/features/hardcode/tkp-volumes/lib/register-no-volume-hook";
+registerTkpNoVolumeAfterCompleteHook();
 import { TaskFillFieldsDialog } from "./TaskFillFieldsDialog";
 
 function isAssignedToUser(task: AutomationTask, userIds: Set<string>) {

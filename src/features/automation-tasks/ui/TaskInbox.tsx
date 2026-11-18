@@ -22,6 +22,7 @@ import {
 import { useSessionUser } from "@/entities/session";
 import { cn } from "@/shared/lib/cn";
 import { formatTimestampDisplay } from "@/shared/lib/format-date";
+import { flushRelatedAskPersists } from "../lib/apply-related-ask-field-change";
 import { TaskWorkspace } from "./TaskWorkspace";
 
 export function TaskInbox({
@@ -196,11 +197,16 @@ export function TaskInbox({
               reload();
             }}
             onComplete={async (outcomeId, formValues) => {
+              await flushRelatedAskPersists();
               await completeAutomationTask(
                 selected.id,
                 outcomeId,
                 sessionUser?.id ?? null,
                 formValues,
+              );
+              await completePendingSilentAutomationTasksForRecord(
+                selected.recordId,
+                sessionUser?.id ?? null,
               );
             }}
           />

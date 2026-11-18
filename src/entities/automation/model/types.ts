@@ -373,15 +373,34 @@ export function normalizeAutomationOutcomeFieldAccess(
   )
     ? normalizeStringIdList(access.recordFieldIds ?? access.record_field_ids)
     : visibleFieldIds;
-  const relatedVisibleFields = normalizeAskRelatedFields(
-    access.relatedVisibleFields ?? access.related_visible_fields,
-  );
+  const explicitRelated =
+    access.relatedVisibleFields ?? access.related_visible_fields;
+  const legacyRelated = access.relatedFields ?? access.related_fields;
+  const relatedSource =
+    Array.isArray(explicitRelated) && explicitRelated.length > 0
+      ? explicitRelated
+      : Array.isArray(legacyRelated) && legacyRelated.length > 0
+        ? legacyRelated
+        : (explicitRelated ?? legacyRelated ?? []);
+  const relatedVisibleFields = normalizeAskRelatedFields(relatedSource);
   const relatedVisibleIds = new Set(
     relatedVisibleFields.map((field) => field.id),
   );
-  const relatedRequiredIds = normalizeStringIdList(
+  let relatedRequiredIds = normalizeStringIdList(
     access.relatedRequiredIds ?? access.related_required_ids,
   ).filter((id) => relatedVisibleIds.has(id));
+  // Seeded templates stored `required` on each `relatedFields` row.
+  if (relatedRequiredIds.length === 0 && Array.isArray(relatedSource)) {
+    for (const item of relatedSource) {
+      if (!item || typeof item !== "object") continue;
+      const raw = item as Record<string, unknown>;
+      if (raw.required !== true) continue;
+      const id = typeof raw.id === "string" ? raw.id.trim() : "";
+      if (id && relatedVisibleIds.has(id) && !relatedRequiredIds.includes(id)) {
+        relatedRequiredIds.push(id);
+      }
+    }
+  }
   const relatedCommentIds = normalizeStringIdList(
     access.relatedCommentIds ?? access.related_comment_ids,
   ).filter((id) => relatedVisibleIds.has(id));

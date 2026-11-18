@@ -18,9 +18,7 @@ import {
   getRelationGroupsLevelEntityId,
   getSystemUsersEntity,
   findEntityManagerUserField,
-  isDeptCalculationsEntity,
   isEntityRelationLikeFieldType,
-  isTkpAnalysisEntity,
   parseEntityListValueIds,
   parseEntityRelationGroups,
   parseEntityRelationIds,
@@ -158,20 +156,9 @@ function resolveRelatedFieldUserIds(
   const rootEntity = entities.find((entity) => entity.id === triggerEntityId);
   if (!rootEntity) return [];
 
-  const linkedChildEntity = linkedChild
-    ? (entities.find((item) => item.id === linkedChild.entityId) ?? null)
-    : null;
-  // «Расчёты отделов» / стадии→отделы under «Разбор ТКП»: always one task
-  // per department head (incl. lead «ГИП»), not only the first.
-  const forceFanOut =
-    (linkedChildEntity != null &&
-      isDeptCalculationsEntity(linkedChildEntity)) ||
-    (isTkpAnalysisEntity(rootEntity) &&
-      path.some((fieldId) => {
-        const field = findBridgeField(rootEntity, fieldId);
-        return field?.type === "relationGroups";
-      }));
-  const fanOut = resolver.fanOut === true || forceFanOut;
+  // Fan-out only when the template explicitly sets fanOut (ТЗ §10 п.6).
+  // Scenario config for department calc must set fanOut: true.
+  const fanOut = resolver.fanOut === true;
   const depths = resolver.relationGroupsDepths ?? [];
   type Cursor = {
     entity: Entity;

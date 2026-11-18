@@ -132,13 +132,13 @@ begin
       elsif exists (
         select 1
         from public.automation_tasks t
-        join public.automation_task_templates tmpl on tmpl.id = t.template_id
+        join public.automation_task_templates tpl on tpl.id = t.template_id
         where t.record_id = NEW.id
           and t.process_id = proc.id
           and t.status = 'completed'
-          and coalesce(nullif(tmpl.launch_phase, ''), 'onEnter') = 'onEnter'
+          and coalesce(nullif(tpl.launch_phase, ''), 'onEnter') = 'onEnter'
           and (
-            tmpl.trigger_option_id = new_opt_id
+            tpl.trigger_option_id = new_opt_id
             or t.trigger_option_id = new_opt_id
           )
       ) then
@@ -146,22 +146,22 @@ begin
       elsif exists (
         select 1
         from public.automation_tasks t
-        join public.automation_task_templates tmpl on tmpl.id = t.template_id
+        join public.automation_task_templates tpl on tpl.id = t.template_id
         where t.record_id = NEW.id
           and t.process_id = proc.id
           and t.status = 'completed'
-          and coalesce(nullif(tmpl.launch_phase, ''), 'onEnter') = 'beforeEnter'
-          and tmpl.trigger_option_id = new_opt_id
+          and coalesce(nullif(tpl.launch_phase, ''), 'onEnter') = 'beforeEnter'
+          and tpl.trigger_option_id = new_opt_id
       )
       and not exists (
         select 1
         from public.automation_tasks t
-        join public.automation_task_templates tmpl on tmpl.id = t.template_id
+        join public.automation_task_templates tpl on tpl.id = t.template_id
         where t.record_id = NEW.id
           and t.process_id = proc.id
           and t.status in ('pending', 'returned', 'completed')
-          and coalesce(nullif(tmpl.launch_phase, ''), 'onEnter') = 'beforeEnter'
-          and tmpl.trigger_option_id = new_opt_id
+          and coalesce(nullif(tpl.launch_phase, ''), 'onEnter') = 'beforeEnter'
+          and tpl.trigger_option_id = new_opt_id
           and t.trigger_option_id = old_opt_id
       ) then
         should_supersede := true;
@@ -270,7 +270,7 @@ begin
                   earlier.created_at < tmpl.created_at
                   or (
                     earlier.created_at = tmpl.created_at
-                    and earlier.id < tmpl.id
+                    and earlier.id < (tmpl).id
                   )
                 )
               )

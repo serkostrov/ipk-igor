@@ -16809,6 +16809,8 @@ begin
 end;
 $$;
 
+-- Drop earlier 2-arg overload to avoid ambiguous (text, jsonb) calls.
+drop function if exists public.notification_render_template(text, jsonb);
 create or replace function public.notification_render_template(
   p_template text,
   p_values jsonb,
@@ -16855,6 +16857,9 @@ end;
 $$;
 
 -- Keep automation_render_template signature; add optional entity id for labels.
+-- Drop the earlier 2-arg overload first: CREATE OR REPLACE with a defaulted
+-- 3rd arg does not replace (text, jsonb), and two-arg calls become ambiguous.
+drop function if exists public.automation_render_template(text, jsonb);
 create or replace function public.automation_render_template(
   p_template text,
   p_values jsonb,

@@ -21,24 +21,25 @@ as $$
 declare
   nid text;
   uid text := nullif(btrim(coalesce(p_user_id, '')), '');
-  title text;
+  v_title text;
   existing_id text;
 begin
   if uid is null then
     return null;
   end if;
 
-  title := coalesce(
+  v_title := coalesce(
     nullif(btrim(p_title), ''),
     left(coalesce(p_message, 'Уведомление'), 120)
   );
 
   -- Collapse duplicate stage / rule toasts from a double field write.
+  -- v_title, not title: notifications.title makes a bare title ambiguous.
   select n.id
     into existing_id
   from public.notifications n
   where n.user_id = uid
-    and n.title = title
+    and n.title = v_title
     and coalesce(n.entity_id, '') = coalesce(p_entity_id, '')
     and coalesce(n.record_id, '') = coalesce(p_record_id, '')
     and n.created_at > now() - interval '20 seconds'
@@ -56,7 +57,7 @@ begin
   ) values (
     nid,
     uid,
-    title,
+    v_title,
     coalesce(p_message, ''),
     coalesce(nullif(p_source, ''), 'rule'),
     p_rule_id,

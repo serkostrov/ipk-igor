@@ -103,10 +103,21 @@ export function ActionPipelineEditor({
   hideAdd = false,
 }: ActionPipelineEditorProps) {
   const omit = new Set(omitKinds);
-  const kindOptions = AUTOMATION_ACTION_KINDS.filter((kind) => !omit.has(kind));
+  // spawnTasks / attachToFolder are typed but not executed (deferred) — hide
+  // from the picker so scenarios cannot rely on them (ТЗ §10 п.8).
+  const deferredKinds = new Set<AutomationActionKind>([
+    "spawnTasks",
+    "attachToFolder",
+  ]);
+  const kindOptions = AUTOMATION_ACTION_KINDS.filter(
+    (kind) => !omit.has(kind) && !deferredKinds.has(kind),
+  );
   const visible = actions
     .map((action, index) => ({ action, index }))
     .filter(({ action }) => !omit.has(action.kind));
+  const hasDeferredActions = visible.some(({ action }) =>
+    deferredKinds.has(action.kind),
+  );
   const [createExtras, setCreateExtras] = useState<
     Record<string, CreateRecordExtras>
   >({});
@@ -157,6 +168,13 @@ export function ActionPipelineEditor({
 
   return (
     <div className={cn("flex flex-col gap-2.5", className)}>
+      {hasDeferredActions ? (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-900 dark:text-amber-100">
+          Действия «Создать задачи» и «Положить файл в папку» пока не
+          выполняются. Удалите их или замените на смену стадии / createRecord —
+          иначе шаг не сработает.
+        </p>
+      ) : null}
       {visible.map(({ action, index }) => {
         const createAction = action.kind === "createRecord" ? action : null;
         const createTarget = createAction

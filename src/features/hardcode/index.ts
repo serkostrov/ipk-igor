@@ -186,6 +186,25 @@ export {
   TKP_APPROVAL_SUBMITTED_AT_KEY,
 } from "./tkp-review/lib/tkp-approval";
 export { submitTkpDocumentForApproval } from "./tkp-review/lib/submit-tkp-document";
+export { assertTkpDocumentApprovalReady } from "./tkp-review/lib/assert-tkp-approval-ready";
+export {
+  assertTkpSendToCustomer,
+  buildTkpSendToCustomerPatch,
+  TKP_SEND_AT_KEY,
+  TKP_SEND_CALL_AT_KEY,
+  TKP_SEND_REVISION_KEY,
+} from "./tkp-review/lib/assert-tkp-send-to-customer";
+export {
+  buildTkpApprovalApprovePatch,
+  buildTkpApprovalReturnPatch,
+  buildTkpApprovalResubmitPatch,
+  isTkpFullyApproved,
+  parseTkpApprovalStep,
+  TKP_APPROVAL_HISTORY_KEY,
+  TKP_APPROVAL_RETURN_TO_STEP_KEY,
+  TKP_APPROVAL_STEP_KEY,
+  type TkpApprovalStep,
+} from "./tkp-review/lib/tkp-approval-progress";
 export { resolveTkpDocumentFilesTarget } from "./tkp-review/lib/resolve-tkp-files-target";
 export {
   countTkpRevisionFilesById,
@@ -194,3 +213,30 @@ export {
   uploadTkpRevisionFiles,
 } from "./tkp-review/lib/revision-files";
 export { RevisionFilesPanel } from "./tkp-review/ui/RevisionFilesPanel";
+export { TkpSendToCustomerPanel } from "./tkp-review/ui/TkpSendToCustomerPanel";
+
+export {
+  appendTkpNoVolumeIssue,
+  isNoVolumeOutcomeLabel,
+  parseTkpNoVolumeIssues,
+  resolveTkpNoVolumeIssue,
+  TKP_NO_VOLUME_ISSUES_KEY,
+  type TkpNoVolumeIssue,
+} from "./tkp-volumes/model/no-volume";
+export {
+  collectTkpMissingSourceFromDeptRows,
+  isTkpMissingSourceLocked,
+  parseTkpMissingSourceData,
+  saveTkpMissingSourceData,
+  TKP_MISSING_SOURCE_DATA_KEY,
+  TKP_MISSING_SOURCE_SUBMITTED_AT_KEY,
+  type TkpMissingSourceEntry,
+} from "./tkp-volumes/model/missing-source-data";
+export { TkpNoVolumeBanner } from "./tkp-volumes/ui/TkpNoVolumeBanner";
+export { TkpMissingSourceAsk } from "./tkp-volumes/ui/TkpMissingSourceAsk";
+export { registerTkpNoVolumeAfterCompleteHook } from "./tkp-volumes/lib/register-no-volume-hook";
+
+// Side-effect: register after-complete hardcode handlers.
+import "./tkp-gip/gip-filling-phase";
+import { registerTkpNoVolumeAfterCompleteHook as __registerTkpNoVolume } from "./tkp-volumes/lib/register-no-volume-hook";
+__registerTkpNoVolume();

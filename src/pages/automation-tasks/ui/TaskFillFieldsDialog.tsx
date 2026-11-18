@@ -88,7 +88,10 @@ import {
   taskFormAutosaveLabel,
   useTaskFormAutosave,
 } from "@/features/automation-tasks/lib/use-task-form-autosave";
-import { applyRelatedAskFieldChange } from "@/features/automation-tasks/lib/apply-related-ask-field-change";
+import {
+  applyRelatedAskFieldChange,
+  flushRelatedAskPersists,
+} from "@/features/automation-tasks/lib/apply-related-ask-field-change";
 import { TaskRelatedAskFields } from "@/features/automation-tasks/ui/TaskRelatedAskFields";
 import { TaskViewContextFields } from "@/features/automation-tasks/ui/TaskViewContextFields";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
@@ -713,12 +716,17 @@ function TaskFillFieldsDialogBody({
     try {
       await autosave.flush();
       await persistValues(outcomeId);
+      await flushRelatedAskPersists();
       const completed = task!;
       await completeAutomationTask(
         completed.id,
         outcomeId,
         sessionUser?.id ?? null,
         values,
+      );
+      await completePendingSilentAutomationTasksForRecord(
+        completed.recordId,
+        sessionUser?.id ?? null,
       );
       const deferred = getPendingRecordListChange();
       if (deferred?.recordId === completed.recordId) {

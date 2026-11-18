@@ -610,6 +610,34 @@ export async function applyRecordListChange(
     }
   }
 
+  // Create «Расчёты отделов» / ГИП rows BEFORE stage write so spawn resolves
+  // assignees in the same turn (ТЗ §10 п.2). On failure — block the move.
+  if (toOptionId) {
+    try {
+      await maybeEnsureDeptCalculationGipAfterStageChange({
+        entity,
+        record,
+        field,
+        toOptionId,
+        entities,
+      });
+    } catch (error: unknown) {
+      console.error(
+        "[hardcode] ensure GIP rows before stage change failed",
+        error,
+      );
+      toast.warning("Не удалось подготовить расчёты отделов", {
+        description: getAutomationErrorMessage(
+          error,
+          "Строки отделов должны быть сохранены до смены стадии",
+        ),
+        duration: 8_000,
+      });
+      setEntityRecordValuesLocal(entity.id, record.id, previousValues);
+      return false;
+    }
+  }
+
   try {
     await updateEntityRecord(entity.id, record.id, nextValues);
   } catch (error: unknown) {
@@ -639,6 +667,18 @@ export async function applyRecordListChange(
       }
       return false;
     }
+    const message = getAutomationErrorMessage(error, "");
+    if (
+      message.includes("AUTOMATION_ASSIGNEE_MISSING") ||
+      message.includes("Не найдены исполнители")
+    ) {
+      toast.warning("Задания не созданы", {
+        description:
+          message ||
+          "Сначала сохраните руководителей отделов, затем смените стадию",
+        duration: 8_000,
+      });
+    }
     return false;
   }
 
@@ -646,24 +686,6 @@ export async function applyRecordListChange(
     recordId: record.id,
     fieldId: field.id,
   });
-
-  // «На заполнении ГИПа»: create stage×ГИП calculation rows for selected stages.
-  if (toOptionId) {
-    try {
-      await maybeEnsureDeptCalculationGipAfterStageChange({
-        entity,
-        record,
-        field,
-        toOptionId,
-        entities,
-      });
-    } catch (error: unknown) {
-      console.error(
-        "[hardcode] ensure GIP rows after stage change failed",
-        error,
-      );
-    }
-  }
 
   if (isSupabaseConfigured && toOptionId) {
     try {

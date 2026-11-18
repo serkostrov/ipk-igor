@@ -27,6 +27,7 @@ import {
   resolveDeptCalculationsHostFields,
   resolveEditableDeptCalculationRecordIds,
   TkpGipExecutionDurationAsk,
+  TkpMissingSourceAsk,
   TkpReviewHardcodeSlot,
 } from "@/features/hardcode";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
@@ -550,6 +551,18 @@ export function TaskRelatedAskFields({
                 </div>
               );
             })}
+            {isDeptCalculationsEntity(group.relatedEntity) &&
+            !disabled &&
+            group.relatedEntity.records.find(
+              (item) => item.id === group.relatedRecordId,
+            ) ? (
+              <TkpMissingSourceAsk
+                entity={group.relatedEntity}
+                record={group.relatedEntity.records.find(
+                  (item) => item.id === group.relatedRecordId,
+                )!}
+              />
+            ) : null}
           </div>
         );
       })}
