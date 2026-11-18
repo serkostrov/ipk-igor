@@ -598,7 +598,7 @@ export async function ensureDeptCalculationGipRows(options: {
   }
 
   // Fresh view/task heal: allow another attempt at ГИП for every stage.
-  if (gipOnly) {
+  if (gipOnly && gipId) {
     clearFailedGipEnsureKeys(entity.id, parentRecord?.id, gipId);
   }
 
