@@ -56,6 +56,7 @@ export function SettingSwitch({
   description,
   checked,
   disabled,
+  readOnly = false,
   onCheckedChange,
 }: {
   id: string;
@@ -63,17 +64,36 @@ export function SettingSwitch({
   description?: string;
   checked: boolean;
   disabled?: boolean;
+  /** View mode: hide the switch, show Вкл / Выкл status. */
+  readOnly?: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <SettingLabel htmlFor={id} title={title} description={description} />
-      <Switch
-        id={id}
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={onCheckedChange}
+      <SettingLabel
+        htmlFor={readOnly ? undefined : id}
+        title={title}
+        description={description}
       />
+      {readOnly ? (
+        <span
+          className={
+            checked
+              ? "shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+              : "shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+          }
+          aria-label={checked ? "Включено" : "Выключено"}
+        >
+          {checked ? "Вкл" : "Выкл"}
+        </span>
+      ) : (
+        <Switch
+          id={id}
+          checked={checked}
+          disabled={disabled}
+          onCheckedChange={onCheckedChange}
+        />
+      )}
     </div>
   );
 }

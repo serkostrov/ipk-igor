@@ -17,8 +17,10 @@ import {
   getEntityFieldDisplayName,
   getEntityFieldNumericValue,
   getEntityRelationTargetId,
+  getEntityFormulaResultType,
   isEntityComputedFieldType,
   isEntityFieldManualInputEnabled,
+  isEntityFormulaDateField,
   isEntityListOtherValue,
   normalizeEntityNumberDecimals,
   normalizeEntitySumFieldIds,
@@ -576,9 +578,13 @@ export function computeAllowManualFormulaSoftFill(input: {
   );
   // Date-returning formulas (even without «ручной ввод») must soft-fill so
   // the ISO date is persisted on save — live display alone does not store it.
+  // Prefer declared `resultType: "date"`; also soft-fill when live result is ISO
+  // (legacy formulas without resultType).
   const dateFormulaFields = input.entity.fields.filter(
     (field) =>
-      field.type === "formula" && !isEntityFieldManualInputEnabled(field),
+      field.type === "formula" &&
+      !isEntityFieldManualInputEnabled(field) &&
+      (isEntityFormulaDateField(field) || field.formula?.resultType == null),
   );
 
   if (manualFormulaFields.length === 0 && dateFormulaFields.length === 0) {
@@ -616,13 +622,23 @@ export function computeAllowManualFormulaSoftFill(input: {
       if (userLocked.has(field.id)) continue;
       const draft = createEntityDraftRecord(working, input.recordId);
       const raw = getFormulaResult(roundCtx, input.entity, draft, field);
-      if (typeof raw === "string") {
+      if (isEntityFormulaDateField(field)) {
+        if (typeof raw !== "string") continue;
         const date = extractIsoDate(raw);
         if (!date) continue;
         if ((working[field.id] ?? "") === date) continue;
         working[field.id] = date;
         changed = true;
         continue;
+      }
+      if (typeof raw === "string") {
+        const date = extractIsoDate(raw);
+        if (date) {
+          if ((working[field.id] ?? "") === date) continue;
+          working[field.id] = date;
+          changed = true;
+          continue;
+        }
       }
       const numeric =
         typeof raw === "number"
@@ -689,6 +705,23 @@ export function resolveEntityComputedManualEditField(
     field.type === "rollup" ||
     field.type === "numberSum"
   ) {
+    if (field.type === "formula" && isEntityFormulaDateField(field)) {
+      return {
+        ...field,
+        type: "datetime",
+        formula: undefined,
+        rollup: undefined,
+        lookup: undefined,
+        allowManualInput: undefined,
+        sumFieldIds: [],
+        datetimeWithTime: false,
+        deadline: undefined,
+        numberDisplay: undefined,
+        numberSignColor: undefined,
+        unitSuffix: null,
+        includeInTotal: false,
+      };
+    }
     const decimals =
       field.type === "formula"
         ? normalizeEntityNumberDecimals(field.formula?.decimals)
@@ -764,9 +797,10 @@ export function getEntityFieldValueKind(
       return "boolean";
     case "number":
     case "numberSum":
-    case "formula":
     case "rollup":
       return "number";
+    case "formula":
+      return getEntityFormulaResultType(field) === "date" ? "date" : "number";
     case "datetime":
       return "date";
     case "period":
@@ -942,6 +976,7 @@ export function getRecordFieldNumber(
       return readManualNumberFallback(field, record);
     }
     case "formula":
+      if (isEntityFormulaDateField(field)) return null;
       return resolveFormulaNumber(ctx, entity, record, field);
     case "rollup": {
       const rolled = getRollupResult(ctx, record, field);
@@ -1063,6 +1098,26 @@ function getRelationLabel(
   return target ? resolveRelationRecordLabel(target, recordId) : null;
 }
 
+/** Resolve a formula field as an operand (preserves date results). */
+function resolveFormulaOperandValue(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField,
+): FormulaValue {
+  if (isEntityFormulaDateField(field)) {
+    const live = getFormulaResult(ctx, entity, record, field);
+    if (typeof live === "string") {
+      const date = extractIsoDate(live);
+      if (date) return date;
+    }
+    const stored = extractIsoDate(record.values[field.id]);
+    if (stored) return stored;
+    return null;
+  }
+  return resolveFormulaNumber(ctx, entity, record, field);
+}
+
 /** Value of a field as a formula operand. */
 export function getRecordFieldFormulaValue(
   ctx: EntityValueContext,
@@ -1076,7 +1131,7 @@ export function getRecordFieldFormulaValue(
     case "rollup":
       return getRecordFieldNumber(ctx, entity, record, field);
     case "formula":
-      return resolveFormulaNumber(ctx, entity, record, field);
+      return resolveFormulaOperandValue(ctx, entity, record, field);
     case "boolean":
       return record.values[field.id] === "true";
     case "datetime":
@@ -1309,11 +1364,15 @@ export function formatEntityFormulaPreview(
   formula: EntityFormulaConfig,
   unitSuffix: string | null,
 ): string {
-  return formatFormulaValue(
-    evaluateRecordFormula(ctx, entity, record, formula.expression),
-    formula.decimals,
-    unitSuffix,
-  );
+  const value = evaluateRecordFormula(ctx, entity, record, formula.expression);
+  if (formula.resultType === "date") {
+    if (typeof value === "string") {
+      const date = extractIsoDate(value);
+      if (date) return formatDateDisplay(date);
+    }
+    return "—";
+  }
+  return formatFormulaValue(value, formula.decimals, unitSuffix);
 }
 
 /** Extra field values for a related record (relationGroups display). */
@@ -1506,6 +1565,16 @@ export function formatRecordFieldValue(
       return formatManualNumberDisplay(field, record, field.decimals);
     }
     case "formula": {
+      if (isEntityFormulaDateField(field)) {
+        const formulaValue = getFormulaResult(ctx, entity, record, field);
+        if (typeof formulaValue === "string") {
+          const date = extractIsoDate(formulaValue);
+          if (date) return formatDateDisplay(date);
+        }
+        const storedDate = extractIsoDate(record.values[field.id]);
+        if (storedDate) return formatDateDisplay(storedDate);
+        return "—";
+      }
       const formulaValue = getFormulaResult(ctx, entity, record, field);
       if (typeof formulaValue === "string") {
         const date = extractIsoDate(formulaValue);

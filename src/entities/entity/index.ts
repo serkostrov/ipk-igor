@@ -15,6 +15,7 @@ export type {
   EntityRelationGroupsLevelSource,
   EntityFieldDefaultValue,
   EntityFormulaConfig,
+  EntityFormulaResultType,
   EntityKanbanColumn,
   EntityListOption,
   EntityListSourceRef,
@@ -29,6 +30,7 @@ export type {
   EntityRecordsDisplay,
   EntityTab,
   EntityTabDefaultFolder,
+  EntityFilesUploadTarget,
   EntityPageAggregateCashFlow,
   EntityPageAggregatePanel,
   EntityPageFiltersPanel,
@@ -293,6 +295,8 @@ export {
   canEntityFieldToggleShowOnCreate,
   isEntityNumericFieldType,
   isEntityUnitFieldType,
+  getEntityFormulaResultType,
+  isEntityFormulaDateField,
   parseEntityDependencies,
   serializeEntityDependencies,
   parseEntityRelationGroups,
@@ -349,6 +353,7 @@ export {
   formulaFromDisplay,
   formulaToDisplay,
   parseFormula,
+  suggestFormulaResultType,
   type FormulaValue,
 } from "./model/formula";
 export {
@@ -547,6 +552,15 @@ export { RecordNotesEditor } from "./ui/RecordNotesEditor";
 export { EntityFileViewer } from "./ui/EntityFileViewer";
 export { EntityFileIcon } from "./ui/EntityFileIcon";
 export { EntityFileThumb } from "./ui/EntityFileThumb";
+export { FilesUploadTargetSettings } from "./ui/FilesUploadTargetSettings";
+export { EntityFilesUploadPanel } from "./ui/EntityFilesUploadPanel";
+export {
+  countFilesUnderFolder,
+  listFilesUnderFolder,
+  uploadFilesToFilesTabEntries,
+  uploadFilesToFilesTabValues,
+  type UploadTargetFileItem,
+} from "./lib/upload-to-files-tab";
 export {
   downloadEntityFileFromUrl,
   getEntityFilePreviewKind,
@@ -555,6 +569,17 @@ export {
   type EntityFilePreviewKind,
   type EntityFileViewerItem,
 } from "./lib/file-preview";
+export {
+  normalizeEntityFilesUploadTarget,
+  resolveEntityCreateUpload,
+} from "./lib/files-upload-target";
+export { ensureUploadTargetFolderId } from "./lib/upload-folder";
+export {
+  countFilesUnderUploadFolder,
+  entityFilesUploadTargetBlocks,
+  entityFilesUploadTargetBlocksRecord,
+  resolveUploadTargetFolderId,
+} from "./lib/upload-required";
 export {
   applyMentionInsertion,
   extractMentionedUserIds,
@@ -640,6 +665,7 @@ export {
   addEntityField,
   addEntityListOption,
   addEntityRecord,
+  createEntityRecordId,
   waitForEntityRecordInsert,
   waitForEntityRecordDelete,
   appendEntityRecord,

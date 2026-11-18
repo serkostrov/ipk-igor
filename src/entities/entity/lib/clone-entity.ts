@@ -649,6 +649,18 @@ function cloneEntityStructure(
       maps.optionIdMap,
     ),
     publishedVersion: 1,
+    createUpload: source.createUpload
+      ? {
+          filesTabId:
+            maps.tabIdMap.get(source.createUpload.filesTabId) ??
+            source.createUpload.filesTabId,
+          folderId: source.createUpload.folderId.trim()
+            ? (maps.folderIdMap.get(source.createUpload.folderId) ??
+              source.createUpload.folderId)
+            : "",
+          required: source.createUpload.required,
+        }
+      : null,
     records: [],
   });
 }

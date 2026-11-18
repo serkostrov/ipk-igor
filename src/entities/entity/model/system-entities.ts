@@ -280,6 +280,7 @@ export function createSystemUsersEntity(): Entity {
     timeline: null,
     pageLayout: null,
     publishedVersion: 1,
+    createUpload: null,
     records: [],
   };
 }

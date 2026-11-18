@@ -16,8 +16,15 @@ import {
   applyEntityFieldValue,
   applyTkpGipDepartmentUsers,
   softFillRelationsFromParentRecord,
+  buildEntityTabDefaultFileEntries,
   createEntityDraftRecord,
+  createEntityRecordId,
+  EntityFilesUploadPanel,
+  entityFilesUploadTargetBlocks,
+  getEntityTabFilesValueKey,
+  isEntityFilesTab,
   sanitizeEntityRelationDependencies,
+  serializeEntityTabFileEntries,
   getEntityFieldDisplayName,
   getEntityFieldGroupName,
   getEntityHeaderField,
@@ -59,6 +66,8 @@ import { RecordFieldControl } from "./RecordFieldControl";
 
 export type EntityRecordSubmitMeta = {
   password?: string;
+  /** Preallocated record id for create (storage paths / insert). */
+  recordId?: string;
 };
 
 type EntityRecordDialogProps = {
@@ -111,6 +120,28 @@ function buildRecordValues(
   return values;
 }
 
+function seedCreateUploadValues(
+  entity: Entity,
+  values: Record<string, string>,
+): Record<string, string> {
+  const target = entity.createUpload;
+  if (!target) return values;
+  const tab = entity.tabs.find(
+    (item) => item.id === target.filesTabId && isEntityFilesTab(item),
+  );
+  if (!tab) return values;
+  const key = getEntityTabFilesValueKey(tab.id);
+  if (values[key] !== undefined) return values;
+  const entries = buildEntityTabDefaultFileEntries(
+    tab.defaultFolders,
+    new Date().toISOString(),
+  );
+  return {
+    ...values,
+    [key]: serializeEntityTabFileEntries(entries),
+  };
+}
+
 function canSubmitRecord(
   entity: Entity,
   fields: EntityField[],
@@ -119,7 +150,7 @@ function canSubmitRecord(
   recordId: string,
 ) {
   const draft = createEntityDraftRecord(values, recordId);
-  return fields.every((field) => {
+  const fieldsOk = fields.every((field) => {
     if (
       isEntityComputedFieldType(field.type) &&
       !isEntityFieldManualInputEnabled(field)
@@ -151,6 +182,9 @@ function canSubmitRecord(
     }
     return raw.trim().length > 0;
   });
+  if (!fieldsOk) return false;
+  if (!entity.createUpload?.required) return true;
+  return !entityFilesUploadTargetBlocks(entity, values, entity.createUpload);
 }
 
 function normalizeRecordValues(
@@ -202,7 +236,7 @@ function EntityRecordForm({
   const currentUserRecordId = useCurrentUserRecordId();
   const role = useCurrentRole();
   const draftRecordId = useMemo(
-    () => record?.id ?? `draft-${crypto.randomUUID()}`,
+    () => record?.id ?? createEntityRecordId(),
     [record?.id],
   );
   const editableFields = useMemo(
@@ -257,7 +291,10 @@ function EntityRecordForm({
         }).values
       : sanitized;
     // Defaults often set start (today) + duration — fill «Срок (план)» immediately.
-    return reconcileEntityScheduleValues(entity, withParent);
+    const scheduled = reconcileEntityScheduleValues(entity, withParent);
+    // Create + createUpload: seed Files-tab folders so upload resolves by name.
+    if (!record) return seedCreateUploadValues(entity, scheduled);
+    return scheduled;
   }, [
     entity,
     entities,
@@ -268,6 +305,7 @@ function EntityRecordForm({
     softFillParent,
   ]);
   const [values, setValues] = useState(initialValues);
+  const createUploadTarget = !isEdit ? entity.createUpload : null;
   /** Last edited allow-manual formula — soft-fill recomputes the rest from it. */
   const [formulaManualAnchorId, setFormulaManualAnchorId] = useState<
     string | null
@@ -558,6 +596,19 @@ function EntityRecordForm({
               </section>
             );
           })}
+
+        {createUploadTarget ? (
+          <EntityFilesUploadPanel
+            entity={entity}
+            recordId={draftRecordId}
+            values={values}
+            target={createUploadTarget}
+            disabled={pending}
+            requiredHint="Прикрепите хотя бы один файл, чтобы создать запись."
+            onValuesChange={setValues}
+            onError={(message) => setSubmitError(message)}
+          />
+        ) : null}
       </div>
 
       {submitError ? (
@@ -574,7 +625,7 @@ function EntityRecordForm({
           type="button"
           disabled={!canSubmit || pending}
           onClick={() => {
-            const nextValues = reconcileEntityScheduleValues(entity, {
+            const fieldValues = reconcileEntityScheduleValues(entity, {
               ...buildRecordValues(
                 editableFields,
                 record?.values,
@@ -586,9 +637,17 @@ function EntityRecordForm({
                 ...formulaSoftFill,
               }),
             });
-            const meta: EntityRecordSubmitMeta = needsPassword
-              ? { password }
-              : {};
+            // Keep Files-tab uploads from the create panel (not field values).
+            const nextValues = { ...fieldValues };
+            for (const [key, value] of Object.entries(values)) {
+              if (key.startsWith("__tab_files__:")) {
+                nextValues[key] = value;
+              }
+            }
+            const meta: EntityRecordSubmitMeta = {
+              ...(needsPassword ? { password } : {}),
+              ...(!isEdit ? { recordId: draftRecordId } : {}),
+            };
             setPending(true);
             setSubmitError(null);
             void Promise.resolve(onSubmit(nextValues, meta))
@@ -658,7 +717,9 @@ export function EntityRecordDialog({
                 await updateEntityRecord(entity.id, record.id, values);
                 return;
               }
-              const created = addEntityRecord(entity.id, values);
+              const created = addEntityRecord(entity.id, values, {
+                id: meta.recordId,
+              });
               await waitForEntityRecordInsert(created.id);
             }}
           />

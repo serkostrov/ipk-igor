@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Check, Folder, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, Folder, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import {
   DEFAULT_ENTITY_FOLDER_COLOR,
   DEFAULT_ENTITY_LIST_COLORS,
+  FilesUploadTargetSettings,
   normalizeListColor,
+  updateEntity,
   updateEntityTab,
   type Entity,
   type EntityTab,
@@ -211,6 +213,39 @@ export function EntityFilesTabFoldersEditor({
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Upload className="size-4 stroke-[1.5]" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-sm font-medium tracking-tight text-foreground">
+                Загрузка при создании
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Файлы сразу попадают во вкладку «Файлы», не в отдельное поле
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4">
+          <FilesUploadTargetSettings
+            entity={entity}
+            value={entity.createUpload}
+            readOnly={readOnly}
+            idPrefix={`entity-create-upload-${tab.id}`}
+            enableTitle="Загрузка при создании"
+            enableDescription="Показать блок загрузки в диалоге новой записи"
+            requiredTitle="Обязательно для создания"
+            requiredDescription="Без файла во вкладке «Файлы» запись нельзя создать"
+            onChange={(next) => {
+              updateEntity(entity.id, { createUpload: next });
+            }}
+          />
+        </div>
+      </div>
+
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">

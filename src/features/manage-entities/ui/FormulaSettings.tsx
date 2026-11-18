@@ -19,6 +19,7 @@ import {
   getEntityPreviewValueContext,
   useEntityValueContext,
   type Entity,
+  type EntityFormulaResultType,
   type EntityNumberDecimals,
 } from "@/entities/entity";
 import { SettingLabel } from "@/shared/ui/setting-controls";
@@ -30,6 +31,7 @@ type FormulaSettingsProps = {
   fieldId: string | null;
   text: string;
   decimals: EntityNumberDecimals;
+  resultType: EntityFormulaResultType;
   unitSuffix: string | null;
   onTextChange: (text: string) => void;
 };
@@ -116,6 +118,7 @@ export function FormulaSettings({
   fieldId,
   text,
   decimals,
+  resultType,
   unitSuffix,
   onTextChange,
 }: FormulaSettingsProps) {
@@ -132,8 +135,12 @@ export function FormulaSettings({
           getEntityPreviewValueContext(valueContext),
           entity,
           sample,
-          { expression: compiled.expression, decimals },
-          unitSuffix,
+          {
+            expression: compiled.expression,
+            decimals,
+            ...(resultType === "date" ? { resultType: "date" as const } : {}),
+          },
+          resultType === "date" ? null : unitSuffix,
         )
       : null;
 
@@ -156,7 +163,11 @@ export function FormulaSettings({
         <SettingLabel
           htmlFor="entity-field-formula"
           title="Формула"
-          description="Поля в [скобках], аргументы через «;»"
+          description={
+            resultType === "date"
+              ? "Поля в [скобках]. [Дата] + N — конец из N раб. дней (N=1 → тот же день); РАБДЕНЬ — exclusive; КАЛДНИ — календарь"
+              : "Поля в [скобках], аргументы через «;»"
+          }
         />
         <FormulaFunctionsMenu onInsert={insert} />
       </div>
@@ -164,7 +175,11 @@ export function FormulaSettings({
         ref={textareaRef}
         id="entity-field-formula"
         value={text}
-        placeholder="[Факт] / [План] * 100"
+        placeholder={
+          resultType === "date"
+            ? "[Дата постановки] + [Длительность]"
+            : "[Факт] / [План] * 100"
+        }
         spellCheck={false}
         aria-invalid={compiled?.ok === false || undefined}
         className="min-h-16 resize-none bg-background font-mono text-[13px] md:text-[13px]"
@@ -177,7 +192,12 @@ export function FormulaSettings({
       ) : preview != null ? (
         <p className="text-[11px] leading-snug text-muted-foreground">
           На первой записи:{" "}
-          <span className="font-medium text-foreground tabular-nums">
+          <span
+            className={cn(
+              "font-medium text-foreground",
+              resultType !== "date" && "tabular-nums",
+            )}
+          >
             {preview}
           </span>
         </p>

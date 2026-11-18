@@ -2334,7 +2334,7 @@ export function RecordEntityTabPanel({
             titleOverride={dialogRecord !== null ? dialogTitle : undefined}
             submitLabel="Сохранить"
             onOpenRelation={onOpenRelation}
-            onSubmit={async (values) => {
+            onSubmit={async (values, meta) => {
               if (!parentLinkFieldId) return;
               if (dialogRecord === "new" && atSingleRecordLimit) return;
               const previousLink =
@@ -2349,7 +2349,9 @@ export function RecordEntityTabPanel({
                 ]),
               };
               if (dialogRecord === "new") {
-                const created = addEntityRecord(linkedEntity.id, nextValues);
+                const created = addEntityRecord(linkedEntity.id, nextValues, {
+                  id: meta.recordId,
+                });
                 await waitForEntityRecordInsert(created.id);
                 // Nested hierarchy: open child create right after the parent.
                 if (nestedTarget) {
@@ -2392,13 +2394,15 @@ export function RecordEntityTabPanel({
               }`}
               submitLabel="Сохранить"
               onOpenRelation={onOpenRelation}
-              onSubmit={async (values) => {
+              onSubmit={async (values, meta) => {
                 if (!nestedCreateParentId) return;
                 const nextValues = {
                   ...values,
                   [nestedTarget.parentLinkFieldId]: nestedCreateParentId,
                 };
-                const created = addEntityRecord(nestedEntity.id, nextValues);
+                const created = addEntityRecord(nestedEntity.id, nextValues, {
+                  id: meta.recordId,
+                });
                 await waitForEntityRecordInsert(created.id);
                 onOpenRelation?.(nestedEntity.id, created.id);
               }}

@@ -671,7 +671,7 @@ export function DeptCalculationsView({
               : undefined
           }
           submitLabel="Сохранить"
-          onSubmit={async (values) => {
+          onSubmit={async (values, meta) => {
             const nextValues = {
               ...values,
               [nested.parentLinkFieldId]: serializeEntityRelationIds([
@@ -679,7 +679,9 @@ export function DeptCalculationsView({
               ]),
             };
             if (lineDialog.mode === "create") {
-              const created = addEntityRecord(nested.entity.id, nextValues);
+              const created = addEntityRecord(nested.entity.id, nextValues, {
+                id: meta.recordId,
+              });
               await waitForEntityRecordInsert(created.id);
             } else {
               await updateEntityRecord(

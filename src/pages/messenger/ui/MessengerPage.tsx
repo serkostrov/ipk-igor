@@ -46,10 +46,7 @@ export function MessengerPage({
         </div>
       </header>
 
-      <MessengerPanel
-        className="min-h-0 flex-1"
-        onOpenRecord={onOpenRecord}
-      />
+      <MessengerPanel className="min-h-0 flex-1" onOpenRecord={onOpenRecord} />
 
       <MessengerCreateDialog
         open={createMode != null}

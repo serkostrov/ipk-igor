@@ -4,14 +4,17 @@ import {
   emptyEntityRelationGroupsConfig,
   formulaToDisplay,
   getEntityFormulaOperands,
+  getEntityFormulaResultType,
   isEntityNumericFieldType,
   isEntityRelationGroupsConfigReady,
+  suggestFormulaResultType,
   type Entity,
   type EntityDeadlineConfig,
   type EntityDependenciesConfig,
   type EntityField,
   type EntityFieldDefaultValue,
   type EntityFieldType,
+  type EntityFormulaResultType,
   type EntityLookupConfig,
   type EntityNumberDecimals,
   type EntityNumberSignColor,
@@ -42,6 +45,8 @@ export type FieldTypeSettingsDraft = {
   /** Formula with `[Поле]` names, as typed. */
   formulaText: string;
   formulaDecimals: EntityNumberDecimals;
+  /** Declared formula result: number vs date. */
+  formulaResultType: EntityFormulaResultType;
   /** Live formula value in the create-record form. */
   formulaShowOnCreate: boolean;
   /**
@@ -81,8 +86,21 @@ const DEFAULT_VALUE_TYPES = new Set<EntityFieldType>([
   "belonging",
 ]);
 
-export function canShowFieldAsProgress(type: EntityFieldType) {
+export function canShowFieldAsProgress(
+  type: EntityFieldType,
+  formulaResultType: EntityFormulaResultType = "number",
+) {
+  if (type === "formula" && formulaResultType === "date") return false;
   return PROGRESS_TYPES.has(type);
+}
+
+/** Formula (and similar) fields that behave as numbers in settings / totals. */
+export function isEntityNumericSettingsType(
+  type: EntityFieldType,
+  formulaResultType: EntityFormulaResultType = "number",
+) {
+  if (type === "formula" && formulaResultType === "date") return false;
+  return isEntityNumericFieldType(type);
 }
 
 /** Lists need saved options; relations need a target entity. */
@@ -119,14 +137,22 @@ export function createFieldTypeSettingsDraft(
   const operands = entity
     ? getEntityFormulaOperands(entity, field?.id ?? null)
     : [];
+  const formulaExpression = field?.formula?.expression ?? "";
+  const formulaResultType: EntityFormulaResultType =
+    field?.type === "formula"
+      ? field.formula?.resultType != null
+        ? getEntityFormulaResultType(field)
+        : suggestFormulaResultType(formulaExpression)
+      : "number";
   return {
     formulaText: field?.formula
       ? formulaToDisplay(
-          field.formula.expression,
+          formulaExpression,
           (id) => operands.find((item) => item.id === id)?.name ?? null,
         )
       : "",
     formulaDecimals: field?.formula?.decimals ?? 2,
+    formulaResultType,
     formulaShowOnCreate: field?.formula?.showOnCreate === true,
     allowManualInput: field?.allowManualInput === true,
     rollup: field?.rollup ?? null,
@@ -208,11 +234,16 @@ export function resolveFieldTypeSettings(
 ): EntityFieldTypeSettings {
   const compiled =
     type === "formula" ? compileDraftFormula(draft, entity, fieldId) : null;
+  const formulaIsDate =
+    type === "formula" && draft.formulaResultType === "date";
   return {
     formula: compiled?.ok
       ? {
           expression: compiled.expression,
-          decimals: draft.formulaDecimals,
+          decimals: formulaIsDate ? 0 : draft.formulaDecimals,
+          ...(draft.formulaResultType === "date"
+            ? { resultType: "date" as const }
+            : {}),
           ...(draft.formulaShowOnCreate ? { showOnCreate: true } : {}),
         }
       : undefined,
@@ -226,9 +257,15 @@ export function resolveFieldTypeSettings(
       type === "relation" ? (draft.relationFilter ?? undefined) : undefined,
     deadline: type === "datetime" ? (draft.deadline ?? undefined) : undefined,
     numberDisplay:
-      draft.progress && canShowFieldAsProgress(type) ? "progress" : undefined,
+      !formulaIsDate &&
+      draft.progress &&
+      canShowFieldAsProgress(type, draft.formulaResultType)
+        ? "progress"
+        : undefined,
     numberSignColor:
-      draft.signColor && isEntityNumericFieldType(type)
+      !formulaIsDate &&
+      draft.signColor &&
+      isEntityNumericSettingsType(type, draft.formulaResultType)
         ? draft.signColor
         : undefined,
     allowManualInput:

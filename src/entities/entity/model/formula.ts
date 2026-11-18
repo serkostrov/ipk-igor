@@ -550,6 +550,17 @@ function evaluateNode(
       }
       if (node.op === "-") {
         const leftDate = typeof left === "string" ? extractIsoDate(left) : null;
+        const rightDate =
+          typeof right === "string" ? extractIsoDate(right) : null;
+        if (leftDate && rightDate) {
+          const leftParsed = parseIsoDate(leftDate);
+          const rightParsed = parseIsoDate(rightDate);
+          if (!leftParsed || !rightParsed) return null;
+          // Same span as DAYS(right; left): calendar days of left − right.
+          return Math.round(
+            (leftParsed.getTime() - rightParsed.getTime()) / 86_400_000,
+          );
+        }
         if (leftDate && typeof right === "number") {
           const shift = Math.round(right);
           return addBusinessDays(leftDate, -(Math.max(0, shift) - 1));
@@ -623,4 +634,44 @@ export function compileFormulaText(
   if (!converted.ok) return converted;
   const parsed = parseFormula(converted.expression);
   return parsed.ok ? converted : { ok: false, error: parsed.error };
+}
+
+const DATE_RESULT_FUNCTIONS = new Set(["TODAY", "WORKDAY", "ADDDAYS"]);
+
+function nodeSuggestsDateResult(node: FormulaNode): boolean {
+  switch (node.type) {
+    case "call":
+      if (DATE_RESULT_FUNCTIONS.has(node.name)) return true;
+      if (node.name === "IF" && node.args.length >= 3) {
+        return (
+          nodeSuggestsDateResult(node.args[1]!) &&
+          nodeSuggestsDateResult(node.args[2]!)
+        );
+      }
+      if (node.name === "COALESCE") {
+        return node.args.length > 0 && node.args.every(nodeSuggestsDateResult);
+      }
+      return false;
+    case "binary":
+      if (node.op === "+" || node.op === "-") {
+        return (
+          nodeSuggestsDateResult(node.left) && node.right.type === "number"
+        );
+      }
+      return false;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Best-effort result kind from a stored expression (legacy fields without
+ * `resultType`). Prefers `"date"` only for clearly date-producing roots.
+ */
+export function suggestFormulaResultType(
+  expression: string,
+): "number" | "date" {
+  const parsed = parseFormula(expression);
+  if (!parsed.ok) return "number";
+  return nodeSuggestsDateResult(parsed.ast) ? "date" : "number";
 }

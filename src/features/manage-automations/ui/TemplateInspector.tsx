@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type DragEvent,
@@ -71,15 +70,14 @@ import {
   type AutomationRelationGroupsAskMode,
   type AutomationTaskKind,
   type AutomationTaskTemplate,
-  type AutomationTaskUploadTarget,
 } from "@/entities/automation";
 import { AssigneeEditor } from "@/entities/automation/ui/AssigneeEditor";
 import {
+  FilesUploadTargetSettings,
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   isEntityComputedFieldType,
-  isEntityFilesTab,
   isEntityNameField,
   isEntityParentLinkField,
   isEntityRecordsTab,
@@ -265,8 +263,6 @@ const KIND_LABELS: Record<AutomationTaskKind, string> = {
   actions: "Автозаполнение",
 };
 
-const UPLOAD_ROOT_VALUE = "__root__";
-
 function TemplateUploadTargetSettings({
   entity,
   materials,
@@ -276,146 +272,26 @@ function TemplateUploadTargetSettings({
   materials: string[];
   onMaterialsChange: (materials: string[]) => void;
 }) {
-  const filesTabs = useMemo(
-    () => entity.tabs.filter((tab) => isEntityFilesTab(tab)),
-    [entity.tabs],
-  );
-  const target = getAutomationUploadTarget(materials);
-  const enabled = target != null;
-  const activeTab =
-    filesTabs.find((tab) => tab.id === target?.filesTabId) ?? filesTabs[0];
-  const folderOptions = activeTab?.defaultFolders ?? [];
-
-  function patchTarget(next: AutomationTaskUploadTarget | null) {
-    onMaterialsChange(setAutomationUploadTarget(materials, next));
-  }
-
-  function enableUpload(checked: boolean) {
-    if (!checked) {
-      patchTarget(null);
-      return;
-    }
-    const tab = filesTabs[0];
-    if (!tab) return;
-    patchTarget({
-      filesTabId: tab.id,
-      folderId: tab.defaultFolders[0]?.id ?? "",
-      // Default required — file lands on the element Files tab for acceptance.
-      required: true,
-    });
-  }
-
   return (
-    <div className="flex flex-col gap-3">
-      <InspectorSwitchRow>
-        <SettingSwitch
-          id="template-allow-upload"
-          title="Загрузка в задании"
-          description={
-            filesTabs.length === 0
-              ? "Нужна вкладка «Файлы» у сущности"
-              : "Файлы сразу попадают во вкладку «Файлы» записи (не в отдельное поле)"
-          }
-          checked={enabled}
-          disabled={filesTabs.length === 0}
-          onCheckedChange={enableUpload}
-        />
-      </InspectorSwitchRow>
-
-      {enabled && activeTab ? (
-        <div className="flex flex-col gap-3">
-          {filesTabs.length > 1 ? (
-            <Field title="Вкладка файлов">
-              <Select
-                value={activeTab.id}
-                onValueChange={(next) => {
-                  if (next == null) return;
-                  const tabId = String(next);
-                  const tab = filesTabs.find((item) => item.id === tabId);
-                  if (!tab || !target) return;
-                  patchTarget({
-                    ...target,
-                    filesTabId: tab.id,
-                    folderId: tab.defaultFolders[0]?.id ?? "",
-                  });
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>{activeTab.name}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {filesTabs.map((tab) => (
-                    <SelectItem key={tab.id} value={tab.id}>
-                      {tab.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          ) : null}
-
-          <Field title="Папка">
-            <Select
-              value={
-                target?.folderId.trim() ? target.folderId : UPLOAD_ROOT_VALUE
-              }
-              onValueChange={(next) => {
-                if (next == null || !target) return;
-                const value = String(next);
-                patchTarget({
-                  ...target,
-                  folderId: value === UPLOAD_ROOT_VALUE ? "" : value,
-                });
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {target?.folderId.trim()
-                    ? (folderOptions.find((item) => item.id === target.folderId)
-                        ?.name ?? "Папка")
-                    : "Без папки (корень)"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={UPLOAD_ROOT_VALUE}>
-                  Без папки (корень)
-                </SelectItem>
-                {folderOptions.map((folder) => (
-                  <SelectItem key={folder.id} value={folder.id}>
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="size-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: folder.color }}
-                        aria-hidden
-                      />
-                      {folder.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <InspectorSwitchRow>
-            <SettingSwitch
-              id="template-upload-required"
-              title="Обязательно для завершения"
-              description="Без файла во вкладке «Файлы» задание нельзя закрыть"
-              checked={target?.required === true}
-              onCheckedChange={(required) => {
-                if (!target) return;
-                patchTarget({ ...target, required });
-              }}
-            />
-          </InspectorSwitchRow>
-          <p className="text-[11px] leading-snug text-muted-foreground">
-            Для приёмки результата добавьте текстовое поле в «Запрос полей»,
-            отметьте его обязательным и «в комментарии» — так рукО увидит и
-            файл, и пояснение.
-          </p>
-        </div>
-      ) : null}
-    </div>
+    <FilesUploadTargetSettings
+      entity={entity}
+      value={getAutomationUploadTarget(materials)}
+      idPrefix="template-upload"
+      enableTitle="Загрузка в задании"
+      enableDescription="Файлы сразу попадают во вкладку «Файлы» записи (не в отдельное поле)"
+      requiredTitle="Обязательно для завершения"
+      requiredDescription="Без файла во вкладке «Файлы» задание нельзя закрыть"
+      footerHint={
+        <>
+          Для приёмки результата добавьте текстовое поле в «Запрос полей»,
+          отметьте его обязательным и «в комментарии» — так рукО увидит и файл,
+          и пояснение.
+        </>
+      }
+      onChange={(next) => {
+        onMaterialsChange(setAutomationUploadTarget(materials, next));
+      }}
+    />
   );
 }
 

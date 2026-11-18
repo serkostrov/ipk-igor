@@ -9,21 +9,16 @@
  * and are visible during acceptance (рукО / view tabs).
  */
 
-import { isEntityFilesTab, type Entity } from "@/entities/entity";
+import {
+  isEntityFilesTab,
+  type Entity,
+  type EntityFilesUploadTarget,
+} from "@/entities/entity";
 
 export const AUTOMATION_UPLOAD_TARGET_PREFIX = "uploadTarget:";
 
-export type AutomationTaskUploadTarget = {
-  /** Files tab on the process entity. */
-  filesTabId: string;
-  /**
-   * Default-folder id from the tab (`EntityTabDefaultFolder.id`).
-   * Empty string = root of the files tab («Без папки»).
-   */
-  folderId: string;
-  /** Block complete until the target folder has at least one file. */
-  required: boolean;
-};
+/** Same shape as entity create-upload target. */
+export type AutomationTaskUploadTarget = EntityFilesUploadTarget;
 
 function encodeUploadTarget(target: AutomationTaskUploadTarget): string {
   const folderKey = target.folderId.trim() || "*";

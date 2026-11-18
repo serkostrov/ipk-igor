@@ -136,7 +136,10 @@ export async function loadNewsFeedPost(postId: string): Promise<FeedPost> {
     return post;
   } catch (error) {
     if (existing) return existing;
-    throw new Error(feedErrorMessage(error, "Не удалось загрузить публикацию"));
+    throw new Error(
+      feedErrorMessage(error, "Не удалось загрузить публикацию"),
+      { cause: error },
+    );
   }
 }
 

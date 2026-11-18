@@ -177,11 +177,19 @@ export type EntityListOption = {
 
 export type EntityNumberSignColor = "positiveRed" | "positiveGreen";
 
+/** Declared result of a `formula` field (drives filters, settings, editors). */
+export type EntityFormulaResultType = "number" | "date";
+
 /** `formula` field: arithmetic over this record's fields. */
 export type EntityFormulaConfig = {
   /** Expression with `{{fieldId}}` references. */
   expression: string;
   decimals: EntityNumberDecimals;
+  /**
+   * Declared result kind. Default `"number"` when omitted (legacy configs).
+   * `"date"` — ISO `YYYY-MM-DD` result; numeric settings do not apply.
+   */
+  resultType?: EntityFormulaResultType;
   /**
    * Show a live calculated value in the create-record form.
    * Opt-in — blank drafts often have no operands yet.
@@ -749,6 +757,11 @@ export type Entity = {
    * New records receive this value as `schemaVersion`.
    */
   publishedVersion: number;
+  /**
+   * Create-dialog upload into a Files tab (not a `type: "file"` field).
+   * `null` — no upload block on create.
+   */
+  createUpload: EntityFilesUploadTarget | null;
   records: EntityRecord[];
 };
 
@@ -813,6 +826,22 @@ export type EntityTabDefaultFolder = {
   id: string;
   name: string;
   color: string;
+};
+
+/**
+ * Upload target for files that land on an entity Files tab (create dialog /
+ * automation task), not on a `type: "file"` field.
+ */
+export type EntityFilesUploadTarget = {
+  /** Files tab id on the entity. */
+  filesTabId: string;
+  /**
+   * Default-folder id from the tab (`EntityTabDefaultFolder.id`).
+   * Empty string = root of the files tab («Без папки»).
+   */
+  folderId: string;
+  /** Block submit/complete until the target folder has at least one file. */
+  required: boolean;
 };
 
 export type EntityTab = {

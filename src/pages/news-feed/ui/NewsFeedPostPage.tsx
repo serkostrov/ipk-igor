@@ -31,11 +31,16 @@ export function NewsFeedPostPage({ postId }: { postId: string }) {
   const posts = useNewsFeedPosts();
   const fromStore = posts.find((item) => item.id === postId) ?? null;
 
-  const [post, setPost] = useState<FeedPost | null>(fromStore);
+  const [fetched, setFetched] = useState<{
+    postId: string;
+    post: FeedPost;
+  } | null>(null);
   const [loading, setLoading] = useState(fromStore == null);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const fetchedPost = fetched?.postId === postId ? fetched.post : null;
+  const post = fromStore ?? fetchedPost;
 
   useEffect(() => {
     let cancelled = false;
@@ -45,11 +50,13 @@ export function NewsFeedPostPage({ postId }: { postId: string }) {
       try {
         const next = await loadNewsFeedPost(postId);
         if (cancelled) return;
-        setPost(next);
+        setFetched({ postId, post: next });
       } catch (err) {
         if (cancelled) return;
         setError(
-          err instanceof Error ? err.message : "Не удалось загрузить публикацию",
+          err instanceof Error
+            ? err.message
+            : "Не удалось загрузить публикацию",
         );
       } finally {
         if (!cancelled) setLoading(false);
@@ -58,13 +65,9 @@ export function NewsFeedPostPage({ postId }: { postId: string }) {
     return () => {
       cancelled = true;
     };
-    // Intentionally only when postId changes — store sync is below.
+    // Intentionally only when postId changes — prefer live store when present.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postId]);
-
-  useEffect(() => {
-    if (fromStore) setPost(fromStore);
-  }, [fromStore]);
 
   const authorName = useMemo(
     () => (post ? resolveFeedAuthorName(entities, post.authorId) : ""),
@@ -90,8 +93,7 @@ export function NewsFeedPostPage({ postId }: { postId: string }) {
           variant="outline"
           onClick={() => back({ type: "feed" })}
         >
-          <ArrowLeft className="size-4" />
-          К ленте
+          <ArrowLeft className="size-4" />К ленте
         </Button>
       </div>
     );

@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
 import { useCanCreateNewsPosts } from "@/entities/access";
-import {
-  findLegalEntitiesEntity,
-  useEntityConfig,
-} from "@/entities/entity";
+import { findLegalEntitiesEntity, useEntityConfig } from "@/entities/entity";
 import {
   loadMoreNewsFeed,
   loadNewsFeed,

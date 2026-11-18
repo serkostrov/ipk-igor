@@ -1117,6 +1117,7 @@ export function updateEntity(
       | "tableParentFieldId"
       | "tableSubgroupFieldId"
       | "tableNestedEntityId"
+      | "createUpload"
     >
   >,
 ) {
@@ -3382,7 +3383,11 @@ export function waitForEntityRecordDelete(recordId: string): Promise<void> {
   return pendingRecordDeletes.get(recordId) ?? Promise.resolve();
 }
 
-function insertRecord(entityId: string, values: Record<string, string>) {
+function insertRecord(
+  entityId: string,
+  values: Record<string, string>,
+  options?: { id?: string },
+) {
   const entity = config.entities.find((item) => item.id === entityId);
   const withFieldDefaults = entity
     ? applyTkpAnalysisCreateDefaults(
@@ -3397,8 +3402,9 @@ function insertRecord(entityId: string, values: Record<string, string>) {
   const withDefaults = entity
     ? applyKanbanListDefault(entity, withFilesDefaults)
     : withFilesDefaults;
+  const requestedId = options?.id?.trim();
   const record = normalizeEntityRecord({
-    id: createId("record"),
+    id: requestedId || createId("record"),
     values: withDefaults,
     authUserId: null,
     createdBy: currentAuthUserId,
@@ -3431,8 +3437,14 @@ function insertRecord(entityId: string, values: Record<string, string>) {
 export function addEntityRecord(
   entityId: string,
   values: Record<string, string> = {},
+  options?: { id?: string },
 ) {
-  return insertRecord(entityId, values);
+  return insertRecord(entityId, values, options);
+}
+
+/** Stable id for a record that will be created (create dialog / pre-upload). */
+export function createEntityRecordId() {
+  return createId("record");
 }
 
 /** Starts a timer on the record; the user's running timer is stopped first. */

@@ -562,7 +562,9 @@ export function EntityPage({
             isUsersEntity
               ? async (values, meta) => {
                   if (!isSupabaseConfigured) {
-                    addEntityRecord(currentEntity.id, values);
+                    addEntityRecord(currentEntity.id, values, {
+                      id: meta.recordId,
+                    });
                     return;
                   }
                   const password = meta.password?.trim() ?? "";

@@ -9,7 +9,6 @@ import { useMemo } from "react";
 import {
   createEntityDraftRecord,
   formatTkpGipDepartmentExtras,
-  getFormulaResult,
   ListSelect,
   RelationGroupsFieldControl,
   RelationSelect,
@@ -24,6 +23,7 @@ import {
   isEntityComputedAutoValueEmpty,
   isEntityComputedFieldType,
   isEntityFieldManualInputEnabled,
+  isEntityFormulaDateField,
   isEntityNameField,
   isValidEntityEmail,
   resolveTkpGipDepartmentRecordId,
@@ -47,7 +47,6 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
-import { extractIsoDate } from "@/shared/lib/business-days";
 import {
   formatDateDisplay,
   joinDatetime,
@@ -305,20 +304,11 @@ export function RecordFieldControl({
       draftRecord,
       field,
     );
-    const formulaDate =
-      field.type === "formula"
-        ? (() => {
-            const raw = getFormulaResult(ctx, entity, draftRecord, field);
-            if (typeof raw === "string") return extractIsoDate(raw);
-            return extractIsoDate(value);
-          })()
-        : null;
     const manualEnabled = isEntityFieldManualInputEnabled(field);
-    // Date formulas stay in the computed date UI — not the number editor.
     // Formula / rollup / sum with manual: always editable (soft-fill from parent).
+    // Date formulas use a datetime stand-in (see resolveEntityComputedManualEditField).
     // Lookup: editable only when auto is empty (or already overridden).
     const preferManualEdit =
-      !formulaDate &&
       manualEnabled &&
       (field.type === "formula" ||
         field.type === "rollup" ||
@@ -331,9 +321,10 @@ export function RecordFieldControl({
 
     if (manualEditField) {
       const softManualNumber =
-        field.type === "formula" ||
-        field.type === "rollup" ||
-        field.type === "numberSum";
+        !isEntityFormulaDateField(field) &&
+        (field.type === "formula" ||
+          field.type === "rollup" ||
+          field.type === "numberSum");
       return (
         <RecordFieldControl
           ctx={ctx}
@@ -368,6 +359,7 @@ export function RecordFieldControl({
     }
 
     const display = formatRecordFieldValue(ctx, entity, draftRecord, field);
+    const autoIsDate = isEntityFormulaDateField(field);
     return (
       <div className="flex flex-col gap-2">
         <div className="flex min-w-0 items-baseline gap-x-1.5 gap-y-0.5">
@@ -381,7 +373,11 @@ export function RecordFieldControl({
         </div>
         <div
           id={id}
-          className="flex h-9 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-sm tabular-nums text-foreground"
+          className={
+            autoIsDate
+              ? "flex h-9 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-sm text-foreground"
+              : "flex h-9 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-sm tabular-nums text-foreground"
+          }
         >
           <span
             className={

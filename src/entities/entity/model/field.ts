@@ -3,6 +3,7 @@ import {
   formatDatetimeOrDash,
   splitDatetime,
 } from "@/shared/lib/format-date";
+import type { EntityFormulaResultType } from "./types";
 
 export type EntityFieldType =
   | "text"
@@ -154,6 +155,33 @@ export function isEntityUnitFieldType(type: EntityFieldType) {
 /** Types with numeric values: number filters, column totals, numeric widths. */
 export function isEntityNumericFieldType(type: EntityFieldType) {
   return type === "numberSum" || isEntityUnitFieldType(type);
+}
+
+/** Declared formula result kind (`"number"` when unset / not a formula). */
+export function getEntityFormulaResultType(
+  field:
+    | {
+        type: EntityFieldType;
+        formula?: { resultType?: EntityFormulaResultType } | null;
+      }
+    | null
+    | undefined,
+): EntityFormulaResultType {
+  if (field?.type !== "formula") return "number";
+  return field.formula?.resultType === "date" ? "date" : "number";
+}
+
+/** Formula field configured to return an ISO date. */
+export function isEntityFormulaDateField(
+  field:
+    | {
+        type: EntityFieldType;
+        formula?: { resultType?: EntityFormulaResultType } | null;
+      }
+    | null
+    | undefined,
+): boolean {
+  return getEntityFormulaResultType(field) === "date";
 }
 
 /** Dependency kinds between records on a timeline. */

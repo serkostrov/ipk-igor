@@ -7,6 +7,7 @@ import {
   type EntityValueContext,
 } from "../model/field-value";
 import {
+  isEntityFormulaDateField,
   isEntityNumericFieldType,
   parseEntityRelationGroups,
 } from "../model/field";
@@ -38,7 +39,7 @@ export function RecordValue({
   field: EntityField;
   className?: string;
 }) {
-  if (field.numberDisplay === "progress") {
+  if (field.numberDisplay === "progress" && !isEntityFormulaDateField(field)) {
     return (
       <ProgressValue
         value={getRecordFieldNumber(ctx, entity, record, field)}
@@ -117,13 +118,16 @@ export function RecordValue({
 
   // Formula keeps proportional digits (same look as lookups / plain text).
   const numeric =
-    isEntityNumericFieldType(field.type) && field.type !== "formula";
-  const signClass = field.numberSignColor
-    ? getSignClass(
-        field.numberSignColor,
-        getRecordFieldNumber(ctx, entity, record, field),
-      )
-    : null;
+    isEntityNumericFieldType(field.type) &&
+    field.type !== "formula" &&
+    !isEntityFormulaDateField(field);
+  const signClass =
+    field.numberSignColor && !isEntityFormulaDateField(field)
+      ? getSignClass(
+          field.numberSignColor,
+          getRecordFieldNumber(ctx, entity, record, field),
+        )
+      : null;
   return (
     <span
       className={cn(

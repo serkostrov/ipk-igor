@@ -65,6 +65,7 @@ import {
   canShowFieldAsProgress,
   createFieldTypeSettingsDraft,
   getFieldTypeSettingsError,
+  isEntityNumericSettingsType,
   resolveFieldTypeSettings,
   type EntityFieldTypeSettings,
   type FieldTypeSettingsDraft,
@@ -1197,7 +1198,11 @@ function buildEntityFieldFormData({
     showInFilters,
     showOnCreate: required ? true : Boolean(showOnCreate),
     visibilityConditions,
-    includeInTotal: isEntityNumericFieldType(resolvedType) && includeInTotal,
+    includeInTotal:
+      isEntityNumericSettingsType(
+        resolvedType,
+        typeSettings.formulaResultType,
+      ) && includeInTotal,
     tablePosition: Math.min(columnTotal, Math.max(minPosition, tablePosition)),
     relationEntityId: resolvedRelationEntityId,
     relationMultiple:
@@ -1210,7 +1215,11 @@ function buildEntityFieldFormData({
       resolvedType === "list" ? listSourceFieldId.trim() || null : null,
     listMultiple: resolvedType === "list" ? Boolean(listMultiple) : false,
     unitSuffix:
-      isEntityUnitFieldType(resolvedType) && useUnit
+      isEntityUnitFieldType(resolvedType) &&
+      !(
+        resolvedType === "formula" && typeSettings.formulaResultType === "date"
+      ) &&
+      useUnit
         ? unitSuffix.trim() || null
         : null,
     decimals:
@@ -1447,11 +1456,18 @@ function EntityFieldForm({
       value: item.id,
       label: getEntityFieldDisplayName(item),
     }));
+  const formulaIsDate =
+    effectiveType === "formula" && typeSettings.formulaResultType === "date";
+  const showNumericFormulaSettings = isEntityNumericSettingsType(
+    effectiveType,
+    typeSettings.formulaResultType,
+  );
   const canSubmit =
     (type !== "relation" || relationEntityId.trim().length > 0) &&
     !(isNumberType && useAsSum && sumFieldIds.length === 0) &&
     !(
       isEntityUnitFieldType(effectiveType) &&
+      !formulaIsDate &&
       useUnit &&
       unitSuffix.trim().length === 0
     ) &&
@@ -1815,18 +1831,52 @@ function EntityFieldForm({
                   />
                 ) : null}
                 {type === "formula" ? (
+                  <SettingSelect
+                    id="entity-field-formula-result-type"
+                    title="Результат"
+                    description="Число — расчёты и итоги; дата — сроки и фильтры по дате"
+                    value={typeSettings.formulaResultType}
+                    options={[
+                      { value: "number", label: "Число" },
+                      { value: "date", label: "Дата" },
+                    ]}
+                    onChange={(formulaResultType) => {
+                      if (
+                        formulaResultType !== "number" &&
+                        formulaResultType !== "date"
+                      ) {
+                        return;
+                      }
+                      patchTypeSettings({
+                        formulaResultType,
+                        ...(formulaResultType === "date"
+                          ? { progress: false, signColor: null }
+                          : {}),
+                      });
+                      if (formulaResultType === "date") {
+                        setIncludeInTotal(false);
+                        setUseUnit(false);
+                        setUnitSuffix("");
+                      }
+                    }}
+                  />
+                ) : null}
+                {type === "formula" ? (
                   <FormulaSettings
                     entity={currentEntity}
                     fieldId={field?.id ?? null}
                     text={typeSettings.formulaText}
                     decimals={typeSettings.formulaDecimals}
-                    unitSuffix={useUnit ? unitSuffix : null}
+                    resultType={typeSettings.formulaResultType}
+                    unitSuffix={
+                      formulaIsDate ? null : useUnit ? unitSuffix : null
+                    }
                     onTextChange={(formulaText) =>
                       patchTypeSettings({ formulaText })
                     }
                   />
                 ) : null}
-                {type === "formula" ? (
+                {type === "formula" && !formulaIsDate ? (
                   <DecimalsSelect
                     id="entity-field-formula-decimals"
                     value={typeSettings.formulaDecimals}
@@ -1953,7 +2003,7 @@ function EntityFieldForm({
                     onMultipleChange={setListMultiple}
                   />
                 ) : null}
-                {isEntityUnitFieldType(effectiveType) ? (
+                {isEntityUnitFieldType(effectiveType) && !formulaIsDate ? (
                   <NumberUnitControl
                     enabled={useUnit}
                     onEnabledChange={handleUseUnitChange}
@@ -1978,7 +2028,10 @@ function EntityFieldForm({
                     onSelectedIdsChange={setSumFieldIds}
                   />
                 ) : null}
-                {canShowFieldAsProgress(effectiveType) ? (
+                {canShowFieldAsProgress(
+                  effectiveType,
+                  typeSettings.formulaResultType,
+                ) ? (
                   <SettingSwitch
                     id="entity-field-progress"
                     title="Прогресс"
@@ -1989,7 +2042,7 @@ function EntityFieldForm({
                     }
                   />
                 ) : null}
-                {isEntityNumericFieldType(effectiveType) ? (
+                {showNumericFormulaSettings ? (
                   <SettingSelect
                     id="entity-field-sign-color"
                     title="Цвет по знаку"
@@ -2007,7 +2060,7 @@ function EntityFieldForm({
                     }
                   />
                 ) : null}
-                {isEntityNumericFieldType(effectiveType) ? (
+                {showNumericFormulaSettings ? (
                   <NumberTotalControl
                     checked={includeInTotal}
                     onCheckedChange={setIncludeInTotal}
@@ -2030,7 +2083,9 @@ function EntityFieldForm({
                     title="Возможен ручной ввод"
                     description={
                       effectiveType === "formula"
-                        ? "Если поля в формуле ещё не заполнены — можно ввести значение вручную"
+                        ? formulaIsDate
+                          ? "Если поля в формуле ещё не заполнены — можно указать дату вручную"
+                          : "Если поля в формуле ещё не заполнены — можно ввести значение вручную"
                         : "Если автозначение пусто — можно указать вручную"
                     }
                     checked={typeSettings.allowManualInput}

@@ -914,6 +914,14 @@ export function collectSingleCreateAskFieldValues(
     const key = createRecordAskDraftKey(actionId, fieldId);
     if (key in values) result[fieldId] = values[key] ?? "";
   }
+  // Recover Files-tab uploads stored via writeSingleCreateAskFieldValues.
+  const draftPrefix = createRecordAskDraftKey(actionId, "");
+  for (const [key, value] of Object.entries(values)) {
+    if (!key.startsWith(draftPrefix)) continue;
+    const fieldId = key.slice(draftPrefix.length);
+    if (!fieldId.startsWith("__tab_files__:")) continue;
+    result[fieldId] = value;
+  }
   return result;
 }
 
@@ -927,6 +935,11 @@ export function writeSingleCreateAskFieldValues(
   for (const fieldId of askFieldIds) {
     next[createRecordAskDraftKey(actionId, fieldId)] =
       fieldValues[fieldId] ?? "";
+  }
+  // Preserve Files-tab uploads from entity createUpload on the create dialog.
+  for (const [key, value] of Object.entries(fieldValues)) {
+    if (!key.startsWith("__tab_files__:")) continue;
+    next[createRecordAskDraftKey(actionId, key)] = value;
   }
   return next;
 }

@@ -253,11 +253,24 @@ function readAskDraftValues(
   fieldIds: string[] | undefined,
   keyFor: (fieldId: string) => string,
 ): Record<string, string> {
-  if (!formValues || !fieldIds?.length) return {};
+  if (!formValues) return {};
   const result: Record<string, string> = {};
-  for (const fieldId of fieldIds) {
+  for (const fieldId of fieldIds ?? []) {
     const key = keyFor(fieldId);
     if (key in formValues) result[fieldId] = formValues[key] ?? "";
+  }
+  // Files-tab uploads from entity createUpload on the create dialog.
+  const probe = keyFor("__tab_files__:__probe__");
+  const marker = "__tab_files__:__probe__";
+  const markerAt = probe.lastIndexOf(marker);
+  if (markerAt >= 0) {
+    const prefix = probe.slice(0, markerAt);
+    for (const [key, value] of Object.entries(formValues)) {
+      if (!key.startsWith(prefix)) continue;
+      const fieldId = key.slice(prefix.length);
+      if (!fieldId.startsWith("__tab_files__:")) continue;
+      result[fieldId] = value;
+    }
   }
   return result;
 }

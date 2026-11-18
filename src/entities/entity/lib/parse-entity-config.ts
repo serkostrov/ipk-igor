@@ -32,6 +32,7 @@ import type {
 import { ENTITY_ROLLUP_AGGREGATIONS, isEntityBrowseView } from "../model/types";
 import { normalizeEntityPageLayout } from "../model/page-layout";
 import { isEntityTableParentField } from "../model/table-hierarchy";
+import { resolveEntityCreateUpload } from "./files-upload-target";
 import {
   ENTITY_OVERVIEW_TAB_ID,
   ensureEntityFieldGroups,
@@ -152,6 +153,12 @@ function normalizeDecimals(value: unknown): EntityNumberDecimals {
   return normalizeEntityNumberDecimals(value);
 }
 
+function normalizeFormulaResultType(
+  value: unknown,
+): EntityFormulaConfig["resultType"] {
+  return value === "date" ? "date" : undefined;
+}
+
 function normalizeFormulaConfig(
   value: unknown,
 ): EntityFormulaConfig | undefined {
@@ -159,6 +166,7 @@ function normalizeFormulaConfig(
   return {
     expression: typeof value.expression === "string" ? value.expression : "",
     decimals: normalizeDecimals(value.decimals),
+    resultType: normalizeFormulaResultType(value.resultType),
     showOnCreate: value.showOnCreate === true ? true : undefined,
   };
 }
@@ -855,9 +863,10 @@ function migrateLegacyListOptionsToFields(
 }
 
 export function normalizeEntity(
-  entity: Omit<Entity, "nameTemplate" | "publishedVersion"> & {
+  entity: Omit<Entity, "nameTemplate" | "publishedVersion" | "createUpload"> & {
     nameTemplate?: string;
     publishedVersion?: number;
+    createUpload?: Entity["createUpload"];
     listOptions?: EntityListOption[];
     statuses?: EntityListOption[];
     listFixed?: boolean;
@@ -963,6 +972,10 @@ export function normalizeEntity(
     publishedVersion: normalizeEntitySchemaVersion(
       (entity as { publishedVersion?: unknown }).publishedVersion,
     ),
+    createUpload: resolveEntityCreateUpload(
+      tabs,
+      (entity as { createUpload?: unknown }).createUpload,
+    ),
     records: (entity.records ?? []).map((record) =>
       normalizeEntityRecord(record),
     ),
@@ -1012,6 +1025,7 @@ export function toEntityStructure(entity: Entity) {
     timeTracking: normalizeEntityTimeTracking(entity.timeTracking),
     timeline: normalizeEntityTimeline(entity.timeline),
     pageLayout: normalizeEntityPageLayout(entity.pageLayout),
+    createUpload: resolveEntityCreateUpload(entity.tabs, entity.createUpload),
   };
 }
 
@@ -1117,6 +1131,7 @@ export function parseEntityConfig(value: unknown): EntityConfig {
         timeline: normalizeEntityTimeline(item.timeline),
         pageLayout: normalizeEntityPageLayout(item.pageLayout),
         publishedVersion: normalizeEntitySchemaVersion(item.publishedVersion),
+        createUpload: resolveEntityCreateUpload(tabs, item.createUpload),
         records: [],
       }),
     );
