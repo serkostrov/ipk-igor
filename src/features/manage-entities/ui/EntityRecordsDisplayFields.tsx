@@ -110,6 +110,8 @@ type EntityRecordsDisplayFieldsProps = {
   onTableParentFieldIdChange?: (value: string | null) => void;
   columnsSelectId?: string;
   hint?: string;
+  /** Override hierarchy panel subtitle (e.g. when tab uses flat list). */
+  tableHierarchyHint?: string;
 };
 
 function CardsSettingsPanel({
@@ -179,6 +181,7 @@ function TableSettingsPanel({
   tableSubgroupFieldId,
   tableNestedEntityId,
   onTableHierarchyChange,
+  hierarchyHint,
   onBack,
 }: {
   entity: Entity;
@@ -190,6 +193,7 @@ function TableSettingsPanel({
     tableSubgroupFieldId: string | null;
     tableNestedEntityId: string | null;
   }) => void;
+  hierarchyHint?: string;
   onBack: () => void;
 }) {
   const { entities } = useEntityConfig();
@@ -244,7 +248,8 @@ function TableSettingsPanel({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium leading-none">Настройки таблицы</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Как показывать «{entityLabel}» на странице родителя
+            {hierarchyHint?.trim() ||
+              `Группировка «${entityLabel}» на странице сущности и на вкладках без плоского списка`}
           </p>
         </div>
       </div>
@@ -314,6 +319,7 @@ export function EntityRecordsDisplayFields({
   onTableParentFieldIdChange,
   columnsSelectId = "entity-record-columns",
   hint,
+  tableHierarchyHint,
 }: EntityRecordsDisplayFieldsProps) {
   const [settingsKind, setSettingsKind] = useState<SettingsKind | null>(null);
   const handleHierarchyChange =
@@ -347,6 +353,7 @@ export function EntityRecordsDisplayFields({
         entity={entity}
         tableParentFieldId={tableParentFieldId}
         tableSubgroupFieldId={tableSubgroupFieldId}
+        hierarchyHint={tableHierarchyHint}
         tableNestedEntityId={tableNestedEntityId}
         onTableHierarchyChange={handleHierarchyChange}
         onBack={() => setSettingsKind(null)}

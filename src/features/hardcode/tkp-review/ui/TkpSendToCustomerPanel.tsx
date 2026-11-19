@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
-import { Input } from "@/shared/ui/input";
+import { DatePicker } from "@/shared/ui/date-picker";
+import { Label } from "@/shared/ui/label";
 import {
   findTkpLeadRelationField,
   getEntityRelationTargetId,
@@ -144,22 +145,14 @@ export function TkpSendToCustomerPanel({
         </p>
       ) : (
         <>
-          <label className="flex flex-col gap-1 text-xs">
-            Дата отправки
-            <Input
-              type="date"
-              value={sentAt}
-              onChange={(event) => setSentAt(event.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs">
-            Дата следующего звонка
-            <Input
-              type="date"
-              value={nextCallAt}
-              onChange={(event) => setNextCallAt(event.target.value)}
-            />
-          </label>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">Дата отправки</Label>
+            <DatePicker value={sentAt} onChange={setSentAt} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">Дата следующего звонка</Label>
+            <DatePicker value={nextCallAt} onChange={setNextCallAt} />
+          </div>
           <Button
             type="button"
             size="sm"

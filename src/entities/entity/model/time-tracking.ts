@@ -183,6 +183,26 @@ export type EntityTimeEntryRow = {
   running: boolean;
 };
 
+/**
+ * Sum of stored hours on a record’s time journal.
+ * `null` — учёта времени нет; `0` — сессий с часами пока нет.
+ * Running timers without written hours are skipped (stable field value).
+ */
+export function sumRecordTimeHours(
+  entity: Pick<Entity, "timeTracking">,
+  recordId: string,
+  entities: readonly Entity[],
+): number | null {
+  const rows = listRecordTimeEntries(entity, recordId, entities);
+  if (!rows) return null;
+  let sum = 0;
+  for (const row of rows) {
+    if (row.hours == null || !Number.isFinite(row.hours)) continue;
+    sum += row.hours;
+  }
+  return Math.round(sum * 100) / 100;
+}
+
 /** Time entries linked to one record, newest first. `null` — tracking not set up. */
 export function listRecordTimeEntries(
   entity: Pick<Entity, "timeTracking">,

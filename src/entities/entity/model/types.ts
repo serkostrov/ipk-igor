@@ -380,6 +380,11 @@ export type EntityField = {
   /** When true, a relation field stores several linked record ids. */
   relationMultiple: boolean;
   /**
+   * When true (multi relation to users): on create, each selected user gets
+   * their own record of this entity with that single user in the field.
+   */
+  relationSpawnPerUser: boolean;
+  /**
    * Optional unit suffix for `number` fields (e.g. «м/с», «м/с»).
    * Shown after the formatted number in display and input.
    */
@@ -430,8 +435,9 @@ export type EntityField = {
   dependencies?: EntityDependenciesConfig;
   relationGroups?: EntityRelationGroupsConfig;
   /**
-   * Computed fields (lookup / formula / rollup / numberSum): when the
-   * auto value is empty, allow storing a manual value in `record.values`.
+   * Computed fields (lookup / formula / rollup / numberSum / timeHours):
+   * when the auto value is empty, allow storing a manual value in
+   * `record.values`.
    */
   allowManualInput?: boolean;
   /** Value prefilled for new records. */
@@ -489,6 +495,7 @@ export function createEntityNameField(id: string): EntityField {
     tableOrder: 0,
     relationEntityId: null,
     relationMultiple: false,
+    relationSpawnPerUser: false,
     unitSuffix: null,
     decimals: 2,
     sumFieldIds: [],
@@ -590,8 +597,12 @@ export function isEntityFieldVisibleOnCreate(
   if (field.type === "formula") {
     return field.required || field.formula?.showOnCreate === true;
   }
-  // Rollup / numberSum stay hidden on create (need saved / related data).
-  if (field.type === "rollup" || field.type === "numberSum") {
+  // Rollup / numberSum / timeHours stay hidden on create (need related data).
+  if (
+    field.type === "rollup" ||
+    field.type === "numberSum" ||
+    field.type === "timeHours"
+  ) {
     return false;
   }
   if (field.required) return true;
@@ -874,6 +885,12 @@ export type EntityTab = {
    * The record is shown fully (not collapsed) with field layout from settings.
    */
   singleRecord: boolean;
+  /**
+   * For `kind: "entity"` — show linked records as a flat table on this tab,
+   * ignoring the linked entity’s `tableParentFieldId` / nested hierarchy.
+   * The entity’s own browse page keeps its grouping.
+   */
+  tableFlat: boolean;
 };
 
 /** File attached to a note on a `kind: "records"` tab. */
@@ -1224,6 +1241,7 @@ export function createEntityOverviewTab(): EntityTab {
     sourceTabId: null,
     defaultFolders: [],
     singleRecord: false,
+    tableFlat: false,
   };
 }
 
@@ -1465,12 +1483,17 @@ export function buildEntityTabDefaultFileEntries(
 export function normalizeEntityTab(
   tab: Omit<
     EntityTab,
-    "defaultFolders" | "sourceRelationFieldId" | "sourceTabId" | "singleRecord"
+    | "defaultFolders"
+    | "sourceRelationFieldId"
+    | "sourceTabId"
+    | "singleRecord"
+    | "tableFlat"
   > & {
     defaultFolders?: EntityTabDefaultFolder[] | unknown;
     sourceRelationFieldId?: string | null;
     sourceTabId?: string | null;
     singleRecord?: boolean;
+    tableFlat?: boolean;
   },
 ): EntityTab {
   const locked = isEntityOverviewTab(tab);
@@ -1499,6 +1522,7 @@ export function normalizeEntityTab(
       ? normalizeEntityTabDefaultFolders(tab.defaultFolders)
       : [];
   const singleRecord = kind === "entity" && Boolean(tab.singleRecord);
+  const tableFlat = kind === "entity" && Boolean(tab.tableFlat);
   return {
     id: locked ? ENTITY_OVERVIEW_TAB_ID : tab.id,
     name:
@@ -1515,6 +1539,7 @@ export function normalizeEntityTab(
     sourceTabId: locked ? null : sourceTabId,
     defaultFolders,
     singleRecord,
+    tableFlat,
   };
 }
 

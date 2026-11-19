@@ -21,6 +21,7 @@ export function createProjectGanttHardcodeTab(): EntityTab {
     sourceTabId: null,
     defaultFolders: [],
     singleRecord: false,
+    tableFlat: false,
   };
 }
 

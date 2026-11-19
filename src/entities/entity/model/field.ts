@@ -1,7 +1,7 @@
+import { extractIsoDate } from "@/shared/lib/business-days";
 import {
   formatDateDisplay,
   formatDatetimeOrDash,
-  splitDatetime,
 } from "@/shared/lib/format-date";
 import type { EntityFormulaResultType } from "./types";
 
@@ -26,10 +26,12 @@ export type EntityFieldType =
   | "file"
   | "formula"
   | "rollup"
-  | "lookup";
+  | "lookup"
+  /** Sum of hours from the entity’s «Учёт времени» journal. */
+  | "timeHours";
 
 /**
- * Fraction digits for number / numberSum / formula / rollup.
+ * Fraction digits for number / numberSum / formula / rollup / timeHours.
  * Integer in `0…ENTITY_NUMBER_DECIMALS_MAX` (default 2).
  */
 export type EntityNumberDecimals = number;
@@ -60,6 +62,7 @@ export const ENTITY_FIELD_TYPE_OPTIONS: Array<{
   { value: "formula", label: "Формула" },
   { value: "rollup", label: "Сводка по связанным" },
   { value: "lookup", label: "Значение из связи" },
+  { value: "timeHours", label: "Сумма учёта времени" },
 ];
 
 /** Type picker sections in field settings. */
@@ -87,7 +90,10 @@ export const ENTITY_FIELD_TYPE_GROUPS: Array<{
     label: "Списки и связи",
     types: ["list", "relation", "belonging", "relationGroups", "dependencies"],
   },
-  { label: "Вычисляемые", types: ["formula", "rollup", "lookup"] },
+  {
+    label: "Вычисляемые",
+    types: ["formula", "rollup", "lookup", "timeHours"],
+  },
 ];
 
 /** Relation and belonging — both store related record id(s). */
@@ -114,7 +120,8 @@ export function isEntityComputedFieldType(type: EntityFieldType) {
     type === "numberSum" ||
     type === "formula" ||
     type === "rollup" ||
-    type === "lookup"
+    type === "lookup" ||
+    type === "timeHours"
   );
 }
 
@@ -141,7 +148,12 @@ export function isEntityFieldManualInputEnabled(field: {
  * Lookup stays toggleable.
  */
 export function canEntityFieldToggleShowOnCreate(type: EntityFieldType) {
-  if (type === "formula" || type === "rollup" || type === "numberSum") {
+  if (
+    type === "formula" ||
+    type === "rollup" ||
+    type === "numberSum" ||
+    type === "timeHours"
+  ) {
     return false;
   }
   return true;
@@ -149,7 +161,12 @@ export function canEntityFieldToggleShowOnCreate(type: EntityFieldType) {
 
 /** Types that may carry a unit suffix («ч», «₽», «%»). */
 export function isEntityUnitFieldType(type: EntityFieldType) {
-  return type === "number" || type === "formula" || type === "rollup";
+  return (
+    type === "number" ||
+    type === "formula" ||
+    type === "rollup" ||
+    type === "timeHours"
+  );
 }
 
 /** Types with numeric values: number filters, column totals, numeric widths. */
@@ -341,6 +358,29 @@ export function formatEntityPeriodDisplay(value: string | undefined) {
   return period.start === period.end
     ? startLabel
     : `${startLabel} — ${endLabel}`;
+}
+
+/**
+ * Normalize a datetime cell for storage / editors.
+ * Accepts ISO date(time), UI `DD.MM.YYYY`, and legacy period JSON
+ * (`{"start":"…","end":"…"}` → start date) after a type change to «Дата».
+ */
+export function coerceEntityDatetimeStoredValue(
+  value: string | undefined,
+): string {
+  const raw = value?.trim() ?? "";
+  if (!raw) return "";
+  const period = parseEntityPeriod(raw);
+  if (period) return period.start;
+  if (extractIsoDate(raw)) return raw;
+  return raw;
+}
+
+/** Calendar date of a datetime cell (`null` when empty / unreadable). */
+export function coerceEntityDatetimeDate(
+  value: string | undefined,
+): string | null {
+  return extractIsoDate(coerceEntityDatetimeStoredValue(value));
 }
 
 /** Stored type kept for computed number fields; not shown in the type picker. */
@@ -666,7 +706,11 @@ export function getEntityFieldFractionDigits(field: {
   if (field.type === "rollup") {
     return normalizeEntityNumberDecimals(field.rollup?.decimals);
   }
-  if (field.type === "number" || field.type === "numberSum") {
+  if (
+    field.type === "number" ||
+    field.type === "numberSum" ||
+    field.type === "timeHours"
+  ) {
     return normalizeEntityNumberDecimals(field.decimals);
   }
   return 2;
@@ -841,6 +885,12 @@ export function normalizeEntityFieldInputValue(
       normalizeEntityNumberDecimals(field.decimals),
     );
   }
+  if (field.type === "datetime") {
+    // Collapse legacy period JSON to a single ISO date when saving.
+    const period = parseEntityPeriod(value);
+    if (period) return period.start;
+    return coerceEntityDatetimeStoredValue(value);
+  }
   return value;
 }
 
@@ -918,7 +968,12 @@ export function formatEntityScalarFieldValue(
     if (raw === "false") return "Нет";
     return "—";
   }
-  if (type === "datetime") return formatDatetimeOrDash(raw);
+  if (type === "datetime") {
+    // Legacy: period JSON left in a «Дата» field after a type change.
+    if (parseEntityPeriod(raw)) return formatEntityPeriodDisplay(raw);
+    const normalized = coerceEntityDatetimeStoredValue(raw);
+    return formatDatetimeOrDash(normalized);
+  }
   if (type === "period") return formatEntityPeriodDisplay(raw);
   if (type === "time") {
     const match = /^(\d{1,2}):(\d{2})$/.exec(raw);
@@ -980,8 +1035,9 @@ export function formatEntityFieldScalarValue(
   if (field.type === "datetime" && !isEntityDatetimeWithTime(field)) {
     const raw = value?.trim() ?? "";
     if (!raw) return "—";
-    const { date } = splitDatetime(raw);
-    const formatted = formatDateDisplay(date);
+    if (parseEntityPeriod(raw)) return formatEntityPeriodDisplay(raw);
+    const date = coerceEntityDatetimeDate(raw);
+    const formatted = date ? formatDateDisplay(date) : "";
     return formatted.length > 0 ? formatted : "—";
   }
   return formatEntityScalarFieldValue(field.type, value);

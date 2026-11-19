@@ -71,6 +71,7 @@ import {
   ensureSystemEntities,
   findSystemUserByAuthId,
   getSystemUsersEntity,
+  SYSTEM_USERS_ENTITY_ID,
   syncUsersRoleFieldOptions,
 } from "../model/system-entities";
 import { canMutateEntityRecord } from "../model/record-mutation-policy";
@@ -1210,9 +1211,15 @@ export function addEntityField(
           : null,
     relationMultiple:
       type === "relation" ? Boolean(data?.relationMultiple) : false,
+    relationSpawnPerUser:
+      type === "relation" &&
+      Boolean(data?.relationMultiple) &&
+      (data?.relationEntityId?.trim() || null) === SYSTEM_USERS_ENTITY_ID
+        ? Boolean(data?.relationSpawnPerUser)
+        : false,
     unitSuffix: data?.unitSuffix?.trim() || null,
     decimals:
-      type === "number" || type === "numberSum"
+      type === "number" || type === "numberSum" || type === "timeHours"
         ? normalizeEntityNumberDecimals(data?.decimals)
         : 2,
     formula: data?.formula,
@@ -1375,6 +1382,7 @@ export function updateEntityField(
               type: "belonging" as const,
               relationEntityId: entityId,
               relationMultiple: false,
+              relationSpawnPerUser: false,
             }
           : null),
       });
@@ -1533,6 +1541,7 @@ export function convertTabLinkRelationFieldToLookup(
     tableOrder: 0,
     relationEntityId,
     relationMultiple: Boolean(field.relationMultiple),
+    relationSpawnPerUser: false,
     lookup: undefined,
     formula: undefined,
     rollup: undefined,
@@ -1565,6 +1574,7 @@ export function convertTabLinkRelationFieldToLookup(
       ENTITY_OVERVIEW_TAB_ID,
     relationEntityId: null,
     relationMultiple: false,
+    relationSpawnPerUser: false,
     lookup: {
       relationFieldId: bridgeFieldId,
       targetFieldId,
@@ -2047,6 +2057,7 @@ export function addEntityTabWithLinkedEntity(
     tableOrder: 0,
     relationEntityId: parentEntityId,
     relationMultiple: false,
+    relationSpawnPerUser: false,
     unitSuffix: null,
     decimals: 2,
     sumFieldIds: [],
@@ -2181,6 +2192,7 @@ export function addEntityTabWithExistingEntity(
       tableOrder: 0,
       relationEntityId: parentEntityId,
       relationMultiple: false,
+      relationSpawnPerUser: false,
       unitSuffix: null,
       decimals: 2,
       sumFieldIds: [],
@@ -2263,6 +2275,7 @@ export function updateEntityTab(
       | "name"
       | "defaultFolders"
       | "singleRecord"
+      | "tableFlat"
       | "sourceRelationFieldId"
       | "sourceTabId"
     >
@@ -2273,12 +2286,13 @@ export function updateEntityTab(
   const target = parent.tabs.find((tab) => tab.id === tabId);
   const nextName = patch.name?.trim();
   const hasSingleRecordPatch = patch.singleRecord !== undefined;
+  const hasTableFlatPatch = patch.tableFlat !== undefined;
 
   if (
     target &&
     isEntityTabWithLinkedEntity(target) &&
     target.linkedEntityId &&
-    (nextName || hasSingleRecordPatch)
+    (nextName || hasSingleRecordPatch || hasTableFlatPatch)
   ) {
     const linked = config.entities.find(
       (item) => item.id === target.linkedEntityId,
@@ -2297,6 +2311,9 @@ export function updateEntityTab(
                     ...(nextName ? { name: nextName } : null),
                     ...(hasSingleRecordPatch
                       ? { singleRecord: patch.singleRecord }
+                      : null),
+                    ...(hasTableFlatPatch
+                      ? { tableFlat: patch.tableFlat }
                       : null),
                   })
                 : tab,
@@ -2366,6 +2383,10 @@ export function updateEntityTab(
                 patch.singleRecord !== undefined
                   ? patch.singleRecord
                   : tab.singleRecord,
+              tableFlat:
+                patch.tableFlat !== undefined
+                  ? patch.tableFlat
+                  : tab.tableFlat,
               ...(isMirror ? { sourceRelationFieldId, sourceTabId } : null),
               locked: isOverview,
             })

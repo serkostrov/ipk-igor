@@ -32,6 +32,7 @@ import {
   getRelationGroupsLevelEntityId,
   isEntityRelationGroupsConfigReady,
   parseEntityRelationGroups,
+  coerceEntityDatetimeDate,
   parseEntityPeriod,
   formatEntityPeriodDisplay,
   serializeEntityPeriod,
@@ -48,8 +49,13 @@ import {
   isEntityListOptionProblem,
 } from "./list-process";
 import { softFillEntityNameFromTemplate } from "./name-template";
-import { applyEntityScheduleFieldSync } from "./schedule-fields";
+import {
+  applyEntityScheduleFieldSync,
+  getEntityScheduleFieldIds,
+  resolveEntityScheduleFields,
+} from "./schedule-fields";
 import { SYSTEM_USERS_FIELD_ROLE_ID } from "./system-entities";
+import { sumRecordTimeHours } from "./time-tracking";
 import {
   buildEntityTabDefaultFileEntries,
   getEntityTabFilesValueKey,
@@ -515,6 +521,8 @@ export function isEntityComputedAutoValueEmpty(
       return isFormulaAutoSourceEmpty(ctx, entity, record, field);
     case "rollup":
       return getRollupResult(ctx, record, field) == null;
+    case "timeHours":
+      return sumRecordTimeHours(entity, record.id, ctx.entities) == null;
     case "numberSum": {
       const ids = normalizeEntitySumFieldIds(field.sumFieldIds);
       return !ids.some((id) => (record.values[id] ?? "").trim().length > 0);
@@ -542,12 +550,16 @@ export function clearSiblingAllowManualFormulaValues(
   values: Record<string, string>,
   keepFieldId: string,
 ): Record<string, string> {
+  const scheduleIds = getEntityScheduleFieldIds(entity);
+  const keepIsSchedule = scheduleIds?.has(keepFieldId) ?? false;
   let next = values;
   for (const field of entity.fields) {
     if (field.id === keepFieldId) continue;
     if (field.type !== "formula" || !isEntityFieldManualInputEnabled(field)) {
       continue;
     }
+    // Start ↔ duration ↔ end stay linked; clearing would break reverse sync.
+    if (keepIsSchedule && scheduleIds?.has(field.id)) continue;
     if (!(next[field.id] ?? "").trim()) continue;
     if (next === values) next = { ...values };
     next[field.id] = "";
@@ -572,9 +584,14 @@ export function computeAllowManualFormulaSoftFill(input: {
   recordId: string;
   anchorFieldId?: string | null;
 }): Record<string, string> {
+  // Schedule trio (start / duration / end) is owned by applyEntityScheduleFieldSync.
+  // Soft-filling those formulas would overwrite reverse sync (end → duration).
+  const scheduleIds = getEntityScheduleFieldIds(input.entity);
   const manualFormulaFields = input.entity.fields.filter(
     (field) =>
-      field.type === "formula" && isEntityFieldManualInputEnabled(field),
+      field.type === "formula" &&
+      isEntityFieldManualInputEnabled(field) &&
+      !scheduleIds?.has(field.id),
   );
   // Date-returning formulas (even without «ручной ввод») must soft-fill so
   // the ISO date is persisted on save — live display alone does not store it.
@@ -584,6 +601,7 @@ export function computeAllowManualFormulaSoftFill(input: {
     (field) =>
       field.type === "formula" &&
       !isEntityFieldManualInputEnabled(field) &&
+      !scheduleIds?.has(field.id) &&
       (isEntityFormulaDateField(field) || field.formula?.resultType == null),
   );
 
@@ -692,20 +710,37 @@ export function computeAllowManualFormulaSoftFill(input: {
 /**
  * Editable stand-in for a computed field when manual input is allowed and
  * the auto value is empty. Stores under the computed field’s id.
+ *
+ * Schedule trio formulas (start / duration / end) are always editable so
+ * bidirectional sync works even without «Возможен ручной ввод».
  */
 export function resolveEntityComputedManualEditField(
   entity: Entity,
   field: EntityField,
   entities: readonly Entity[],
 ): EntityField | null {
-  if (!isEntityFieldManualInputEnabled(field)) return null;
+  const schedule = resolveEntityScheduleFields(entity);
+  const isScheduleOwned =
+    schedule != null &&
+    (field.id === schedule.startField.id ||
+      field.id === schedule.durationField.id ||
+      field.id === schedule.endField.id);
+  if (!isEntityFieldManualInputEnabled(field) && !isScheduleOwned) return null;
 
   if (
     field.type === "formula" ||
     field.type === "rollup" ||
-    field.type === "numberSum"
+    field.type === "numberSum" ||
+    field.type === "timeHours"
   ) {
-    if (field.type === "formula" && isEntityFormulaDateField(field)) {
+    const isScheduleDateFormula =
+      field.type === "formula" &&
+      (schedule?.endField.id === field.id ||
+        schedule?.startField.id === field.id);
+    if (
+      field.type === "formula" &&
+      (isEntityFormulaDateField(field) || isScheduleDateFormula)
+    ) {
       return {
         ...field,
         type: "datetime",
@@ -798,6 +833,7 @@ export function getEntityFieldValueKind(
     case "number":
     case "numberSum":
     case "rollup":
+    case "timeHours":
       return "number";
     case "formula":
       return getEntityFormulaResultType(field) === "date" ? "date" : "number";
@@ -983,6 +1019,11 @@ export function getRecordFieldNumber(
       if (rolled != null) return rolled;
       return readManualNumberFallback(field, record);
     }
+    case "timeHours": {
+      const hours = sumRecordTimeHours(entity, record.id, ctx.entities);
+      if (hours != null) return hours;
+      return readManualNumberFallback(field, record);
+    }
     case "lookup": {
       const fromCells = sumOrNull(
         resolveRecordFieldCells(ctx, entity, record, field).map((cell) =>
@@ -1129,13 +1170,14 @@ export function getRecordFieldFormulaValue(
     case "number":
     case "numberSum":
     case "rollup":
+    case "timeHours":
       return getRecordFieldNumber(ctx, entity, record, field);
     case "formula":
       return resolveFormulaOperandValue(ctx, entity, record, field);
     case "boolean":
       return record.values[field.id] === "true";
     case "datetime":
-      return extractIsoDate(record.values[field.id]);
+      return coerceEntityDatetimeDate(record.values[field.id]);
     case "period": {
       const period = parseEntityPeriod(record.values[field.id]);
       return period ? `${period.start}/${period.end}` : null;
@@ -1604,6 +1646,17 @@ export function formatRecordFieldValue(
       }
       return formatManualNumberDisplay(field, record, field.rollup?.decimals);
     }
+    case "timeHours": {
+      const hours = sumRecordTimeHours(entity, record.id, ctx.entities);
+      if (hours != null) {
+        return formatEntityComputedNumber(
+          hours,
+          normalizeEntityNumberDecimals(field.decimals),
+          field.unitSuffix,
+        );
+      }
+      return formatManualNumberDisplay(field, record, field.decimals);
+    }
     case "lookup": {
       const parts = resolveRecordFieldCells(ctx, entity, record, field)
         .map((cell) =>
@@ -1749,7 +1802,7 @@ export function getRecordFieldSortValue(
         parseEntityPeriod(cell.record.values[cell.field.id])?.start ?? null
       );
     }
-    return extractIsoDate(cell.record.values[cell.field.id]);
+    return coerceEntityDatetimeDate(cell.record.values[cell.field.id]);
   }
   if (kind === "list") {
     const options = resolveEntityListFieldOptions(cell.field, ctx.entities);
@@ -2785,6 +2838,7 @@ export function isRecordValueDecorated(field: EntityField) {
     (field.type === "datetime" && field.deadline != null) ||
     field.type === "formula" ||
     field.type === "rollup" ||
+    field.type === "timeHours" ||
     field.type === "lookup" ||
     field.type === "dependencies" ||
     field.type === "relationGroups" ||

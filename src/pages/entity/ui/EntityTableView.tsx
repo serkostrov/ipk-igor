@@ -1944,7 +1944,8 @@ function EntityTableViewInner({
                               (field.type === "number" ||
                                 field.type === "numberSum" ||
                                 field.type === "formula" ||
-                                field.type === "rollup"),
+                                field.type === "rollup" ||
+                                field.type === "timeHours"),
                           )
                           .reduce(
                             (max, field) =>

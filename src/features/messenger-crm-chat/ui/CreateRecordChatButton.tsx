@@ -112,13 +112,17 @@ export function CreateRecordChatButton({
     }
   }
 
+  const label = existing ? "Открыть чат" : "Создать чат";
+
   return (
     <>
       <Button
         type="button"
-        size="sm"
-        variant="outline"
-        className={cn("h-8 gap-1.5 text-xs", className)}
+        size="icon-sm"
+        variant="ghost"
+        className={cn("text-foreground", className)}
+        aria-label={label}
+        title={label}
         onClick={() => {
           if (existing) {
             void handleOpenExisting();
@@ -127,8 +131,7 @@ export function CreateRecordChatButton({
           setOpen(true);
         }}
       >
-        <MessageCircle className="size-3.5" />
-        {existing ? "Открыть чат" : "Создать чат"}
+        <MessageCircle />
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

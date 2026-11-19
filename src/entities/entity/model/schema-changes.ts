@@ -159,11 +159,13 @@ function compareField(
     {
       relationEntityId: before.relationEntityId,
       relationMultiple: before.relationMultiple,
+      relationSpawnPerUser: before.relationSpawnPerUser,
       relationFilter: before.relationFilter ?? null,
     },
     {
       relationEntityId: after.relationEntityId,
       relationMultiple: after.relationMultiple,
+      relationSpawnPerUser: after.relationSpawnPerUser,
       relationFilter: after.relationFilter ?? null,
     },
   );
@@ -219,6 +221,7 @@ function compareTab(
       sourceRelationFieldId: before.sourceRelationFieldId,
       sourceTabId: before.sourceTabId,
       singleRecord: before.singleRecord,
+      tableFlat: before.tableFlat,
     },
     {
       linkedEntityId: after.linkedEntityId,
@@ -226,6 +229,7 @@ function compareTab(
       sourceRelationFieldId: after.sourceRelationFieldId,
       sourceTabId: after.sourceTabId,
       singleRecord: after.singleRecord,
+      tableFlat: after.tableFlat,
     },
   );
 }

@@ -3901,6 +3901,9 @@ export function EntityFieldsEditor({
         relationMultiple: isTabLink
           ? dialog.field.relationMultiple
           : data.relationMultiple,
+        relationSpawnPerUser: isTabLink
+          ? dialog.field.relationSpawnPerUser
+          : data.relationSpawnPerUser,
         listSourceFieldId: isTabLink ? null : data.listSourceFieldId,
         listFixed: isTabLink
           ? dialog.field.listFixed
@@ -3942,6 +3945,7 @@ export function EntityFieldsEditor({
       includeInTotal: data.includeInTotal,
       relationEntityId: data.relationEntityId,
       relationMultiple: data.relationMultiple,
+      relationSpawnPerUser: data.relationSpawnPerUser,
       listSourceFieldId: data.listSourceFieldId,
       listFixed: data.type === "list" ? data.listMultiple : false,
       listMultiple: data.type === "list" ? data.listMultiple : false,
@@ -5197,6 +5201,7 @@ export function EntityFieldsEditor({
           tabId={subEntitySettings.tabId}
           tabName={subEntitySettingsTab.name}
           singleRecord={subEntitySettingsTab.singleRecord}
+          tableFlat={subEntitySettingsTab.tableFlat}
           entity={subEntitySettingsEntity}
         />
       ) : null}

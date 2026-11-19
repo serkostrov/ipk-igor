@@ -13,7 +13,10 @@ import {
 } from "@/shared/ui/select";
 import { cn } from "@/shared/lib/cn";
 import { getProjectZonedParts } from "@/shared/lib/datetime";
-import { formatDateDisplay } from "@/shared/lib/format-date";
+import {
+  formatDateDisplay,
+  parseDateDisplay,
+} from "@/shared/lib/format-date";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
 
@@ -39,11 +42,12 @@ function pad2(value: number) {
 }
 
 function parseISODate(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
+  const iso = parseDateDisplay(value);
+  if (!iso) return null;
+  const [yearRaw, monthRaw, dayRaw] = iso.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
   if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
   const date = new Date(year, month - 1, day);
   if (
@@ -102,6 +106,7 @@ type DatePickerProps = {
   placeholder?: string;
   "aria-label"?: string;
   className?: string;
+  disabled?: boolean;
 };
 
 export function DatePicker({
@@ -111,6 +116,7 @@ export function DatePicker({
   placeholder = "Выберите дату",
   "aria-label": ariaLabel,
   className,
+  disabled = false,
 }: DatePickerProps) {
   const selected = parseISODate(value);
   const [open, setOpen] = useState(false);
@@ -131,8 +137,9 @@ export function DatePicker({
 
   return (
     <Popover
-      open={open}
+      open={disabled ? false : open}
       onOpenChange={(next) => {
+        if (disabled) return;
         setOpen(next);
         if (next) {
           setVisibleMonth(startOfMonth(selected ?? new Date()));
@@ -142,10 +149,12 @@ export function DatePicker({
       <PopoverTrigger
         id={id}
         aria-label={ariaLabel}
+        disabled={disabled}
         render={
           <Button
             type="button"
             variant="outline"
+            disabled={disabled}
             className={cn(
               "h-9 w-full justify-start gap-2 px-2.5 font-normal shadow-xs",
               !selected && "text-muted-foreground",

@@ -45,9 +45,8 @@ import {
 } from "@/shared/ui/table";
 import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import {
-  addEntityRecord,
+  createEntityRecordsWithUserSpawn,
   updateEntityRecord,
-  waitForEntityRecordInsert,
   buildEntityTableDisplayColumns,
   encodeEntityTableParentValue,
   entityRelationIncludesId,
@@ -430,6 +429,7 @@ function RecordsTable({
   entity,
   records,
   parentLinkFieldId,
+  flat = false,
   onEdit,
   onDelete,
   onOpenRecord,
@@ -440,6 +440,8 @@ function RecordsTable({
   entity: Entity;
   records: EntityRecord[];
   parentLinkFieldId: string | null;
+  /** Ignore entity table hierarchy — flat rows for this tab only. */
+  flat?: boolean;
   onEdit?: (record: EntityRecord) => void;
   onDelete?: (record: EntityRecord) => void;
   /** Row click — open full record page. */
@@ -453,13 +455,13 @@ function RecordsTable({
   const canMutate = onEdit != null || onDelete != null;
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
-  const nestedTarget = resolveEntityTableNestedTarget(entity, entities);
-  const parentField = nestedTarget
+  const nestedTarget = flat
     ? null
-    : resolveEntityTableParentField(entity);
-  const subgroupField = nestedTarget
-    ? null
-    : resolveEntityTableSubgroupField(entity);
+    : resolveEntityTableNestedTarget(entity, entities);
+  const parentField =
+    flat || nestedTarget ? null : resolveEntityTableParentField(entity);
+  const subgroupField =
+    flat || nestedTarget ? null : resolveEntityTableSubgroupField(entity);
   const isSelfHierarchy = Boolean(
     parentField &&
     !subgroupField &&
@@ -2005,6 +2007,7 @@ export function RecordEntityTabPanel({
     linkedEntity.recordColumns,
   );
   const singleRecord = Boolean(tab.singleRecord);
+  const tableFlat = Boolean(tab.tableFlat);
   const atSingleRecordLimit = singleRecord && records.length >= 1;
   const columnsClass =
     singleRecord || recordColumns === 1
@@ -2025,8 +2028,12 @@ export function RecordEntityTabPanel({
         ? "Редактировать запись"
         : "";
 
-  const tableParentField = resolveEntityTableParentField(linkedEntity);
-  const tableSubgroupField = resolveEntityTableSubgroupField(linkedEntity);
+  const tableParentField = tableFlat
+    ? null
+    : resolveEntityTableParentField(linkedEntity);
+  const tableSubgroupField = tableFlat
+    ? null
+    : resolveEntityTableSubgroupField(linkedEntity);
   const nestedRelationGroupsSubgroup =
     isEntityTableRelationGroupsNestedSubgroup(
       tableParentField,
@@ -2213,6 +2220,7 @@ export function RecordEntityTabPanel({
             entity={linkedEntity}
             records={records}
             parentLinkFieldId={parentLinkFieldId}
+            flat={tableFlat}
             onEdit={readOnly ? undefined : (record) => setDialogRecord(record)}
             onDelete={
               !readOnly && canDelete
@@ -2226,12 +2234,14 @@ export function RecordEntityTabPanel({
             }
             onOpenNested={onOpenRelation}
             onCreateNestedChild={
-              !readOnly && nestedTarget
+              !readOnly && !tableFlat && nestedTarget
                 ? (hostRecordId) => setNestedCreateParentId(hostRecordId)
                 : undefined
             }
             onCreateInHierarchy={
-              !readOnly && tableParentField ? openAddInHierarchy : undefined
+              !readOnly && !tableFlat && tableParentField
+                ? openAddInHierarchy
+                : undefined
             }
           />
         )
@@ -2349,17 +2359,20 @@ export function RecordEntityTabPanel({
                 ]),
               };
               if (dialogRecord === "new") {
-                const created = addEntityRecord(linkedEntity.id, nextValues, {
-                  id: meta.recordId,
-                });
-                await waitForEntityRecordInsert(created.id);
+                const created = await createEntityRecordsWithUserSpawn(
+                  linkedEntity,
+                  nextValues,
+                  { recordId: meta.recordId },
+                );
+                const primary = created[0];
+                if (!primary) return;
                 // Nested hierarchy: open child create right after the parent.
                 if (nestedTarget) {
-                  setNestedCreateParentId(created.id);
+                  setNestedCreateParentId(primary.id);
                   return;
                 }
                 // Open the new card so the user can continue from the related entity.
-                onOpenRelation?.(linkedEntity.id, created.id);
+                onOpenRelation?.(linkedEntity.id, primary.id);
                 return;
               }
               if (dialogRecord) {
@@ -2400,11 +2413,13 @@ export function RecordEntityTabPanel({
                   ...values,
                   [nestedTarget.parentLinkFieldId]: nestedCreateParentId,
                 };
-                const created = addEntityRecord(nestedEntity.id, nextValues, {
-                  id: meta.recordId,
-                });
-                await waitForEntityRecordInsert(created.id);
-                onOpenRelation?.(nestedEntity.id, created.id);
+                const created = await createEntityRecordsWithUserSpawn(
+                  nestedEntity,
+                  nextValues,
+                  { recordId: meta.recordId },
+                );
+                const primary = created[0];
+                if (primary) onOpenRelation?.(nestedEntity.id, primary.id);
               }}
             />
           ) : null}

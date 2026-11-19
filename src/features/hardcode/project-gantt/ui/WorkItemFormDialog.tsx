@@ -7,6 +7,7 @@ import {
   useEntityConfig,
 } from "@/entities/entity";
 import { Button } from "@/shared/ui/button";
+import { DatePicker } from "@/shared/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -206,20 +207,18 @@ function WorkItemFormBody({
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="gantt-start">Начало</Label>
-              <Input
+              <DatePicker
                 id="gantt-start"
-                type="date"
                 value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
+                onChange={setStartDate}
               />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="gantt-due">Окончание</Label>
-              <Input
+              <DatePicker
                 id="gantt-due"
-                type="date"
                 value={dueDate}
-                onChange={(event) => setDueDate(event.target.value)}
+                onChange={setDueDate}
               />
             </div>
             <p className="col-span-2 text-[11px] text-muted-foreground">

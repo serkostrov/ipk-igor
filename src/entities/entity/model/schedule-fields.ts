@@ -16,9 +16,17 @@ import {
   toIsoDate,
 } from "@/shared/lib/business-days";
 import { evaluateFormula } from "./formula";
-import { getEntityFieldDisplayName } from "./field";
+import {
+  coerceEntityDatetimeDate,
+  getEntityFieldDisplayName,
+  isEntityFormulaDateField,
+} from "./field";
 import { withEntityDatePart } from "./timeline";
 import type { Entity, EntityField } from "./types";
+
+function scheduleDate(value: string | undefined): string | null {
+  return coerceEntityDatetimeDate(value) ?? extractIsoDate(value);
+}
 
 export type EntityScheduleFields = {
   startField: EntityField;
@@ -40,12 +48,47 @@ function fieldName(field: EntityField): string {
   return normalizeName(getEntityFieldDisplayName(field));
 }
 
+/** Datetime or a formula that returns / stores a calendar date. */
 function isDatetimeLike(field: EntityField): boolean {
-  return field.type === "datetime";
+  if (field.type === "datetime") return true;
+  if (field.type === "formula" && isEntityFormulaDateField(field)) return true;
+  return false;
+}
+
+/**
+ * Formula fields often keep resultType «число» while the expression is
+ * `date + duration` (legacy). Match those by title for schedule sync.
+ */
+function isScheduleDateFormulaByName(field: EntityField): boolean {
+  if (field.type !== "formula") return false;
+  if (isEntityFormulaDateField(field)) return true;
+  const name = fieldName(field);
+  return (
+    name.includes("срок") ||
+    name.includes("окончан") ||
+    name.includes("дедлайн") ||
+    name.includes("дата начала") ||
+    name.includes("дата постановки") ||
+    name.includes("постановк") ||
+    name === "начало"
+  );
 }
 
 function isDurationNumber(field: EntityField): boolean {
   return field.type === "number" || field.type === "formula";
+}
+
+/** Field ids owned by schedule sync (skip formula soft-fill / sibling clear). */
+export function getEntityScheduleFieldIds(
+  entity: Entity,
+): ReadonlySet<string> | null {
+  const schedule = resolveEntityScheduleFields(entity);
+  if (!schedule) return null;
+  return new Set([
+    schedule.startField.id,
+    schedule.durationField.id,
+    schedule.endField.id,
+  ]);
 }
 
 function pickBestField(
@@ -65,16 +108,20 @@ function pickBestField(
 }
 
 function scoreStartField(field: EntityField): number {
-  if (!isDatetimeLike(field)) return 0;
+  if (!isDatetimeLike(field) && !isScheduleDateFormulaByName(field)) return 0;
   const name = fieldName(field);
-  if (name === "дата постановки") return 100;
-  if (name.includes("дата постановки")) return 90;
-  if (name === "постановка") return 70;
-  if (name === "начало работ") return 60;
-  if (name === "дата начала") return 50;
-  if (name.includes("постановк")) return 40;
-  if (name.includes("дата начала") || name === "начало") return 30;
-  return 0;
+  let score = 0;
+  if (name === "дата постановки") score = 100;
+  else if (name.includes("дата постановки")) score = 90;
+  else if (name === "постановка") score = 70;
+  else if (name === "начало работ") score = 60;
+  else if (name === "дата начала") score = 50;
+  else if (name.includes("постановк")) score = 40;
+  else if (name.includes("дата начала") || name === "начало") score = 30;
+  if (score === 0) return 0;
+  // Prefer real datetime over formula stand-ins when both exist.
+  if (field.type === "formula") score -= 5;
+  return score;
 }
 
 function scoreDurationField(field: EntityField): number {
@@ -92,19 +139,26 @@ function scoreEndField(
   field: EntityField,
   startFieldId: string | null,
 ): number {
-  if (!isDatetimeLike(field)) return 0;
+  if (!isDatetimeLike(field) && !isScheduleDateFormulaByName(field)) return 0;
   if (startFieldId && field.id === startFieldId) return 0;
   const name = fieldName(field);
-  if (name === "срок (план)" || name === "срок план") return 100;
-  if (name.includes("срок (план)") || name.includes("срок план")) return 90;
-  if (name.includes("срок") && name.includes("план")) return 80;
-  if (name === "срок выполнения") return 60;
-  if (name === "дедлайн") return 55;
-  if (name === "дата окончания" || name === "окончание") return 50;
-  if (name === "срок") return 40;
-  if (name.includes("срок")) return 30;
-  if (name.includes("окончан") || name.includes("конец")) return 20;
-  return 0;
+  let score = 0;
+  if (name === "срок окончания (план)" || name === "срок окончания план") {
+    score = 110;
+  } else if (name === "срок (план)" || name === "срок план") score = 100;
+  else if (name.includes("срок (план)") || name.includes("срок план")) {
+    score = 90;
+  } else if (name.includes("срок") && name.includes("план")) score = 80;
+  else if (name.includes("срок") && name.includes("окончан")) score = 75;
+  else if (name === "срок выполнения") score = 60;
+  else if (name === "дедлайн") score = 55;
+  else if (name === "дата окончания" || name === "окончание") score = 50;
+  else if (name === "срок") score = 40;
+  else if (name.includes("срок")) score = 30;
+  else if (name.includes("окончан") || name.includes("конец")) score = 20;
+  if (score === 0) return 0;
+  if (field.type === "formula") score -= 5;
+  return score;
 }
 
 /**
@@ -160,7 +214,7 @@ function resolveDurationDays(
       const field = entity.fields.find((item) => item.id === fieldId);
       if (!field) return null;
       if (field.type === "datetime") {
-        return extractIsoDate(values[field.id]);
+        return scheduleDate(values[field.id]);
       }
       if (field.type === "number" || field.type === "formula") {
         return parseDurationDays(values[field.id]);
@@ -185,7 +239,7 @@ function fillEndFromStartAndDuration(
   endField: EntityField,
   entity: Entity,
 ): Record<string, string> {
-  const start = extractIsoDate(values[startField.id]);
+  const start = scheduleDate(values[startField.id]);
   const duration = resolveDurationDays(entity, values, durationField);
   if (!start || duration == null) return values;
   const nextEnd = addBusinessDays(start, duration - 1);
@@ -206,8 +260,8 @@ export function reconcileEntityScheduleValues(
   if (!schedule) return values;
 
   const { startField, durationField, endField } = schedule;
-  const start = extractIsoDate(values[startField.id]);
-  const end = extractIsoDate(values[endField.id]);
+  const start = scheduleDate(values[startField.id]);
+  const end = scheduleDate(values[endField.id]);
   const duration = resolveDurationDays(entity, values, durationField);
 
   if (start && duration != null) {
@@ -254,13 +308,17 @@ export function applyEntityScheduleFieldSync(
     return reconcileEntityScheduleValues(entity, values);
   }
 
-  const start = extractIsoDate(values[startField.id]);
-  const end = extractIsoDate(values[endField.id]);
+  const start = scheduleDate(values[startField.id]);
+  const end = scheduleDate(values[endField.id]);
   const duration = resolveDurationDays(entity, values, durationField);
   const next = { ...values };
 
   if (changedFieldId === endField.id) {
     // End edited → refresh duration from the date span.
+    // Normalize UI `DD.MM.YYYY` / legacy period JSON to ISO so sync stays stable.
+    if (end) {
+      next[endField.id] = withEntityDatePart(values[endField.id], end);
+    }
     if (start && end) {
       const days = businessDaysBetween(start, end);
       if (days != null && days >= 1) {

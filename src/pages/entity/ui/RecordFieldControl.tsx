@@ -28,6 +28,7 @@ import {
   isValidEntityEmail,
   resolveTkpGipDepartmentRecordId,
   resolveTkpGipLeadContext,
+  coerceEntityDatetimeStoredValue,
   entityNumberInputPlaceholder,
   getEntityFieldFractionDigits,
   normalizeEntityDecimalInput,
@@ -46,12 +47,9 @@ import {
   type EntityRelationGroupsMode,
   type EntityValueContext,
 } from "@/entities/entity";
+import { extractIsoDate } from "@/shared/lib/business-days";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
-import {
-  formatDateDisplay,
-  joinDatetime,
-  splitDatetime,
-} from "@/shared/lib/format-date";
+import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
 import { DependenciesFieldControl } from "./DependenciesFieldControl";
 import { FileFieldControl } from "./FileFieldControl";
 
@@ -97,6 +95,8 @@ function getComputedSourceCaption(
         ? `считается по «${getEntityDisplayName(source)}»`
         : "считается по связанным записям";
     }
+    case "timeHours":
+      return "сумма часов из «Учёт времени»";
     case "numberSum": {
       const names = field.sumFieldIds
         .map((id) => entity.fields.find((item) => item.id === id))
@@ -305,14 +305,22 @@ export function RecordFieldControl({
       field,
     );
     const manualEnabled = isEntityFieldManualInputEnabled(field);
+    const schedule = resolveEntityScheduleFields(entity);
+    const scheduleOwned =
+      schedule != null &&
+      (field.id === schedule.startField.id ||
+        field.id === schedule.durationField.id ||
+        field.id === schedule.endField.id);
     // Formula / rollup / sum with manual: always editable (soft-fill from parent).
+    // Schedule trio formulas are editable even without «ручной ввод».
     // Date formulas use a datetime stand-in (see resolveEntityComputedManualEditField).
     // Lookup: editable only when auto is empty (or already overridden).
     const preferManualEdit =
-      manualEnabled &&
+      (manualEnabled || scheduleOwned) &&
       (field.type === "formula" ||
         field.type === "rollup" ||
         field.type === "numberSum" ||
+        field.type === "timeHours" ||
         autoEmpty ||
         value.trim().length > 0);
     const manualEditField = preferManualEdit
@@ -320,17 +328,34 @@ export function RecordFieldControl({
       : null;
 
     if (manualEditField) {
+      // Soft-fill may persist ISO dates into formulas without resultType:"date"
+      // (legacy). Edit those as a date picker, not a number input.
+      const isoDateValue = extractIsoDate(value);
+      const dateManualEditField =
+        manualEditField.type === "number" && isoDateValue
+          ? ({
+              ...manualEditField,
+              type: "datetime" as const,
+              datetimeWithTime: false,
+              unitSuffix: null,
+              includeInTotal: false,
+              numberDisplay: undefined,
+              numberSignColor: undefined,
+            } satisfies EntityField)
+          : manualEditField;
       const softManualNumber =
+        dateManualEditField.type !== "datetime" &&
         !isEntityFormulaDateField(field) &&
         (field.type === "formula" ||
           field.type === "rollup" ||
-          field.type === "numberSum");
+          field.type === "numberSum" ||
+          field.type === "timeHours");
       return (
         <RecordFieldControl
           ctx={ctx}
           entity={entity}
-          field={{ ...manualEditField, hint: "" }}
-          value={value}
+          field={{ ...dateManualEditField, hint: "" }}
+          value={isoDateValue && dateManualEditField.type === "datetime" ? isoDateValue : value}
           values={values}
           onChange={onChange}
           entities={entities}
@@ -615,57 +640,15 @@ export function RecordFieldControl({
   }
 
   if (field.type === "datetime") {
-    const { date, time } = splitDatetime(value);
+    // Legacy period JSON in a «Дата» field → edit the start date cleanly.
+    const normalized = coerceEntityDatetimeStoredValue(value);
+    const { date, time } = splitDatetime(normalized);
     const withTime = field.datetimeWithTime !== false;
     const schedule = resolveEntityScheduleFields(entity);
     const isScheduleEnd = schedule?.endField.id === field.id;
     const scheduleCaption = isScheduleEnd
-      ? "считается от даты постановки и длительности (раб. дни)"
+      ? "связан с длительностью"
       : null;
-
-    // Synced planned end: show like other computed fields («авто»).
-    if (isScheduleEnd && date && !withTime) {
-      return (
-        <div className="flex flex-col gap-2">
-          <div className="flex min-w-0 items-baseline gap-x-1.5 gap-y-0.5">
-            <Label htmlFor={`${id}-date`} className="shrink-0">
-              {label}
-              <RequiredMark required={required} />
-            </Label>
-            <span className="min-w-0 truncate text-[11px] leading-snug text-muted-foreground">
-              {scheduleCaption}
-            </span>
-          </div>
-          {hint ? (
-            <span className="text-xs text-muted-foreground">{hint}</span>
-          ) : null}
-          <div
-            id={id}
-            className="flex h-9 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-sm text-foreground"
-          >
-            <span className="font-medium tabular-nums">
-              {formatDateDisplay(date)}
-            </span>
-            <span className="ml-auto text-[11px] text-muted-foreground">
-              авто
-            </span>
-          </div>
-          <details>
-            <summary className="cursor-pointer text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-              Изменить вручную
-            </summary>
-            <div className="mt-2">
-              <DatePicker
-                id={`${id}-date`}
-                value={date}
-                aria-label={`${label}: изменить вручную`}
-                onChange={(next) => onChange(next)}
-              />
-            </div>
-          </details>
-        </div>
-      );
-    }
 
     return (
       <div className="flex flex-col gap-2">

@@ -12,13 +12,13 @@ import {
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import {
-  addEntityRecord,
   applyEntityFieldValue,
   applyTkpGipDepartmentUsers,
   softFillRelationsFromParentRecord,
   buildEntityTabDefaultFileEntries,
   createEntityDraftRecord,
   createEntityRecordId,
+  createEntityRecordsWithUserSpawn,
   EntityFilesUploadPanel,
   entityFilesUploadTargetBlocks,
   getEntityTabFilesValueKey,
@@ -33,9 +33,11 @@ import {
   getVisibleListOptions,
   groupEntityFields,
   isEntityFieldGroupTitleHidden,
+  applyEntityScheduleFieldSync,
   clearSiblingAllowManualFormulaValues,
   computeAllowManualFormulaSoftFill,
   reconcileEntityScheduleValues,
+  resolveEntityScheduleFields,
   isEntityComputedAutoValueEmpty,
   isEntityComputedFieldType,
   isEntityFieldManualInputEnabled,
@@ -52,7 +54,6 @@ import {
   resolveEntityFieldDefaultValue,
   resolveEntityListFieldPresentation,
   updateEntityRecord,
-  waitForEntityRecordInsert,
   useCurrentUserRecordId,
   useEntityConfig,
   useEntityValueContext,
@@ -325,10 +326,21 @@ function EntityRecordForm({
     [valueContext, entity, values, draftRecordId, formulaManualAnchorId],
   );
   // Soft-fill must win over empty "" so sibling formulas stay visible until typed.
-  const displayValues = useMemo(
-    () => ({ ...values, ...formulaSoftFill }),
-    [formulaSoftFill, values],
-  );
+  // Schedule trio always prefers the synced stored value (end ↔ duration).
+  const displayValues = useMemo(() => {
+    const merged = { ...values, ...formulaSoftFill };
+    const schedule = resolveEntityScheduleFields(entity);
+    if (!schedule) return merged;
+    for (const field of [
+      schedule.startField,
+      schedule.durationField,
+      schedule.endField,
+    ]) {
+      const stored = values[field.id];
+      if (stored != null) merged[field.id] = stored;
+    }
+    return merged;
+  }, [entity, formulaSoftFill, values]);
   const draftRecord = useMemo(
     () => createEntityDraftRecord(displayValues, draftRecordId),
     [displayValues, draftRecordId],
@@ -444,6 +456,8 @@ function EntityRecordForm({
       // Last edit wins: drop sibling manual formulas so soft-fill owns them.
       if (isManualFormula && value.trim().length > 0) {
         next = clearSiblingAllowManualFormulaValues(entity, next, fieldId);
+        // Re-apply after sibling clear so end ↔ duration stay linked.
+        next = applyEntityScheduleFieldSync(entity, next, fieldId);
       }
       if (softFillParent) {
         next = softFillRelationsFromParentRecord({
@@ -717,10 +731,9 @@ export function EntityRecordDialog({
                 await updateEntityRecord(entity.id, record.id, values);
                 return;
               }
-              const created = addEntityRecord(entity.id, values, {
-                id: meta.recordId,
+              await createEntityRecordsWithUserSpawn(entity, values, {
+                recordId: meta.recordId,
               });
-              await waitForEntityRecordInsert(created.id);
             }}
           />
         ) : null}

@@ -169,6 +169,7 @@ type TimePickerProps = {
   placeholder?: string;
   "aria-label"?: string;
   className?: string;
+  disabled?: boolean;
 };
 
 export function TimePicker({
@@ -178,6 +179,7 @@ export function TimePicker({
   placeholder = "Время",
   "aria-label": ariaLabel,
   className,
+  disabled = false,
 }: TimePickerProps) {
   const parsed = parseTime(value);
   const [open, setOpen] = useState(false);
@@ -200,8 +202,9 @@ export function TimePicker({
 
   return (
     <Popover
-      open={open}
+      open={disabled ? false : open}
       onOpenChange={(next) => {
+        if (disabled) return;
         setOpen(next);
         if (next) {
           const nextDraft = parsed ?? {
@@ -216,10 +219,12 @@ export function TimePicker({
       <PopoverTrigger
         id={id}
         aria-label={ariaLabel}
+        disabled={disabled}
         render={
           <Button
             type="button"
             variant="outline"
+            disabled={disabled}
             className={cn(
               "h-9 w-full justify-start gap-2 px-2.5 font-normal tabular-nums shadow-xs",
               !parsed && "text-muted-foreground",

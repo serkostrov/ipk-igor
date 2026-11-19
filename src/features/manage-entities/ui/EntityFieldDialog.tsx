@@ -50,6 +50,8 @@ import {
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
   SYSTEM_ENTITY_KEY_USERS,
+  SYSTEM_USERS_ENTITY_ID,
+  getEntityTimeTracking,
   type Entity,
   type EntityCondition,
   type EntityField,
@@ -106,6 +108,11 @@ export type EntityFieldFormData = {
   tablePosition: number;
   relationEntityId: string | null;
   relationMultiple: boolean;
+  /**
+   * Multi relation to users: create one record of this entity per selected
+   * person on save.
+   */
+  relationSpawnPerUser: boolean;
   /** Linked list field id when type is list; null = own «Новый» list. */
   listSourceFieldId: string | null;
   /** List: allow several option ids (implies fixed catalog). */
@@ -622,6 +629,52 @@ function RelationMultipleControl({
   );
 }
 
+function RelationSpawnPerUserControl({
+  enabled,
+  onEnabledChange,
+  disabled = false,
+}: {
+  enabled: boolean;
+  onEnabledChange: (enabled: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <Label
+          htmlFor="entity-field-relation-spawn-per-user"
+          className="text-xs font-medium text-muted-foreground"
+        >
+          Отдельная запись на пользователя
+        </Label>
+        <span className="text-[11px] leading-tight text-muted-foreground">
+          При создании для каждого выбранного пользователя создаётся своя
+          запись этой сущности
+        </span>
+      </div>
+      <Switch
+        id="entity-field-relation-spawn-per-user"
+        checked={enabled}
+        disabled={disabled}
+        onCheckedChange={onEnabledChange}
+      />
+    </div>
+  );
+}
+
+function isUsersRelationTarget(
+  relationEntityId: string,
+  entities: readonly Entity[],
+) {
+  const id = relationEntityId.trim();
+  if (!id) return false;
+  if (id === SYSTEM_USERS_ENTITY_ID) return true;
+  return (
+    entities.find((item) => item.id === id)?.systemKey ===
+    SYSTEM_ENTITY_KEY_USERS
+  );
+}
+
 function ListMultipleControl({
   multiple,
   onMultipleChange,
@@ -1082,6 +1135,7 @@ function buildEntityFieldFormData({
   tablePositionMin,
   relationEntityId,
   relationMultiple,
+  relationSpawnPerUser,
   listSourceFieldId,
   listMultiple,
   unitSuffix,
@@ -1094,6 +1148,7 @@ function buildEntityFieldFormData({
   nameTemplate,
   typeSettings,
   entity,
+  entities,
   relationBindingLocked,
   systemBindingLocked,
   isNameField,
@@ -1114,6 +1169,7 @@ function buildEntityFieldFormData({
   tablePositionMin: number;
   relationEntityId: string;
   relationMultiple: boolean;
+  relationSpawnPerUser: boolean;
   listSourceFieldId: string;
   listMultiple: boolean;
   unitSuffix: string;
@@ -1126,6 +1182,7 @@ function buildEntityFieldFormData({
   nameTemplate: string;
   typeSettings: FieldTypeSettingsDraft;
   entity: Entity | null;
+  entities: readonly Entity[];
   relationBindingLocked: boolean;
   systemBindingLocked: boolean;
   isNameField: boolean;
@@ -1150,6 +1207,7 @@ function buildEntityFieldFormData({
       ),
       relationEntityId: null,
       relationMultiple: false,
+      relationSpawnPerUser: false,
       listSourceFieldId: null,
       listMultiple: false,
       unitSuffix: null,
@@ -1211,6 +1269,17 @@ function buildEntityFieldFormData({
           ? Boolean(field?.relationMultiple)
           : relationMultiple
         : false,
+    relationSpawnPerUser:
+      resolvedType === "relation" &&
+      (relationBindingLocked
+        ? Boolean(field?.relationMultiple)
+        : relationMultiple) &&
+      resolvedRelationEntityId != null &&
+      isUsersRelationTarget(resolvedRelationEntityId, entities)
+        ? relationBindingLocked
+          ? Boolean(field?.relationSpawnPerUser)
+          : Boolean(relationSpawnPerUser)
+        : false,
     listSourceFieldId:
       resolvedType === "list" ? listSourceFieldId.trim() || null : null,
     listMultiple: resolvedType === "list" ? Boolean(listMultiple) : false,
@@ -1223,7 +1292,11 @@ function buildEntityFieldFormData({
         ? unitSuffix.trim() || null
         : null,
     decimals:
-      resolvedType === "number" || resolvedType === "numberSum" ? decimals : 2,
+      resolvedType === "number" ||
+      resolvedType === "numberSum" ||
+      resolvedType === "timeHours"
+        ? decimals
+        : 2,
     sumFieldIds: resolvedType === "numberSum" ? sumFieldIds : [],
     datetimeWithTime:
       resolvedType === "datetime" ? Boolean(datetimeWithTime) : false,
@@ -1236,6 +1309,33 @@ function buildEntityFieldFormData({
       field?.id ?? null,
     ),
   };
+}
+
+function TimeHoursFieldSettings({
+  entity,
+  entities,
+}: {
+  entity: Entity | null | undefined;
+  entities: readonly Entity[];
+}) {
+  const setup = entity ? getEntityTimeTracking(entity, entities) : null;
+  const journalName = setup
+    ? setup.entryEntity.namePlural.trim() ||
+      setup.entryEntity.name.trim() ||
+      "журнал"
+    : null;
+  return (
+    <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2.5">
+      <p className="text-xs font-medium text-foreground">
+        Сумма часов из «Учёт времени»
+      </p>
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+        {setup
+          ? `Складывает поле «Часы» в «${journalName}» по записям, привязанным к этой карточке. Текущий таймер без записанных часов не входит.`
+          : "Добавьте вкладку «Учёт времени» и настройте журнал — иначе поле сохранить нельзя."}
+      </p>
+    </div>
+  );
 }
 
 function NumberSumModeControl({
@@ -1376,6 +1476,9 @@ function EntityFieldForm({
   const [relationMultiple, setRelationMultiple] = useState(
     Boolean(field?.relationMultiple),
   );
+  const [relationSpawnPerUser, setRelationSpawnPerUser] = useState(
+    Boolean(field?.relationSpawnPerUser),
+  );
   const [listSourceFieldId, setListSourceFieldId] = useState(
     field?.listSourceFieldId ?? "",
   );
@@ -1476,6 +1579,7 @@ function EntityFieldForm({
       typeSettings,
       currentEntity,
       field?.id ?? null,
+      entities,
     ) == null;
 
   function patchTypeSettings(patch: Partial<FieldTypeSettingsDraft>) {
@@ -1543,6 +1647,7 @@ function EntityFieldForm({
       tablePositionMin,
       relationEntityId,
       relationMultiple,
+      relationSpawnPerUser,
       listSourceFieldId,
       listMultiple,
       unitSuffix,
@@ -1555,6 +1660,7 @@ function EntityFieldForm({
       nameTemplate,
       typeSettings,
       entity: currentEntity,
+      entities,
       relationBindingLocked,
       systemBindingLocked,
       isNameField,
@@ -1588,7 +1694,10 @@ function EntityFieldForm({
       setSumFieldIds([]);
     }
     if (!isEntityNumericFieldType(resolved)) setIncludeInTotal(false);
-    if (!isEntityUnitFieldType(resolved)) {
+    if (resolved === "timeHours") {
+      setUseUnit(true);
+      setUnitSuffix((current) => current.trim() || "ч");
+    } else if (!isEntityUnitFieldType(resolved)) {
       setUseUnit(false);
       setUnitSuffix("");
     }
@@ -1596,6 +1705,7 @@ function EntityFieldForm({
       if (!isTabLinkRelation) {
         setRelationEntityId("");
         setRelationMultiple(false);
+        setRelationSpawnPerUser(false);
       }
     }
     if (resolved !== "list") {
@@ -1611,10 +1721,12 @@ function EntityFieldForm({
     if (resolved === "belonging") {
       setRelationEntityId(entityId ?? "");
       setRelationMultiple(false);
+      setRelationSpawnPerUser(false);
     } else if (resolved === "relation") {
       if (isTabLinkRelation && field?.relationEntityId) {
         setRelationEntityId(field.relationEntityId);
         setRelationMultiple(Boolean(field.relationMultiple));
+        setRelationSpawnPerUser(Boolean(field.relationSpawnPerUser));
       } else if (!relationEntityId && entityOptions.length === 1) {
         setRelationEntityId(entityOptions[0]!.id);
       }
@@ -1654,10 +1766,18 @@ function EntityFieldForm({
   function handleRelationEntityChange(nextEntityId: string) {
     if (nextEntityId === relationEntityId) return;
     setRelationEntityId(nextEntityId);
+    if (!isUsersRelationTarget(nextEntityId, entities)) {
+      setRelationSpawnPerUser(false);
+    }
     patchTypeSettings({
       defaultValue: null,
       relationFilter: null,
     });
+  }
+
+  function handleRelationMultipleChange(next: boolean) {
+    setRelationMultiple(next);
+    if (!next) setRelationSpawnPerUser(false);
   }
 
   function handleDatetimeWithTimeChange(checked: boolean) {
@@ -1813,7 +1933,16 @@ function EntityFieldForm({
                   <RelationMultipleControl
                     multiple={relationMultiple}
                     disabled={relationBindingLocked}
-                    onMultipleChange={setRelationMultiple}
+                    onMultipleChange={handleRelationMultipleChange}
+                  />
+                ) : null}
+                {type === "relation" &&
+                relationMultiple &&
+                isUsersRelationTarget(relationEntityId, entities) ? (
+                  <RelationSpawnPerUserControl
+                    enabled={relationSpawnPerUser}
+                    disabled={relationBindingLocked}
+                    onEnabledChange={setRelationSpawnPerUser}
                   />
                 ) : null}
                 {type === "relation" &&
@@ -1923,6 +2052,20 @@ function EntityFieldForm({
                           : null,
                       })
                     }
+                  />
+                ) : null}
+                {type === "timeHours" ? (
+                  <TimeHoursFieldSettings
+                    entity={currentEntity}
+                    entities={entities}
+                  />
+                ) : null}
+                {type === "timeHours" ? (
+                  <DecimalsSelect
+                    id="entity-field-time-hours-decimals"
+                    value={decimals}
+                    max={ENTITY_NUMBER_DECIMALS_MAX}
+                    onChange={setDecimals}
                   />
                 ) : null}
                 {type === "lookup" ? (

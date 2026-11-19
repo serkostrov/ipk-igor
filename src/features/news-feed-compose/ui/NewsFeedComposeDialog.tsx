@@ -21,6 +21,7 @@ import {
   saveNewsFeedPost,
 } from "@/entities/news-feed";
 import { Button } from "@/shared/ui/button";
+import { DatePicker } from "@/shared/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -33,7 +34,12 @@ import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
+import { TimePicker } from "@/shared/ui/time-picker";
 import { cn } from "@/shared/lib/cn";
+import {
+  joinDatetime,
+  splitDatetime,
+} from "@/shared/lib/format-date";
 
 type DraftLink = {
   kind: "external" | "google_form";
@@ -602,26 +608,42 @@ function NewsFeedComposeForm({
                   />
                   Несколько вариантов
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Label
                     htmlFor="feed-poll-ends"
                     className="text-xs text-muted-foreground"
                   >
                     До
                   </Label>
-                  <Input
-                    id="feed-poll-ends"
-                    type="datetime-local"
-                    className="w-auto"
-                    disabled={pollLocked}
-                    value={poll.endsAt}
-                    onChange={(event) =>
-                      setPoll((current) => ({
-                        ...current,
-                        endsAt: event.target.value,
-                      }))
-                    }
-                  />
+                  {(() => {
+                    const { date, time } = splitDatetime(poll.endsAt);
+                    return (
+                      <div className="grid grid-cols-[1.25fr_1fr] gap-2">
+                        <DatePicker
+                          id="feed-poll-ends"
+                          value={date}
+                          disabled={pollLocked}
+                          onChange={(next) =>
+                            setPoll((current) => ({
+                              ...current,
+                              endsAt: joinDatetime(next, time),
+                            }))
+                          }
+                        />
+                        <TimePicker
+                          id="feed-poll-ends-time"
+                          value={time}
+                          disabled={pollLocked}
+                          onChange={(next) =>
+                            setPoll((current) => ({
+                              ...current,
+                              endsAt: joinDatetime(date, next),
+                            }))
+                          }
+                        />
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

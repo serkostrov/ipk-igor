@@ -322,6 +322,8 @@ export {
   serializeEntityPeriod,
   isEntityPeriodFilled,
   formatEntityPeriodDisplay,
+  coerceEntityDatetimeDate,
+  coerceEntityDatetimeStoredValue,
   type EntityDependency,
   type EntityDependencyType,
   type EntityRelationGroupItem,
@@ -419,6 +421,7 @@ export {
 } from "./model/record-mutation-policy";
 export {
   applyEntityScheduleFieldSync,
+  getEntityScheduleFieldIds,
   reconcileEntityScheduleValues,
   resolveEntityScheduleFields,
   type EntityScheduleFields,
@@ -459,6 +462,7 @@ export {
   getTimeEntryHours,
   listRecordTimeEntries,
   planManualTimeEntries,
+  sumRecordTimeHours,
   type EntityRunningTimer,
   type EntityTimeEntryRow,
   type EntityTimeTrackingSetup,
@@ -593,6 +597,12 @@ export {
 } from "./lib/record-mentions";
 export { notifyRecordMentions } from "./lib/notify-record-mentions";
 export { softFillRelationsFromParentRecord } from "./lib/soft-fill-from-parent";
+export {
+  createEntityRecordsWithUserSpawn,
+  expandUserSpawnRecordValues,
+  findUserSpawnRelationField,
+  isUserSpawnRelationField,
+} from "./lib/user-spawn-records";
 export {
   applyTkpAnalysisCreateDefaults,
   applyTkpGipDepartmentUsers,

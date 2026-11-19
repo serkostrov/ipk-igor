@@ -25,6 +25,7 @@ export function createTkpPriceHardcodeTab(): EntityTab {
     sourceTabId: null,
     defaultFolders: [],
     singleRecord: false,
+    tableFlat: false,
   };
 }
 

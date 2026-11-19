@@ -32,6 +32,7 @@ import type {
 import { ENTITY_ROLLUP_AGGREGATIONS, isEntityBrowseView } from "../model/types";
 import { normalizeEntityPageLayout } from "../model/page-layout";
 import { isEntityTableParentField } from "../model/table-hierarchy";
+import { SYSTEM_USERS_ENTITY_ID } from "../model/system-entities";
 import { resolveEntityCreateUpload } from "./files-upload-target";
 import {
   ENTITY_OVERVIEW_TAB_ID,
@@ -393,6 +394,7 @@ function isNumberLikeType(type: EntityFieldType) {
     type === "numberSum" ||
     type === "formula" ||
     type === "rollup" ||
+    type === "timeHours" ||
     type === "lookup"
   );
 }
@@ -409,11 +411,17 @@ export function normalizeEntityField(field: EntityField): EntityField {
       : null;
   const relationMultiple =
     type === "relation" ? Boolean(field.relationMultiple) : false;
+  const relationSpawnPerUser =
+    type === "relation" &&
+    relationMultiple &&
+    relationEntityId === SYSTEM_USERS_ENTITY_ID
+      ? Boolean(field.relationSpawnPerUser)
+      : false;
   const unitSuffix = isEntityUnitFieldType(type)
     ? normalizeEntityUnitSuffix(field.unitSuffix)
     : null;
   const decimals =
-    type === "number" || type === "numberSum"
+    type === "number" || type === "numberSum" || type === "timeHours"
       ? normalizeEntityNumberDecimals(field.decimals)
       : 2;
   const sumFieldIds =
@@ -475,11 +483,13 @@ export function normalizeEntityField(field: EntityField): EntityField {
       (type === "number" ||
         type === "numberSum" ||
         type === "formula" ||
-        type === "rollup") &&
+        type === "rollup" ||
+        type === "timeHours") &&
       Boolean(field.includeInTotal),
     tableOrder: clampSpan(field.tableOrder, 0, 9999, 0),
     relationEntityId,
     relationMultiple,
+    relationSpawnPerUser,
     unitSuffix,
     decimals,
     sumFieldIds,
@@ -547,6 +557,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     // forcing 0 pinned «Название» as the first table column forever.
     relationEntityId: null,
     relationMultiple: false,
+    relationSpawnPerUser: false,
     unitSuffix: null,
     decimals: 2,
     sumFieldIds: [],
@@ -668,6 +679,7 @@ function parseField(value: unknown): EntityField | null {
         ? value.relationEntityId
         : null,
     relationMultiple: Boolean(value.relationMultiple),
+    relationSpawnPerUser: Boolean(value.relationSpawnPerUser),
     unitSuffix,
     decimals: normalizeEntityNumberDecimals(value.decimals),
     sumFieldIds: normalizeEntitySumFieldIds(value.sumFieldIds),
@@ -741,6 +753,7 @@ function parseTab(value: unknown): EntityTab | null {
       ? value.defaultFolders
       : [],
     singleRecord: Boolean(value.singleRecord),
+    tableFlat: Boolean(value.tableFlat),
   });
 }
 

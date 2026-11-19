@@ -32,6 +32,8 @@ type EntitySubEntitySettingsDialogProps = {
   tabName: string;
   /** Current «единичная запись» flag from the parent tab. */
   singleRecord?: boolean;
+  /** Current «плоский список на вкладке» flag from the parent tab. */
+  tableFlat?: boolean;
   entity: Entity;
 };
 
@@ -40,6 +42,7 @@ function EntitySubEntitySettingsForm({
   tabId,
   tabName,
   singleRecord: initialSingleRecord = false,
+  tableFlat: initialTableFlat = false,
   entity,
   onCancel,
 }: {
@@ -47,11 +50,13 @@ function EntitySubEntitySettingsForm({
   tabId: string;
   tabName: string;
   singleRecord?: boolean;
+  tableFlat?: boolean;
   entity: Entity;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(tabName);
   const [singleRecord, setSingleRecord] = useState(initialSingleRecord);
+  const [tableFlat, setTableFlat] = useState(initialTableFlat);
   const [recordsDisplay, setRecordsDisplay] = useState<EntityRecordsDisplay>(
     normalizeEntityRecordsDisplay(entity.recordsDisplay),
   );
@@ -69,11 +74,13 @@ function EntitySubEntitySettingsForm({
   );
   const trimmedName = name.trim();
   const canSubmit = trimmedName.length > 0;
+  const showFlatToggle = recordsDisplay === "table" && !singleRecord;
 
   function persist() {
     updateEntityTab(parentEntityId, tabId, {
       name: trimmedName,
       singleRecord,
+      tableFlat: showFlatToggle ? tableFlat : false,
     });
     updateEntity(entity.id, {
       recordsDisplay,
@@ -119,8 +126,21 @@ function EntitySubEntitySettingsForm({
           title="Единичная запись"
           description="На вкладке можно добавить или привязать только одну запись"
           checked={singleRecord}
-          onCheckedChange={setSingleRecord}
+          onCheckedChange={(next) => {
+            setSingleRecord(next);
+            if (next) setTableFlat(false);
+          }}
         />
+
+        {showFlatToggle ? (
+          <SettingSwitch
+            id="sub-entity-table-flat"
+            title="Плоский список на вкладке"
+            description="Без группировки и дерева на этой вкладке. На странице сущности группировка не меняется."
+            checked={tableFlat}
+            onCheckedChange={setTableFlat}
+          />
+        ) : null}
 
         <EntityRecordsDisplayFields
           recordsDisplay={recordsDisplay}
@@ -141,6 +161,11 @@ function EntitySubEntitySettingsForm({
             setTableNestedEntityId(nextNested);
           }}
           columnsSelectId="sub-entity-columns"
+          tableHierarchyHint={
+            tableFlat
+              ? "Группировка сущности на её собственной странице (на этой вкладке сейчас плоский список)"
+              : undefined
+          }
         />
       </div>
 
@@ -163,6 +188,7 @@ export function EntitySubEntitySettingsDialog({
   tabId,
   tabName,
   singleRecord = false,
+  tableFlat = false,
   entity,
 }: EntitySubEntitySettingsDialogProps) {
   return (
@@ -175,6 +201,7 @@ export function EntitySubEntitySettingsDialog({
             tabId={tabId}
             tabName={tabName}
             singleRecord={singleRecord}
+            tableFlat={tableFlat}
             entity={entity}
             onCancel={() => onOpenChange(false)}
           />

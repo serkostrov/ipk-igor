@@ -5,6 +5,7 @@ import {
   formulaToDisplay,
   getEntityFormulaOperands,
   getEntityFormulaResultType,
+  getEntityTimeTracking,
   isEntityNumericFieldType,
   isEntityRelationGroupsConfigReady,
   suggestFormulaResultType,
@@ -68,6 +69,7 @@ const PROGRESS_TYPES = new Set<EntityFieldType>([
   "number",
   "formula",
   "rollup",
+  "timeHours",
 ]);
 
 const DEFAULT_VALUE_TYPES = new Set<EntityFieldType>([
@@ -195,8 +197,9 @@ function compileDraftFormula(
 export function getFieldTypeSettingsError(
   type: EntityFieldType,
   draft: FieldTypeSettingsDraft,
-  entity: Pick<Entity, "fields"> | null,
+  entity: Pick<Entity, "fields" | "timeTracking"> | null,
   fieldId: string | null,
+  entities: readonly Entity[] = [],
 ): string | null {
   if (type === "formula") {
     const compiled = compileDraftFormula(draft, entity, fieldId);
@@ -209,6 +212,11 @@ export function getFieldTypeSettingsError(
       !draft.rollup.valueFieldId
     ) {
       return "Выберите поле для расчёта";
+    }
+  }
+  if (type === "timeHours") {
+    if (!entity || !getEntityTimeTracking(entity, entities)) {
+      return "Сначала настройте вкладку «Учёт времени»";
     }
   }
   if (

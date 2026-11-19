@@ -1,11 +1,32 @@
+import { extractIsoDate } from "@/shared/lib/business-days";
 import { getProjectZonedParts } from "@/shared/lib/datetime";
 
-/** Formats ISO date `YYYY-MM-DD` as `DD.MM.YYYY`. */
-export function formatDateDisplay(isoDate: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
-  if (!match) return isoDate.trim();
-  const [, year, month, day] = match;
+/** Formats a stored date as `DD.MM.YYYY` (accepts ISO date or datetime). */
+export function formatDateDisplay(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  // Already project display format.
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(trimmed)) return trimmed;
+  const iso = extractIsoDate(trimmed);
+  if (!iso) {
+    // Don't leak JSON / garbage (e.g. legacy period payload) into the UI.
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "";
+    return trimmed;
+  }
+  const [year, month, day] = iso.split("-");
   return `${day}.${month}.${year}`;
+}
+
+/** Parse UI or storage date into ISO `YYYY-MM-DD`, or null. */
+export function parseDateDisplay(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const dotted = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(trimmed);
+  if (dotted) {
+    const [, day, month, year] = dotted;
+    return `${year}-${month}-${day}`;
+  }
+  return extractIsoDate(trimmed);
 }
 
 /**

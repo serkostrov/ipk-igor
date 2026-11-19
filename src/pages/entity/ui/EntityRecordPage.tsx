@@ -348,6 +348,7 @@ function RecordToolbar({
   onTitleOpen,
   actions,
   extra,
+  iconActions,
   onEdit,
   onDelete,
   onDuplicate,
@@ -361,6 +362,8 @@ function RecordToolbar({
   /** Extra controls shown before the header field (e.g. timer). */
   actions?: ReactNode;
   extra?: ReactNode;
+  /** Icon buttons left of edit/delete (e.g. chat). */
+  iconActions?: ReactNode;
   onEdit?: () => void;
   onDelete?: () => void;
   onDuplicate?: () => void;
@@ -407,8 +410,9 @@ function RecordToolbar({
       <div className="flex shrink-0 items-center gap-2">
         {actions}
         {extra}
-        {onEdit || onDelete ? (
+        {iconActions || onEdit || onDelete ? (
           <div className="flex items-center gap-0.5">
+            {iconActions}
             {onEdit ? (
               <Button
                 type="button"
@@ -1413,12 +1417,9 @@ export function EntityRecordPage({
             : undefined
         }
         actions={
-          <>
-            <CreateRecordChatButton entity={entity} record={record} />
-            {hasTimeSessionsTab ? null : (
-              <RecordTimer entity={entity} record={record} timers={timers} />
-            )}
-          </>
+          hasTimeSessionsTab ? null : (
+            <RecordTimer entity={entity} record={record} timers={timers} />
+          )
         }
         extra={
           headerField ? (
@@ -1438,6 +1439,9 @@ export function EntityRecordPage({
               onOpenRelation={onOpenRelation}
             />
           ) : null
+        }
+        iconActions={
+          <CreateRecordChatButton entity={entity} record={record} />
         }
         onEdit={canUpdate ? () => setEditOpen(true) : undefined}
         onDelete={canDelete ? () => setDeleteOpen(true) : undefined}

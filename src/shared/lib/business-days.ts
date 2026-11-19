@@ -22,12 +22,20 @@ export function nowTimeHHmm(): string {
   return toProjectTimeHHmm(new Date());
 }
 
-/** Date part of a stored value (`YYYY-MM-DD` or `YYYY-MM-DDTHH:mm`). */
+/**
+ * Date part of a stored or typed value.
+ * Accepts `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, and UI `DD.MM.YYYY`.
+ */
 export function extractIsoDate(
   value: string | null | undefined,
 ): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value?.trim() ?? "");
-  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const dotted = /^(\d{2})\.(\d{2})\.(\d{4})(?:[ T].*)?$/.exec(trimmed);
+  if (dotted) return `${dotted[3]}-${dotted[2]}-${dotted[1]}`;
+  return null;
 }
 
 export function parseIsoDate(value: string | null | undefined): Date | null {

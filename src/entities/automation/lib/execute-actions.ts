@@ -5,6 +5,7 @@ import {
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
   entityNameValueHasTemplate,
+  expandUserSpawnRecordValues,
   findDeptCalculationsGroupsField,
   getEntityConfig,
   getEntityParentLinkField,
@@ -523,20 +524,27 @@ async function createMappedRecord(
   if (target) {
     values = applyTkpAnalysisCreateDefaults(target, values, ctx.entities);
   }
-  const record = addEntityRecord(entityId, values);
-  if (!record) {
-    throw new Error("Не удалось создать запись");
+  const payloads = target
+    ? expandUserSpawnRecordValues(target, values)
+    : [values];
+  let first: { id: string } | null = null;
+  for (const payload of payloads) {
+    const record = addEntityRecord(entityId, payload);
+    if (!record) {
+      throw new Error("Не удалось создать запись");
+    }
+    await waitForEntityRecordInsert(record.id);
+    if (options?.writeBackToParents && parentLinks.length > 0) {
+      await writeBackChildToParents(
+        entityId,
+        record.id,
+        parentLinks,
+        ctx.entities,
+      );
+    }
+    if (!first) first = record;
   }
-  await waitForEntityRecordInsert(record.id);
-  if (options?.writeBackToParents && parentLinks.length > 0) {
-    await writeBackChildToParents(
-      entityId,
-      record.id,
-      parentLinks,
-      ctx.entities,
-    );
-  }
-  return record;
+  return first;
 }
 
 function findExistingLinkedChildForDeptPair(
