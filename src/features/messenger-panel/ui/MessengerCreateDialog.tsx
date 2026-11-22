@@ -1,12 +1,16 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useEntityConfig } from "@/entities/entity";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   createMessengerGroup,
   filterMessengerUserOptions,
   listMessengerUserOptions,
   openOrCreateDirectChat,
+  type MessengerUserOption,
 } from "@/entities/messenger";
+
+const EMPTY_MESSENGER_USER_OPTIONS: MessengerUserOption[] = [];
 import { useSessionUser } from "@/entities/session";
 import { Button } from "@/shared/ui/button";
 import {
@@ -36,15 +40,21 @@ export function MessengerCreateDialog({
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
+  const userOptions = useAsyncValue(
+    useCallback(() => {
+      const exclude = new Set(
+        sessionUser?.id ? [sessionUser.id] : ([] as string[]),
+      );
+      return listMessengerUserOptions(entities, exclude);
+    }, [entities, sessionUser]),
+  );
   const options = useMemo(() => {
-    const exclude = new Set(
-      sessionUser?.id ? [sessionUser.id] : ([] as string[]),
-    );
-    return filterMessengerUserOptions(
-      listMessengerUserOptions(entities, exclude),
-      query,
-    );
-  }, [entities, query, sessionUser]);
+    const base =
+      userOptions.status === "ready"
+        ? userOptions.value
+        : EMPTY_MESSENGER_USER_OPTIONS;
+    return filterMessengerUserOptions(base, query);
+  }, [userOptions, query]);
 
   function toggleUser(authUserId: string) {
     if (mode === "direct") {

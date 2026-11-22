@@ -1,4 +1,6 @@
 import {
+  getEntityRecordById,
+  getEntityRecordsByIds,
   collectTkpStageDepartmentPairs,
   filterDeptCalculationRecordsForAssignee,
   findDeptCalculationsGroupsField,
@@ -155,7 +157,7 @@ async function appendRelatedOutcomeFieldComments(
   const buckets = new Map<string, NoteBucket>();
 
   for (const ask of commentAsks) {
-    const resolved = resolveAskRelatedTarget({
+    const resolved = await resolveAskRelatedTarget({
       triggerEntity,
       entities,
       ask,
@@ -169,10 +171,13 @@ async function appendRelatedOutcomeFieldComments(
     );
     if (!field) continue;
 
+    const linked = await getEntityRecordsByIds(
+      resolved.relatedEntity,
+      resolved.relatedRecordIds,
+    );
+    const byId = new Map(linked.map((record) => [record.id, record]));
     for (const relatedRecordId of resolved.relatedRecordIds) {
-      const relatedRecord = resolved.relatedEntity.records.find(
-        (item) => item.id === relatedRecordId,
-      );
+      const relatedRecord = byId.get(relatedRecordId);
       if (!relatedRecord) continue;
       const key = relatedAskValueKey(
         resolved.scopeKey,
@@ -262,7 +267,7 @@ function resolveReturnReasonFieldAccess(
 }
 
 /** Resolve the single configured return-reason text from ask form values. */
-function resolveReturnReasonSnapshot(options: {
+async function resolveReturnReasonSnapshot(options: {
   triggerEntity: Entity | undefined;
   entities: Entity[];
   fieldAccess: AutomationOutcomeFieldAccess;
@@ -270,7 +275,7 @@ function resolveReturnReasonSnapshot(options: {
   recordValues?: Record<string, string>;
   triggerRecordId: string;
   sourceTaskId: string;
-}): AutomationTaskHighlightNote | null {
+}): Promise<AutomationTaskHighlightNote | null> {
   const {
     triggerEntity,
     entities,
@@ -307,7 +312,7 @@ function resolveReturnReasonSnapshot(options: {
     (item) => item.id === fieldAccess.relatedReasonId,
   );
   if (!ask) return null;
-  const resolved = resolveAskRelatedTarget({
+  const resolved = await resolveAskRelatedTarget({
     triggerEntity,
     entities,
     ask,
@@ -337,8 +342,9 @@ function resolveReturnReasonSnapshot(options: {
         sourceTaskId,
       };
     }
-    const relatedRecord = resolved.relatedEntity.records.find(
-      (item) => item.id === relatedRecordId,
+    const relatedRecord = await getEntityRecordById(
+      resolved.relatedEntity,
+      relatedRecordId,
     );
     const fromRecord = (relatedRecord?.values[ask.fieldId] ?? "").trim();
     if (fromRecord) {
@@ -386,14 +392,14 @@ async function collectHighlightTargetTaskIds(options: {
     .map((item) => item.id);
 }
 
-function validateRelatedRequiredFields(
+async function validateRelatedRequiredFields(
   triggerEntity: Entity,
   entities: Entity[],
   fieldAccess: AutomationOutcomeFieldAccess,
   values: Record<string, string>,
   triggerRecordId: string,
   assigneeUserId?: string | null,
-): string[] {
+): Promise<string[]> {
   const missing: string[] = [];
   const requiredAsks = fieldAccess.relatedVisibleFields.filter((item) =>
     fieldAccess.relatedRequiredIds.includes(item.id),
@@ -410,7 +416,7 @@ function validateRelatedRequiredFields(
   };
 
   for (const ask of requiredAsks) {
-    const resolved = resolveAskRelatedTarget({
+    const resolved = await resolveAskRelatedTarget({
       triggerEntity,
       entities,
       ask,
@@ -480,19 +486,22 @@ function validateRelatedRequiredFields(
       continue;
     }
 
+    const linked = await getEntityRecordsByIds(
+      resolved!.relatedEntity,
+      relatedIds,
+    );
+    const byId = new Map(linked.map((record) => [record.id, record]));
+
     // Department head / GIP: only validate rows this assignee must fill.
     if (isDeptCalculationsEntity(resolved!.relatedEntity)) {
-      const linked = resolved!.relatedEntity.records.filter((record) =>
-        relatedIds.includes(record.id),
-      );
-      const visible = filterDeptCalculationRecordsForAssignee({
+      const visible = await filterDeptCalculationRecordsForAssignee({
         entity: resolved!.relatedEntity,
         records: linked,
         entities,
         assigneeUserId,
         leadParent,
       });
-      const editableIds = resolveEditableDeptCalculationRecordIds({
+      const editableIds = await resolveEditableDeptCalculationRecordIds({
         entity: resolved!.relatedEntity,
         records: visible,
         entities,
@@ -514,9 +523,7 @@ function validateRelatedRequiredFields(
         relatedRecordId,
         ask.fieldId,
       );
-      const relatedRecord = resolved!.relatedEntity.records.find(
-        (item) => item.id === relatedRecordId,
-      );
+      const relatedRecord = byId.get(relatedRecordId);
       const draft = values[key];
       const raw =
         draft !== undefined
@@ -566,7 +573,7 @@ export async function completeAutomationTask(
 
   const { entities } = getEntityConfig();
   const entity = entities.find((item) => item.id === task.entityId);
-  const record = entity?.records.find((item) => item.id === task.recordId);
+  const record = await getEntityRecordById(entity, task.recordId);
   const valuesBefore = record?.values ?? {};
   const valuesForForm = { ...valuesBefore, ...formValues };
 
@@ -607,7 +614,7 @@ export async function completeAutomationTask(
       setAutomationUploadTarget(task.config.materials ?? [], uploadTarget),
       entity,
       // Re-read after mirror so freshly copied files count.
-      entity?.records.find((item) => item.id === task.recordId) ?? record,
+      (await getEntityRecordById(entity, task.recordId)) ?? record,
     );
   } else {
     assertAutomationUploadRequired(task.config.materials, entity, record);
@@ -648,7 +655,7 @@ export async function completeAutomationTask(
     throw new Error(`Не заполнены обязательные поля: ${labels.join(", ")}`);
   }
   if (entity) {
-    const missingRelated = validateRelatedRequiredFields(
+    const missingRelated = await validateRelatedRequiredFields(
       entity,
       entities,
       outcome.fieldAccess,
@@ -672,7 +679,7 @@ export async function completeAutomationTask(
     for (const action of outcome.actions) {
       if (action.kind !== "setField" || !action.fieldId.trim()) continue;
       const field = entity.fields.find((item) => item.id === action.fieldId);
-      valuesForComments[action.fieldId] = resolveAutomationActionValue(
+      valuesForComments[action.fieldId] = await resolveAutomationActionValue(
         action.value,
         valuesForForm,
         {
@@ -751,7 +758,7 @@ export async function completeAutomationTask(
   );
   const returnReason =
     stageChanges && (reasonAccess.reasonFieldId || reasonAccess.relatedReasonId)
-      ? resolveReturnReasonSnapshot({
+      ? await resolveReturnReasonSnapshot({
           triggerEntity: entity,
           entities,
           fieldAccess: reasonAccess,
@@ -856,7 +863,7 @@ export async function completeAutomationTask(
     for (const action of outcome.actions) {
       if (action.kind !== "setField" || !action.fieldId.trim()) continue;
       const field = entity.fields.find((item) => item.id === action.fieldId);
-      patchedValues[action.fieldId] = resolveAutomationActionValue(
+      patchedValues[action.fieldId] = await resolveAutomationActionValue(
         action.value,
         valuesForForm,
         {
@@ -1011,7 +1018,7 @@ async function runSilentCompletesForTasks(
   const failures: string[] = [];
   for (const task of silent) {
     const entity = entities.find((item) => item.id === task.entityId);
-    const record = entity?.records.find((item) => item.id === task.recordId);
+    const record = await getEntityRecordById(entity, task.recordId);
     const outcome = pickAutomationOutcome(
       task.config.outcomes,
       { values: record?.values ?? {} },

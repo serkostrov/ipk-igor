@@ -3,7 +3,15 @@
  * stage group → department summary row → expand «Работы отдела» + nested lines.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   ChevronDown,
   ChevronRight,
@@ -39,6 +47,7 @@ import {
   formatRecordFieldValue,
   getEntityConfig,
   getEntityListOption,
+  getEntityRecordById,
   getRecordFieldNumber,
   removeEntityRecord,
   resolveEntityListFieldOptions,
@@ -89,6 +98,9 @@ const headClass =
   "h-9 border-b border-border/80 bg-muted/40 px-3 text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase";
 
 const cellClass = "px-3 py-2.5 align-middle";
+
+/** Stable loading fallback for the async manager-name map. */
+const EMPTY_MANAGER_NAMES: ReadonlyMap<string, string | null> = new Map();
 
 type DeptCalculationsViewProps = {
   entity: Entity;
@@ -242,16 +254,47 @@ export function DeptCalculationsView({
   const leadParentStageKey = leadParent
     ? resolveTkpHostStageOptionId(leadParent.entity, leadParent.record.values)
     : "";
-  const missingGipStagesKey = useMemo(() => {
-    if (!leadParent) return "";
-    return missingDeptCalculationGipStageIds({
-      entity,
-      entities,
-      parentEntity: leadParent.entity,
-      parentRecord: leadParent.record,
-      seedRecords: records,
-    }).join(",");
-  }, [entity, entities, leadParent, records]);
+  const missingGipStages = useAsyncValue(
+    useCallback(async () => {
+      if (!leadParent) return "";
+      return (
+        await missingDeptCalculationGipStageIds({
+          entity,
+          entities,
+          parentEntity: leadParent.entity,
+          parentRecord: leadParent.record,
+          seedRecords: records,
+        })
+      ).join(",");
+    }, [entity, entities, leadParent, records]),
+  );
+  const missingGipStagesKey =
+    missingGipStages.status === "ready" ? missingGipStages.value : "";
+
+  // «Руководитель» per row resolves the lead «ГИП» asynchronously — precompute
+  // a map so the render stays synchronous.
+  const managerNames = useAsyncValue(
+    useCallback(async () => {
+      const map = new Map<string, string | null>();
+      await Promise.all(
+        records.map(async (record) => {
+          map.set(
+            record.id,
+            await resolveDeptCalculationManagerName(
+              valueContext,
+              entity,
+              record,
+              entities,
+              leadParent,
+            ),
+          );
+        }),
+      );
+      return map;
+    }, [records, valueContext, entity, entities, leadParent]),
+  );
+  const managerNameByRecordId =
+    managerNames.status === "ready" ? managerNames.value : EMPTY_MANAGER_NAMES;
   const recordsRef = useRef(records);
   const attemptedMissingKeysRef = useRef(new Set<string>());
   const healInFlightRef = useRef(new Set<string>());
@@ -260,10 +303,14 @@ export function DeptCalculationsView({
     recordsRef.current = records;
   }, [records]);
 
-  // Soft-fill empty managers — skips rows that already have a value.
+  // Soft-fill empty managers — skips rows that already have a value. Keyed on the
+  // record *set* (`recordIdsKey`), not on `entities`/`records` identity: the write
+  // (`updateEntityRecord`) churns the store snapshot, and async reads reflect it a
+  // tick later, so re-running on identity churn would re-write in an endless loop.
   useEffect(() => {
-    syncDeptCalculationCatalogManagers({ entity, records, entities });
-  }, [entity, entities, recordIdsKey, records]);
+    void syncDeptCalculationCatalogManagers({ entity, records, entities });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity, recordIdsKey]);
 
   // Ensure «ГИП» under every parent stage. Retries only when the missing-set
   // changes — never on every records mutate (that hung the UI).
@@ -282,17 +329,24 @@ export function DeptCalculationsView({
 
     const parentEntity =
       entities.find((item) => item.id === leadParentEntityId) ?? null;
-    const parentRecord =
-      parentEntity?.records.find((item) => item.id === leadParentRecordId) ??
-      null;
-    if (!parentEntity || !parentRecord) {
+    if (!parentEntity) {
       healInFlightRef.current.delete(healKey);
       return;
     }
 
     let cancelled = false;
     void (async () => {
+      const parentRecord = await getEntityRecordById(
+        parentEntity,
+        leadParentRecordId,
+      );
+      if (!parentRecord) {
+        // Parent not in store yet — clear in-flight but keep retryable.
+        healInFlightRef.current.delete(healKey);
+        return;
+      }
       try {
+        if (cancelled) return;
         await ensureDeptCalculationGipRows({
           entity,
           records: recordsRef.current,
@@ -306,12 +360,15 @@ export function DeptCalculationsView({
         const liveEntity =
           getEntityConfig().entities.find((item) => item.id === entity.id) ??
           entity;
-        const siblings = collectDeptCalculationRecordsForParent(liveEntity, {
-          entity: parentEntity,
-          recordId: parentRecord.id,
-        });
+        const siblings = await collectDeptCalculationRecordsForParent(
+          liveEntity,
+          {
+            entity: parentEntity,
+            recordId: parentRecord.id,
+          },
+        );
         for (const record of siblings) {
-          const next = applyTkpGipDepartmentUsers({
+          const next = await applyTkpGipDepartmentUsers({
             childEntity: entity,
             childValues: { ...record.values },
             entities,
@@ -503,13 +560,8 @@ export function DeptCalculationsView({
                       record,
                       entities,
                     );
-                    const managerName = resolveDeptCalculationManagerName(
-                      valueContext,
-                      entity,
-                      record,
-                      entities,
-                      leadParent,
-                    );
+                    const managerName =
+                      managerNameByRecordId.get(record.id) ?? null;
                     const deadlineValue = hostFields.deadline
                       ? getRecordFieldNumber(
                           valueContext,
@@ -551,7 +603,7 @@ export function DeptCalculationsView({
                     const contextSaved = hostFields.deadline
                       ? savedDeadline.length > 0
                       : !hostFields.description || savedDescription.length > 0;
-                    const lines = getDeptNestedLines(record, nested);
+                    const lines = getDeptNestedLines(valueContext, record, nested);
 
                     return (
                       <DepartmentBlock

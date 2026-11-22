@@ -180,6 +180,53 @@ export async function fetchEntityRecords(
   }
 }
 
+const RECORD_BY_ID_FETCH_CHUNK = 200;
+
+/** Fetch specific records by id (for label resolution of non-loaded rows). */
+export async function fetchRecordsByIds(
+  ids: readonly string[],
+): Promise<EntityRecord[]> {
+  if (!isSupabaseConfigured || !supabase || ids.length === 0) return [];
+  const client = supabase;
+  const out: EntityRecord[] = [];
+  for (let i = 0; i < ids.length; i += RECORD_BY_ID_FETCH_CHUNK) {
+    const chunk = ids.slice(i, i + RECORD_BY_ID_FETCH_CHUNK);
+    for (;;) {
+      const select = entityRecordsSelect();
+      const { data, error } = await withTimeout(
+        client
+          .from("entity_records")
+          .select(select)
+          .in("id", chunk) as unknown as Promise<{
+          data: unknown;
+          error: FetchPageError | null;
+        }>,
+        15_000,
+        "entity_records by ids",
+      );
+      if (!error) {
+        for (const row of (data ?? []) as EntityRecordRow[]) {
+          out.push(rowToRecord(row));
+        }
+        break;
+      }
+      if (
+        entityRecordsSupportsSchemaVersion() &&
+        isMissingSchemaVersionColumn(error)
+      ) {
+        markEntityRecordsSchemaVersionUnsupported();
+        continue;
+      }
+      if (entityRecordsSupportsCreatedBy() && isMissingCreatedByColumn(error)) {
+        markEntityRecordsCreatedByUnsupported();
+        continue;
+      }
+      throw error;
+    }
+  }
+  return out;
+}
+
 export async function fetchRecordsByEntityId(): Promise<
   Record<string, EntityRecord[]>
 > {

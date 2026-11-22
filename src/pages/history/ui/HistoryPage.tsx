@@ -32,6 +32,7 @@ import {
   useEntityConfig,
   useEntityValueContext,
   type Entity,
+  type EntityValueContext,
 } from "@/entities/entity";
 import {
   useEntityRecordEvents,
@@ -48,10 +49,19 @@ function entityLabel(entity: Entity) {
 }
 
 /** Current title, or the stored name for deleted records. */
-function recordTitle(entity: Entity | undefined, event: EntityRecordEvent) {
-  const exists = entity?.records.some((record) => record.id === event.recordId);
+function recordTitle(
+  ctx: EntityValueContext,
+  entity: Entity | undefined,
+  event: EntityRecordEvent,
+) {
+  const exists = entity
+    ? Boolean(ctx.getRecord(entity.id, event.recordId))
+    : false;
   if (entity && exists) {
-    return resolveRelationRecordLabel(entity, event.recordId) ?? "Без названия";
+    return (
+      resolveRelationRecordLabel(entity, event.recordId, undefined, ctx) ??
+      "Без названия"
+    );
   }
   const nameField = entity?.fields.find((field) => isEntityNameField(field));
   const change = nameField ? event.changes[nameField.id] : undefined;
@@ -114,8 +124,11 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
 
   const users = getSystemUsersEntity(entities);
   const actorId =
-    users?.records.find((record) => record.id === userRecordId)?.authUserId ??
-    undefined;
+    (users
+      ? valueContext
+          .getRecords(users.id)
+          .find((record) => record.id === userRecordId)
+      : undefined)?.authUserId ?? undefined;
   const entity = entities.find((item) => item.id === entityId);
   const { events, hasMore, status, error, loadingMore, loadMore } =
     useEntityRecordEvents({
@@ -256,10 +269,12 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
                 const eventEntity = entities.find(
                   (item) => item.id === event.entityId,
                 );
-                const exists = eventEntity?.records.some(
-                  (record) => record.id === event.recordId,
-                );
-                const title = recordTitle(eventEntity, event);
+                const exists = eventEntity
+                  ? Boolean(
+                      valueContext.getRecord(eventEntity.id, event.recordId),
+                    )
+                  : false;
+                const title = recordTitle(valueContext, eventEntity, event);
                 return (
                   <TableRow
                     key={event.id}

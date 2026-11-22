@@ -98,9 +98,7 @@ export function TaskViewContextFields({
                   ) : null}
                 </p>
                 {group.fields.map((row) => {
-                  const relatedRecord = group.relatedEntity.records.find(
-                    (item) => item.id === group.relatedRecordId,
-                  );
+                  const relatedRecord = group.relatedRecord;
                   if (!relatedRecord) return null;
                   return (
                     <div

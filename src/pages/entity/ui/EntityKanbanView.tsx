@@ -11,6 +11,7 @@ import {
   ENTITY_KANBAN_EMPTY_COLUMN_ID,
   formatRecordFieldValue,
   getEntityRecordTitle,
+  getEntityRecordById,
   getEntityKanbanColumns,
   getEntityKanbanGroupFields,
   getEntityListOption,
@@ -544,9 +545,9 @@ export function EntityKanbanView({
   const previewFields = groupField
     ? resolveEntityKanbanCardFields(entity, groupField.id)
     : [];
-  function moveRecord(recordId: string, toColumnId: string) {
+  async function moveRecord(recordId: string, toColumnId: string) {
     if (!groupField) return;
-    const record = entity.records.find((item) => item.id === recordId);
+    const record = await getEntityRecordById(entity, recordId);
     if (!record) return;
 
     const fromColumnId = getEntityRecordKanbanColumnId(
@@ -621,13 +622,13 @@ export function EntityKanbanView({
                 current === column.id ? null : current,
               );
             }}
-            onDrop={(event) => {
+            onDrop={async (event) => {
               event.preventDefault();
               setDropColumnId(null);
               setDraggingId(null);
               const payload = parseDragPayload(event);
               if (!payload) return;
-              moveRecord(payload.recordId, column.id);
+              await moveRecord(payload.recordId, column.id);
             }}
           />
         ))}

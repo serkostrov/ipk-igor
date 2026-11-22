@@ -3,6 +3,7 @@ import {
   getSystemUsersEntity,
   getSystemUserName,
 } from "../model/system-entities";
+import { getEntityValueContext } from "../model/field-value";
 
 export type MentionableUser = {
   /** Users-entity record id. */
@@ -17,7 +18,8 @@ export function listMentionableUsers(
 ): MentionableUser[] {
   const users = getSystemUsersEntity(entities);
   if (!users) return [];
-  return users.records
+  return getEntityValueContext(entities)
+    .getRecords(users.id)
     .map((record) => {
       const name = getSystemUserName(entities, record.id)?.trim() ?? "";
       if (!name || name === "Без названия") return null;

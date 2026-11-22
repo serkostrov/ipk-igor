@@ -16,7 +16,7 @@ import {
   type AutomationNotificationEvent,
   type AutomationNotificationRule,
 } from "@/entities/automation";
-import type { Entity } from "@/entities/entity";
+import { useFirstEntityRecord, type Entity } from "@/entities/entity";
 import { ConditionGroupBuilder } from "./ConditionGroupBuilder";
 import { renderTemplateText } from "../lib/template-text";
 import { TemplateFieldInput } from "./TemplateFieldInput";
@@ -57,7 +57,7 @@ export function AutomationNotificationRuleEditor({
     JSON.stringify(draft.recipients) !== JSON.stringify(rule.recipients) ||
     JSON.stringify(draft.conditions) !== JSON.stringify(rule.conditions);
 
-  const previewValues = entity.records[0]?.values;
+  const previewValues = useFirstEntityRecord(entity)?.values;
   const previewMessage = useMemo(
     () =>
       renderTemplateText(

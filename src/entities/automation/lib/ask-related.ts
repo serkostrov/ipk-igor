@@ -3,6 +3,8 @@ import {
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityParentLinkField,
+  getEntityRecordById,
+  getEntityRecords,
   getEntityRelationTargetId,
   isEntityTabWithLinkedEntity,
   parseEntityRelationIds,
@@ -96,12 +98,12 @@ export function resolveLinkedTabParentLinkFieldId(
 }
 
 /** Child record ids for a linked-entity tab on the parent record. */
-export function collectLinkedTabRecordIds(options: {
+export async function collectLinkedTabRecordIds(options: {
   tab: EntityTab;
   linkedEntity: Entity;
   parentEntityId: string;
   parentRecordId: string;
-}): string[] {
+}): Promise<string[]> {
   const { tab, linkedEntity, parentEntityId, parentRecordId } = options;
   const parentLinkFieldId = resolveLinkedTabParentLinkFieldId(
     tab,
@@ -112,13 +114,13 @@ export function collectLinkedTabRecordIds(options: {
 
   const isSelfRef = linkedEntity.id === parentEntityId;
   const parentRecord = isSelfRef
-    ? (linkedEntity.records.find((item) => item.id === parentRecordId) ?? null)
+    ? ((await getEntityRecordById(linkedEntity, parentRecordId)) ?? null)
     : null;
   const outgoingIds = parseEntityRelationIds(
     parentRecord?.values[parentLinkFieldId],
   );
 
-  return linkedEntity.records
+  return (await getEntityRecords(linkedEntity))
     .filter((record) => {
       if (record.id === parentRecordId) return false;
       if (
@@ -141,12 +143,12 @@ export function collectLinkedTabRecordIds(options: {
  * Always unions linked-tab hits with a direct parent-link scan so fan-out
  * siblings are not dropped when one discovery path is incomplete.
  */
-export function collectRecordsLinkedToParent(options: {
+export async function collectRecordsLinkedToParent(options: {
   childEntity: Entity;
   parentEntityId: string;
   parentRecordId: string;
   host?: Entity | null;
-}): string[] {
+}): Promise<string[]> {
   const { childEntity, parentEntityId, parentRecordId, host } = options;
   if (!parentRecordId.trim()) return [];
 
@@ -166,7 +168,7 @@ export function collectRecordsLinkedToParent(options: {
       ) {
         continue;
       }
-      for (const id of collectLinkedTabRecordIds({
+      for (const id of await collectLinkedTabRecordIds({
         tab,
         linkedEntity: childEntity,
         parentEntityId: host.id,
@@ -189,7 +191,7 @@ export function collectRecordsLinkedToParent(options: {
     ) ??
     null;
   if (linkField) {
-    for (const record of childEntity.records) {
+    for (const record of await getEntityRecords(childEntity)) {
       if (
         !entityRelationIncludesId(record.values[linkField.id], parentRecordId)
       ) {
@@ -205,13 +207,13 @@ export function collectRecordsLinkedToParent(options: {
  * Resolve related entity + record ids for one ask row
  * (forward relation or linked-entity tab).
  */
-export function resolveAskRelatedTarget(options: {
+export async function resolveAskRelatedTarget(options: {
   triggerEntity: Entity;
   entities: readonly Entity[];
   ask: AutomationAskRelatedField;
   triggerRecordId: string;
   triggerValues: Record<string, string>;
-}): AskRelatedTargetResolution | null {
+}): Promise<AskRelatedTargetResolution | null> {
   const { triggerEntity, entities, ask, triggerRecordId, triggerValues } =
     options;
   const entityById = new Map(entities.map((item) => [item.id, item]));
@@ -226,13 +228,13 @@ export function resolveAskRelatedTarget(options: {
     if (!relatedEntity) return null;
     // Same as relation fields: union tab + reverse links so fan-out siblings
     // survive when either side is incomplete.
-    const fromTab = collectLinkedTabRecordIds({
+    const fromTab = await collectLinkedTabRecordIds({
       tab,
       linkedEntity: relatedEntity,
       parentEntityId: triggerEntity.id,
       parentRecordId: triggerRecordId,
     });
-    const linkedIds = collectRecordsLinkedToParent({
+    const linkedIds = await collectRecordsLinkedToParent({
       childEntity: relatedEntity,
       parentEntityId: triggerEntity.id,
       parentRecordId: triggerRecordId,
@@ -258,7 +260,7 @@ export function resolveAskRelatedTarget(options: {
   // Prefer the form/live forward relation, but always union children that
   // only link parent←child (fan-out siblings often miss the forward id).
   const forwardIds = parseEntityRelationIds(triggerValues[ask.relationFieldId]);
-  const linkedIds = collectRecordsLinkedToParent({
+  const linkedIds = await collectRecordsLinkedToParent({
     childEntity: relatedEntity,
     parentEntityId: triggerEntity.id,
     parentRecordId: triggerRecordId,
@@ -453,13 +455,13 @@ export function getCreateUnderExistingRelatedOptions(
 /**
  * Resolve existing related parent records for `createRecord.parentFromRelated`.
  */
-export function resolveCreateParentFromRelated(options: {
+export async function resolveCreateParentFromRelated(options: {
   triggerEntity: Entity;
   entities: readonly Entity[];
   parentFrom: AutomationCreateParentFromRelated;
   triggerRecordId: string;
   triggerValues: Record<string, string>;
-}): CreateParentFromRelatedResolution | null {
+}): Promise<CreateParentFromRelatedResolution | null> {
   const {
     triggerEntity,
     entities,
@@ -479,13 +481,13 @@ export function resolveCreateParentFromRelated(options: {
       (item) => item.id === tab.linkedEntityId,
     );
     if (!parentEntity) return null;
-    const fromTab = collectLinkedTabRecordIds({
+    const fromTab = await collectLinkedTabRecordIds({
       tab,
       linkedEntity: parentEntity,
       parentEntityId: triggerEntity.id,
       parentRecordId: triggerRecordId,
     });
-    const linkedIds = collectRecordsLinkedToParent({
+    const linkedIds = await collectRecordsLinkedToParent({
       childEntity: parentEntity,
       parentEntityId: triggerEntity.id,
       parentRecordId: triggerRecordId,
@@ -510,7 +512,7 @@ export function resolveCreateParentFromRelated(options: {
       : undefined;
     if (!parentEntity) return null;
     const forwardIds = parseEntityRelationIds(triggerValues[relationFieldId]);
-    const linkedIds = collectRecordsLinkedToParent({
+    const linkedIds = await collectRecordsLinkedToParent({
       childEntity: parentEntity,
       parentEntityId: triggerEntity.id,
       parentRecordId: triggerRecordId,

@@ -67,6 +67,7 @@ function TimeEntryForm({
             setup.entryEntity,
             setup.config,
             userRecordId,
+            entities,
           ),
         })
       : null;

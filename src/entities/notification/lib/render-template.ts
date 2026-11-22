@@ -96,7 +96,10 @@ export function resolveStoredNotificationText(
     options?.recordId
   ) {
     const entity = entities.find((item) => item.id === options.entityId);
-    const record = entity?.records.find((item) => item.id === options.recordId);
+    const record =
+      entity && options.recordId
+        ? getEntityValueContext(entities).getRecord(entity.id, options.recordId)
+        : undefined;
     if (entity && record) {
       return renderNotificationTemplate(source, record.values, "", {
         entity,
@@ -162,9 +165,15 @@ function resolveIdLabel(
 ): string | null {
   const trimmed = id.trim();
   if (!trimmed) return null;
+  const ctx = getEntityValueContext(entities);
   for (const entity of entities) {
-    if (!entity.records.some((record) => record.id === trimmed)) continue;
-    const label = resolveRelationRecordLabel(entity, trimmed, entities)?.trim();
+    if (!ctx.getRecord(entity.id, trimmed)) continue;
+    const label = resolveRelationRecordLabel(
+      entity,
+      trimmed,
+      entities,
+      ctx,
+    )?.trim();
     if (label && label !== "Без названия") return label;
   }
   return null;

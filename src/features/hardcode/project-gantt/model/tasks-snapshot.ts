@@ -9,6 +9,7 @@ import {
 } from "@/entities/automation";
 import {
   getEntityListOption,
+  getEntityRecords,
   getEntityRecordTitle,
   getEntityRelationTargetId,
   parseEntityDependencies,
@@ -83,15 +84,15 @@ function readNumber(
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function collectTaskRecords(
+async function collectTaskRecords(
   projectEntity: Entity,
   projectRecordId: string,
   tasksEntity: Entity,
   tab: EntityTab | null,
-): EntityRecord[] {
+): Promise<EntityRecord[]> {
   let ids: string[] = [];
   if (tab) {
-    ids = collectLinkedTabRecordIds({
+    ids = await collectLinkedTabRecordIds({
       tab,
       linkedEntity: tasksEntity,
       parentEntityId: projectEntity.id,
@@ -99,7 +100,7 @@ function collectTaskRecords(
     });
   }
   if (ids.length === 0) {
-    ids = collectRecordsLinkedToParent({
+    ids = await collectRecordsLinkedToParent({
       childEntity: tasksEntity,
       parentEntityId: projectEntity.id,
       parentRecordId: projectRecordId,
@@ -107,19 +108,19 @@ function collectTaskRecords(
     });
   }
   const byId = new Map(
-    tasksEntity.records.map((record) => [record.id, record]),
+    (await getEntityRecords(tasksEntity)).map((record) => [record.id, record]),
   );
   return ids
     .map((id) => byId.get(id))
     .filter((record): record is EntityRecord => record != null);
 }
 
-export function resolveProjectGanttTasksBinding(input: {
+export async function resolveProjectGanttTasksBinding(input: {
   projectEntity: Entity;
   projectRecord: EntityRecord;
   tasksEntity: Entity;
   tab: EntityTab | null;
-}): ProjectGanttTasksBinding | null {
+}): Promise<ProjectGanttTasksBinding | null> {
   const parentLinkFieldId =
     (input.tab
       ? resolveLinkedTabParentLinkFieldId(
@@ -136,7 +137,7 @@ export function resolveProjectGanttTasksBinding(input: {
   if (!parentLinkFieldId) return null;
 
   const fields = resolveProjectGanttTasksFields(input.tasksEntity);
-  const records = collectTaskRecords(
+  const records = await collectTaskRecords(
     input.projectEntity,
     input.projectRecord.id,
     input.tasksEntity,

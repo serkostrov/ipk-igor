@@ -3527,6 +3527,7 @@ export function addManualTimeEntries(
       setup.entryEntity,
       setup.config,
       userRecordId,
+      config.entities,
     ),
   });
   if (plan.overLimitDays.length > 0) {
@@ -3718,7 +3719,7 @@ async function saveRecord(
   // the source is filled after dependents were already created.
   const softFillPatches =
     changedLookupSourceIds.length > 0
-      ? collectLookupSoftFillPatchesFromRelated(
+      ? await collectLookupSoftFillPatchesFromRelated(
           config.entities,
           entityId,
           recordId,

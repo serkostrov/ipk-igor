@@ -513,13 +513,9 @@
           },
           "fieldAccess": {
             "relatedFields": [],
-            "visibleFieldIds": [
-              "field-tkp-heads-comment-seed"
-            ],
+            "visibleFieldIds": ["field-tkp-heads-comment-seed"],
             "readonlyFieldIds": [],
-            "requiredFieldIds": [
-              "field-tkp-heads-comment-seed"
-            ],
+            "requiredFieldIds": ["field-tkp-heads-comment-seed"],
             "requireAttachment": false
           }
         }
@@ -708,13 +704,9 @@
           },
           "fieldAccess": {
             "relatedFields": [],
-            "visibleFieldIds": [
-              "field-lead-reject-reason-seed"
-            ],
+            "visibleFieldIds": ["field-lead-reject-reason-seed"],
             "readonlyFieldIds": [],
-            "requiredFieldIds": [
-              "field-lead-reject-reason-seed"
-            ],
+            "requiredFieldIds": ["field-lead-reject-reason-seed"],
             "requireAttachment": false
           }
         }
@@ -924,9 +916,7 @@
         "version": 1
       },
       "assignee": {
-        "via": [
-          "field-16700f42-1f14-4f3d-9a64-f123c2df3180"
-        ],
+        "via": ["field-16700f42-1f14-4f3d-9a64-f123c2df3180"],
         "type": "relatedField",
         "fieldId": "field-d1e55e3e-b7d6-4ee1-8019-941ebf8ac667",
         "relationFieldId": "field-9fe24291-44ca-4031-b47f-cb99898564bc"
@@ -981,13 +971,9 @@
           },
           "fieldAccess": {
             "relatedFields": [],
-            "visibleFieldIds": [
-              "field-tkp-heads-comment-seed"
-            ],
+            "visibleFieldIds": ["field-tkp-heads-comment-seed"],
             "readonlyFieldIds": [],
-            "requiredFieldIds": [
-              "field-tkp-heads-comment-seed"
-            ],
+            "requiredFieldIds": ["field-tkp-heads-comment-seed"],
             "requireAttachment": false
           }
         }
@@ -1357,13 +1343,9 @@
           },
           "fieldAccess": {
             "relatedFields": [],
-            "visibleFieldIds": [
-              "field-tkp-heads-comment-seed"
-            ],
+            "visibleFieldIds": ["field-tkp-heads-comment-seed"],
             "readonlyFieldIds": [],
-            "requiredFieldIds": [
-              "field-tkp-heads-comment-seed"
-            ],
+            "requiredFieldIds": ["field-tkp-heads-comment-seed"],
             "requireAttachment": false
           }
         }

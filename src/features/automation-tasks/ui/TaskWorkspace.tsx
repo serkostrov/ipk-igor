@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { AsyncValue } from "@/shared/ui/async-value";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
 import {
   automationOutcomeButtonStyle,
@@ -18,6 +20,7 @@ import { TaskReturnReasonBanner } from "./TaskReturnReasonBanner";
 import { TaskTimeSessionsPanel } from "./TaskTimeSessionsPanel";
 import { TaskUploadPanel } from "./TaskUploadPanel";
 import {
+  getEntityRecordById,
   applyEntityFieldValue,
   buildTkpGipSoftFillParentRecord,
   createEntityDraftRecord,
@@ -138,7 +141,7 @@ function recordTitle(
   return getEntityRecordTitle(ctx, entity, record);
 }
 
-function buildTaskFormValues(
+async function buildTaskFormValues(
   entity: Entity,
   record: EntityRecord,
   visibleFieldIds: string[],
@@ -148,7 +151,7 @@ function buildTaskFormValues(
   relatedFields: ReturnType<
     typeof getAutomationTaskAskFields
   >["relatedVisibleFields"] = [],
-) {
+): Promise<Record<string, string>> {
   const draft: Record<string, string> = {};
   for (const fieldId of visibleFieldIds) {
     const field = entity.fields.find((item) => item.id === fieldId);
@@ -158,7 +161,7 @@ function buildTaskFormValues(
   let base = sanitizeEntityRelationDependencies(entity, draft, entities);
   if (setFieldActions.length > 0) {
     const merged = { ...record.values, ...base };
-    const filled = applyAutomationSetFieldAutofill({
+    const filled = await applyAutomationSetFieldAutofill({
       entity,
       entities,
       values: merged,
@@ -200,19 +203,26 @@ export function TaskWorkspace({
 }) {
   const { entities } = useEntityConfig();
   const entity = entities.find((item) => item.id === task.entityId);
-  const record = entity?.records.find((item) => item.id === task.recordId);
+  const current = useMemo(
+    () => getEntityRecordById(entity, task.recordId),
+    [entity, task.recordId],
+  );
 
   return (
-    <TaskWorkspaceBody
-      key={`${task.id}:${record?.id ?? "pending"}`}
-      task={task}
-      entity={entity}
-      record={record}
-      entities={entities}
-      onOpenRecord={onOpenRecord}
-      onComplete={onComplete}
-      onCompleted={onCompleted}
-    />
+    <AsyncValue promise={current}>
+      {(record) => (
+        <TaskWorkspaceBody
+          key={`${task.id}:${record?.id ?? "pending"}`}
+          task={task}
+          entity={entity}
+          record={record}
+          entities={entities}
+          onOpenRecord={onOpenRecord}
+          onComplete={onComplete}
+          onCompleted={onCompleted}
+        />
+      )}
+    </AsyncValue>
   );
 }
 
@@ -240,7 +250,10 @@ function TaskWorkspaceBody({
   const role = useCurrentRole();
   const restrictDeptToOwn = isTkpDepartmentHeadRole(role);
   const valueContext = useEntityValueContext();
-  const previewContext = getEntityPreviewValueContext(valueContext);
+  const previewContext = useMemo(
+    () => getEntityPreviewValueContext(valueContext),
+    [valueContext],
+  );
   const isGipFillTask = useMemo(
     () =>
       Boolean(entity) &&
@@ -302,49 +315,76 @@ function TaskWorkspaceBody({
   const ask = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
-  const createAskTitle = (parentEntity: Entity, parentRecordId: string) => {
-    const parentRecord = parentEntity.records.find(
-      (item) => item.id === parentRecordId,
-    );
-    if (!parentRecord) return "Запись";
-    return getEntityRecordTitle(previewContext, parentEntity, parentRecord);
-  };
-  const templateCreateOutcome = {
-    id: "__template__",
-    label: "",
-    color: null as string | null,
-    actions: task.config.actions ?? [],
-    fieldAccess: task.config.fieldAccess,
-    conditions: { version: 1 as const, match: "all" as const, rules: [] },
-    buttonMode: "auto" as const,
-  };
-  const createAskSlotsRaw = [
-    ...getOutcomeCreateAskSlots(templateCreateOutcome, entities, {
-      sourceEntity: entity,
-      triggerRecordId: record?.id ?? task.recordId,
-      triggerValues: record?.values ?? {},
-      getRecordTitle: createAskTitle,
+  const createAskTitle = useCallback(
+    async (parentEntity: Entity, parentRecordId: string) => {
+      const parentRecord = await getEntityRecordById(
+        parentEntity,
+        parentRecordId,
+      );
+      if (!parentRecord) return "Запись";
+      return getEntityRecordTitle(previewContext, parentEntity, parentRecord);
+    },
+    [previewContext],
+  );
+  const templateCreateOutcome = useMemo(
+    () => ({
+      id: "__template__",
+      label: "",
+      color: null as string | null,
+      actions: task.config.actions ?? [],
+      fieldAccess: task.config.fieldAccess,
+      conditions: { version: 1 as const, match: "all" as const, rules: [] },
+      buttonMode: "auto" as const,
     }),
-    ...(selectedOutcome
-      ? getOutcomeCreateAskSlots(selectedOutcome, entities, {
+    [task.config.actions, task.config.fieldAccess],
+  );
+  const createAskSlotsRawValue = useAsyncValue(
+    useCallback(
+      async () => [
+        ...(await getOutcomeCreateAskSlots(templateCreateOutcome, entities, {
           sourceEntity: entity,
           triggerRecordId: record?.id ?? task.recordId,
           triggerValues: record?.values ?? {},
           getRecordTitle: createAskTitle,
-        })
-      : []),
-  ];
+        })),
+        ...(selectedOutcome
+          ? await getOutcomeCreateAskSlots(selectedOutcome, entities, {
+              sourceEntity: entity,
+              triggerRecordId: record?.id ?? task.recordId,
+              triggerValues: record?.values ?? {},
+              getRecordTitle: createAskTitle,
+            })
+          : []),
+      ],
+      [
+        templateCreateOutcome,
+        entities,
+        entity,
+        record,
+        task.recordId,
+        selectedOutcome,
+        createAskTitle,
+      ],
+    ),
+  );
+  if (createAskSlotsRawValue.status === "error")
+    throw createAskSlotsRawValue.error;
+  const createAskSlotsRaw =
+    createAskSlotsRawValue.status === "ready" ? createAskSlotsRawValue.value : [];
   const requiredIds = new Set([
     ...templateAsk.requiredFieldIds,
     ...(ask?.requiredFieldIds ?? []),
   ]);
 
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    if (!entity || !record) return {};
+  const [values, setValues] = useState<Record<string, string>>({});
+  // Seed once on mount — the body is keyed per task/record so it remounts.
+  useEffect(() => {
+    if (!entity || !record) return;
+    let cancelled = false;
     const outcome =
       task.config.outcomes.find((item) => item.id === autofillOutcomeId) ??
       null;
-    return buildTaskFormValues(
+    void buildTaskFormValues(
       entity,
       record,
       taskAsk.visibleFieldIds,
@@ -352,8 +392,14 @@ function TaskWorkspaceBody({
       getOutcomeSetFieldActions(outcome),
       getCurrentUserRecordId(),
       taskAsk.relatedVisibleFields,
-    );
-  });
+    ).then((seed) => {
+      if (!cancelled) setValues(seed);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requireTime = automationRequiresTimeTracking(task.config.materials);
@@ -393,17 +439,28 @@ function TaskWorkspaceBody({
     ...(ask?.relatedRequiredIds ?? []),
   ];
 
+  const relatedLayoutValue = useAsyncValue(
+    useCallback(
+      () =>
+        entity && relatedFieldsForForm.length > 0
+          ? resolveRelatedAskLayout({
+              triggerEntity: entity,
+              entities,
+              relatedFields: relatedFieldsForForm,
+              relatedRequiredIds: relatedRequiredForForm,
+              triggerValues: { ...(record?.values ?? {}), ...values },
+              triggerRecordId: record?.id ?? task.recordId,
+              ctx: previewContext,
+            })
+          : Promise.resolve({ groups: [], emptyRelations: [] }),
+      // relatedFields/required derive purely from these.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [entity, entities, selectedOutcome, task, record, previewContext, values],
+    ),
+  );
   const relatedLayout =
-    entity && relatedFieldsForForm.length > 0
-      ? resolveRelatedAskLayout({
-          triggerEntity: entity,
-          entities,
-          relatedFields: relatedFieldsForForm,
-          relatedRequiredIds: relatedRequiredForForm,
-          triggerValues: { ...(record?.values ?? {}), ...values },
-          triggerRecordId: record?.id ?? task.recordId,
-          ctx: previewContext,
-        })
+    relatedLayoutValue.status === "ready"
+      ? relatedLayoutValue.value
       : { groups: [], emptyRelations: [] };
 
   const createAskSlots = filterCreateAskSlotsForDeptCalculationsView(
@@ -424,30 +481,50 @@ function TaskWorkspaceBody({
       ? ask.viewEntityFields
       : []),
   ];
+  const viewRelatedLayoutValue = useAsyncValue(
+    useCallback(
+      () =>
+        entity && viewRelatedFieldsForForm.length > 0
+          ? resolveRelatedAskLayout({
+              triggerEntity: entity,
+              entities,
+              relatedFields: viewRelatedFieldsForForm,
+              relatedRequiredIds: [],
+              triggerValues: { ...(record?.values ?? {}), ...values },
+              triggerRecordId: record?.id ?? task.recordId,
+              ctx: previewContext,
+            })
+          : Promise.resolve({ groups: [], emptyRelations: [] }),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [entity, entities, selectedOutcome, task, record, previewContext, values],
+    ),
+  );
   const viewRelatedLayout =
-    entity && viewRelatedFieldsForForm.length > 0
-      ? resolveRelatedAskLayout({
-          triggerEntity: entity,
-          entities,
-          relatedFields: viewRelatedFieldsForForm,
-          relatedRequiredIds: [],
-          triggerValues: { ...(record?.values ?? {}), ...values },
-          triggerRecordId: record?.id ?? task.recordId,
-          ctx: previewContext,
-        })
+    viewRelatedLayoutValue.status === "ready"
+      ? viewRelatedLayoutValue.value
       : { groups: [], emptyRelations: [] };
+  const viewEntityLayoutValue = useAsyncValue(
+    useCallback(
+      () =>
+        entity && viewEntityFieldsForForm.length > 0
+          ? resolveViewEntityFieldsLayout({
+              triggerEntity: entity,
+              entities,
+              entityFields: viewEntityFieldsForForm,
+              triggerValues: { ...(record?.values ?? {}), ...values },
+              ctx: previewContext,
+            })
+          : Promise.resolve({ groups: [], empty: [] }),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [entity, entities, selectedOutcome, task, record, previewContext, values],
+    ),
+  );
   const viewEntityLayout =
-    entity && viewEntityFieldsForForm.length > 0
-      ? resolveViewEntityFieldsLayout({
-          triggerEntity: entity,
-          entities,
-          entityFields: viewEntityFieldsForForm,
-          triggerValues: { ...(record?.values ?? {}), ...values },
-          ctx: previewContext,
-        })
+    viewEntityLayoutValue.status === "ready"
+      ? viewEntityLayoutValue.value
       : { groups: [], empty: [] };
 
-  function applyOutcomeAutofill(outcomeId: string) {
+  async function applyOutcomeAutofill(outcomeId: string) {
     if (!entity || !record) return;
     const outcome =
       task.config.outcomes.find((item) => item.id === outcomeId) ?? null;
@@ -459,27 +536,21 @@ function TaskWorkspaceBody({
     if (actions.length === 0 && relatedFields.length === 0) return;
     const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
     if (actions.length > 0) autosave.markDirty();
-    setValues((current) => {
-      let next = current;
-      if (actions.length > 0) {
-        const merged = { ...record.values, ...current };
-        const filled = applyAutomationSetFieldAutofill({
-          entity,
-          entities,
-          values: merged,
-          actions,
-          actorUserId,
-          triggerRecordId: record.id,
-        });
-        next = mergeAutofillIntoFormValues(
-          current,
-          record.values,
-          filled,
-          actions,
-        );
-      }
-      if (relatedFields.length === 0) return next;
-      return seedRelatedAskValues({
+    let next = values;
+    if (actions.length > 0) {
+      const merged = { ...record.values, ...next };
+      const filled = await applyAutomationSetFieldAutofill({
+        entity,
+        entities,
+        values: merged,
+        actions,
+        actorUserId,
+        triggerRecordId: record.id,
+      });
+      next = mergeAutofillIntoFormValues(next, record.values, filled, actions);
+    }
+    if (relatedFields.length > 0) {
+      next = await seedRelatedAskValues({
         triggerEntity: entity,
         entities,
         relatedFields,
@@ -487,7 +558,8 @@ function TaskWorkspaceBody({
         triggerRecordId: record.id,
         currentValues: next,
       });
-    });
+    }
+    setValues(next);
   }
 
   const mergedValues = useMemo(
@@ -588,88 +660,90 @@ function TaskWorkspaceBody({
         "full",
     });
   }).length;
+  const missingRelatedRequiredCountValue = useAsyncValue(
+    useCallback(
+      () =>
+        entity && relatedFieldsForForm.length > 0
+          ? countMissingRelatedRequired({
+              triggerEntity: entity,
+              entities,
+              relatedFields: relatedFieldsForForm,
+              relatedRequiredIds: relatedRequiredForForm,
+              values: mergedValues,
+              triggerRecordId: record?.id ?? task.recordId,
+              ctx: previewContext,
+              isFieldFilled: (field, value, relationGroupsMode) =>
+                isTaskAskFieldFilled(field, value, {
+                  relationGroupsMode: relationGroupsMode ?? "full",
+                }),
+            })
+          : Promise.resolve(0),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [entity, entities, selectedOutcome, task, record, previewContext, values],
+    ),
+  );
   const missingRelatedRequiredCount =
-    entity && relatedFieldsForForm.length > 0
-      ? countMissingRelatedRequired({
-          triggerEntity: entity,
-          entities,
-          relatedFields: relatedFieldsForForm,
-          relatedRequiredIds: relatedRequiredForForm,
-          values: mergedValues,
-          triggerRecordId: record?.id ?? task.recordId,
-          ctx: previewContext,
-          isFieldFilled: (field, value, relationGroupsMode) =>
-            isTaskAskFieldFilled(field, value, {
-              relationGroupsMode: relationGroupsMode ?? "full",
-            }),
-        })
+    missingRelatedRequiredCountValue.status === "ready"
+      ? missingRelatedRequiredCountValue.value
       : 0;
   const missingRequiredCount =
     missingLocalRequiredCount + missingRelatedRequiredCount;
 
-  function setValue(fieldId: string, value: string) {
+  async function setValue(fieldId: string, value: string) {
     if (!entity) return;
     const actorUserId = sessionUser?.id ?? getCurrentUserRecordId() ?? null;
     autosave.markDirty();
-    setValues((current) => {
-      let base = applyEntityFieldValue(
+    let base = applyEntityFieldValue(entity, values, fieldId, value, entities);
+    if (setFieldActions.length > 0) {
+      const merged = { ...(record?.values ?? {}), ...base };
+      const filled = await applyAutomationSetFieldAutofill({
         entity,
-        current,
-        fieldId,
-        value,
         entities,
-      );
-      if (setFieldActions.length > 0) {
-        const merged = { ...(record?.values ?? {}), ...base };
-        const filled = applyAutomationSetFieldAutofill({
-          entity,
-          entities,
-          values: merged,
-          actions: setFieldActions,
-          actorUserId,
-          triggerRecordId: record?.id,
-          changedFieldId: fieldId,
-        });
-        base = mergeAutofillIntoFormValues(
-          base,
-          record?.values ?? {},
-          filled,
-          setFieldActions,
-        );
-      }
-      return syncRelatedAskValuesAfterLocalChange({
-        triggerEntity: entity,
-        entities,
-        relatedFields: relatedFieldsForForm,
+        values: merged,
+        actions: setFieldActions,
+        actorUserId,
+        triggerRecordId: record?.id,
         changedFieldId: fieldId,
-        values: base,
-        triggerRecordId: record?.id ?? task.recordId,
       });
+      base = mergeAutofillIntoFormValues(
+        base,
+        record?.values ?? {},
+        filled,
+        setFieldActions,
+      );
+    }
+    const next = await syncRelatedAskValuesAfterLocalChange({
+      triggerEntity: entity,
+      entities,
+      relatedFields: relatedFieldsForForm,
+      changedFieldId: fieldId,
+      values: base,
+      triggerRecordId: record?.id ?? task.recordId,
     });
+    setValues(next);
   }
 
-  function setRelatedValue(valueKey: string, value: string) {
+  async function setRelatedValue(valueKey: string, value: string) {
     if (!entity || !record) {
       autosave.markDirty();
       setValues((current) => ({ ...current, [valueKey]: value }));
       return;
     }
     autosave.markDirty();
-    setValues((current) =>
-      applyRelatedAskFieldChange({
-        groups: relatedLayout.groups,
-        valueKey,
-        value,
-        formValues: current,
-        triggerEntity: entity,
-        triggerRecord: record,
-        entities,
-      }),
-    );
+    const next = await applyRelatedAskFieldChange({
+      groups: relatedLayout.groups,
+      valueKey,
+      value,
+      formValues: values,
+      triggerEntity: entity,
+      triggerRecord: record,
+      entities,
+    });
+    setValues(next);
   }
 
   /** Sync from live fan-out siblings — must not trigger another autosave. */
-  function seedRelatedValue(valueKey: string, value: string) {
+  async function seedRelatedValue(valueKey: string, value: string) {
     if (!entity || !record) {
       setValues((current) =>
         (current[valueKey] ?? "") === value
@@ -678,18 +752,17 @@ function TaskWorkspaceBody({
       );
       return;
     }
-    setValues((current) => {
-      if ((current[valueKey] ?? "") === value) return current;
-      return applyRelatedAskFieldChange({
-        groups: relatedLayout.groups,
-        valueKey,
-        value,
-        formValues: current,
-        triggerEntity: entity,
-        triggerRecord: record,
-        entities,
-      });
+    if ((values[valueKey] ?? "") === value) return;
+    const next = await applyRelatedAskFieldChange({
+      groups: relatedLayout.groups,
+      valueKey,
+      value,
+      formValues: values,
+      triggerEntity: entity,
+      triggerRecord: record,
+      entities,
     });
+    setValues(next);
   }
 
   function setCreateDraftValue(draftKey: string, value: string) {
@@ -720,7 +793,7 @@ function TaskWorkspaceBody({
       // Partial patch — store merges into current values (keeps files tabs etc.).
       await updateEntityRecord(task.entityId, task.recordId, patch);
     }
-    const related = buildTaskRelatedPersistUpdates({
+    const related = await buildTaskRelatedPersistUpdates({
       entity,
       entities,
       outcomes,
@@ -734,7 +807,7 @@ function TaskWorkspaceBody({
     });
   }
 
-  function validateForOutcome(outcomeId: string) {
+  async function validateForOutcome(outcomeId: string) {
     if (!entity) return "Задача не загружена";
     const outcome = task.config.outcomes.find((item) => item.id === outcomeId);
     if (!outcome) return "Не выбран результат";
@@ -770,7 +843,7 @@ function TaskWorkspaceBody({
       );
       return `Заполните: ${labels.join(", ")}`;
     }
-    const relatedError = validateRelatedAskRequired({
+    const relatedError = await validateRelatedAskRequired({
       triggerEntity: entity,
       entities,
       fieldAccess: outcome.fieldAccess,
@@ -812,9 +885,10 @@ function TaskWorkspaceBody({
       sourceEntity: entity,
       triggerRecordId: record?.id ?? task.recordId,
       triggerValues: record?.values ?? values,
-      getRecordTitle: (parentEntity, parentRecordId) => {
-        const parentRecord = parentEntity.records.find(
-          (item) => item.id === parentRecordId,
+      getRecordTitle: async (parentEntity, parentRecordId) => {
+        const parentRecord = await getEntityRecordById(
+          parentEntity,
+          parentRecordId,
         );
         if (!parentRecord) return "Запись";
         return getEntityRecordTitle(previewContext, parentEntity, parentRecord);
@@ -831,7 +905,7 @@ function TaskWorkspaceBody({
   }
 
   async function run(outcomeId: string) {
-    const validationError = validateForOutcome(outcomeId);
+    const validationError = await validateForOutcome(outcomeId);
     if (validationError) {
       setError(validationError);
       return;
@@ -878,9 +952,10 @@ function TaskWorkspaceBody({
       // drop pending to avoid a second fieldEnter spawn.
       const deferred = getPendingRecordListChange();
       if (deferred?.recordId === task.recordId) {
-        const live = entities
-          .find((item) => item.id === deferred.entityId)
-          ?.records.find((item) => item.id === task.recordId);
+        const live = await getEntityRecordById(
+          entities.find((item) => item.id === deferred.entityId),
+          task.recordId,
+        );
         clearPendingRecordListChangeIfLanded(
           task.recordId,
           live?.values[deferred.fieldId],
@@ -924,7 +999,15 @@ function TaskWorkspaceBody({
   }
 
   const assigneeName = resolveTaskAssigneeName(entities, task);
-  const leadManagerName = resolveTaskLeadManagerName(entities, entity, record);
+  const leadManager = useAsyncValue(
+    useCallback(
+      () => resolveTaskLeadManagerName(entities, entity, record),
+      [entities, entity, record],
+    ),
+  );
+  if (leadManager.status === "error") throw leadManager.error;
+  const leadManagerName =
+    leadManager.status === "ready" ? leadManager.value : null;
 
   return (
     <div className="flex flex-col gap-5">

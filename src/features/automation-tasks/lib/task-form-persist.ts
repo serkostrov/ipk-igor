@@ -99,7 +99,7 @@ export function buildTaskRelatedPersistUpdates(options: {
   values: Record<string, string>;
   triggerRecordId: string;
   skipUnchanged?: boolean;
-}): RelatedAskPersistUpdate[] {
+}): Promise<RelatedAskPersistUpdate[]> {
   return buildRelatedAskPersistUpdates({
     triggerEntity: options.entity,
     entities: options.entities,

@@ -449,6 +449,7 @@ export {
   useEntityConfig,
   useEntityError,
   useEntityForRecord,
+  useFirstEntityRecord,
   useEntityStatus,
   useEntityValueContext,
   usePrefetchEntitySchemaVersions,
@@ -486,7 +487,7 @@ export { RelationSelect } from "./ui/RelationSelect";
 export { RelationGroupsFieldControl } from "./ui/RelationGroupsFieldControl";
 export {
   ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID,
-  countEntityTableNestedChildren,
+  countNestedChildrenByHost,
   encodeEntityTableSubgroupRowId,
   findEntityManagerUserField,
   flattenEntityTableBelongingTreeRows,
@@ -759,3 +760,17 @@ export {
   entityHasUnpublishedSchemaChanges,
   resolveEntityForRecord,
 } from "./model/schema-version";
+export {
+  getFirstEntityRecord,
+  getEntityRecords,
+  getEntityOwningRecord,
+  getEntityRecordById,
+  getEntityRecordsByIds,
+  getEntityRecordsByRelation,
+  getEntityRecordsByFirstListOption,
+} from "./model/record-queries";
+export {
+  useTkpGipExtrasResolver,
+  useTkpGipLeadContext,
+  type TkpGipLeadContext,
+} from "./lib/use-tkp-gip-extras";

@@ -1,3 +1,4 @@
+import { AsyncValue } from "@/shared/ui/async-value";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, RotateCcw } from "lucide-react";
 import { Button } from "@/shared/ui/button";
@@ -36,21 +37,20 @@ export function TaskInbox({
   const valueContext = useEntityValueContext();
   const [tasks, setTasks] = useState<AutomationTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [silentReadyRecordId, setSilentReadyRecordId] = useState<string | null>(
-    null,
-  );
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
-  const visibleTasks = useMemo(
+  const visible = useMemo(
     () =>
-      filterAutomationTasksForRole(role, tasks, {
-        authUserId: sessionUser?.id ?? null,
-        userRecordId: getCurrentUserRecordId(),
-        entities,
-        valueContext,
-      }).filter((task) => !isAutomationSilentTaskKind(task.config.kind)),
+      (async () =>
+        (
+          await filterAutomationTasksForRole(role, tasks, {
+            authUserId: sessionUser?.id ?? null,
+            userRecordId: getCurrentUserRecordId(),
+            entities,
+            valueContext,
+          })
+        ).filter((task) => !isAutomationSilentTaskKind(task.config.kind)))(),
     [role, tasks, sessionUser?.id, entities, valueContext],
   );
 
@@ -65,7 +65,6 @@ export function TaskInbox({
         setLoading(true);
         setError(null);
         try {
-          void registerOverdueAutomationTasksRpc().catch(() => null);
           const next = await fetchAutomationTasks({
             status: ["pending", "returned"],
           });
@@ -89,12 +88,54 @@ export function TaskInbox({
     };
   }, [reloadToken]);
 
+  // Mark overdue tasks once on mount — not inside the reload path, where the
+  // write would echo back via realtime and retrigger an endless reload loop.
+  useEffect(() => {
+    void registerOverdueAutomationTasksRpc().catch(() => null);
+  }, []);
+
   useEffect(() => {
     return subscribeAutomationTasks(() => {
       setReloadToken((token) => token + 1);
     });
   }, []);
 
+  return (
+    <AsyncValue promise={visible}>
+      {(visibleTasks) => (
+        <TaskInboxContent
+          visibleTasks={visibleTasks}
+          loading={loading}
+          error={error}
+          clearError={() => setError(null)}
+          reload={reload}
+          onOpenRecord={onOpenRecord}
+        />
+      )}
+    </AsyncValue>
+  );
+}
+
+function TaskInboxContent({
+  visibleTasks,
+  loading,
+  error,
+  clearError,
+  reload,
+  onOpenRecord,
+}: {
+  visibleTasks: AutomationTask[];
+  loading: boolean;
+  error: string | null;
+  clearError: () => void;
+  reload: () => void;
+  onOpenRecord?: (entityId: string, recordId: string) => void;
+}) {
+  const sessionUser = useSessionUser();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [silentReadyRecordId, setSilentReadyRecordId] = useState<string | null>(
+    null,
+  );
   const selected = visibleTasks.find((task) => task.id === selectedId) ?? null;
   const selectedRecordId = selected?.recordId ?? null;
   const selectedReady =
@@ -162,7 +203,7 @@ export function TaskInbox({
                     onClick={() => {
                       setSelectedId(task.id);
                       setSilentReadyRecordId(null);
-                      setError(null);
+                      clearError();
                     }}
                   >
                     <span className="truncate text-sm font-medium">

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
+  getEntityRecordById,
   filterEntityFieldGroupsForTab,
   formatEntityFileSize,
   getEntityFieldDisplayName,
@@ -457,10 +458,12 @@ function FilesPreview({
     setMoving(true);
     try {
       const latestValues =
-        getEntityConfig()
-          .entities.find((item) => item.id === entity.id)
-          ?.records.find((item) => item.id === record.id)?.values ??
-        record.values;
+        (
+          await getEntityRecordById(
+            getEntityConfig().entities.find((item) => item.id === entity.id),
+            record.id,
+          )
+        )?.values ?? record.values;
       const latestEntries = parseEntityTabFileEntries(latestValues[valueKey]);
       const nextEntries = latestEntries.map((item) =>
         item.kind === "file" && selectedSet.has(item.id)

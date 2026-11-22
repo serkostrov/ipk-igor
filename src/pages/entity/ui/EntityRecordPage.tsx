@@ -1,3 +1,4 @@
+import { AsyncValue } from "@/shared/ui/async-value";
 import { useMemo, useState, type ReactNode } from "react";
 import {
   recordLocation,
@@ -1203,8 +1204,69 @@ function RecordTabFields({
   );
 }
 
-export function EntityRecordPage({
-  entity: liveEntity,
+export function EntityRecordPage(props: EntityRecordPageProps) {
+  const { record } = props;
+  const entity = useEntityForRecord(props.entity.id, record) ?? props.entity;
+  const { entities } = useEntityConfig();
+  const valueContext = useEntityValueContext();
+  const role = useCurrentRole();
+  const sessionUser = useSessionUser();
+  const authUserId = sessionUser?.id ?? null;
+  const currentUserRecordId = getCurrentUserRecordId();
+  const access = useMemo(
+    () =>
+      Promise.all([
+        canViewRecordForDataScope(role, entity, record, {
+          entities,
+          authUserId,
+          currentUserRecordId,
+          valueContext,
+        }),
+        canViewRecordForLegalEntities(role, entity, record, entities),
+      ]),
+    [
+      role,
+      entity,
+      record,
+      entities,
+      authUserId,
+      currentUserRecordId,
+      valueContext,
+    ],
+  );
+
+  return (
+    <AsyncValue promise={access}>
+      {([canViewByScope, canViewByLegal]) => {
+        if (!canViewByScope || !canViewByLegal) {
+          return (
+            <div className="flex min-h-0 flex-1 flex-col items-start gap-3 overflow-auto p-8">
+              <p className="text-sm font-medium text-foreground">Нет доступа</p>
+              <p className="max-w-md text-sm text-muted-foreground">
+                {!canViewByLegal
+                  ? "Запись связана с другим юрлицом и скрыта настройками вашей роли."
+                  : "Запись скрыта областью доступа вашей роли (свои / отдел / фильтр)."}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={props.onBack}
+              >
+                Назад
+              </Button>
+            </div>
+          );
+        }
+
+        return <EntityRecordContent {...props} entity={entity} />;
+      }}
+    </AsyncValue>
+  );
+}
+
+function EntityRecordContent({
+  entity,
   record,
   onBack,
   onDeleted,
@@ -1214,7 +1276,6 @@ export function EntityRecordPage({
   const { go } = useAppNavigate();
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
-  const entity = useEntityForRecord(liveEntity.id, record) ?? liveEntity;
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
   const timers = useRecordTimers(entity);
   const hasTimeSessionsTab = entity.tabs.some((tab) =>
@@ -1224,7 +1285,6 @@ export function EntityRecordPage({
   const canDelete = useCanEntity(entity.id, "delete");
   const canCreate = useCanEntity(entity.id, "create");
   const role = useCurrentRole();
-  const sessionUser = useSessionUser();
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const locationTabId =
@@ -1369,37 +1429,6 @@ export function EntityRecordPage({
     const field = entity.fields.find((item) => item.id === fieldId);
     if (!field) return;
     void requestListChange(entity, record, field, optionId);
-  }
-
-  const authUserId = sessionUser?.id ?? null;
-  const currentUserRecordId = getCurrentUserRecordId();
-  const canViewByScope = canViewRecordForDataScope(role, entity, record, {
-    entities,
-    authUserId,
-    currentUserRecordId,
-    valueContext,
-  });
-  const canViewByLegal = canViewRecordForLegalEntities(
-    role,
-    entity,
-    record,
-    entities,
-  );
-
-  if (!canViewByScope || !canViewByLegal) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-start gap-3 overflow-auto p-8">
-        <p className="text-sm font-medium text-foreground">Нет доступа</p>
-        <p className="max-w-md text-sm text-muted-foreground">
-          {!canViewByLegal
-            ? "Запись связана с другим юрлицом и скрыта настройками вашей роли."
-            : "Запись скрыта областью доступа вашей роли (свои / отдел / фильтр)."}
-        </p>
-        <Button type="button" variant="outline" size="sm" onClick={onBack}>
-          Назад
-        </Button>
-      </div>
-    );
   }
 
   return (

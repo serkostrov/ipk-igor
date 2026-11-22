@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AutomationOutcome } from "@/entities/automation";
 import {
+  getEntityRecordById,
   buildTkpGipSoftFillParentRecord,
   updateEntityRecord,
   type Entity,
@@ -102,7 +103,7 @@ export function useTaskFormAutosave({
       excludeFieldIds: [processTriggerFieldId(args.processId)],
       recordValues: args.recordValues,
     });
-    const related = buildTaskRelatedPersistUpdates({
+    const related = await buildTaskRelatedPersistUpdates({
       entity: args.entity,
       entities: args.entities,
       outcomes: args.outcomes,
@@ -129,7 +130,7 @@ export function useTaskFormAutosave({
         await updateEntityRecord(args.entityId, args.recordId, patch);
       }
       const parentRecord =
-        args.entity.records.find((item) => item.id === args.recordId) ?? null;
+        (await getEntityRecordById(args.entity, args.recordId)) ?? null;
       await persistRelatedAskUpdates(related, {
         entities: args.entities,
         parentEntity: args.entity,

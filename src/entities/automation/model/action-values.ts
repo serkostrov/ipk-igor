@@ -2,6 +2,8 @@ import {
   collectRelationGroupsIdsAtDepth,
   collectRelationGroupsLeafIds,
   getCurrentUserRecordId,
+  getEntityOwningRecord,
+  getEntityRecordById,
   getEntityRelationTargetId,
   getRelationGroupsLeafEntityId,
   getRelationGroupsLevelEntityId,
@@ -315,13 +317,13 @@ function collectGroupsIdsAtDepth(
   return collectRelationGroupsLeafIds(nodes);
 }
 
-function automationBridgeRelatedIds(
+async function automationBridgeRelatedIds(
   values: Record<string, string | undefined>,
   field: EntityField,
   relationGroupsDepth: number | undefined,
   entities: Entity[],
   host: Entity,
-): string[] {
+): Promise<string[]> {
   if (isEntityRelationLikeFieldType(field.type)) {
     return parseEntityRelationIds(values[field.id]);
   }
@@ -335,7 +337,7 @@ function automationBridgeRelatedIds(
     (item) => item.id === field.lookup!.relationFieldId,
   );
   if (!outerBridge) return [];
-  const outerIds = automationBridgeRelatedIds(
+  const outerIds = await automationBridgeRelatedIds(
     values,
     outerBridge,
     field.lookup.relationGroupsDepth,
@@ -344,9 +346,7 @@ function automationBridgeRelatedIds(
   );
   const ids: string[] = [];
   for (const outerId of outerIds) {
-    const relatedRecord = target.entity.records.find(
-      (record) => record.id === outerId,
-    );
+    const relatedRecord = await getEntityRecordById(target.entity, outerId);
     if (!relatedRecord) continue;
     ids.push(
       ...collectGroupsIdsAtDepth(
@@ -377,12 +377,12 @@ export type ResolveAutomationActionValueOptions = {
   values?: Record<string, string>;
 };
 
-function resolveTabBridgeRelated(
+async function resolveTabBridgeRelated(
   trigger: Entity,
   tabId: string,
   entities: Entity[],
   triggerRecordId: string | undefined,
-): { relatedEntity: Entity; relatedIds: string[] } | null {
+): Promise<{ relatedEntity: Entity; relatedIds: string[] } | null> {
   const tab = trigger.tabs.find((item) => item.id === tabId);
   if (!tab || !isEntityTabWithLinkedEntity(tab) || !tab.linkedEntityId) {
     return null;
@@ -391,7 +391,7 @@ function resolveTabBridgeRelated(
   if (!relatedEntity) return null;
   const recordId = triggerRecordId?.trim() ?? "";
   if (!recordId) return { relatedEntity, relatedIds: [] };
-  const relatedIds = collectLinkedTabRecordIds({
+  const relatedIds = await collectLinkedTabRecordIds({
     tab,
     linkedEntity: relatedEntity,
     parentEntityId: trigger.id,
@@ -400,10 +400,10 @@ function resolveTabBridgeRelated(
   return { relatedEntity, relatedIds: [...new Set(relatedIds)] };
 }
 
-function resolveRelatedFieldValue(
+async function resolveRelatedFieldValue(
   path: AutomationEntityPathRef,
   options: ResolveAutomationActionValueOptions,
-): string {
+): Promise<string> {
   const { relationFieldId, fieldId: nestedFieldId, relationGroupsDepth } = path;
   const values = options.values;
   const entities = options.entities;
@@ -425,11 +425,11 @@ function resolveRelatedFieldValue(
   const trigger = entities.find((entity) => entity.id === triggerEntityId);
   if (!trigger) return "";
 
-  let relatedIds: string[] = [];
+  let relatedIds: string[];
   let relatedEntity: Entity | null = null;
 
   if (tabId) {
-    const fromTab = resolveTabBridgeRelated(
+    const fromTab = await resolveTabBridgeRelated(
       trigger,
       tabId,
       entities,
@@ -443,7 +443,7 @@ function resolveRelatedFieldValue(
       (field) => field.id === relationFieldId,
     );
     if (!bridgeField) return "";
-    relatedIds = automationBridgeRelatedIds(
+    relatedIds = await automationBridgeRelatedIds(
       values,
       bridgeField,
       relationGroupsDepth,
@@ -461,9 +461,7 @@ function resolveRelatedFieldValue(
       : null;
     if (!relatedEntity && relatedIds[0]) {
       relatedEntity =
-        entities.find((entity) =>
-          entity.records.some((record) => record.id === relatedIds[0]),
-        ) ?? null;
+        (await getEntityOwningRecord(entities, relatedIds[0])) ?? null;
     }
   }
 
@@ -499,9 +497,7 @@ function resolveRelatedFieldValue(
   // Union nested values across every selected related record (multi / groups).
   const nestedParts: string[] = [];
   for (const relatedId of relatedIds) {
-    const relatedRecord = relatedEntity.records.find(
-      (record) => record.id === relatedId,
-    );
+    const relatedRecord = await getEntityRecordById(relatedEntity, relatedId);
     const rawValue = relatedRecord?.values[nestedFieldId] ?? "";
     const part = resolveNestedFieldDisplayValue(
       relatedEntity,
@@ -532,11 +528,11 @@ function resolveRelatedFieldValue(
 }
 
 /** Resolve literal / `{{fieldId}}` / `{{rel.field}}` / dynamic tokens. */
-export function resolveAutomationActionValue(
+export async function resolveAutomationActionValue(
   source: string,
   values: Record<string, string>,
   options: ResolveAutomationActionValueOptions = {},
-): string {
+): Promise<string> {
   const raw = source.trim();
   if (!raw) return "";
 

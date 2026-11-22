@@ -1,4 +1,8 @@
 import {
+  getEntityRecordById,
+  getEntityOwningRecord,
+  getEntityRecordsByIds,
+  getEntityRecordsByRelation,
   addEntityRecord,
   applyTkpAnalysisCreateDefaults,
   applyTkpGipDepartmentUsers,
@@ -85,13 +89,13 @@ export type AutomationExecutionResult = {
 const MAX_DEPTH = 5;
 const MAX_ACTIONS = 40;
 
-function resolveTemplateValue(
+async function resolveTemplateValue(
   source: string,
   ctx: AutomationExecutionContext,
   createdRecordIds: string[],
   fieldType?: EntityFieldType,
   datetimeWithTime?: boolean,
-): string {
+): Promise<string> {
   return resolveAutomationActionValue(source, ctx.values, {
     createdRecordIds,
     actorUserId: ctx.actorUserId,
@@ -120,20 +124,20 @@ function fieldMeta(
   };
 }
 
-function applyMappings(
+async function applyMappings(
   mappings: AutomationFieldMapping[],
   ctx: AutomationExecutionContext,
   createdRecordIds: string[],
   extra?: Record<string, string>,
   targetEntity?: Entity | null,
-): Record<string, string> {
+): Promise<Record<string, string>> {
   const result: Record<string, string> = { ...(extra ?? {}) };
   for (const mapping of mappings) {
     if (!mapping.targetFieldId.trim()) continue;
     const targetField = targetEntity?.fields.find(
       (field) => field.id === mapping.targetFieldId,
     );
-    result[mapping.targetFieldId] = resolveTemplateValue(
+    result[mapping.targetFieldId] = await resolveTemplateValue(
       mapping.source,
       ctx,
       createdRecordIds,
@@ -236,8 +240,9 @@ async function writeBackChildToParents(
     const liveParent = getEntityConfig().entities.find(
       (entity) => entity.id === link.parentEntityId,
     );
-    const parentRecord = liveParent?.records.find(
-      (record) => record.id === link.parentRecordId,
+    const parentRecord = await getEntityRecordById(
+      liveParent,
+      link.parentRecordId,
     );
     const existing = parseEntityRelationIds(
       parentRecord?.values[field.id] ?? "",
@@ -290,19 +295,19 @@ function readNestedDraftCount(
 }
 
 /** Reuse a linked child on silent retry (create runs before RPC marks done). */
-function findExistingLinkedChild(
+async function findExistingLinkedChild(
   ctx: AutomationExecutionContext,
   childEntityId: string,
   parentEntityId: string,
   parentRecordId: string,
-): { id: string } | null {
+): Promise<{ id: string } | null> {
   if (!ctx.reuseExistingLinkedCreates) return null;
   const child =
     ctx.entities.find((entity) => entity.id === childEntityId) ?? null;
   const host =
     ctx.entities.find((entity) => entity.id === parentEntityId) ?? null;
   if (!child || !parentRecordId.trim()) return null;
-  const existing = collectRecordsLinkedToParent({
+  const existing = await collectRecordsLinkedToParent({
     childEntity: child,
     parentEntityId,
     parentRecordId,
@@ -457,7 +462,7 @@ async function createMappedRecord(
   options?: CreateMappedRecordOptions,
 ): Promise<{ id: string } | null> {
   const target = ctx.entities.find((entity) => entity.id === entityId) ?? null;
-  let values = applyMappings(
+  let values = await applyMappings(
     mappings,
     ctx,
     createdRecordIds,
@@ -485,16 +490,17 @@ async function createMappedRecord(
   const triggerEntity =
     ctx.entities.find((entity) => entity.id === ctx.triggerEntityId) ?? null;
   const triggerRecord =
-    triggerEntity?.records.find((item) => item.id === ctx.triggerRecordId) ??
-    null;
+    (await getEntityRecordById(triggerEntity, ctx.triggerRecordId)) ?? null;
   if (target && triggerEntity && triggerRecord) {
-    values = applyTkpGipDepartmentUsers({
-      childEntity: target,
-      childValues: values,
-      entities: ctx.entities,
-      parentEntity: triggerEntity,
-      parentRecord: { ...triggerRecord, values: ctx.values },
-    }).values;
+    values = (
+      await applyTkpGipDepartmentUsers({
+        childEntity: target,
+        childValues: values,
+        entities: ctx.entities,
+        parentEntity: triggerEntity,
+        parentRecord: { ...triggerRecord, values: ctx.values },
+      })
+    ).values;
   }
 
   const parentLinkFieldIds =
@@ -547,18 +553,18 @@ async function createMappedRecord(
   return first;
 }
 
-function findExistingLinkedChildForDeptPair(
+async function findExistingLinkedChildForDeptPair(
   ctx: AutomationExecutionContext,
   childEntity: Entity,
   parentEntityId: string,
   parentRecordId: string,
   groupsFieldId: string,
   pair: TkpStageDepartmentPair,
-): { id: string } | null {
+): Promise<{ id: string } | null> {
   // Always reuse the same stage×department row — never two calcs for one pair.
   const host =
     ctx.entities.find((entity) => entity.id === parentEntityId) ?? null;
-  const linkedIds = collectRecordsLinkedToParent({
+  const linkedIds = await collectRecordsLinkedToParent({
     childEntity,
     parentEntityId,
     parentRecordId,
@@ -568,8 +574,10 @@ function findExistingLinkedChildForDeptPair(
   const liveChild =
     getEntityConfig().entities.find((entity) => entity.id === childEntity.id) ??
     childEntity;
+  const records = await getEntityRecordsByIds(liveChild, linkedIds);
+  const byId = new Map(records.map((record) => [record.id, record]));
   for (const id of linkedIds) {
-    const record = liveChild.records.find((item) => item.id === id);
+    const record = byId.get(id);
     if (!record) continue;
     if (
       deptCalculationValuesMatchStagePair(record.values[groupsFieldId], pair)
@@ -596,7 +604,7 @@ async function tryCreateDeptCalculationsFanOut(
     ctx.entities.find((entity) => entity.id === ctx.triggerEntityId) ?? null;
   if (!target || !trigger) return null;
 
-  let preview = applyMappings(
+  let preview = await applyMappings(
     mappings,
     ctx,
     createdRecordIds,
@@ -607,7 +615,7 @@ async function tryCreateDeptCalculationsFanOut(
     preview = { ...preview, ...options.askOverrides };
   }
 
-  const fanOut = resolveDeptCalculationsCreateFanOut({
+  const fanOut = await resolveDeptCalculationsCreateFanOut({
     triggerEntity: trigger,
     targetEntity: target,
     triggerValues: ctx.values,
@@ -633,7 +641,7 @@ async function tryCreateDeptCalculationsFanOut(
   const ids: string[] = [];
   for (const pair of fanOut.pairs) {
     const encoded = encodeTkpStageDepartmentPair(pair);
-    const reused = findExistingLinkedChildForDeptPair(
+    const reused = await findExistingLinkedChildForDeptPair(
       ctx,
       target,
       primaryParent.parentEntityId,
@@ -693,7 +701,7 @@ async function maybeCopyTriggerTabsToCreated(
 function resolveUserIds(
   resolver: AutomationAssigneeResolver,
   ctx: AutomationExecutionContext,
-): string[] {
+): Promise<string[]> {
   return resolveAssigneeUserIds(resolver, {
     values: ctx.values,
     previousValues: ctx.previousValues,
@@ -731,7 +739,7 @@ export async function executeAutomationActions(
           break;
         case "setField": {
           const meta = fieldMeta(ctx, action.fieldId);
-          const resolved = resolveTemplateValue(
+          const resolved = await resolveTemplateValue(
             action.value,
             ctx,
             createdRecordIds,
@@ -806,7 +814,7 @@ export async function executeAutomationActions(
             const seenRelatedParent = new Set<string>();
             let resolvedAny = false;
             for (const parentFrom of parentFromRelatedList) {
-              const relatedParents = resolveCreateParentFromRelated({
+              const relatedParents = await resolveCreateParentFromRelated({
                 triggerEntity,
                 entities: ctx.entities,
                 parentFrom,
@@ -1176,7 +1184,7 @@ export async function executeAutomationActions(
           // Silent retry: do not insert another linked child when one exists.
           const reused =
             Object.keys(parentAsk).length === 0
-              ? findExistingLinkedChild(
+              ? await findExistingLinkedChild(
                   ctx,
                   action.entityId,
                   singleParentId,
@@ -1273,21 +1281,17 @@ export async function executeAutomationActions(
             action.linkMode === "backRelation" ? "backRelation" : "relation";
           const matches =
             linkMode === "backRelation"
-              ? target.records.filter((record) =>
-                  parseEntityRelationIds(
-                    record.values[action.linkFieldId],
-                  ).includes(ctx.triggerRecordId),
+              ? await getEntityRecordsByRelation(
+                  target,
+                  action.linkFieldId,
+                  ctx.triggerRecordId,
                 )
-              : (() => {
-                  const linkIds = new Set(
-                    parseEntityRelationIds(ctx.values[action.linkFieldId]),
-                  );
-                  return target.records.filter((record) =>
-                    linkIds.has(record.id),
-                  );
-                })();
+              : await getEntityRecordsByIds(
+                  target,
+                  parseEntityRelationIds(ctx.values[action.linkFieldId]),
+                );
           for (const record of matches) {
-            const patch = applyMappings(
+            const patch = await applyMappings(
               action.mappings,
               ctx,
               createdRecordIds,
@@ -1313,14 +1317,12 @@ export async function executeAutomationActions(
             const first = ids[0];
             if (!first) break;
             targetRecordId = first;
-            const linked = ctx.entities.find((entity) =>
-              entity.records.some((record) => record.id === first),
-            );
+            const linked = await getEntityOwningRecord(ctx.entities, first);
             if (linked) targetEntityId = linked.id;
           }
           const targetEntity =
             ctx.entities.find((entity) => entity.id === targetEntityId) ?? null;
-          const patch = applyMappings(
+          const patch = await applyMappings(
             action.mappings,
             ctx,
             createdRecordIds,
@@ -1332,7 +1334,7 @@ export async function executeAutomationActions(
           break;
         }
         case "setRelation": {
-          const value = resolveTemplateValue(
+          const value = await resolveTemplateValue(
             action.value,
             ctx,
             createdRecordIds,
@@ -1346,7 +1348,7 @@ export async function executeAutomationActions(
           break;
         }
         case "addRelation": {
-          const value = resolveTemplateValue(
+          const value = await resolveTemplateValue(
             action.value,
             ctx,
             createdRecordIds,
@@ -1369,7 +1371,7 @@ export async function executeAutomationActions(
           break;
         }
         case "notify": {
-          const recipients = resolveUserIds(action.recipient, ctx);
+          const recipients = await resolveUserIds(action.recipient, ctx);
           const message = renderAutomationNameTemplate(
             action.message,
             ctx.values,
@@ -1451,9 +1453,7 @@ export async function executeAutomationActions(
               const first = ids[0];
               if (first) {
                 targetRecordId = first;
-                const linked = ctx.entities.find((entity) =>
-                  entity.records.some((record) => record.id === first),
-                );
+                const linked = await getEntityOwningRecord(ctx.entities, first);
                 if (linked) targetEntityId = linked.id;
               }
             }

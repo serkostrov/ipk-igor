@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { getEntityValueContext } from "../model/field-value";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import {
+  getEntityValueContext,
+  primeMissingContextRecords,
+} from "../model/field-value";
+import {
+  getRecordPrimeVersion,
+  subscribeRecordPrime,
+} from "../model/record-prime-store";
 import { findRunningTimer } from "../model/time-tracking";
-import type { EntityRecord } from "../model/types";
+import { getFirstEntityRecord } from "../model/record-queries";
+import type { Entity, EntityRecord } from "../model/types";
 import {
   ensureEntitySchemaVersion,
   getCurrentUserRecordId,
@@ -18,6 +27,15 @@ export function useEntityConfig() {
     getEntityConfig,
     getEntityConfig,
   );
+}
+
+/** Sample record for settings previews. Discard reads for a superseded snapshot. */
+export function useFirstEntityRecord(entity: Entity | null | undefined) {
+  const sample = useAsyncValue(
+    useCallback(() => getFirstEntityRecord(entity), [entity]),
+  );
+  if (sample.status === "error") throw sample.error;
+  return sample.status === "ready" ? sample.value : undefined;
 }
 
 export function useEntityStatus() {
@@ -49,7 +67,17 @@ export function useCurrentUserRecordId() {
 export function useEntityValueContext() {
   const { entities } = useEntityConfig();
   const currentUserRecordId = useCurrentUserRecordId();
-  return getEntityValueContext(entities, currentUserRecordId);
+  // Re-render when async priming fills the context's record index.
+  useSyncExternalStore(
+    subscribeRecordPrime,
+    getRecordPrimeVersion,
+    getRecordPrimeVersion,
+  );
+  const ctx = getEntityValueContext(entities, currentUserRecordId);
+  useEffect(() => {
+    void primeMissingContextRecords(ctx, entities);
+  }, [ctx, entities]);
+  return ctx;
 }
 
 /** Timer the signed-in user is running (any tracked entity). */

@@ -15,6 +15,7 @@ import {
   type EntityRecord,
   type EntityTimeTracking,
 } from "./types";
+import { getEntityValueContext } from "./field-value";
 
 function normalizeStatusLabel(value: string): string {
   return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
@@ -84,11 +85,12 @@ export function findRunningTimer(
   userRecordId: string | null,
 ): EntityRunningTimer | null {
   if (!userRecordId) return null;
+  const ctx = getEntityValueContext(entities);
   for (const entity of entities) {
     const setup = getEntityTimeTracking(entity, entities);
     if (!setup) continue;
     const { config, entryEntity } = setup;
-    for (const entry of entryEntity.records) {
+    for (const entry of ctx.getRecords(entryEntity.id)) {
       if (!isRunningEntry(entry, config, userRecordId)) continue;
       const sourceId = parseEntityRelationIds(
         entry.values[config.linkFieldId],
@@ -98,7 +100,7 @@ export function findRunningTimer(
       return {
         ...setup,
         entity,
-        record: entity.records.find((record) => record.id === sourceId) ?? null,
+        record: ctx.getRecord(entity.id, sourceId) ?? null,
         entry,
         startedAt,
       };
@@ -213,7 +215,9 @@ export function listRecordTimeEntries(
   if (!setup) return null;
   const { config, entryEntity } = setup;
   const rows: EntityTimeEntryRow[] = [];
-  for (const entry of entryEntity.records) {
+  for (const entry of getEntityValueContext(entities).getRecords(
+    entryEntity.id,
+  )) {
     if (
       !parseEntityRelationIds(entry.values[config.linkFieldId]).includes(
         recordId,
@@ -293,9 +297,12 @@ export function getLoggedHoursByDay(
   entryEntity: Entity,
   config: EntityTimeTracking,
   userRecordId: string,
+  entities: readonly Entity[],
 ): Map<string, number> {
   const result = new Map<string, number>();
-  for (const entry of entryEntity.records) {
+  for (const entry of getEntityValueContext(entities).getRecords(
+    entryEntity.id,
+  )) {
     if (
       !parseEntityRelationIds(entry.values[config.employeeFieldId]).includes(
         userRecordId,

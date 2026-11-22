@@ -1,5 +1,6 @@
 import {
   SYSTEM_USERS_FIELD_NAME_ID,
+  getEntityRecords,
   getSystemUsersEntity,
   type Entity,
 } from "@/entities/entity";
@@ -11,14 +12,14 @@ export type MessengerUserOption = {
 };
 
 /** Active CRM users available for starting / joining chats. */
-export function listMessengerUserOptions(
+export async function listMessengerUserOptions(
   entities: readonly Entity[],
   excludeAuthIds: ReadonlySet<string> = new Set(),
-): MessengerUserOption[] {
+): Promise<MessengerUserOption[]> {
   const users = getSystemUsersEntity(entities);
   if (!users) return [];
   const options: MessengerUserOption[] = [];
-  for (const record of users.records) {
+  for (const record of await getEntityRecords(users)) {
     const authUserId = record.authUserId?.trim();
     if (!authUserId || excludeAuthIds.has(authUserId)) continue;
     const name =

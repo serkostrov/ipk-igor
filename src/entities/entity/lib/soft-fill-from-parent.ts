@@ -13,7 +13,10 @@ import {
   type Entity,
   type EntityRecord,
 } from "../model/types";
-import { sanitizeEntityRelationDependencies } from "../model/field-value";
+import {
+  getEntityValueContext,
+  sanitizeEntityRelationDependencies,
+} from "../model/field-value";
 
 export function softFillRelationsFromParentRecord(options: {
   childEntity: Entity;
@@ -26,8 +29,10 @@ export function softFillRelationsFromParentRecord(options: {
     options;
 
   const liveParent =
-    parentEntity.records.find((item) => item.id === parentRecord.id) ??
-    parentRecord;
+    getEntityValueContext(entities).getRecord(
+      parentEntity.id,
+      parentRecord.id,
+    ) ?? parentRecord;
   const parentValues: Record<string, string> = {
     ...parentRecord.values,
     ...liveParent.values,

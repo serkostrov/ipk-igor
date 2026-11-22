@@ -3,6 +3,7 @@ import {
   applyEntityFieldValue,
   applyTkpGipDepartmentUsers,
   findDeptCalculationsGroupsField,
+  getEntityRecordById,
   isDeptCalculationsEntity,
   updateEntityRecord,
   type Entity,
@@ -24,7 +25,7 @@ export async function flushRelatedAskPersists(): Promise<void> {
   await Promise.all(pending);
 }
 
-export function applyRelatedAskFieldChange(options: {
+export async function applyRelatedAskFieldChange(options: {
   groups: RelatedAskGroup[];
   valueKey: string;
   value: string;
@@ -32,7 +33,7 @@ export function applyRelatedAskFieldChange(options: {
   triggerEntity: Entity;
   triggerRecord: EntityRecord;
   entities: readonly Entity[];
-}): Record<string, string> {
+}): Promise<Record<string, string>> {
   const {
     groups,
     valueKey,
@@ -51,8 +52,9 @@ export function applyRelatedAskFieldChange(options: {
     return { ...formValues, [valueKey]: value };
   }
 
-  const relatedRecord = group.relatedEntity.records.find(
-    (item) => item.id === group.relatedRecordId,
+  const relatedRecord = await getEntityRecordById(
+    group.relatedEntity,
+    group.relatedRecordId,
   );
   const relatedMerged: Record<string, string> = {
     ...(relatedRecord?.values ?? {}),
@@ -72,7 +74,7 @@ export function applyRelatedAskFieldChange(options: {
 
   const groupsField = findDeptCalculationsGroupsField(group.relatedEntity);
 
-  const gip = applyTkpGipDepartmentUsers({
+  const gip = await applyTkpGipDepartmentUsers({
     childEntity: group.relatedEntity,
     childValues: nextRelated,
     entities,

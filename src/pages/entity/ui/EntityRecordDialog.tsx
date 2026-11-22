@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getErrorMessage } from "@/shared/lib/error-message";
 import { Button } from "@/shared/ui/button";
 import {
@@ -275,21 +275,15 @@ function EntityRecordForm({
       ),
       entities,
     );
+    // «ГИП» manager/performer overlay is async — applied via effect below.
     const withParent = softFillParent
-      ? applyTkpGipDepartmentUsers({
+      ? softFillRelationsFromParentRecord({
           childEntity: entity,
-          childValues: softFillRelationsFromParentRecord({
-            childEntity: entity,
-            childValues: sanitized,
-            parentEntity: softFillParent.entity,
-            parentRecord: softFillParent.record,
-            entities,
-          }),
-          entities,
+          childValues: sanitized,
           parentEntity: softFillParent.entity,
           parentRecord: softFillParent.record,
-          changedFieldId: null,
-        }).values
+          entities,
+        })
       : sanitized;
     // Defaults often set start (today) + duration — fill «Срок (план)» immediately.
     const scheduled = reconcileEntityScheduleValues(entity, withParent);
@@ -306,6 +300,48 @@ function EntityRecordForm({
     softFillParent,
   ]);
   const [values, setValues] = useState(initialValues);
+  const valuesRef = useRef(values);
+  useEffect(() => {
+    valuesRef.current = values;
+  }, [values]);
+
+  /**
+   * Overlay the lead «ГИП» manager/performer onto the current values. Async
+   * (lead lookup) → patches state when it resolves; a no-op without a parent.
+   */
+  const overlayGipDepartmentUsers = useCallback(
+    (baseValues: Record<string, string>, changedFieldId: string | null) => {
+      if (!softFillParent) return;
+      void applyTkpGipDepartmentUsers({
+        childEntity: entity,
+        childValues: baseValues,
+        entities,
+        parentEntity: softFillParent.entity,
+        parentRecord: softFillParent.record,
+        changedFieldId,
+      }).then((gip) => {
+        if (!gip.applied || gip.overriddenFieldIds.length === 0) return;
+        setValues((current) => {
+          let changed = false;
+          const patch = { ...current };
+          for (const fieldId of gip.overriddenFieldIds) {
+            const next = gip.values[fieldId] ?? "";
+            if ((patch[fieldId] ?? "") !== next) {
+              patch[fieldId] = next;
+              changed = true;
+            }
+          }
+          return changed ? patch : current;
+        });
+      });
+    },
+    [entity, entities, softFillParent],
+  );
+
+  useEffect(() => {
+    overlayGipDepartmentUsers(valuesRef.current, null);
+  }, [overlayGipDepartmentUsers]);
+
   const createUploadTarget = !isEdit ? entity.createUpload : null;
   /** Last edited allow-manual formula — soft-fill recomputes the rest from it. */
   const [formulaManualAnchorId, setFormulaManualAnchorId] = useState<
@@ -445,6 +481,7 @@ function EntityRecordForm({
       changedField?.type === "formula" &&
       isEntityFieldManualInputEnabled(changedField);
 
+    let computedNext: Record<string, string> | null = null;
     setValues((current) => {
       let next = applyEntityFieldValue(
         entity,
@@ -467,17 +504,14 @@ function EntityRecordForm({
           parentRecord: softFillParent.record,
           entities,
         });
-        next = applyTkpGipDepartmentUsers({
-          childEntity: entity,
-          childValues: next,
-          entities,
-          parentEntity: softFillParent.entity,
-          parentRecord: softFillParent.record,
-          changedFieldId: fieldId,
-        }).values;
       }
+      computedNext = next;
       return next;
     });
+    // «ГИП» manager/performer overlay is async — patches state once resolved.
+    if (softFillParent && computedNext) {
+      overlayGipDepartmentUsers(computedNext, fieldId);
+    }
 
     if (isManualFormula) {
       setFormulaManualAnchorId(value.trim().length > 0 ? fieldId : null);

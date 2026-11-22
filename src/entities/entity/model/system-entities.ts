@@ -7,6 +7,7 @@ import {
   type EntityField,
   type EntityRecord,
 } from "./types";
+import { getEntityValueContext } from "./field-value";
 
 export const SYSTEM_ENTITY_KEY_USERS = "users";
 
@@ -392,10 +393,12 @@ export function findSystemUserByAuthId(
   authUserId: string | null,
 ): EntityRecord | null {
   if (!authUserId) return null;
+  const users = getSystemUsersEntity(entities);
+  if (!users) return null;
   return (
-    getSystemUsersEntity(entities)?.records.find(
-      (record) => record.authUserId === authUserId,
-    ) ?? null
+    getEntityValueContext(entities)
+      .getRecords(users.id)
+      .find((record) => record.authUserId === authUserId) ?? null
   );
 }
 
@@ -415,8 +418,12 @@ export function getSystemUserName(
 ): string | null {
   if (!userRecordId) return null;
   const users = getSystemUsersEntity(entities);
-  const exists = users?.records.some((record) => record.id === userRecordId);
-  return exists ? resolveRelationRecordLabel(users, userRecordId) : null;
+  if (!users) return null;
+  const ctx = getEntityValueContext(entities);
+  const exists = Boolean(ctx.getRecord(users.id, userRecordId));
+  return exists
+    ? resolveRelationRecordLabel(users, userRecordId, undefined, ctx)
+    : null;
 }
 
 export function getUsersSystemField(

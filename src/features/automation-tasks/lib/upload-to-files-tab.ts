@@ -1,4 +1,5 @@
 import {
+  getEntityRecordById,
   getEntityConfig,
   getEntityTabFilesValueKey,
   parseEntityTabFileEntries,
@@ -29,10 +30,12 @@ export async function uploadFilesToAutomationTarget(input: {
 }): Promise<{ uploadedCount: number; folderParentId: string | null }> {
   const valueKey = getEntityTabFilesValueKey(input.tab.id);
   const latestValues =
-    getEntityConfig()
-      .entities.find((item) => item.id === input.entity.id)
-      ?.records.find((item) => item.id === input.record.id)?.values ??
-    input.record.values;
+    (
+      await getEntityRecordById(
+        getEntityConfig().entities.find((item) => item.id === input.entity.id),
+        input.record.id,
+      )
+    )?.values ?? input.record.values;
 
   const result = await uploadFilesToFilesTabEntries({
     entityId: input.entity.id,

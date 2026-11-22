@@ -5,10 +5,11 @@ import { Label } from "@/shared/ui/label";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   createEntityDraftRecord,
-  formatTkpGipDepartmentExtras,
+  getEntityRecordById,
   ListSelect,
   RelationGroupsFieldControl,
   RelationSelect,
@@ -27,8 +28,9 @@ import {
   isEntityNameField,
   isValidEntityEmail,
   resolveTkpGipDepartmentRecordId,
-  resolveTkpGipLeadContext,
   coerceEntityDatetimeStoredValue,
+  useTkpGipExtrasResolver,
+  useTkpGipLeadContext,
   entityNumberInputPlaceholder,
   getEntityFieldFractionDigits,
   normalizeEntityDecimalInput,
@@ -52,6 +54,9 @@ import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFie
 import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
 import { DependenciesFieldControl } from "./DependenciesFieldControl";
 import { FileFieldControl } from "./FileFieldControl";
+
+/** Stable loading fallback for the async host-record values. */
+const EMPTY_HOST_VALUES: Record<string, string> = {};
 
 /**
  * Where a computed value comes from — shown next to the field title.
@@ -158,7 +163,8 @@ function TkpRelationGroupsControl({
   mode,
   entities,
   softFillParent,
-  hostRecord,
+  recordId,
+  formValues,
 }: {
   id: string;
   ctx: EntityValueContext;
@@ -169,18 +175,43 @@ function TkpRelationGroupsControl({
   mode: EntityRelationGroupsMode;
   entities: readonly Entity[];
   softFillParent: { entity: Entity; record: EntityRecord } | null;
-  hostRecord: EntityRecord;
+  recordId: string;
+  formValues: Record<string, string | undefined>;
 }) {
-  const leadParent = resolveTkpGipLeadContext({
+  // Live host values come from the store asynchronously; form draft overlays them.
+  const storeHostRecord = useAsyncValue(
+    useCallback(() => getEntityRecordById(entity, recordId), [entity, recordId]),
+  );
+  const storeHostValues =
+    storeHostRecord.status === "ready"
+      ? (storeHostRecord.value?.values ?? EMPTY_HOST_VALUES)
+      : EMPTY_HOST_VALUES;
+  const hostRecord = createEntityDraftRecord(
+    { ...storeHostValues, ...formValues },
+    recordId,
+  );
+  const leadParent = useTkpGipLeadContext({
     hostEntity: entity,
     hostRecord,
     entities,
     softFillParent,
   });
+  const resolveRecordExtras = useTkpGipExtrasResolver({
+    ctx,
+    hostEntity: entity,
+    leadParent,
+  });
+  const gipDepartmentId = useAsyncValue(
+    useCallback(
+      () => resolveTkpGipDepartmentRecordId(entity, entities),
+      [entity, entities],
+    ),
+  );
   const hiddenNestedRecordIds = useMemo(() => {
-    const gipId = resolveTkpGipDepartmentRecordId(entity, entities);
+    const gipId =
+      gipDepartmentId.status === "ready" ? gipDepartmentId.value : null;
     return gipId ? new Set([gipId]) : undefined;
-  }, [entity, entities]);
+  }, [gipDepartmentId]);
 
   return (
     <RelationGroupsFieldControl
@@ -192,26 +223,7 @@ function TkpRelationGroupsControl({
       mode={mode}
       hiddenNestedRecordIds={hiddenNestedRecordIds}
       catalogFilterSource={{ entity, record: hostRecord }}
-      resolveRecordExtras={
-        leadParent
-          ? ({
-              entity: departmentEntity,
-              recordId: departmentRecordId,
-              fieldIds,
-              defaultExtras,
-            }) =>
-              formatTkpGipDepartmentExtras({
-                ctx,
-                hostEntity: entity,
-                parentEntity: leadParent.entity,
-                parentRecord: leadParent.record,
-                departmentEntity,
-                departmentRecordId,
-                displayFieldIds: fieldIds,
-                defaultExtras,
-              })
-          : undefined
-      }
+      resolveRecordExtras={resolveRecordExtras}
     />
   );
 }
@@ -441,12 +453,6 @@ export function RecordFieldControl({
   }
 
   if (field.type === "relationGroups") {
-    const storeHostValues =
-      entity.records.find((item) => item.id === recordId)?.values ?? {};
-    const hostRecord = createEntityDraftRecord(
-      { ...storeHostValues, ...values },
-      recordId,
-    );
     const entityCatalog = entities.length > 0 ? entities : (ctx.entities ?? []);
     return (
       <div className="flex flex-col gap-2">
@@ -464,7 +470,8 @@ export function RecordFieldControl({
           mode={relationGroupsMode}
           entities={entityCatalog}
           softFillParent={softFillParent}
-          hostRecord={hostRecord}
+          recordId={recordId}
+          formValues={values}
         />
       </div>
     );

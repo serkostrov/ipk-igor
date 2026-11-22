@@ -3,9 +3,11 @@
  * (not buried only inside the TKP «Расчёт ГИПа» card).
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useCurrentRole } from "@/entities/access";
 import {
+  getEntityRecordById,
   updateEntityRecord,
   useEntityConfig,
   type Entity,
@@ -40,10 +42,14 @@ export function TkpGipExecutionDurationAsk({
     () => entities.find((item) => item.id === entity.id) ?? entity,
     [entities, entity],
   );
-  const liveRecord = useMemo(
-    () => liveEntity.records.find((item) => item.id === record.id) ?? record,
-    [liveEntity, record],
+  const liveRecordValue = useAsyncValue(
+    useCallback(
+      async () => (await getEntityRecordById(liveEntity, record.id)) ?? record,
+      [liveEntity, record],
+    ),
   );
+  const liveRecord =
+    liveRecordValue.status === "ready" ? liveRecordValue.value : record;
 
   if (!visibility.showGipCalculation) return null;
 

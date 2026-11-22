@@ -19,6 +19,7 @@ import {
 import {
   getEntityFieldDisplayName,
   resolveEntityListFieldOptions,
+  useFirstEntityRecord,
   type Entity,
 } from "@/entities/entity";
 import { Button } from "@/shared/ui/button";
@@ -90,7 +91,7 @@ export function NotificationRuleEditor({
   );
   const isStageField = Boolean(draft.fieldId) && draft.fieldId === stageFieldId;
 
-  const previewValues = entity?.records[0]?.values ?? {};
+  const previewValues = useFirstEntityRecord(entity)?.values ?? {};
   const previewOpts = {
     entity,
     entities,

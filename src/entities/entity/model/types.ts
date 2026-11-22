@@ -1337,6 +1337,7 @@ export function resolveEntityMirrorTab(
   hostEntity: Pick<Entity, "fields">,
   hostRecord: Pick<EntityRecord, "values">,
   entities: Entity[],
+  source?: RecordSource,
 ): EntityMirrorTabResolution | null {
   if (!isEntityTabWithMirrorSource(tab)) return null;
   const relationField =
@@ -1357,7 +1358,9 @@ export function resolveEntityMirrorTab(
     parseEntityRelationIds(hostRecord.values[relationField.id] ?? "")[0] ??
     null;
   const sourceRecord = sourceRecordId
-    ? (sourceEntity.records.find((item) => item.id === sourceRecordId) ?? null)
+    ? (source?.getRecord(sourceEntity.id, sourceRecordId) ??
+      sourceEntity.records.find((item) => item.id === sourceRecordId) ??
+      null)
     : null;
   return {
     relationField,
@@ -1994,20 +1997,46 @@ function resolveRecordNameLabel(
   return text || "Без названия";
 }
 
+/**
+ * Read-through record source — the per-view value context exposes sync record
+ * accessors. Declared structurally so label resolvers can read primed records
+ * without importing `field-value` (which would create an import cycle).
+ */
+export type RecordSource = {
+  getRecord: (entityId: string, id: string) => EntityRecord | undefined;
+  getRecords: (entityId: string) => readonly EntityRecord[];
+};
+
 export function resolveRelationRecordLabel(
-  target: Pick<Entity, "fields" | "records"> | null | undefined,
+  target: Pick<Entity, "id" | "fields" | "records"> | null | undefined,
   value: string | undefined,
   entities?: readonly Entity[],
+  source?: RecordSource,
 ) {
   if (!target) return null;
   const ids = parseEntityRelationIds(value);
   if (ids.length === 0) return null;
   const labels = ids.map((recordId) => {
-    const record = target.records.find((item) => item.id === recordId);
+    const record =
+      source?.getRecord(target.id, recordId) ??
+      target.records.find((item) => item.id === recordId);
+    // Record not found locally or in the primed context index → no name yet.
     if (!record) return "Без названия";
     return resolveRecordNameLabel(target, record.values, entities);
   });
   return labels.length > 0 ? labels.join(", ") : null;
+}
+
+/**
+ * Display label for a record from its own values — same output as
+ * `resolveRelationRecordLabel`, used to prime the label cache from fetched rows.
+ */
+export function computeRecordLabel(
+  entity: Pick<Entity, "fields"> & { nameTemplate?: string },
+  values: Record<string, string>,
+  entities?: readonly Entity[],
+): string {
+  return resolveRecordNameLabel(entity, values, entities);
 }
 
 /**
@@ -2016,19 +2045,25 @@ export function resolveRelationRecordLabel(
  */
 export function isEntityRelationRecordGhost(
   target:
-    Pick<Entity, "fields" | "records" | "nameTemplate"> | null | undefined,
+    | Pick<Entity, "id" | "fields" | "records" | "nameTemplate">
+    | null
+    | undefined,
   recordId: string,
   entities?: readonly Entity[],
+  source?: RecordSource,
 ): boolean {
   const id = recordId.trim();
   if (!target || !id) return true;
-  const record = target.records.find((item) => item.id === id);
+  const record =
+    source?.getRecord(target.id, id) ??
+    target.records.find((item) => item.id === id);
   if (!record) return true;
   const nameField = target.fields.find((field) => isEntityNameField(field));
   if (!nameField) return false;
   const nameRaw = (record.values[nameField.id] ?? "").trim();
   if (nameRaw === "Без названия") return true;
-  const label = resolveRelationRecordLabel(target, id, entities)?.trim() ?? "";
+  const label =
+    resolveRelationRecordLabel(target, id, entities, source)?.trim() ?? "";
   return !label || label === "Без названия" || label === id;
 }
 
@@ -2038,12 +2073,14 @@ export type RelationRecordOption = {
 };
 
 export function getRelationRecordOptions(
-  target: Pick<Entity, "fields" | "records"> | null | undefined,
+  target: Pick<Entity, "id" | "fields" | "records"> | null | undefined,
   entities?: readonly Entity[],
+  source?: RecordSource,
 ): RelationRecordOption[] {
   if (!target) return [];
 
-  return target.records.map((record) => ({
+  const records = source?.getRecords(target.id) ?? target.records;
+  return records.map((record) => ({
     id: record.id,
     label: resolveRecordNameLabel(target, record.values, entities),
   }));

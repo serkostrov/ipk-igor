@@ -8,6 +8,7 @@ import {
 } from "@/entities/automation/lib/hardcode-hooks";
 import "../tkp-review/lib/assert-gip-execution-duration";
 import {
+  getEntityRecordById,
   collectDeptCalculationRecordsForParent,
   findDeptCalculationUserFields,
   getEntityConfig,
@@ -52,9 +53,10 @@ export async function maybeEnsureDeptCalculationGipForParent(options: {
   if (!deptEntity) return false;
 
   const liveParent =
-    entities
-      .find((item) => item.id === parentEntity.id)
-      ?.records.find((item) => item.id === parentRecord.id) ?? parentRecord;
+    (await getEntityRecordById(
+      entities.find((item) => item.id === parentEntity.id),
+      parentRecord.id,
+    )) ?? parentRecord;
 
   await ensureDeptCalculationGipRows({
     entity: deptEntity,
@@ -138,11 +140,14 @@ registerBeforeAutomationStageSpawnHook(async (args) => {
     parentEntity.fields.find(
       (field) =>
         field.type === "list" &&
-        field.listOptions.some((option) => option.id === args.destinationStageId),
+        field.listOptions.some(
+          (option) => option.id === args.destinationStageId,
+        ),
     ) ?? null;
   const optionName =
-    stageField?.listOptions.find((option) => option.id === args.destinationStageId)
-      ?.name ?? "";
+    stageField?.listOptions.find(
+      (option) => option.id === args.destinationStageId,
+    )?.name ?? "";
   if (!isDeptCalcStageName(optionName)) return;
 
   const groupsField =
@@ -164,8 +169,10 @@ registerBeforeAutomationStageSpawnHook(async (args) => {
   });
 
   const liveParent =
-    getEntityConfig().entities.find((item) => item.id === parentEntity.id)
-      ?.records.find((item) => item.id === args.recordId) ?? null;
+    (await getEntityRecordById(
+      getEntityConfig().entities.find((item) => item.id === parentEntity.id),
+      args.recordId,
+    )) ?? null;
   const parentRecord: EntityRecord = {
     id: args.recordId,
     values: {
@@ -190,7 +197,7 @@ registerBeforeAutomationStageSpawnHook(async (args) => {
   if (!deptEntity) {
     throw new Error("Не настроена сущность «Расчёты отделов»");
   }
-  const rows = collectDeptCalculationRecordsForParent(deptEntity, {
+  const rows = await collectDeptCalculationRecordsForParent(deptEntity, {
     entity: parentEntity,
     recordId: args.recordId,
   });
@@ -218,7 +225,7 @@ registerAfterAutomationTaskCompleteHook(
     const parentEntity = entities.find((item) => item.id === entityId) ?? null;
     if (!parentEntity || !isTkpAnalysisEntity(parentEntity)) return;
     const parentRecord =
-      parentEntity.records.find((item) => item.id === recordId) ?? null;
+      (await getEntityRecordById(parentEntity, recordId)) ?? null;
     const record: EntityRecord = parentRecord
       ? { ...parentRecord, values: { ...parentRecord.values, ...values } }
       : {

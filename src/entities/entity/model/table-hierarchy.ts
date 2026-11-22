@@ -23,6 +23,8 @@ import {
   type EntityRecord,
   type EntityTab,
 } from "./types";
+import { getEntityRecords } from "./record-queries";
+import { getEntityValueContext } from "./field-value";
 
 /** Empty value — records without a selected option / relation. */
 export const ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID = "";
@@ -229,17 +231,22 @@ export function parseEntityTableRelationGroupsNestedIds(
   return nested.length > 0 ? nested : [ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID];
 }
 
-function relationTargetLabels(target: Entity | null): Map<string, string> {
+function relationTargetLabels(
+  target: Entity | null,
+  entities: readonly Entity[],
+): Map<string, string> {
   const labels = new Map<string, string>();
-  for (const option of getRelationRecordOptions(target)) {
+  const ctx = getEntityValueContext(entities);
+  for (const option of getRelationRecordOptions(target, entities, ctx)) {
     labels.set(option.id, option.label);
   }
   if (target) {
-    for (const record of target.records) {
+    for (const record of ctx.getRecords(target.id)) {
       if (labels.has(record.id)) continue;
       labels.set(
         record.id,
-        resolveRelationRecordLabel(target, record.id) ?? "Без названия",
+        resolveRelationRecordLabel(target, record.id, entities, ctx) ??
+          "Без названия",
       );
     }
   }
@@ -320,7 +327,7 @@ function resolveHierarchyGroupLabels(
     const target = targetId
       ? (entities.find((item) => item.id === targetId) ?? null)
       : null;
-    return relationTargetLabels(target);
+    return relationTargetLabels(target, entities);
   }
   if (parentField.type === "relationGroups") {
     return relationTargetLabels(
@@ -329,6 +336,7 @@ function resolveHierarchyGroupLabels(
         entities,
         relationGroupsDepth,
       ),
+      entities,
     );
   }
   return new Map();
@@ -749,15 +757,16 @@ export type EntityTableNestedHierarchyRow =
  * Each host record is a group; expanded groups list child-entity records
  * linked to that host via `parentLinkFieldId`.
  */
-export function flattenEntityTableNestedRows(
+export async function flattenEntityTableNestedRows(
   parentRecords: readonly EntityRecord[],
   nested: EntityTableNestedTarget,
   expandedIds: ReadonlySet<string>,
   getParentLabel: (record: EntityRecord) => string,
-): EntityTableNestedHierarchyRow[] {
+): Promise<EntityTableNestedHierarchyRow[]> {
   const rows: EntityTableNestedHierarchyRow[] = [];
+  const nestedRecords = await getEntityRecords(nested.entity);
   for (const parent of parentRecords) {
-    const children = nested.entity.records.filter((record) =>
+    const children = nestedRecords.filter((record) =>
       entityRelationIncludesId(
         record.values[nested.parentLinkFieldId],
         parent.id,
@@ -835,29 +844,27 @@ export function resolveEntityTableHierarchyGroupRecord(
     );
   }
   if (!target) return null;
-  const record = target.records.find((item) => item.id === valueId);
+  const record = getEntityValueContext(entities).getRecord(target.id, valueId);
   if (!record) return null;
   return { entity: target, record };
 }
 
 /** Count nested-tab children under host records (подзадачи), if configured. */
-export function countEntityTableNestedChildren(
-  hostRecords: readonly EntityRecord[],
+/**
+ * Nested-tab child count per host record id (подзадачи). Precomputed once so
+ * sync render can sum counts for a group's hosts without touching the store.
+ */
+export async function countNestedChildrenByHost(
   nested: EntityTableNestedTarget | null,
-): number {
-  if (!nested || hostRecords.length === 0) return 0;
-  let count = 0;
-  for (const host of hostRecords) {
-    for (const child of nested.entity.records) {
-      if (
-        entityRelationIncludesId(
-          child.values[nested.parentLinkFieldId],
-          host.id,
-        )
-      ) {
-        count += 1;
-      }
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (!nested) return counts;
+  for (const child of await getEntityRecords(nested.entity)) {
+    for (const hostId of parseEntityRelationIds(
+      child.values[nested.parentLinkFieldId],
+    )) {
+      counts.set(hostId, (counts.get(hostId) ?? 0) + 1);
     }
   }
-  return count;
+  return counts;
 }

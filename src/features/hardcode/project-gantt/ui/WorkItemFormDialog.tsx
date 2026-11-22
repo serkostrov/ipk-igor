@@ -133,7 +133,7 @@ function WorkItemFormBody({
 
     setSaving(true);
     try {
-      upsertProjectGanttTaskRecord({
+      await upsertProjectGanttTaskRecord({
         binding,
         name: trimmed,
         stageId: effectiveStageId || null,

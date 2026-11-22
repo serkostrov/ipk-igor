@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChartGantt } from "lucide-react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useCurrentRole } from "@/entities/access";
 import {
   getEntityRecordTitle,
@@ -59,19 +60,22 @@ export function ProjectGanttHardcodeSlot({
     [entity, entities],
   );
 
-  const binding = useMemo(() => {
-    if (!tasksLink) return null;
-    // Re-resolve against live entity from the store (records update).
-    const liveTasks =
-      entities.find((item) => item.id === tasksLink.tasksEntity.id) ??
-      tasksLink.tasksEntity;
-    return resolveProjectGanttTasksBinding({
-      projectEntity: entity,
-      projectRecord: record,
-      tasksEntity: liveTasks,
-      tab: tasksLink.tab,
-    });
-  }, [tasksLink, entities, entity, record]);
+  const bindingValue = useAsyncValue(
+    useCallback(async () => {
+      if (!tasksLink) return null;
+      // Re-resolve against live entity from the store (records update).
+      const liveTasks =
+        entities.find((item) => item.id === tasksLink.tasksEntity.id) ??
+        tasksLink.tasksEntity;
+      return resolveProjectGanttTasksBinding({
+        projectEntity: entity,
+        projectRecord: record,
+        tasksEntity: liveTasks,
+        tab: tasksLink.tab,
+      });
+    }, [tasksLink, entities, entity, record]),
+  );
+  const binding = bindingValue.status === "ready" ? bindingValue.value : null;
 
   const comparison = useMemo<ProjectGanttComparison | null>(() => {
     if (!binding) return null;

@@ -1,5 +1,6 @@
 import {
   getEntityListOption,
+  getEntityRecords,
   getRecordFieldNumber,
   isEntityNameField,
   isEntityNumericFieldType,
@@ -141,12 +142,12 @@ function adaptMovement(optionName: string): "Поступление" | "Выбы
   return null;
 }
 
-export function adaptCategories(
+export async function adaptCategories(
   articlesEntity: Entity | null,
-): DashboardCategory[] {
+): Promise<DashboardCategory[]> {
   if (!articlesEntity) return [];
   const parentField = resolveEntityTableParentField(articlesEntity);
-  return articlesEntity.records.map((record) => {
+  return (await getEntityRecords(articlesEntity)).map((record) => {
     const parentRaw = parentField ? (record.values[parentField.id] ?? "") : "";
     return {
       id: record.id,
@@ -161,10 +162,10 @@ export function adaptCategories(
   });
 }
 
-export function adaptWallets(
+export async function adaptWallets(
   ctx: EntityValueContext,
   walletsEntity: Entity | null,
-): DashboardWallet[] {
+): Promise<DashboardWallet[]> {
   if (!walletsEntity) return [];
   const legalField = findRelationField(walletsEntity, LEGAL_NAMES, "юр");
   const balanceField = findField(
@@ -183,7 +184,7 @@ export function adaptWallets(
     (field) => isEntityNumericFieldType(field.type),
   );
 
-  return walletsEntity.records.map((record) => ({
+  return (await getEntityRecords(walletsEntity)).map((record) => ({
     id: record.id,
     name: recordLabel(walletsEntity, record),
     legal_entity_id: legalField
@@ -199,31 +200,31 @@ export function adaptWallets(
   }));
 }
 
-export function adaptLegalEntities(
+export async function adaptLegalEntities(
   legalEntity: Entity | null,
-): DashboardLegalEntity[] {
+): Promise<DashboardLegalEntity[]> {
   if (!legalEntity) return [];
-  return legalEntity.records.map((record) => ({
+  return (await getEntityRecords(legalEntity)).map((record) => ({
     id: record.id,
     name: recordLabel(legalEntity, record),
   }));
 }
 
-export function adaptProjects(
+export async function adaptProjects(
   projectsEntity: Entity | null,
-): DashboardProject[] {
+): Promise<DashboardProject[]> {
   if (!projectsEntity) return [];
-  return projectsEntity.records.map((record) => ({
+  return (await getEntityRecords(projectsEntity)).map((record) => ({
     id: record.id,
     name: recordLabel(projectsEntity, record),
   }));
 }
 
-export function adaptDdsEntries(
+export async function adaptDdsEntries(
   ctx: EntityValueContext,
   ddsEntity: Entity | null,
   projectsById: Map<string, string>,
-): DashboardCashflowEntry[] {
+): Promise<DashboardCashflowEntry[]> {
   if (!ddsEntity) return [];
 
   const dateField = findField(
@@ -260,7 +261,7 @@ export function adaptDdsEntries(
   );
 
   const out: DashboardCashflowEntry[] = [];
-  for (const record of ddsEntity.records) {
+  for (const record of await getEntityRecords(ddsEntity)) {
     const entryDate = extractDatePart(record.values[dateField.id] ?? "");
     if (!entryDate) continue;
 
@@ -323,12 +324,12 @@ export function adaptDdsEntries(
   return out;
 }
 
-function adaptPlannedItems(
+async function adaptPlannedItems(
   ctx: EntityValueContext,
   entity: Entity | null,
   projectsById: Map<string, string>,
   kind: "receipt" | "outflow",
-): DashboardPlannedItem[] {
+): Promise<DashboardPlannedItem[]> {
   if (!entity) return [];
   const dateField = findField(
     entity,
@@ -352,7 +353,7 @@ function adaptPlannedItems(
   if (!dateField || !amountField) return [];
 
   const out: DashboardPlannedItem[] = [];
-  for (const record of entity.records) {
+  for (const record of await getEntityRecords(entity)) {
     const entryDate = extractDatePart(record.values[dateField.id] ?? "");
     if (!entryDate) continue;
     const amount = readNumber(ctx, entity, record, amountField) ?? 0;
@@ -397,30 +398,30 @@ function adaptPlannedItems(
   return out;
 }
 
-export function adaptFinanceDashboardFromEntities(
+export async function adaptFinanceDashboardFromEntities(
   ctx: EntityValueContext,
   entities: readonly Entity[],
 ) {
   const sources = resolveFinanceDashboardSources(entities);
-  const projects = adaptProjects(sources.projects);
+  const projects = await adaptProjects(sources.projects);
   const projectsById = new Map(
     projects.map((project) => [project.id, project.name]),
   );
 
   return {
     sources,
-    entries: adaptDdsEntries(ctx, sources.dds, projectsById),
-    categories: adaptCategories(sources.articles),
-    wallets: adaptWallets(ctx, sources.wallets),
-    legalEntities: adaptLegalEntities(sources.legalEntities),
+    entries: await adaptDdsEntries(ctx, sources.dds, projectsById),
+    categories: await adaptCategories(sources.articles),
+    wallets: await adaptWallets(ctx, sources.wallets),
+    legalEntities: await adaptLegalEntities(sources.legalEntities),
     projects,
-    plannedReceipts: adaptPlannedItems(
+    plannedReceipts: await adaptPlannedItems(
       ctx,
       sources.plannedReceipts,
       projectsById,
       "receipt",
     ),
-    plannedOutflows: adaptPlannedItems(
+    plannedOutflows: await adaptPlannedItems(
       ctx,
       sources.plannedOutflows,
       projectsById,

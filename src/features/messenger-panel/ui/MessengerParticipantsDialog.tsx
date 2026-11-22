@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { getSystemUserNameByAuthId, useEntityConfig } from "@/entities/entity";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   addMessengerMembers,
   filterMessengerUserOptions,
@@ -9,7 +10,10 @@ import {
   setMessengerAdmin,
   useMessengerMembers,
   type MessengerChatKind,
+  type MessengerUserOption,
 } from "@/entities/messenger";
+
+const EMPTY_MESSENGER_USER_OPTIONS: MessengerUserOption[] = [];
 import { useSessionUser } from "@/entities/session";
 import { Button } from "@/shared/ui/button";
 import {
@@ -45,12 +49,19 @@ export function MessengerParticipantsDialog({
     [members],
   );
 
+  const userOptions = useAsyncValue(
+    useCallback(
+      () => listMessengerUserOptions(entities, memberIds),
+      [entities, memberIds],
+    ),
+  );
   const candidates = useMemo(() => {
-    return filterMessengerUserOptions(
-      listMessengerUserOptions(entities, memberIds),
-      query,
-    );
-  }, [entities, memberIds, query]);
+    const base =
+      userOptions.status === "ready"
+        ? userOptions.value
+        : EMPTY_MESSENGER_USER_OPTIONS;
+    return filterMessengerUserOptions(base, query);
+  }, [userOptions, query]);
 
   async function handleAdd(authUserId: string) {
     setBusy(true);

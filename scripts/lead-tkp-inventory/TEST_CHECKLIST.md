@@ -7,26 +7,26 @@
 3. Для шага 7 обязательно `fanOut: true` + `completeWhen: "all"`.
 4. После кейсов расчёта: 0 interactive-заданий с `assignee_user_id is null`.
 
-| № | Статус | Заметки |
-|---|--------|---------|
-| ТК-01 | ⬜ | createRecord → Создано; задание 4 после 5 |
-| ТК-02 | ⬜ | отказ ГИ → Черновик; respawn 2–3 |
-| ТК-03 | ⬜ | задание 5 у рук. ведущего; выбор отделов после 5 |
-| ТК-04 | ⬜ | N руководителей + ГИП; fanOut |
-| ТК-05 | ⬜ | complete без Workspace → after-hook ГИП |
-| ТК-06 | ⬜ | ручной перенос: rows first / AUTOMATION_ASSIGNEE_MISSING |
-| ТК-07 | ⬜ | исход «Нет объёмов» + баннер «Есть объёмы» |
-| ТК-08 | ⬜ | недостающие исходные → lock |
-| ТК-09 | ⬜ | completeWhen=all → шаг 8 |
-| ТК-10 | ⬜ | возврат 9→8 (return revision) |
-| ТК-11 | ⬜ | пересчёт / supersede без completed-dedupe |
-| ТК-12 | ⬜ | отдел ГИП → ГИП лида |
-| ТК-13 | ⬜ | текст «гип» в поле ≠ отдел ГИП |
-| ТК-14 | ⬜ | assertTkpDocumentApprovalReady |
-| ТК-15 | ⬜ | ЛИНК + return-to-step |
-| ТК-16 | ⬜ | TkpSendToCustomerPanel |
-| ТК-17 | ⬜ | blocking stage / sequential |
-| ТК-18 | ⬜ | fanOut флагом, не именем сущности |
+| №     | Статус | Заметки                                                  |
+| ----- | ------ | -------------------------------------------------------- |
+| ТК-01 | ⬜     | createRecord → Создано; задание 4 после 5                |
+| ТК-02 | ⬜     | отказ ГИ → Черновик; respawn 2–3                         |
+| ТК-03 | ⬜     | задание 5 у рук. ведущего; выбор отделов после 5         |
+| ТК-04 | ⬜     | N руководителей + ГИП; fanOut                            |
+| ТК-05 | ⬜     | complete без Workspace → after-hook ГИП                  |
+| ТК-06 | ⬜     | ручной перенос: rows first / AUTOMATION_ASSIGNEE_MISSING |
+| ТК-07 | ⬜     | исход «Нет объёмов» + баннер «Есть объёмы»               |
+| ТК-08 | ⬜     | недостающие исходные → lock                              |
+| ТК-09 | ⬜     | completeWhen=all → шаг 8                                 |
+| ТК-10 | ⬜     | возврат 9→8 (return revision)                            |
+| ТК-11 | ⬜     | пересчёт / supersede без completed-dedupe                |
+| ТК-12 | ⬜     | отдел ГИП → ГИП лида                                     |
+| ТК-13 | ⬜     | текст «гип» в поле ≠ отдел ГИП                           |
+| ТК-14 | ⬜     | assertTkpDocumentApprovalReady                           |
+| ТК-15 | ⬜     | ЛИНК + return-to-step                                    |
+| ТК-16 | ⬜     | TkpSendToCustomerPanel                                   |
+| ТК-17 | ⬜     | blocking stage / sequential                              |
+| ТК-18 | ⬜     | fanOut флагом, не именем сущности                        |
 
 Диагностика:
 

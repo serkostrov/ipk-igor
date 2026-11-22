@@ -27,6 +27,10 @@ import {
 } from "../model/relation-groups";
 import { collectViewerDepartmentIds } from "../model/departments";
 import {
+  getEntityRecordById,
+  getEntityRecords,
+} from "../model/record-queries";
+import {
   findSystemUserByAuthId,
   getSystemUserName,
   getSystemUsersEntity,
@@ -42,6 +46,7 @@ import {
 import {
   formatRecordFieldValue,
   getEntityParentLinkField,
+  getEntityValueContext,
   getRecordFieldIds,
   resolveEntityFieldSource,
   type EntityValueContext,
@@ -362,11 +367,11 @@ export function isGipDepartmentRecord(
 }
 
 /** Catalog id of the department named «ГИП», if present. */
-export function findGipDepartmentRecordId(
+export async function findGipDepartmentRecordId(
   departmentEntity: Entity,
   entities?: readonly Entity[],
-): string | null {
-  for (const record of departmentEntity.records) {
+): Promise<string | null> {
+  for (const record of await getEntityRecords(departmentEntity)) {
     if (isGipDepartmentRecord(departmentEntity, record, entities)) {
       return record.id;
     }
@@ -490,11 +495,11 @@ function leadGipPeopleFieldCandidates(
  * «ГИП» user ids for a TKP host: field «ГИП» on the host, else hop via «лид»
  * to the Lead and read «ГИП» (fallback «руководитель» if «ГИП» is empty).
  */
-export function resolveTkpGipUserIdsFromHost(options: {
+export async function resolveTkpGipUserIdsFromHost(options: {
   hostEntity: Entity;
   hostValues: Record<string, string | undefined>;
   entities: readonly Entity[];
-}): string[] {
+}): Promise<string[]> {
   const { hostEntity, hostValues, entities } = options;
 
   const direct = findTkpGipUserField(hostEntity, entities);
@@ -511,9 +516,7 @@ export function resolveTkpGipUserIdsFromHost(options: {
   if (!leadEntity) return [];
   const leadRecordId = parseEntityRelationIds(hostValues[leadField.id])[0];
   if (!leadRecordId) return [];
-  const leadRecord = leadEntity.records.find(
-    (item) => item.id === leadRecordId,
-  );
+  const leadRecord = await getEntityRecordById(leadEntity, leadRecordId);
   if (!leadRecord) return [];
 
   // Prefer filled «ГИП»; empty «ГИП» may fall back to «руководитель».
@@ -528,15 +531,15 @@ export function resolveTkpGipUserIdsFromHost(options: {
 }
 
 /** Whether `userId` is the lead GIP for this TKP host. */
-export function isTkpLeadGipUser(options: {
+export async function isTkpLeadGipUser(options: {
   hostEntity: Entity;
   hostValues: Record<string, string | undefined>;
   entities: readonly Entity[];
   userId: string | null | undefined;
-}): boolean {
+}): Promise<boolean> {
   const userId = options.userId?.trim() ?? "";
   if (!userId) return false;
-  return resolveTkpGipUserIdsFromHost(options).includes(userId);
+  return (await resolveTkpGipUserIdsFromHost(options)).includes(userId);
 }
 
 /**
@@ -544,19 +547,19 @@ export function isTkpLeadGipUser(options: {
  * Prefer explicit softFill parent; else the host itself; else parent link
  * from a «Расчёты отделов» row.
  */
-export function resolveTkpGipLeadContext(options: {
+export async function resolveTkpGipLeadContext(options: {
   hostEntity: Entity;
   hostRecord: EntityRecord;
   entities: readonly Entity[];
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
-}): { entity: Entity; record: EntityRecord } | null {
+}): Promise<{ entity: Entity; record: EntityRecord } | null> {
   const { hostEntity, hostRecord, entities, softFillParent } = options;
 
-  function withLiveValues(
+  async function withLiveValues(
     entity: Entity,
     record: EntityRecord,
-  ): { entity: Entity; record: EntityRecord } {
-    const live = entity.records.find((item) => item.id === record.id);
+  ): Promise<{ entity: Entity; record: EntityRecord }> {
+    const live = await getEntityRecordById(entity, record.id);
     if (!live) {
       return {
         entity,
@@ -583,14 +586,14 @@ export function resolveTkpGipLeadContext(options: {
       (isDeptCalculationsEntity(hostEntity) &&
         entityHasGipUserField(softFillParent.entity, entities)))
   ) {
-    return withLiveValues(softFillParent.entity, softFillParent.record);
+    return await withLiveValues(softFillParent.entity, softFillParent.record);
   }
 
   if (
     isTkpAnalysisEntity(hostEntity) ||
     entityHasGipUserField(hostEntity, entities)
   ) {
-    return withLiveValues(hostEntity, hostRecord);
+    return await withLiveValues(hostEntity, hostRecord);
   }
 
   if (!isDeptCalculationsEntity(hostEntity)) return null;
@@ -608,9 +611,9 @@ export function resolveTkpGipLeadContext(options: {
     }
     const parentId = parseEntityRelationIds(hostRecord.values[field.id])[0];
     if (!parentId) continue;
-    const parentRecord = target.records.find((item) => item.id === parentId);
+    const parentRecord = await getEntityRecordById(target, parentId);
     if (!parentRecord) continue;
-    return withLiveValues(target, parentRecord);
+    return await withLiveValues(target, parentRecord);
   }
 
   return null;
@@ -697,13 +700,13 @@ export function unionTkpStageDepartmentGroupsValues(
  * department they head (or «ГИП» for lead GIP users) so assignee
  * relatedField → depth 1 → Отдел.Руководители can resolve.
  */
-export function coerceTkpNestedIdsToDepartments(options: {
+export async function coerceTkpNestedIdsToDepartments(options: {
   groupsValue: string | undefined;
   hostEntity: Entity;
   entities: readonly Entity[];
   parentEntity?: Entity | null;
   parentRecord?: EntityRecord | null;
-}): string {
+}): Promise<string> {
   const { groupsValue, hostEntity, entities, parentEntity, parentRecord } =
     options;
   const departmentEntity = resolveDepartmentEntity(hostEntity, entities);
@@ -712,8 +715,9 @@ export function coerceTkpNestedIdsToDepartments(options: {
   const pairs = collectTkpStageDepartmentPairs(groupsValue);
   if (pairs.length === 0) return groupsValue?.trim() ?? "";
 
+  const departmentRecords = await getEntityRecords(departmentEntity);
   const deptById = new Map(
-    departmentEntity.records.map((record) => [record.id, record]),
+    departmentRecords.map((record) => [record.id, record]),
   );
   const deptManager =
     departmentEntity.fields.find((field) => {
@@ -726,7 +730,7 @@ export function coerceTkpNestedIdsToDepartments(options: {
 
   const managerToDepts = new Map<string, string[]>();
   if (deptManager) {
-    for (const record of departmentEntity.records) {
+    for (const record of departmentRecords) {
       for (const userId of parseEntityRelationIds(
         record.values[deptManager.id],
       )) {
@@ -737,10 +741,10 @@ export function coerceTkpNestedIdsToDepartments(options: {
     }
   }
 
-  const gipDeptId = findGipDepartmentRecordId(departmentEntity, entities);
+  const gipDeptId = await findGipDepartmentRecordId(departmentEntity, entities);
   const gipUserIds = new Set<string>();
   if (parentEntity && parentRecord) {
-    for (const id of resolveTkpGipUserIdsFromHost({
+    for (const id of await resolveTkpGipUserIdsFromHost({
       hostEntity: parentEntity,
       hostValues: parentRecord.values,
       entities,
@@ -802,13 +806,13 @@ function deptCalculationParentLinkFields(
  * Every «Расчёты отделов» row for one parent — child→parent belonging and
  * parent forward relation. Does not require seed ids (heal / ensure).
  */
-export function collectDeptCalculationRecordsForParent(
+export async function collectDeptCalculationRecordsForParent(
   entity: Entity,
   parent: {
     entity: Entity;
     recordId: string;
   },
-): EntityRecord[] {
+): Promise<EntityRecord[]> {
   if (!isDeptCalculationsEntity(entity)) return [];
   const parentRecordId = parent.recordId.trim();
   if (!parentRecordId) return [];
@@ -825,7 +829,8 @@ export function collectDeptCalculationRecordsForParent(
     entity,
     parent.entity,
   ]);
-  for (const record of entity.records) {
+  const entityRecords = await getEntityRecords(entity);
+  for (const record of entityRecords) {
     const belongs = linkFields.some(
       (field) =>
         getEntityRelationTargetId(field) === parent.entity.id &&
@@ -836,15 +841,14 @@ export function collectDeptCalculationRecordsForParent(
     if (belongs) push(record);
   }
 
-  const parentRecord =
-    parent.entity.records.find((item) => item.id === parentRecordId) ?? null;
+  const parentRecord = await getEntityRecordById(parent.entity, parentRecordId);
   for (const field of parent.entity.fields) {
     if (field.type !== "relation" && field.type !== "dependencies") continue;
     if (getEntityRelationTargetId(field) !== entity.id) continue;
     for (const id of parseEntityRelationIds(
       parentRecord?.values[field.id] ?? "",
     )) {
-      const record = entity.records.find((item) => item.id === id);
+      const record = await getEntityRecordById(entity, id);
       if (record) push(record);
     }
   }
@@ -859,25 +863,26 @@ export function collectDeptCalculationRecordsForParent(
  * Discovers via child→parent belonging and, when `parent` is passed, also via
  * the parent forward relation (orphans often hang only on that side).
  */
-export function collectDeptCalculationSiblingRecords(
+export async function collectDeptCalculationSiblingRecords(
   entity: Entity,
   seedIds: readonly string[],
   parent?: {
     entity: Entity;
     recordId: string;
   } | null,
-): EntityRecord[] {
+): Promise<EntityRecord[]> {
   if (!isDeptCalculationsEntity(entity) || seedIds.length === 0) return [];
   const seedSet = new Set(
     seedIds.map((id) => id.trim()).filter((id) => id.length > 0),
   );
   if (seedSet.size === 0) return [];
-  const seeds = entity.records.filter((record) => seedSet.has(record.id));
+  const entityRecords = await getEntityRecords(entity);
+  const seeds = entityRecords.filter((record) => seedSet.has(record.id));
   if (seeds.length === 0) return [];
 
   // Prefer exact parent scope when known — avoids pulling other ТКП via seeds.
   if (parent?.recordId && parent.entity.id) {
-    const scoped = collectDeptCalculationRecordsForParent(entity, parent);
+    const scoped = await collectDeptCalculationRecordsForParent(entity, parent);
     if (scoped.length > 0) {
       const byId = new Map(scoped.map((record) => [record.id, record]));
       for (const seed of seeds) {
@@ -917,7 +922,7 @@ export function collectDeptCalculationSiblingRecords(
   for (const seed of seeds) push(seed);
 
   if (parentKeys.size > 0) {
-    for (const record of entity.records) {
+    for (const record of entityRecords) {
       const linked = linkFields.some((field) =>
         parseEntityRelationIds(record.values[field.id]).some((parentId) =>
           parentKeys.has(`${field.id}:${parentId}`),
@@ -929,15 +934,17 @@ export function collectDeptCalculationSiblingRecords(
 
   // Parent forward relation may list fan-out children that never got belonging.
   if (parent) {
-    const parentRecord =
-      parent.entity.records.find((item) => item.id === parent.recordId) ?? null;
+    const parentRecord = await getEntityRecordById(
+      parent.entity,
+      parent.recordId,
+    );
     for (const field of parent.entity.fields) {
       if (field.type !== "relation" && field.type !== "dependencies") continue;
       if (getEntityRelationTargetId(field) !== entity.id) continue;
       for (const id of parseEntityRelationIds(
         parentRecord?.values[field.id] ?? "",
       )) {
-        const record = entity.records.find((item) => item.id === id);
+        const record = await getEntityRecordById(entity, id);
         if (record) push(record);
       }
     }
@@ -992,7 +999,7 @@ export function collectTkpStageRootIds(
  * per selected nested department under each stage — not one row with the
  * whole tree (UI would only show the first nested chip, often «ГИП»).
  */
-export function resolveDeptCalculationsCreateFanOut(options: {
+export async function resolveDeptCalculationsCreateFanOut(options: {
   triggerEntity: Entity;
   targetEntity: Entity;
   triggerValues: Record<string, string | undefined>;
@@ -1004,10 +1011,10 @@ export function resolveDeptCalculationsCreateFanOut(options: {
    * Default true: every stage×department fan-out includes «ГИП».
    */
   includeGip?: boolean;
-}): {
+}): Promise<{
   groupsField: EntityField;
   pairs: TkpStageDepartmentPair[];
-} | null {
+} | null> {
   const {
     triggerEntity,
     targetEntity,
@@ -1053,7 +1060,7 @@ export function resolveDeptCalculationsCreateFanOut(options: {
   let pairs: TkpStageDepartmentPair[] = [...pairByKey.values()];
   const catalog =
     entities.length > 0 ? entities : [triggerEntity, targetEntity];
-  const gipId = findGipDepartmentRecordIdFromHost(targetEntity, catalog);
+  const gipId = await findGipDepartmentRecordIdFromHost(targetEntity, catalog);
 
   if (includeGip) {
     // Empty stage roots (no nested depts yet) still need a «ГИП» row.
@@ -1111,10 +1118,10 @@ export function withGipDepartmentPairs(
   return next;
 }
 
-function findGipDepartmentRecordIdFromHost(
+async function findGipDepartmentRecordIdFromHost(
   hostEntity: Entity,
   entities: readonly Entity[],
-): string | null {
+): Promise<string | null> {
   const departmentEntity = resolveDepartmentEntity(hostEntity, entities);
   if (!departmentEntity) return null;
   return findGipDepartmentRecordId(departmentEntity, entities);
@@ -1124,11 +1131,11 @@ function findGipDepartmentRecordIdFromHost(
  * Hardcode: every stage root always includes nested department «ГИП».
  * Applies to «Разбор ТКП» / «Расчёты отделов» relationGroups values.
  */
-export function ensureTkpGipDepartmentInGroupsValue(options: {
+export async function ensureTkpGipDepartmentInGroupsValue(options: {
   value: string;
   hostEntity: Entity;
   entities: readonly Entity[];
-}): string {
+}): Promise<string> {
   const { value, hostEntity, entities } = options;
   if (
     !isTkpAnalysisEntity(hostEntity) &&
@@ -1136,7 +1143,7 @@ export function ensureTkpGipDepartmentInGroupsValue(options: {
   ) {
     return value;
   }
-  const gipId = findGipDepartmentRecordIdFromHost(hostEntity, entities);
+  const gipId = await findGipDepartmentRecordIdFromHost(hostEntity, entities);
   if (!gipId) return value;
   const roots = parseEntityRelationGroups(value);
   if (roots.length === 0) return value;
@@ -1158,11 +1165,11 @@ export function ensureTkpGipDepartmentInGroupsValue(options: {
  * UI-only: hide «ГИП» chips from the nested picker while the stored value
  * still keeps them (see `ensureTkpGipDepartmentInGroupsValue`).
  */
-export function stripTkpGipDepartmentFromGroupsValue(options: {
+export async function stripTkpGipDepartmentFromGroupsValue(options: {
   value: string;
   hostEntity: Entity;
   entities: readonly Entity[];
-}): string {
+}): Promise<string> {
   const { value, hostEntity, entities } = options;
   if (
     !isTkpAnalysisEntity(hostEntity) &&
@@ -1170,7 +1177,7 @@ export function stripTkpGipDepartmentFromGroupsValue(options: {
   ) {
     return value;
   }
-  const gipId = findGipDepartmentRecordIdFromHost(hostEntity, entities);
+  const gipId = await findGipDepartmentRecordIdFromHost(hostEntity, entities);
   if (!gipId) return value;
   const roots = parseEntityRelationGroups(value);
   if (roots.length === 0) return value;
@@ -1185,10 +1192,10 @@ export function stripTkpGipDepartmentFromGroupsValue(options: {
 }
 
 /** Catalog id of «ГИП» for a TKP / dept-calc host, if resolvable. */
-export function resolveTkpGipDepartmentRecordId(
+export async function resolveTkpGipDepartmentRecordId(
   hostEntity: Entity,
   entities: readonly Entity[],
-): string | null {
+): Promise<string | null> {
   if (
     !isTkpAnalysisEntity(hostEntity) &&
     !isDeptCalculationsEntity(hostEntity)
@@ -1247,11 +1254,11 @@ export function resolveDepartmentEntity(
     : null;
 }
 
-export function childValuesSelectGipDepartment(options: {
+export async function childValuesSelectGipDepartment(options: {
   childEntity: Entity;
   childValues: Record<string, string | undefined>;
   entities: readonly Entity[];
-}): boolean {
+}): Promise<boolean> {
   const { childEntity, childValues, entities } = options;
   if (!isDeptCalculationsEntity(childEntity)) return false;
   const groupsField = findDeptCalculationsGroupsField(childEntity);
@@ -1260,8 +1267,9 @@ export function childValuesSelectGipDepartment(options: {
   const leafIds = collectRelationGroupsLeafIds(
     parseEntityRelationGroups(childValues[groupsField.id]),
   );
+  const departmentRecords = await getEntityRecords(departmentEntity);
   return leafIds.some((leafId) => {
-    const record = departmentEntity.records.find((item) => item.id === leafId);
+    const record = departmentRecords.find((item) => item.id === leafId);
     return record
       ? isGipDepartmentRecord(departmentEntity, record, entities)
       : false;
@@ -1274,14 +1282,14 @@ export type TkpGipDepartmentUsersResult = {
   applied: boolean;
 };
 
-export function applyTkpGipDepartmentUsers(options: {
+export async function applyTkpGipDepartmentUsers(options: {
   childEntity: Entity;
   childValues: Record<string, string>;
   entities: readonly Entity[];
   parentEntity: Entity;
   parentRecord: EntityRecord;
   changedFieldId?: string | null;
-}): TkpGipDepartmentUsersResult {
+}): Promise<TkpGipDepartmentUsersResult> {
   const {
     childEntity,
     childValues,
@@ -1313,13 +1321,12 @@ export function applyTkpGipDepartmentUsers(options: {
   const { manager, performer } = findDeptCalculationUserFields(childEntity);
   if (!manager && !performer) return empty;
 
-  const liveParent =
-    parentEntity.records.find((item) => item.id === parentRecord.id) ?? null;
+  const liveParent = await getEntityRecordById(parentEntity, parentRecord.id);
   const parentValues = mergeLeadFieldValues(
     liveParent?.values,
     parentRecord.values,
   );
-  const resolvedGipIds = resolveTkpGipUserIdsFromHost({
+  const resolvedGipIds = await resolveTkpGipUserIdsFromHost({
     hostEntity: parentEntity,
     hostValues: parentValues,
     entities,
@@ -1327,11 +1334,11 @@ export function applyTkpGipDepartmentUsers(options: {
   if (resolvedGipIds.length === 0) return empty;
 
   if (
-    !childValuesSelectGipDepartment({
+    !(await childValuesSelectGipDepartment({
       childEntity,
       childValues,
       entities,
-    })
+    }))
   ) {
     return empty;
   }
@@ -1369,7 +1376,7 @@ export function applyTkpGipDepartmentUsers(options: {
  * Works both when the relationGroups field lives on «Разбор ТКП» itself and
  * when it lives on a child «Расчёты отделов» with softFillParent = lead.
  */
-export function formatTkpGipDepartmentExtras(options: {
+export async function formatTkpGipDepartmentExtras(options: {
   ctx: EntityValueContext;
   hostEntity: Entity;
   parentEntity: Entity;
@@ -1378,7 +1385,7 @@ export function formatTkpGipDepartmentExtras(options: {
   departmentRecordId: string;
   displayFieldIds: readonly string[];
   defaultExtras: string;
-}): string | null {
+}): Promise<string | null> {
   const {
     ctx,
     hostEntity,
@@ -1390,8 +1397,9 @@ export function formatTkpGipDepartmentExtras(options: {
   } = options;
   const entities = ctx.entities ?? [];
 
-  const record = departmentEntity.records.find(
-    (item) => item.id === departmentRecordId,
+  const record = await getEntityRecordById(
+    departmentEntity,
+    departmentRecordId,
   );
   if (!record) return null;
   if (!isGipDepartmentRecord(departmentEntity, record, entities)) {
@@ -1415,13 +1423,12 @@ export function formatTkpGipDepartmentExtras(options: {
               : null;
   if (!leadHost) return null;
 
-  const liveLead =
-    leadHost.records.find((item) => item.id === parentRecord.id) ?? null;
+  const liveLead = await getEntityRecordById(leadHost, parentRecord.id);
   const hostValues = mergeLeadFieldValues(
     liveLead?.values,
     parentRecord.values,
   );
-  const gipIds = resolveTkpGipUserIdsFromHost({
+  const gipIds = await resolveTkpGipUserIdsFromHost({
     hostEntity: leadHost,
     hostValues,
     entities,
@@ -1494,7 +1501,7 @@ export function formatTkpGipDepartmentExtras(options: {
  * «Расчёты отделов» row that selects that department, use the lead’s «ГИП»
  * users instead of the catalog manager.
  */
-export function resolveTkpGipAssigneeUserIds(options: {
+export async function resolveTkpGipAssigneeUserIds(options: {
   triggerEntity: Entity;
   triggerValues: Record<string, string | undefined>;
   triggerRecordId?: string | null;
@@ -1502,7 +1509,7 @@ export function resolveTkpGipAssigneeUserIds(options: {
   departmentRecord: EntityRecord;
   entities?: readonly Entity[];
   fallbackUserIds: string[];
-}): string[] | null {
+}): Promise<string[] | null> {
   const {
     triggerEntity,
     triggerValues,
@@ -1529,16 +1536,15 @@ export function resolveTkpGipAssigneeUserIds(options: {
   );
   const isGipCalc =
     !isGipCatalog &&
-    childValuesSelectGipDepartment({
+    (await childValuesSelectGipDepartment({
       childEntity: departmentEntity,
       childValues: departmentRecord.values,
       entities: catalog,
-    });
+    }));
   if (!isGipCatalog && !isGipCalc) return null;
 
   const live = triggerRecordId
-    ? (triggerEntity.records.find((item) => item.id === triggerRecordId) ??
-      null)
+    ? await getEntityRecordById(triggerEntity, triggerRecordId)
     : null;
   // Prefer filled live lead values; draft empties must not wipe «ГИП».
   const draft: Record<string, string> = {};
@@ -1547,7 +1553,7 @@ export function resolveTkpGipAssigneeUserIds(options: {
     draft[key] = value;
   }
   const merged = mergeLeadFieldValues(live?.values, draft);
-  const ids = resolveTkpGipUserIdsFromHost({
+  const ids = await resolveTkpGipUserIdsFromHost({
     hostEntity: triggerEntity,
     hostValues: merged,
     entities: catalog,
@@ -1557,11 +1563,11 @@ export function resolveTkpGipAssigneeUserIds(options: {
   return ids;
 }
 
-function recordManagerUserIds(
+async function recordManagerUserIds(
   entity: Entity,
   record: EntityRecord,
   entities: readonly Entity[],
-): string[] {
+): Promise<string[]> {
   const { manager, performer } = findDeptCalculationUserFields(entity);
   const ids: string[] = [];
   const seen = new Set<string>();
@@ -1598,8 +1604,9 @@ function recordManagerUserIds(
           groupsField ? record.values[groupsField.id] : undefined,
         )) {
           if (!pair.departmentId.trim()) continue;
-          const deptRecord = departmentEntity.records.find(
-            (item) => item.id === pair.departmentId,
+          const deptRecord = await getEntityRecordById(
+            departmentEntity,
+            pair.departmentId,
           );
           if (!deptRecord) continue;
           if (isGipDepartmentRecord(departmentEntity, deptRecord, entities)) {
@@ -1644,8 +1651,9 @@ function expandAssigneeUserIds(
   const usersEntity = getSystemUsersEntity(entities);
   if (!usersEntity) return next;
 
+  const ctx = getEntityValueContext(entities);
   for (const id of userIds) {
-    const byRecord = usersEntity.records.find((record) => record.id === id);
+    const byRecord = ctx.getRecord(usersEntity.id, id);
     if (byRecord?.authUserId) next.add(byRecord.authUserId);
     const byAuth = findSystemUserByAuthId(entities, id);
     if (byAuth) next.add(byAuth.id);
@@ -1667,52 +1675,62 @@ function recordDepartmentIds(entity: Entity, record: EntityRecord): string[] {
   return [...found];
 }
 
-function assigneeOwnsNonGipDepartment(options: {
+async function assigneeOwnsNonGipDepartment(options: {
   entity: Entity;
   records: readonly EntityRecord[];
   entities: readonly Entity[];
   userIds: ReadonlySet<string>;
-}): boolean {
+}): Promise<boolean> {
   if (options.userIds.size === 0) return false;
-  return options.records.some((record) => {
+  for (const record of options.records) {
     if (
-      childValuesSelectGipDepartment({
+      await childValuesSelectGipDepartment({
         childEntity: options.entity,
         childValues: record.values,
         entities: options.entities,
       })
     ) {
-      return false;
+      continue;
     }
-    return recordManagerUserIds(options.entity, record, options.entities).some(
-      (id) => options.userIds.has(id),
+    const managerIds = await recordManagerUserIds(
+      options.entity,
+      record,
+      options.entities,
     );
-  });
+    if (managerIds.some((id) => options.userIds.has(id))) return true;
+  }
+  return false;
 }
 
-function resolveAssigneeIsLeadGip(options: {
+async function resolveAssigneeIsLeadGip(options: {
   entity: Entity;
   records: readonly EntityRecord[];
   entities: readonly Entity[];
   userIds: ReadonlySet<string>;
   leadParent?: { entity: Entity; record: EntityRecord } | null;
   restrictToOwnDepartments?: boolean;
-}): boolean {
+}): Promise<boolean> {
   if (options.restrictToOwnDepartments) return false;
   if (options.userIds.size === 0 || !options.leadParent) return false;
-  const listedAsGip = [...options.userIds].some((userId) =>
-    isTkpLeadGipUser({
-      hostEntity: options.leadParent!.entity,
-      hostValues: options.leadParent!.record.values,
-      entities: options.entities,
-      userId,
-    }),
-  );
+  let listedAsGip = false;
+  for (const userId of options.userIds) {
+    if (
+      await isTkpLeadGipUser({
+        hostEntity: options.leadParent.entity,
+        hostValues: options.leadParent.record.values,
+        entities: options.entities,
+        userId,
+      })
+    ) {
+      listedAsGip = true;
+      break;
+    }
+  }
   if (!listedAsGip) return false;
   // Prefer department-head scope when the person manages real departments
   // (avoids full GIP table if they were also listed on the lead «ГИП» field).
   if (
-    assigneeOwnsNonGipDepartment({
+    await assigneeOwnsNonGipDepartment({
       entity: options.entity,
       records: options.records,
       entities: options.entities,
@@ -1730,7 +1748,7 @@ function resolveAssigneeIsLeadGip(options: {
  * - lead GIP → **all** department rows (others read-only in the UI);
  * - no assignee → all non-GIP rows.
  */
-export function filterDeptCalculationRecordsForAssignee(options: {
+export async function filterDeptCalculationRecordsForAssignee(options: {
   entity: Entity;
   records: readonly EntityRecord[];
   entities: readonly Entity[];
@@ -1744,7 +1762,7 @@ export function filterDeptCalculationRecordsForAssignee(options: {
    * full lead-GIP table even if the user is listed on «ГИП».
    */
   restrictToOwnDepartments?: boolean;
-}): EntityRecord[] {
+}): Promise<EntityRecord[]> {
   const {
     entity,
     records,
@@ -1755,7 +1773,7 @@ export function filterDeptCalculationRecordsForAssignee(options: {
   const rawUserIds = collectAssigneeUserIds(options);
   const userIds = expandAssigneeUserIds(entities, rawUserIds);
 
-  const assigneeIsGip = resolveAssigneeIsLeadGip({
+  const assigneeIsGip = await resolveAssigneeIsLeadGip({
     entity,
     records,
     entities,
@@ -1779,7 +1797,9 @@ export function filterDeptCalculationRecordsForAssignee(options: {
       currentUserRecordId = byAuth.id;
       break;
     }
-    const byRecord = usersEntity?.records.find((record) => record.id === id);
+    const byRecord = usersEntity
+      ? getEntityValueContext(entities).getRecord(usersEntity.id, id)
+      : undefined;
     if (byRecord) {
       currentUserRecordId = byRecord.id;
       authUserId = byRecord.authUserId;
@@ -1793,35 +1813,40 @@ export function filterDeptCalculationRecordsForAssignee(options: {
     }),
   );
 
-  return records.filter((record) => {
-    const isGip = childValuesSelectGipDepartment({
+  const visible: EntityRecord[] = [];
+  for (const record of records) {
+    const isGip = await childValuesSelectGipDepartment({
       childEntity: entity,
       childValues: record.values,
       entities,
     });
-    if (isGip) return false;
+    if (isGip) continue;
 
     if (viewerDepartmentIds.size > 0) {
       const deptIds = recordDepartmentIds(entity, record);
-      if (deptIds.some((id) => viewerDepartmentIds.has(id))) return true;
+      if (deptIds.some((id) => viewerDepartmentIds.has(id))) {
+        visible.push(record);
+        continue;
+      }
     }
 
     if (userIds.size === 0) {
       // Department-head viewer without a resolved profile: show nothing safer
       // than every department.
-      return !restrictToOwnDepartments;
+      if (!restrictToOwnDepartments) visible.push(record);
+      continue;
     }
-    return recordManagerUserIds(entity, record, entities).some((id) =>
-      userIds.has(id),
-    );
-  });
+    const managerIds = await recordManagerUserIds(entity, record, entities);
+    if (managerIds.some((id) => userIds.has(id))) visible.push(record);
+  }
+  return visible;
 }
 
 /**
  * Record ids the assignee may edit in the departments table.
  * Lead GIP → only «ГИП» rows; department heads → their visible rows.
  */
-export function resolveEditableDeptCalculationRecordIds(options: {
+export async function resolveEditableDeptCalculationRecordIds(options: {
   entity: Entity;
   records: readonly EntityRecord[];
   entities: readonly Entity[];
@@ -1831,7 +1856,7 @@ export function resolveEditableDeptCalculationRecordIds(options: {
   restrictToOwnDepartments?: boolean;
   /** Role «ГИП» — treat as lead even if soft lead-field match is incomplete. */
   forceLeadGip?: boolean;
-}): Set<string> {
+}): Promise<Set<string>> {
   const {
     entity,
     entities,
@@ -1839,30 +1864,32 @@ export function resolveEditableDeptCalculationRecordIds(options: {
     restrictToOwnDepartments = false,
     forceLeadGip = false,
   } = options;
-  const visible = filterDeptCalculationRecordsForAssignee(options);
+  const visible = await filterDeptCalculationRecordsForAssignee(options);
   const userIds = collectAssigneeUserIds(options);
   const assigneeIsGip =
     forceLeadGip ||
-    resolveAssigneeIsLeadGip({
+    (await resolveAssigneeIsLeadGip({
       entity,
       records: options.records,
       entities,
       userIds,
       leadParent,
       restrictToOwnDepartments,
-    });
+    }));
   if (!assigneeIsGip) {
     return new Set(visible.map((record) => record.id));
   }
-  return new Set(
-    visible
-      .filter((record) =>
-        childValuesSelectGipDepartment({
-          childEntity: entity,
-          childValues: record.values,
-          entities,
-        }),
-      )
-      .map((record) => record.id),
-  );
+  const editable = new Set<string>();
+  for (const record of visible) {
+    if (
+      await childValuesSelectGipDepartment({
+        childEntity: entity,
+        childValues: record.values,
+        entities,
+      })
+    ) {
+      editable.add(record.id);
+    }
+  }
+  return editable;
 }
