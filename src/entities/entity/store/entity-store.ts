@@ -55,6 +55,10 @@ import {
   collectLookupSoftFillPatchesFromRelated,
 } from "../model/field-value";
 import {
+  getEntityRecordById,
+  getEntityRecords,
+} from "../model/record-queries";
+import {
   getEntityTimelineSetup,
   scheduleEntityTimeline,
   withEntityDatePart,
@@ -516,12 +520,35 @@ function persistStructure(next: EntityConfig) {
   flushStructureToRemote();
 }
 
+/**
+ * Clone a schema-edit snapshot's structure but keep the records currently in
+ * the store. Record edits persist immediately (DB-first), so reverting a schema
+ * session must not roll them back to the structure snapshot's stale rows.
+ */
+function restoreSchemaSnapshotKeepingRecords(
+  snapshot: EntityConfig,
+): EntityConfig {
+  const liveRecords = new Map(
+    config.entities.map((entity) => [entity.id, entity.records]),
+  );
+  const restored = cloneEntityConfig(snapshot);
+  return {
+    ...restored,
+    entities: restored.entities.map((entity) =>
+      normalizeEntity({
+        ...entity,
+        records: liveRecords.get(entity.id) ?? entity.records,
+      }),
+    ),
+  };
+}
+
 /** Start deferred-save editing for an entity schema (settings UI). */
 export function beginEntitySchemaEdit(entityId: string) {
   if (schemaEditSession?.entityId === entityId) return;
   if (schemaEditSession) {
     // Drop unsaved work on another entity before starting a new session.
-    config = cloneEntityConfig(schemaEditSession.snapshot);
+    config = restoreSchemaSnapshotKeepingRecords(schemaEditSession.snapshot);
     syncEntityMenuItems(menuLabels(config.entities));
   }
   schemaEditSession = {
@@ -545,7 +572,9 @@ export function commitEntitySchemaEdit() {
 /** Restore the pre-edit snapshot and leave the edit session. */
 export function cancelEntitySchemaEdit() {
   if (!schemaEditSession) return;
-  config = cloneEntityConfig(schemaEditSession.snapshot);
+  // Restore the structure snapshot but keep records confirmed during the
+  // session — they persist immediately and must survive a schema cancel.
+  config = restoreSchemaSnapshotKeepingRecords(schemaEditSession.snapshot);
   schemaEditSession = null;
   syncEntityMenuItems(menuLabels(config.entities));
   notify();
@@ -1156,7 +1185,7 @@ export function updateEntity(
   });
 }
 
-export function removeEntity(id: string) {
+export async function removeEntity(id: string): Promise<void> {
   const target = config.entities.find((entity) => entity.id === id);
   if (target && isSystemEntity(target)) return;
 
@@ -1165,17 +1194,22 @@ export function removeEntity(id: string) {
     .map((entity) => entity.id);
   const removeIds = new Set([id, ...childIds]);
 
+  // DB-first: delete the records before dropping the entity structure, so a
+  // failed delete leaves the entity (and its rows) intact.
+  if (isSupabaseConfigured) {
+    for (const entityId of removeIds) {
+      try {
+        await deleteEntityRecordsByEntityId(entityId);
+      } catch (error: unknown) {
+        handlePersistError(error, "Не удалось удалить записи сущности");
+        throw error;
+      }
+    }
+  }
+
   persistStructure({
     entities: config.entities.filter((entity) => !removeIds.has(entity.id)),
   });
-
-  if (!isSupabaseConfigured) return;
-
-  for (const entityId of removeIds) {
-    void deleteEntityRecordsByEntityId(entityId).catch((error: unknown) => {
-      handlePersistError(error, "Не удалось удалить записи сущности");
-    });
-  }
 }
 
 export function addEntityField(
@@ -1492,7 +1526,7 @@ export function updateEntityField(
  * the tab filter: a new relation keeps `parentLinkFieldId` + stored ids,
  * the original field becomes «значение из связи» over that bridge.
  */
-export function convertTabLinkRelationFieldToLookup(
+export async function convertTabLinkRelationFieldToLookup(
   entityId: string,
   fieldId: string,
   patch: {
@@ -1511,7 +1545,7 @@ export function convertTabLinkRelationFieldToLookup(
     visibilityConditions?: EntityField["visibilityConditions"];
     lookup: EntityLookupConfig;
   },
-): { bridgeFieldId: string } | null {
+): Promise<{ bridgeFieldId: string } | null> {
   const entity = config.entities.find((item) => item.id === entityId);
   const field = entity?.fields.find((item) => item.id === fieldId);
   if (!entity || !field || field.type !== "relation") return null;
@@ -1594,7 +1628,29 @@ export function convertTabLinkRelationFieldToLookup(
     relationFilter: undefined,
   });
 
-  const valueMigrations: Array<{ recordId: string; value: string }> = [];
+  // DB-first: move each record's link value to the bridge field before the
+  // structure switch is published. On failure nothing is applied locally.
+  const valueMigrations = entity.records
+    .map((record) => ({
+      recordId: record.id,
+      value: record.values[fieldId] ?? "",
+    }))
+    .filter((migration) => migration.value);
+
+  if (isSupabaseConfigured) {
+    for (const migration of valueMigrations) {
+      markLocalRecordWrite(migration.recordId);
+      try {
+        await updateEntityRecordValues(migration.recordId, {
+          [bridgeFieldId]: migration.value,
+          [fieldId]: "",
+        });
+      } catch (error: unknown) {
+        handlePersistError(error, "Не удалось перенести значения связи");
+        throw error;
+      }
+    }
+  }
 
   persistStructure({
     entities: config.entities.map((item) => {
@@ -1616,9 +1672,6 @@ export function convertTabLinkRelationFieldToLookup(
       );
       const nextRecords = item.records.map((record) => {
         const linkValue = record.values[fieldId] ?? "";
-        if (linkValue) {
-          valueMigrations.push({ recordId: record.id, value: linkValue });
-        }
         const values = { ...record.values };
         if (linkValue) values[bridgeFieldId] = linkValue;
         delete values[fieldId];
@@ -1634,22 +1687,6 @@ export function convertTabLinkRelationFieldToLookup(
       });
     }),
   });
-
-  if (isSupabaseConfigured) {
-    for (const migration of valueMigrations) {
-      markLocalRecordWrite(migration.recordId);
-      void updateEntityRecordValues(migration.recordId, {
-        [bridgeFieldId]: migration.value,
-        [fieldId]: "",
-      }).catch((error: unknown) => {
-        console.error(
-          "[entity] migrate tab-link values to bridge field",
-          migration.recordId,
-          error,
-        );
-      });
-    }
-  }
 
   return { bridgeFieldId };
 }
@@ -2396,7 +2433,10 @@ export function updateEntityTab(
   });
 }
 
-export function removeEntityTab(entityId: string, tabId: string) {
+export async function removeEntityTab(
+  entityId: string,
+  tabId: string,
+): Promise<void> {
   const parent = config.entities.find((item) => item.id === entityId);
   const target = parent?.tabs.find((tab) => tab.id === tabId);
   if (!parent || !target || parent.tabs.length <= 1) return;
@@ -2426,6 +2466,31 @@ export function removeEntityTab(entityId: string, tabId: string) {
     remainingTabs.find((tab) => isEntityFieldsHostTab(tab))?.id ??
     remainingTabs[0]?.id ??
     ENTITY_OVERVIEW_TAB_ID;
+
+  // DB-first: persist the record side-effects before publishing the structure.
+  if (isSupabaseConfigured) {
+    if (ownedLinkedId) {
+      try {
+        await deleteEntityRecordsByEntityId(ownedLinkedId);
+      } catch (error: unknown) {
+        handlePersistError(error, "Не удалось удалить записи связанной сущности");
+        throw error;
+      }
+    } else if (linkFieldId && !linkFieldStillUsed && linkedEntityId) {
+      // The link field is being dropped from the schema — clear it from the
+      // linked entity's rows in the DB, not just locally.
+      for (const record of linked?.records ?? []) {
+        if (!(linkFieldId in record.values)) continue;
+        markLocalRecordWrite(record.id);
+        try {
+          await updateEntityRecordValues(record.id, { [linkFieldId]: "" });
+        } catch (error: unknown) {
+          handlePersistError(error, "Не удалось очистить связь в записях");
+          throw error;
+        }
+      }
+    }
+  }
 
   persistStructure({
     entities: config.entities
@@ -2494,17 +2559,6 @@ export function removeEntityTab(entityId: string, tabId: string) {
         return next;
       }),
   });
-
-  if (ownedLinkedId && isSupabaseConfigured) {
-    void deleteEntityRecordsByEntityId(ownedLinkedId).catch(
-      (error: unknown) => {
-        handlePersistError(
-          error,
-          "Не удалось удалить записи связанной сущности",
-        );
-      },
-    );
-  }
 }
 
 /** Reorder tabs. Overview stays first and cannot be moved. */
@@ -3381,16 +3435,10 @@ function applyKanbanListDefault(
 }
 
 /** Drop a ghost local row without calling the delete API. */
-function dropEntityRecordLocal(entityId: string, recordId: string) {
-  mapEntityLocal(entityId, (entity) => ({
-    ...entity,
-    records: entity.records.filter((record) => record.id !== recordId),
-  }));
-}
-
 /**
  * Wait until a just-created record has finished remote insert (or failed).
- * No-op when the record was never pending or Supabase is off.
+ * DB-first `addEntityRecord` already awaits the insert, so this is a no-op shim
+ * kept for call sites that still guard on insert completion.
  */
 export function waitForEntityRecordInsert(recordId: string): Promise<void> {
   return pendingRecordInserts.get(recordId) ?? Promise.resolve();
@@ -3404,11 +3452,11 @@ export function waitForEntityRecordDelete(recordId: string): Promise<void> {
   return pendingRecordDeletes.get(recordId) ?? Promise.resolve();
 }
 
-function insertRecord(
+async function insertRecord(
   entityId: string,
   values: Record<string, string>,
   options?: { id?: string },
-) {
+): Promise<EntityRecord> {
   const entity = config.entities.find((item) => item.id === entityId);
   const withFieldDefaults = entity
     ? applyTkpAnalysisCreateDefaults(
@@ -3432,34 +3480,31 @@ function insertRecord(
     schemaVersion: normalizeEntitySchemaVersion(entity?.publishedVersion),
   });
 
-  mapEntityLocal(entityId, (current) => ({
-    ...current,
-    records: [...current.records, record],
-  }));
-
+  // DB-first: persist to the backend, then reflect the stored row locally.
+  // Nothing lands in the store on failure, so there is no ghost to undo.
   if (isSupabaseConfigured) {
     markLocalRecordWrite(record.id);
-    const persist = insertEntityRecord(entityId, record)
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        dropEntityRecordLocal(entityId, record.id);
-        handlePersistError(error, "Не удалось сохранить запись");
-        throw new Error(getErrorMessage(error, "Не удалось сохранить запись"));
-      })
-      .finally(() => {
-        pendingRecordInserts.delete(record.id);
+    try {
+      const saved = await insertEntityRecord(entityId, record);
+      // appendEntityRecord is insert-or-replace by id, so a Realtime echo that
+      // already landed the row is harmless.
+      return appendEntityRecord(entityId, saved);
+    } catch (error: unknown) {
+      handlePersistError(error, "Не удалось сохранить запись");
+      throw new Error(getErrorMessage(error, "Не удалось сохранить запись"), {
+        cause: error,
       });
-    pendingRecordInserts.set(record.id, persist);
+    }
   }
 
-  return record;
+  return appendEntityRecord(entityId, record);
 }
 
 export function addEntityRecord(
   entityId: string,
   values: Record<string, string> = {},
   options?: { id?: string },
-) {
+): Promise<EntityRecord> {
   return insertRecord(entityId, values, options);
 }
 
@@ -3469,14 +3514,18 @@ export function createEntityRecordId() {
 }
 
 /** Starts a timer on the record; the user's running timer is stopped first. */
-export function startRecordTimer(entityId: string, recordId: string) {
+export async function startRecordTimer(
+  entityId: string,
+  recordId: string,
+): Promise<void> {
   const userRecordId = getCurrentUserRecordId();
   const entity = config.entities.find((item) => item.id === entityId);
-  const record = entity?.records.find((item) => item.id === recordId);
+  const record = await getEntityRecordById(entity, recordId);
   const setup = entity ? getEntityTimeTracking(entity, config.entities) : null;
   if (!userRecordId || !entity || !record || !setup) return;
-  stopRunningTimer();
-  addEntityRecord(
+  // Confirm the previous timer is stopped before opening a new one.
+  await stopRunningTimer();
+  await addEntityRecord(
     setup.entryEntity.id,
     buildTimeEntryValues(entity, record, setup, {
       userRecordId,
@@ -3486,11 +3535,11 @@ export function startRecordTimer(entityId: string, recordId: string) {
   );
 }
 
-export function stopRunningTimer() {
+export async function stopRunningTimer(): Promise<void> {
   const timer = findRunningTimer(config.entities, getCurrentUserRecordId());
   if (!timer) return;
   const end = new Date();
-  updateEntityRecord(timer.entryEntity.id, timer.entry.id, {
+  await updateEntityRecord(timer.entryEntity.id, timer.entry.id, {
     ...timer.entry.values,
     [timer.config.endFieldId]: toLocalDatetime(end),
     [timer.config.hoursFieldId]: serializeEntityDecimal(
@@ -3503,7 +3552,7 @@ export function stopRunningTimer() {
  * One entry per business day of the range. Throws when a day would exceed
  * the daily limit (all entries of the employee count).
  */
-export function addManualTimeEntries(
+export async function addManualTimeEntries(
   entityId: string,
   recordId: string,
   input: {
@@ -3512,10 +3561,10 @@ export function addManualTimeEntries(
     hoursPerDay: number;
     comment: string;
   },
-): number {
+): Promise<number> {
   const userRecordId = getCurrentUserRecordId();
   const entity = config.entities.find((item) => item.id === entityId);
-  const record = entity?.records.find((item) => item.id === recordId);
+  const record = await getEntityRecordById(entity, recordId);
   const setup = entity ? getEntityTimeTracking(entity, config.entities) : null;
   if (!userRecordId || !entity || !record || !setup) {
     throw new Error("Учёт времени недоступен для этой записи");
@@ -3540,7 +3589,7 @@ export function addManualTimeEntries(
   for (const day of plan.days) {
     const start = parseLocalDatetime(`${day}T09:00:00`)!;
     const end = new Date(start.getTime() + input.hoursPerDay * 3_600_000);
-    addEntityRecord(
+    await addEntityRecord(
       setup.entryEntity.id,
       buildTimeEntryValues(entity, record, setup, {
         userRecordId,
@@ -3556,7 +3605,7 @@ export function addManualTimeEntries(
 }
 
 /** Updates start / end / comment of an existing time entry; recalculates hours. */
-export function updateTimeEntry(
+export async function updateTimeEntry(
   hostEntityId: string,
   entryId: string,
   input: {
@@ -3564,13 +3613,13 @@ export function updateTimeEntry(
     end: string;
     comment: string;
   },
-) {
+): Promise<void> {
   const entity = config.entities.find((item) => item.id === hostEntityId);
   const setup = entity ? getEntityTimeTracking(entity, config.entities) : null;
   if (!entity || !setup) {
     throw new Error("Учёт времени недоступен для этой записи");
   }
-  const entry = setup.entryEntity.records.find((item) => item.id === entryId);
+  const entry = await getEntityRecordById(setup.entryEntity, entryId);
   if (!entry) {
     throw new Error("Сессия не найдена");
   }
@@ -3593,7 +3642,7 @@ export function updateTimeEntry(
   if (setup.config.commentFieldId) {
     nextValues[setup.config.commentFieldId] = input.comment.trim();
   }
-  updateEntityRecord(setup.entryEntity.id, entryId, nextValues);
+  await updateEntityRecord(setup.entryEntity.id, entryId, nextValues);
 }
 
 export function setEntityTimeTracking(
@@ -3676,33 +3725,33 @@ async function saveRecord(
   recordId: string,
   values: Record<string, string>,
 ): Promise<void> {
-  const pendingInsert = pendingRecordInserts.get(recordId);
-  if (pendingInsert) {
-    await pendingInsert;
-  }
-
-  const existing = config.entities
-    .find((item) => item.id === entityId)
-    ?.records.find((record) => record.id === recordId);
+  const entity = config.entities.find((item) => item.id === entityId);
+  const existing = await getEntityRecordById(entity, recordId);
   if (!existing) {
     throw new Error("Запись не найдена");
   }
 
   // Match SQL `update_entity_record_values`: callers may pass a partial patch
-  // (setField, files tab, upload). Replacing the whole local map wiped fields
-  // and broke task buttons / lost folder moves after reload.
+  // (setField, files tab, upload). Keep the merge local so other fields survive.
   const previousValues = existing.values;
   const mergedValues = { ...previousValues, ...values };
 
-  mapEntityLocal(entityId, (entity) => ({
-    ...entity,
-    records: entity.records.map((record) =>
-      record.id === recordId
-        ? normalizeEntityRecord({ ...record, values: mergedValues })
-        : record,
-    ),
-  }));
+  // DB-first: persist the patch, then reflect it locally. On failure we throw
+  // before touching the store, so there is nothing to roll back.
+  if (isSupabaseConfigured) {
+    markLocalRecordWrite(recordId);
+    try {
+      await updateEntityRecordValues(recordId, values);
+    } catch (error: unknown) {
+      handlePersistError(error, "Не удалось обновить запись");
+      throw error;
+    }
+  }
+  setEntityRecordValuesLocal(entityId, recordId, mergedValues);
 
+  // Related lookup fields (e.g. groups via «Значение из связи») soft-fill when
+  // the source is filled after dependents were already created. Computed from
+  // the now-persisted source state.
   const sourceEntity = config.entities.find((item) => item.id === entityId);
   const changedLookupSourceIds =
     sourceEntity?.fields
@@ -3715,89 +3764,37 @@ async function saveRecord(
           (mergedValues[fieldId] ?? "") !== (previousValues[fieldId] ?? ""),
       ) ?? [];
 
-  // Related lookup fields (e.g. groups via «Значение из связи») soft-fill when
-  // the source is filled after dependents were already created.
-  const softFillPatches =
-    changedLookupSourceIds.length > 0
-      ? await collectLookupSoftFillPatchesFromRelated(
-          config.entities,
-          entityId,
-          recordId,
-          changedLookupSourceIds,
-        )
-      : [];
+  if (changedLookupSourceIds.length === 0) return;
 
-  const softFillDeltas: Array<{
-    entityId: string;
-    recordId: string;
-    delta: Record<string, string>;
-    rollback: Record<string, string>;
-  }> = [];
+  const softFillPatches = await collectLookupSoftFillPatchesFromRelated(
+    config.entities,
+    entityId,
+    recordId,
+    changedLookupSourceIds,
+  );
 
+  // Persist each dependent before reflecting it. A failure here leaves the
+  // already-saved rows in place (both DB and store) — honest partial state,
+  // surfaced to the caller.
   for (const patch of softFillPatches) {
+    const target = config.entities.find((item) => item.id === patch.entityId);
     const before =
-      config.entities
-        .find((item) => item.id === patch.entityId)
-        ?.records.find((record) => record.id === patch.recordId)?.values ?? {};
+      (await getEntityRecordById(target, patch.recordId))?.values ?? {};
     const delta: Record<string, string> = {};
     for (const [key, value] of Object.entries(patch.values)) {
       if ((before[key] ?? "") === (value ?? "")) continue;
       delta[key] = value ?? "";
     }
     if (Object.keys(delta).length === 0) continue;
-    softFillDeltas.push({
-      entityId: patch.entityId,
-      recordId: patch.recordId,
-      delta,
-      rollback: before,
-    });
-    mapEntityLocal(patch.entityId, (entity) => ({
-      ...entity,
-      records: entity.records.map((record) =>
-        record.id === patch.recordId
-          ? normalizeEntityRecord({ ...record, values: patch.values })
-          : record,
-      ),
-    }));
-  }
-
-  if (!isSupabaseConfigured) return;
-
-  markLocalRecordWrite(recordId);
-  try {
-    await updateEntityRecordValues(recordId, values);
-    for (const patch of softFillDeltas) {
+    if (isSupabaseConfigured) {
       markLocalRecordWrite(patch.recordId);
-      await updateEntityRecordValues(patch.recordId, patch.delta);
+      await updateEntityRecordValues(patch.recordId, delta);
     }
-  } catch (error: unknown) {
-    mapEntityLocal(entityId, (entity) => ({
-      ...entity,
-      records: entity.records.map((record) =>
-        record.id === recordId
-          ? normalizeEntityRecord({ ...record, values: previousValues })
-          : record,
-      ),
-    }));
-    for (const patch of softFillDeltas) {
-      mapEntityLocal(patch.entityId, (entity) => ({
-        ...entity,
-        records: entity.records.map((record) =>
-          record.id === patch.recordId
-            ? normalizeEntityRecord({
-                ...record,
-                values: patch.rollback,
-              })
-            : record,
-        ),
-      }));
-    }
-    handlePersistError(error, "Не удалось обновить запись");
-    throw error;
+    setEntityRecordValuesLocal(patch.entityId, patch.recordId, patch.values);
   }
 }
 
-/** In-memory record values only (no remote persist). Used for optimistic rollback. */
+/** In-memory record values only (no remote persist). Reflects a confirmed save. */
 export function setEntityRecordValuesLocal(
   entityId: string,
   recordId: string,
@@ -3825,26 +3822,26 @@ export function updateEntityRecord(
  * Moves a timeline bar and reschedules dependent records.
  * Returns how many other records moved; throws on dependency cycles.
  */
-export function rescheduleEntityRecord(
+export async function rescheduleEntityRecord(
   entityId: string,
   recordId: string,
   start: string,
   end: string,
-): number {
+): Promise<number> {
   const entity = config.entities.find((item) => item.id === entityId);
   const setup = entity ? getEntityTimelineSetup(entity) : null;
   if (!entity || !setup) return 0;
   const changes = scheduleEntityTimeline({
     setup,
-    records: entity.records,
+    records: await getEntityRecords(entity),
     rootRecordId: recordId,
     start,
     end,
   });
   for (const change of changes) {
-    const record = entity.records.find((item) => item.id === change.recordId);
+    const record = await getEntityRecordById(entity, change.recordId);
     if (!record) continue;
-    updateEntityRecord(entityId, record.id, {
+    await updateEntityRecord(entityId, record.id, {
       ...record.values,
       [setup.startField.id]: withEntityDatePart(
         record.values[setup.startField.id],
@@ -3880,7 +3877,10 @@ export function setEntityPageLayout(
   }
 }
 
-export function removeEntityRecord(entityId: string, recordId: string) {
+export async function removeEntityRecord(
+  entityId: string,
+  recordId: string,
+): Promise<void> {
   if (!canMutateEntityRecord(entityId, "delete")) {
     console.warn(
       "[entity] removeEntityRecord denied by access policy",
@@ -3889,6 +3889,23 @@ export function removeEntityRecord(entityId: string, recordId: string) {
     );
     return;
   }
+
+  // DB-first: confirm the remote delete before dropping anything locally.
+  if (isSupabaseConfigured) {
+    markLocalRecordWrite(recordId);
+    try {
+      await deleteEntityRecord(recordId);
+    } catch (error: unknown) {
+      handlePersistError(error, "Не удалось удалить запись");
+      throw error;
+    }
+    void deleteNotificationsForRecords(entityId, [recordId]).catch(
+      (error: unknown) => {
+        console.error("[entity] purge notifications on record delete", error);
+      },
+    );
+  }
+
   let structureChanged = false;
   const entities = config.entities.map((entity) => {
     const nextRecords =
@@ -3924,21 +3941,4 @@ export function removeEntityRecord(entityId: string, recordId: string) {
   } else {
     setLocalConfig({ entities });
   }
-
-  if (!isSupabaseConfigured) return;
-
-  markLocalRecordWrite(recordId);
-  void deleteNotificationsForRecords(entityId, [recordId]).catch(
-    (error: unknown) => {
-      console.error("[entity] purge notifications on record delete", error);
-    },
-  );
-  const persist = deleteEntityRecord(recordId)
-    .catch((error: unknown) => {
-      handlePersistError(error, "Не удалось удалить запись");
-    })
-    .finally(() => {
-      pendingRecordDeletes.delete(recordId);
-    });
-  pendingRecordDeletes.set(recordId, persist);
 }

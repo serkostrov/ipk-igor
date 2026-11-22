@@ -584,7 +584,7 @@ export function EntityPage({
             isUsersEntity
               ? async (values, meta) => {
                   if (!isSupabaseConfigured) {
-                    addEntityRecord(currentEntity.id, values, {
+                    await addEntityRecord(currentEntity.id, values, {
                       id: meta.recordId,
                     });
                     return;

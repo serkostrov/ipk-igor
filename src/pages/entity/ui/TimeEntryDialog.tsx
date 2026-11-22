@@ -75,10 +75,10 @@ function TimeEntryForm({
   const canSubmit =
     plan != null && plan.days.length > 0 && plan.overLimitDays.length === 0;
 
-  function submit() {
+  async function submit() {
     if (!canSubmit) return;
     try {
-      addManualTimeEntries(entity.id, record.id, {
+      await addManualTimeEntries(entity.id, record.id, {
         dateFrom,
         dateTo: dateTo || dateFrom,
         hoursPerDay,

@@ -918,12 +918,14 @@ export async function completeAutomationTask(
       !hasExplicitStage &&
       !alreadyLanded
     ) {
-      patchedValues[triggerFieldId] = destination;
       try {
         // Patch only the process stage — never rewrite the full form snapshot.
         await updateEntityRecord(entity.id, task.recordId, {
           [triggerFieldId]: destination,
         });
+        // Reflect the advance only after the DB accepted it, so the final local
+        // apply never shows a stage the backend rejected.
+        patchedValues[triggerFieldId] = destination;
       } catch (error: unknown) {
         console.error("[automation] beforeEnter stage advance failed", error);
       }
@@ -950,11 +952,12 @@ export async function completeAutomationTask(
         currentStageId,
       );
       if (nextStageId) {
-        patchedValues[triggerFieldId] = nextStageId;
         try {
           await updateEntityRecord(entity.id, task.recordId, {
             [triggerFieldId]: nextStageId,
           });
+          // Reflect the advance only after the DB accepted it.
+          patchedValues[triggerFieldId] = nextStageId;
         } catch (error: unknown) {
           console.error("[automation] decision stage advance failed", error);
         }

@@ -2074,10 +2074,10 @@ function EntityTableViewInner({
             : "Вы уверены, что хотите удалить эту запись? Это действие нельзя отменить."
         }
         confirmLabel="Удалить"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!canDelete || !pendingDelete) return;
           const deletedId = pendingDelete.id;
-          removeEntityRecord(entity.id, deletedId);
+          await removeEntityRecord(entity.id, deletedId);
           setSelectedIds((prev) => prev.filter((id) => id !== deletedId));
         }}
       />
@@ -2090,13 +2090,20 @@ function EntityTableViewInner({
         title="Удалить выбранные записи?"
         description={`Вы уверены, что хотите удалить ${selectedCount} ${pluralRu(selectedCount, "запись", "записи", "записей")}? Это действие нельзя отменить.`}
         confirmLabel="Удалить"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!canDelete) return;
           const ids = [...selectedIds];
+          // DB-first: delete what we can; keep rows that failed still selected.
+          const deleted: string[] = [];
           for (const id of ids) {
-            removeEntityRecord(entity.id, id);
+            try {
+              await removeEntityRecord(entity.id, id);
+              deleted.push(id);
+            } catch {
+              // Persist error already surfaced via entity store status.
+            }
           }
-          setSelectedIds([]);
+          setSelectedIds((prev) => prev.filter((id) => !deleted.includes(id)));
         }}
       />
 

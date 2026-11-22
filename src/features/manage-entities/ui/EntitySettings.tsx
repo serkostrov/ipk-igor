@@ -487,13 +487,13 @@ export function EntitySettings({
         title="Удалить сущность?"
         description={`Вы уверены, что хотите удалить «${pendingDeleteName}»? Будут удалены все её поля, записи и связанные данные. Это действие нельзя отменить.`}
         confirmLabel="Удалить"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!pendingDelete) return;
           const deletedId = pendingDelete.id;
           if (getEntitySchemaEditSession()?.entityId === deletedId) {
             cancelEntitySchemaEdit();
           }
-          removeEntity(deletedId);
+          await removeEntity(deletedId);
           if (selectedEntityId === deletedId) {
             const fallback =
               entities.find((entity) => entity.id !== deletedId)?.id ?? null;

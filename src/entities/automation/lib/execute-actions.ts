@@ -24,7 +24,6 @@ import {
   resolveEntityFieldLabel,
   serializeEntityRelationIds,
   updateEntityRecord,
-  waitForEntityRecordInsert,
   type Entity,
   type EntityFieldType,
   type TkpStageDepartmentPair,
@@ -535,11 +534,10 @@ async function createMappedRecord(
     : [values];
   let first: { id: string } | null = null;
   for (const payload of payloads) {
-    const record = addEntityRecord(entityId, payload);
+    const record = await addEntityRecord(entityId, payload);
     if (!record) {
       throw new Error("Не удалось создать запись");
     }
-    await waitForEntityRecordInsert(record.id);
     if (options?.writeBackToParents && parentLinks.length > 0) {
       await writeBackChildToParents(
         entityId,

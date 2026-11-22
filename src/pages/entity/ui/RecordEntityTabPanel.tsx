@@ -2359,7 +2359,7 @@ export function RecordEntityTabPanel({
               if (!parentLinkFieldId || atSingleRecordLimit) return;
               const record = await getEntityRecordById(linkedEntity, recordId);
               if (!record) return;
-              updateEntityRecord(linkedEntity.id, recordId, {
+              await updateEntityRecord(linkedEntity.id, recordId, {
                 ...record.values,
                 [parentLinkFieldId]: serializeEntityRelationIds([
                   ...parseEntityRelationIds(record.values[parentLinkFieldId]),
@@ -2484,9 +2484,9 @@ export function RecordEntityTabPanel({
                   : "Вы уверены, что хотите удалить эту запись?"
               }
               confirmLabel="Удалить"
-              onConfirm={() => {
+              onConfirm={async () => {
                 if (!canDelete || !pendingDelete) return;
-                removeEntityRecord(linkedEntity.id, pendingDelete.id);
+                await removeEntityRecord(linkedEntity.id, pendingDelete.id);
               }}
             />
           ) : (
@@ -2502,7 +2502,7 @@ export function RecordEntityTabPanel({
                   : "Убрать запись с этой вкладки? Она останется в системе."
               }
               confirmLabel="Убрать"
-              onConfirm={() => {
+              onConfirm={async () => {
                 if (!pendingDelete || !parentLinkFieldId) return;
 
                 // Direct link: related → current. Reverse self-link: current → related.
@@ -2512,7 +2512,7 @@ export function RecordEntityTabPanel({
                     parentRecordId,
                   )
                 ) {
-                  updateEntityRecord(linkedEntity.id, pendingDelete.id, {
+                  await updateEntityRecord(linkedEntity.id, pendingDelete.id, {
                     ...pendingDelete.values,
                     [parentLinkFieldId]: serializeEntityRelationIds(
                       parseEntityRelationIds(
@@ -2528,7 +2528,7 @@ export function RecordEntityTabPanel({
                     pendingDelete.id,
                   )
                 ) {
-                  updateEntityRecord(linkedEntity.id, parentRecord.id, {
+                  await updateEntityRecord(linkedEntity.id, parentRecord.id, {
                     ...parentRecord.values,
                     [parentLinkFieldId]: serializeEntityRelationIds(
                       parseEntityRelationIds(

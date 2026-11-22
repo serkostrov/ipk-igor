@@ -34,7 +34,6 @@ import {
 } from "@/entities/access";
 import {
   addEntityRecord,
-  waitForEntityRecordInsert,
   ENTITY_FIELD_GROUP_COLUMNS,
   ENTITY_OVERVIEW_TAB_ID,
   getCurrentUserRecordId,
@@ -1404,23 +1403,26 @@ function EntityRecordContent({
       ? resolveRecordTitleOpenTarget(entity, record, entities, title)
       : null;
 
-  function handleDelete() {
-    removeEntityRecord(entity.id, record.id);
+  async function handleDelete() {
+    try {
+      await removeEntityRecord(entity.id, record.id);
+    } catch {
+      // Persist error already surfaced via entity store status.
+      return;
+    }
     (onDeleted ?? onBack)();
   }
 
-  function handleDuplicate() {
-    const copy = addEntityRecord(
-      entity.id,
-      getEntityRecordCopyValues(entity, record),
-    );
-    void waitForEntityRecordInsert(copy.id)
-      .then(() => {
-        onOpenRelation?.(entity.id, copy.id);
-      })
-      .catch(() => {
-        // Persist error already surfaced via entity store status.
-      });
+  async function handleDuplicate() {
+    try {
+      const copy = await addEntityRecord(
+        entity.id,
+        getEntityRecordCopyValues(entity, record),
+      );
+      onOpenRelation?.(entity.id, copy.id);
+    } catch {
+      // Persist error already surfaced via entity store status.
+    }
   }
 
   function handleListChange(fieldId: string, optionId: string) {

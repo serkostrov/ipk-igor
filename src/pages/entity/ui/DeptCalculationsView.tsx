@@ -57,7 +57,6 @@ import {
   updateEntityRecord,
   useEntityConfig,
   useEntityValueContext,
-  waitForEntityRecordInsert,
   type Entity,
   type EntityRecord,
   type EntityTableNestedTarget,
@@ -384,7 +383,7 @@ export function DeptCalculationsView({
             patch[fieldId] = value;
           }
           if (Object.keys(patch).length === 0) continue;
-          updateEntityRecord(entity.id, record.id, {
+          await updateEntityRecord(entity.id, record.id, {
             ...record.values,
             ...patch,
           });
@@ -731,10 +730,9 @@ export function DeptCalculationsView({
               ]),
             };
             if (lineDialog.mode === "create") {
-              const created = addEntityRecord(nested.entity.id, nextValues, {
+              await addEntityRecord(nested.entity.id, nextValues, {
                 id: meta.recordId,
               });
-              await waitForEntityRecordInsert(created.id);
             } else {
               await updateEntityRecord(
                 nested.entity.id,
@@ -764,15 +762,15 @@ export function DeptCalculationsView({
             ? "Отдел и связанные подзадачи будут удалены из списка. Это действие нельзя отменить."
             : "Подзадача будет удалена. Это действие нельзя отменить."
         }
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!deleteTarget) return;
           if (deleteTarget.kind === "host") {
             if (!canDeleteHost) return;
-            removeEntityRecord(entity.id, deleteTarget.record.id);
+            await removeEntityRecord(entity.id, deleteTarget.record.id);
             if (expandedId === deleteTarget.record.id) setExpandedId(null);
           } else if (nested) {
             if (!canDeleteLine) return;
-            removeEntityRecord(nested.entity.id, deleteTarget.record.id);
+            await removeEntityRecord(nested.entity.id, deleteTarget.record.id);
           }
           setDeleteTarget(null);
         }}

@@ -33,8 +33,6 @@ import {
   serializeEntityRelationIds,
   SYSTEM_USERS_ENTITY_ID,
   updateEntityRecord,
-  waitForEntityRecordDelete,
-  waitForEntityRecordInsert,
   withGipDepartmentPairs,
   type Entity,
   type EntityField,
@@ -273,11 +271,9 @@ async function removeOrphanDeptCalculationSiblings(options: {
     claimed.add(sole);
   }
 
-  for (const recordId of toRemove) {
-    removeEntityRecord(entity.id, recordId);
-  }
+  // DB-first: confirm every remote delete before detaching from parents.
   await Promise.all(
-    toRemove.map((recordId) => waitForEntityRecordDelete(recordId)),
+    toRemove.map((recordId) => removeEntityRecord(entity.id, recordId)),
   );
   await stripChildrenFromParents(entity.id, toRemove, parentLinks);
 }
@@ -764,8 +760,7 @@ export async function ensureDeptCalculationGipRows(options: {
         nameField && !(withUsers[nameField.id] ?? "").trim()
           ? { ...withUsers, [nameField.id]: "Расчёт отдела" }
           : withUsers;
-      const created = addEntityRecord(entity.id, createValues);
-      await waitForEntityRecordInsert(created.id);
+      const created = await addEntityRecord(entity.id, createValues);
       if (ensuredParentLinks.length > 0) {
         await writeBackChildToParents(
           entity.id,
@@ -853,7 +848,7 @@ export async function syncDeptCalculationCatalogManagers(options: {
       manager.relationMultiple === true
         ? serializeEntityRelationIds(catalogIds)
         : serializeEntityRelationIds(catalogIds.slice(0, 1));
-    updateEntityRecord(entity.id, record.id, {
+    await updateEntityRecord(entity.id, record.id, {
       ...record.values,
       [manager.id]: value,
     });
@@ -1108,9 +1103,8 @@ export async function persistDeptCalculationRelatedUpdate(options: {
       entities,
       groupsFieldId: groupsField.id,
     });
-    const created = addEntityRecord(entity.id, createValues);
-    // Wait for remote insert — otherwise reload drops fan-out siblings.
-    await waitForEntityRecordInsert(created.id);
+    // DB-first insert — the record is persisted before we link it to parents.
+    const created = await addEntityRecord(entity.id, createValues);
     if (ensuredParentLinks.length > 0) {
       await writeBackChildToParents(entity.id, created.id, ensuredParentLinks);
     }

@@ -70,20 +70,21 @@ export async function upsertProjectGanttTaskRecord(input: {
       input.dueDate &&
       fields.fromTimeline
     ) {
-      updateEntityRecord(tasksEntity.id, existing.id, next);
-      rescheduleEntityRecord(
+      // Persist the task first so the dependent reschedule sees fresh dates.
+      await updateEntityRecord(tasksEntity.id, existing.id, next);
+      await rescheduleEntityRecord(
         tasksEntity.id,
         existing.id,
         input.startDate,
         input.dueDate,
       );
     } else {
-      updateEntityRecord(tasksEntity.id, existing.id, next);
+      await updateEntityRecord(tasksEntity.id, existing.id, next);
     }
     return existing.id;
   }
 
-  const created = addEntityRecord(tasksEntity.id, values);
+  const created = await addEntityRecord(tasksEntity.id, values);
   return created.id;
 }
 
@@ -117,7 +118,7 @@ export async function createProjectGanttTaskDependency(input: {
     },
   ];
 
-  updateEntityRecord(input.binding.tasksEntity.id, successor.id, {
+  await updateEntityRecord(input.binding.tasksEntity.id, successor.id, {
     ...successor.values,
     [field.id]: serializeEntityDependencies(next),
   });
@@ -144,7 +145,7 @@ export async function deleteProjectGanttTaskDependency(input: {
   const next = parseEntityDependencies(successor.values[field.id]).filter(
     (item) => item.recordId !== pred,
   );
-  updateEntityRecord(input.binding.tasksEntity.id, successor.id, {
+  await updateEntityRecord(input.binding.tasksEntity.id, successor.id, {
     ...successor.values,
     [field.id]: serializeEntityDependencies(next),
   });
@@ -163,7 +164,7 @@ export async function rescheduleProjectGanttTaskRecord(input: {
   }
 
   if (fields.fromTimeline) {
-    rescheduleEntityRecord(
+    await rescheduleEntityRecord(
       tasksEntity.id,
       input.workItemId,
       input.newStartDate,
@@ -174,7 +175,7 @@ export async function rescheduleProjectGanttTaskRecord(input: {
 
   const record = await getEntityRecordById(tasksEntity, input.workItemId);
   if (!record) throw new Error("Задача не найдена");
-  updateEntityRecord(tasksEntity.id, record.id, {
+  await updateEntityRecord(tasksEntity.id, record.id, {
     ...record.values,
     [fields.startField.id]: input.newStartDate,
     [fields.endField.id]: input.newEndDate,

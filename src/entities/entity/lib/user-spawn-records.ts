@@ -7,7 +7,6 @@ import { SYSTEM_USERS_ENTITY_ID } from "../model/system-entities";
 import type { Entity, EntityField, EntityRecord } from "../model/types";
 import {
   addEntityRecord,
-  waitForEntityRecordInsert,
 } from "../store/entity-store";
 
 /** Multi-user relation that fans out into one record per selected person. */
@@ -69,10 +68,9 @@ export async function createEntityRecordsWithUserSpawn(
   const created: EntityRecord[] = [];
   for (let index = 0; index < payloads.length; index += 1) {
     const payload = payloads[index]!;
-    const record = addEntityRecord(entity.id, payload, {
+    const record = await addEntityRecord(entity.id, payload, {
       id: index === 0 ? options?.recordId : undefined,
     });
-    await waitForEntityRecordInsert(record.id);
     created.push(record);
   }
   return created;
