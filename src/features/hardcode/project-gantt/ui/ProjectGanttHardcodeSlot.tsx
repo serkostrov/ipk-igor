@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChartGantt } from "lucide-react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import { Loader } from "@/shared/ui/loader";
 import { useCurrentRole } from "@/entities/access";
 import {
   getEntityRecordTitle,
@@ -123,6 +124,10 @@ export function ProjectGanttHardcodeSlot({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [reloadLifecycle]);
+
+  if (tasksLink && bindingValue.status === "loading") {
+    return <Loader block label="Загрузка…" />;
+  }
 
   if (!tasksLink || !binding) {
     return (

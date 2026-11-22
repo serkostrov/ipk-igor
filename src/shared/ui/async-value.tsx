@@ -1,5 +1,6 @@
 import { useCallback, type ReactNode } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import { Loader } from "@/shared/ui/loader";
 
 type Props<T> = {
   promise: Promise<T>;
@@ -18,11 +19,7 @@ export function AsyncValue<T>({ promise, children }: Props<T>) {
   const state = useAsyncValue(useCallback(() => promise, [promise]));
   if (state.status === "error") throw state.error;
   if (state.status === "loading") {
-    return (
-      <p role="status" className="p-4 text-sm text-muted-foreground">
-        Загрузка…
-      </p>
-    );
+    return <Loader block label="Загрузка…" />;
   }
   return <>{children(state.value)}</>;
 }

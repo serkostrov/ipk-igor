@@ -41,20 +41,24 @@ export function ConfirmDialog({
   confirmDisabled = false,
   secondaryDisabled = false,
 }: ConfirmDialogProps) {
-  const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState<null | "primary" | "secondary">(null);
+  const busy = running !== null;
   const hasSecondary =
     Boolean(secondaryConfirmLabel) && typeof onSecondaryConfirm === "function";
 
-  async function run(action: () => void | Promise<void>) {
+  async function run(
+    which: "primary" | "secondary",
+    action: () => void | Promise<void>,
+  ) {
     if (busy) return;
-    setBusy(true);
+    setRunning(which);
     try {
       await action();
       onOpenChange(false);
     } catch {
       // Keep dialog open; caller shows the error.
     } finally {
-      setBusy(false);
+      setRunning(null);
     }
   }
 
@@ -84,8 +88,9 @@ export function ConfirmDialog({
             variant={
               hasSecondary ? "outline" : destructive ? "destructive" : "default"
             }
+            loading={running === "primary"}
             disabled={busy || confirmDisabled}
-            onClick={() => void run(onConfirm)}
+            onClick={() => void run("primary", onConfirm)}
           >
             {confirmLabel}
           </Button>
@@ -93,8 +98,9 @@ export function ConfirmDialog({
             <Button
               type="button"
               variant={secondaryDestructive ? "destructive" : "default"}
+              loading={running === "secondary"}
               disabled={busy || secondaryDisabled}
-              onClick={() => void run(onSecondaryConfirm!)}
+              onClick={() => void run("secondary", onSecondaryConfirm!)}
             >
               {secondaryConfirmLabel}
             </Button>
