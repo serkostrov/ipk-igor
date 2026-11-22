@@ -104,10 +104,8 @@ export function TkpReviewHardcodeSlot({
     [entities, entity],
   );
   const liveRecordValue = useAsyncValue(
-    useCallback(
-      () => getEntityRecordById(liveEntity, record.id),
-      [liveEntity, record.id],
-    ),
+    () => getEntityRecordById(liveEntity, record.id),
+    [liveEntity, record.id],
   );
   const liveRecord =
     liveRecordValue.status === "ready"
@@ -119,43 +117,43 @@ export function TkpReviewHardcodeSlot({
     [liveEntity, entities],
   );
 
-  const deptRecordsValue = useAsyncValue(
-    useCallback(async () => {
-      if (!deptEntity) return [] as EntityRecord[];
-      const ids = await collectRecordsLinkedToParent({
-        childEntity: deptEntity,
-        parentEntityId: liveEntity.id,
-        parentRecordId: liveRecord.id,
-        host: liveEntity,
-      });
-      const idSet = new Set(ids);
-      const linked = (await getEntityRecords(deptEntity)).filter((item) =>
-        idSet.has(item.id),
-      );
-      if (!visibility.showDepartmentRestrictedTotals) return linked;
-      const sessionId = getSessionUser()?.id ?? null;
-      return filterDeptCalculationRecordsForAssignee({
-        entity: deptEntity,
-        records: linked,
-        entities,
-        assigneeUserId: currentUserId ?? sessionId,
-        assigneeUserIds: [currentUserId, sessionId].filter((id): id is string =>
-          Boolean(id),
-        ),
-        leadParent: { entity: liveEntity, record: liveRecord },
-        restrictToOwnDepartments: true,
-      });
-    }, [
-      currentUserId,
-      deptEntity,
+  const deptRecordsValue = useAsyncValue(async () => {
+    if (!deptEntity) return [] as EntityRecord[];
+    const ids = await collectRecordsLinkedToParent({
+      childEntity: deptEntity,
+      parentEntityId: liveEntity.id,
+      parentRecordId: liveRecord.id,
+      host: liveEntity,
+    });
+    const idSet = new Set(ids);
+    const linked = (await getEntityRecords(deptEntity)).filter((item) =>
+      idSet.has(item.id),
+    );
+    if (!visibility.showDepartmentRestrictedTotals) return linked;
+    const sessionId = getSessionUser()?.id ?? null;
+    return filterDeptCalculationRecordsForAssignee({
+      entity: deptEntity,
+      records: linked,
       entities,
-      liveEntity,
-      liveRecord,
-      visibility.showDepartmentRestrictedTotals,
-    ]),
+      assigneeUserId: currentUserId ?? sessionId,
+      assigneeUserIds: [currentUserId, sessionId].filter((id): id is string =>
+        Boolean(id),
+      ),
+      leadParent: { entity: liveEntity, record: liveRecord },
+      restrictToOwnDepartments: true,
+    });
+  }, [
+    currentUserId,
+    deptEntity,
+    entities,
+    liveEntity,
+    liveRecord,
+    visibility.showDepartmentRestrictedTotals,
+  ]);
+  const deptRecords = useMemo(
+    () => (deptRecordsValue.status === "ready" ? deptRecordsValue.value : []),
+    [deptRecordsValue],
   );
-  const deptRecords =
-    deptRecordsValue.status === "ready" ? deptRecordsValue.value : [];
 
   const gipBreakdown = useMemo(() => {
     if (!deptEntity) {

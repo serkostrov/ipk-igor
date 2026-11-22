@@ -29,6 +29,7 @@ import {
   resolveEntityTableSubgroupField,
   useEntityConfig,
   useEntityStatus,
+  usePageRecordScope,
   type EntityBrowseView,
   type EntityRecord,
 } from "@/entities/entity";
@@ -138,6 +139,7 @@ export function EntityPage({
 }: EntityPageProps) {
   const { entities } = useEntityConfig();
   const status = useEntityStatus();
+  const { ready: pageRecordsReady } = usePageRecordScope([entityId]);
   const entity = entities.find((item) => item.id === entityId);
   const isInternal = entity != null && isEntityInternal(entity);
   const scope = useEntityRecordScope(
@@ -208,7 +210,7 @@ export function EntityPage({
     replace(entityListLocation(entityId));
   }, [editRecordId, handledEditId, replace, entityId]);
 
-  if (status === "idle" || status === "loading") {
+  if (status === "idle" || status === "loading" || !pageRecordsReady) {
     return (
       <div className="flex h-full flex-col gap-2 p-8" aria-busy="true">
         <div className="flex items-start justify-between gap-4">

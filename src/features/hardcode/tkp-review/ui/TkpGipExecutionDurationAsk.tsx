@@ -3,7 +3,7 @@
  * (not buried only inside the TKP «Расчёт ГИПа» card).
  */
 
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useCurrentRole } from "@/entities/access";
 import {
@@ -43,10 +43,8 @@ export function TkpGipExecutionDurationAsk({
     [entities, entity],
   );
   const liveRecordValue = useAsyncValue(
-    useCallback(
-      async () => (await getEntityRecordById(liveEntity, record.id)) ?? record,
-      [liveEntity, record],
-    ),
+    async () => (await getEntityRecordById(liveEntity, record.id)) ?? record,
+    [liveEntity, record],
   );
   const liveRecord =
     liveRecordValue.status === "ready" ? liveRecordValue.value : record;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useCurrentRole } from "@/entities/access";
 import {
@@ -231,10 +231,8 @@ export function TaskRelatedAskFields({
     isTkpAnalysisEntity(softFillParent.entity);
 
   const displayGroupsValue = useAsyncValue(
-    useCallback(
-      () => collapseDeptCalculationGroups(groups, entities, softFillParent),
-      [groups, entities, softFillParent],
-    ),
+    () => collapseDeptCalculationGroups(groups, entities, softFillParent),
+    [groups, entities, softFillParent],
   );
   const displayGroups =
     displayGroupsValue.status === "ready"
@@ -246,74 +244,70 @@ export function TaskRelatedAskFields({
     [groups, entities],
   );
 
-  const deptTableRecordsValue = useAsyncValue(
-    useCallback(async () => {
-      if (!deptBundle) return EMPTY_DEPT_RECORDS;
-      const live =
-        entities.find((item) => item.id === deptBundle.entity.id) ??
-        deptBundle.entity;
-      const parent =
-        softFillParent != null
-          ? {
-              entity: softFillParent.entity,
-              recordId: softFillParent.record.id,
-            }
-          : null;
-      const linked = await collectDeptCalculationSiblingRecords(
-        live,
-        deptBundle.recordIds,
-        parent,
-      );
-      return filterDeptCalculationRecordsForAssignee({
-        entity: live,
-        records: linked,
-        entities,
-        assigneeUserId,
-        assigneeUserIds: viewerUserIds,
-        leadParent: softFillParent,
-        restrictToOwnDepartments,
-      });
-    }, [
-      assigneeUserId,
-      deptBundle,
+  const deptTableRecordsValue = useAsyncValue(async () => {
+    if (!deptBundle) return EMPTY_DEPT_RECORDS;
+    const live =
+      entities.find((item) => item.id === deptBundle.entity.id) ??
+      deptBundle.entity;
+    const parent =
+      softFillParent != null
+        ? {
+            entity: softFillParent.entity,
+            recordId: softFillParent.record.id,
+          }
+        : null;
+    const linked = await collectDeptCalculationSiblingRecords(
+      live,
+      deptBundle.recordIds,
+      parent,
+    );
+    return filterDeptCalculationRecordsForAssignee({
+      entity: live,
+      records: linked,
       entities,
+      assigneeUserId,
+      assigneeUserIds: viewerUserIds,
+      leadParent: softFillParent,
       restrictToOwnDepartments,
-      softFillParent,
-      viewerUserIds,
-    ]),
-  );
+    });
+  }, [
+    assigneeUserId,
+    deptBundle,
+    entities,
+    restrictToOwnDepartments,
+    softFillParent,
+    viewerUserIds,
+  ]);
   const deptTableRecords =
     deptTableRecordsValue.status === "ready"
       ? deptTableRecordsValue.value
       : EMPTY_DEPT_RECORDS;
 
-  const editableDeptRecordIdsValue = useAsyncValue(
-    useCallback(async () => {
-      if (!deptBundle) return null;
-      const live =
-        entities.find((item) => item.id === deptBundle.entity.id) ??
-        deptBundle.entity;
-      return resolveEditableDeptCalculationRecordIds({
-        entity: live,
-        records: deptTableRecords,
-        entities,
-        assigneeUserId,
-        assigneeUserIds: viewerUserIds,
-        leadParent: softFillParent,
-        restrictToOwnDepartments,
-        forceLeadGip,
-      });
-    }, [
-      assigneeUserId,
-      deptBundle,
-      deptTableRecords,
+  const editableDeptRecordIdsValue = useAsyncValue(async () => {
+    if (!deptBundle) return null;
+    const live =
+      entities.find((item) => item.id === deptBundle.entity.id) ??
+      deptBundle.entity;
+    return resolveEditableDeptCalculationRecordIds({
+      entity: live,
+      records: deptTableRecords,
       entities,
-      forceLeadGip,
+      assigneeUserId,
+      assigneeUserIds: viewerUserIds,
+      leadParent: softFillParent,
       restrictToOwnDepartments,
-      softFillParent,
-      viewerUserIds,
-    ]),
-  );
+      forceLeadGip,
+    });
+  }, [
+    assigneeUserId,
+    deptBundle,
+    deptTableRecords,
+    entities,
+    forceLeadGip,
+    restrictToOwnDepartments,
+    softFillParent,
+    viewerUserIds,
+  ]);
   const editableDeptRecordIds =
     editableDeptRecordIdsValue.status === "ready"
       ? editableDeptRecordIdsValue.value

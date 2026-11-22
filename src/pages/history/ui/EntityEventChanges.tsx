@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   describeEntitySchemaChanges,
@@ -12,22 +12,20 @@ import {
 
 function SchemaDetails({ event }: { event: EntityStructureEvent }) {
   const { id, entityId } = event;
-  const result = useAsyncValue(
-    useCallback(async () => {
-      const { before, after } = await fetchEntityEventDefinitions(id);
-      const previous = parseEntityStructureRow({
-        id: entityId,
-        definition: before,
-      });
-      const current = parseEntityStructureRow({
-        id: entityId,
-        definition: after,
-      });
-      if (!previous || !current)
-        throw new Error("Не удалось прочитать версию схемы");
-      return describeEntitySchemaChanges(previous, current);
-    }, [id, entityId]),
-  );
+  const result = useAsyncValue(async () => {
+    const { before, after } = await fetchEntityEventDefinitions(id);
+    const previous = parseEntityStructureRow({
+      id: entityId,
+      definition: before,
+    });
+    const current = parseEntityStructureRow({
+      id: entityId,
+      definition: after,
+    });
+    if (!previous || !current)
+      throw new Error("Не удалось прочитать версию схемы");
+    return describeEntitySchemaChanges(previous, current);
+  }, [id, entityId]);
 
   if (result.status === "loading")
     return <p className="text-muted-foreground">Загрузка…</p>;

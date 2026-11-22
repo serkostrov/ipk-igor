@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
@@ -105,11 +105,8 @@ export function DependenciesFieldControl({
   const allOptions = getRelationRecordOptions(entity);
   const usedIds = new Set(dependencies.map((item) => item.recordId));
   const recordsByIdValue = useAsyncValue(
-    useCallback(
-      async () =>
-        new Map((await getEntityRecords(entity)).map((r) => [r.id, r])),
-      [entity],
-    ),
+    async () => new Map((await getEntityRecords(entity)).map((r) => [r.id, r])),
+    [entity],
   );
   const recordsById =
     recordsByIdValue.status === "ready"

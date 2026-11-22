@@ -406,44 +406,40 @@ export function TaskTableView({
   }, []);
 
   const visible = useAsyncValue(
-    useCallback(
-      async () =>
-        (
-          await filterAutomationTasksForRole(role, tasks, {
-            authUserId: sessionUser?.id ?? null,
-            userRecordId: getCurrentUserRecordId(),
-            entities,
-            valueContext,
-          })
-        ).filter((task) => !isAutomationSilentTaskKind(task.config.kind)),
-      [role, tasks, sessionUser?.id, entities, valueContext],
-    ),
+    async () =>
+      (
+        await filterAutomationTasksForRole(role, tasks, {
+          authUserId: sessionUser?.id ?? null,
+          userRecordId: getCurrentUserRecordId(),
+          entities,
+          valueContext,
+        })
+      ).filter((task) => !isAutomationSilentTaskKind(task.config.kind)),
+    [role, tasks, sessionUser?.id, entities, valueContext],
   );
   if (visible.status === "error") throw visible.error;
   const scopedTasks = visible.status === "ready" ? visible.value : EMPTY_TASKS;
 
-  const meta = useAsyncValue(
-    useCallback(async () => {
-      const map = new Map<
-        string,
-        { recordTitle: string | null; leadManager: string | null }
-      >();
-      await Promise.all(
-        scopedTasks.map(async (task) => {
-          const entity = entities.find((item) => item.id === task.entityId);
-          const record = entity
-            ? await getEntityRecordById(entity, task.recordId)
-            : undefined;
-          const [recordTitle, leadManager] = await Promise.all([
-            taskRecordTitle(entities, task),
-            resolveTaskLeadManagerName(entities, entity, record),
-          ]);
-          map.set(task.id, { recordTitle, leadManager });
-        }),
-      );
-      return map;
-    }, [scopedTasks, entities]),
-  );
+  const meta = useAsyncValue(async () => {
+    const map = new Map<
+      string,
+      { recordTitle: string | null; leadManager: string | null }
+    >();
+    await Promise.all(
+      scopedTasks.map(async (task) => {
+        const entity = entities.find((item) => item.id === task.entityId);
+        const record = entity
+          ? await getEntityRecordById(entity, task.recordId)
+          : undefined;
+        const [recordTitle, leadManager] = await Promise.all([
+          taskRecordTitle(entities, task),
+          resolveTaskLeadManagerName(entities, entity, record),
+        ]);
+        map.set(task.id, { recordTitle, leadManager });
+      }),
+    );
+    return map;
+  }, [scopedTasks, entities]);
   if (meta.status === "error") throw meta.error;
   const taskMeta = useMemo(
     () =>

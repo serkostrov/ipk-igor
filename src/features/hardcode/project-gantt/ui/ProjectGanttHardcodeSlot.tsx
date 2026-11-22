@@ -61,21 +61,19 @@ export function ProjectGanttHardcodeSlot({
     [entity, entities],
   );
 
-  const bindingValue = useAsyncValue(
-    useCallback(async () => {
-      if (!tasksLink) return null;
-      // Re-resolve against live entity from the store (records update).
-      const liveTasks =
-        entities.find((item) => item.id === tasksLink.tasksEntity.id) ??
-        tasksLink.tasksEntity;
-      return resolveProjectGanttTasksBinding({
-        projectEntity: entity,
-        projectRecord: record,
-        tasksEntity: liveTasks,
-        tab: tasksLink.tab,
-      });
-    }, [tasksLink, entities, entity, record]),
-  );
+  const bindingValue = useAsyncValue(async () => {
+    if (!tasksLink) return null;
+    // Re-resolve against live entity from the store (records update).
+    const liveTasks =
+      entities.find((item) => item.id === tasksLink.tasksEntity.id) ??
+      tasksLink.tasksEntity;
+    return resolveProjectGanttTasksBinding({
+      projectEntity: entity,
+      projectRecord: record,
+      tasksEntity: liveTasks,
+      tab: tasksLink.tab,
+    });
+  }, [tasksLink, entities, entity, record]);
   const binding = bindingValue.status === "ready" ? bindingValue.value : null;
 
   const comparison = useMemo<ProjectGanttComparison | null>(() => {

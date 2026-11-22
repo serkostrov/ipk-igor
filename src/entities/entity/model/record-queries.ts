@@ -1,4 +1,5 @@
 import { parseEntityListValueIds, parseEntityRelationIds } from "./field";
+import { fetchRecordOwnerEntityId } from "../api/entity-records-api";
 import type { Entity, EntityRecord } from "./types";
 
 export async function getEntityRecords(
@@ -43,9 +44,14 @@ export async function getEntityOwningRecord(
   entities: readonly Entity[],
   recordId: string,
 ): Promise<Entity | undefined> {
-  return entities.find((entity) =>
+  const local = entities.find((entity) =>
     entity.records.some((record) => record.id === recordId),
   );
+  if (local) return local;
+  // The record may belong to an entity whose records aren't loaded yet
+  // (page-scoped loading). Config is always present — resolve the owner by id.
+  const ownerId = await fetchRecordOwnerEntityId(recordId);
+  return ownerId ? entities.find((entity) => entity.id === ownerId) : undefined;
 }
 
 export async function getEntityRecordsByFirstListOption(

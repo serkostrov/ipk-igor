@@ -19,11 +19,14 @@ import {
 import {
   deleteEntityRecord,
   deleteEntityRecordsByEntityId,
+  fetchEntityRecordsForEntity,
   fetchRecordsByEntityId,
+  fetchRecordsByIdsGrouped,
   insertEntityRecord,
   subscribeEntityRecordChanges,
   updateEntityRecordValues,
 } from "../api/entity-records-api";
+import { claimRecordIdsToFetch } from "../model/record-prime-store";
 import { buildClonedEntityPlan } from "../lib/clone-entity";
 import { applyTkpAnalysisCreateDefaults } from "../lib/hardcode-tkp-gip";
 import {
@@ -178,6 +181,92 @@ const pendingRecordInserts = new Map<string, Promise<void>>();
 /** In-flight deletes so fan-out orphan cleanup can await remote removal. */
 const pendingRecordDeletes = new Map<string, Promise<void>>();
 
+/**
+ * Page-scoped record loading (path B). `unloaded` = this entity's records are
+ * not in the store yet; a page referencing it calls `ensureEntityRecords`.
+ * After eager init every entity is `loaded`, so behaviour is unchanged until
+ * init is switched to lazy.
+ */
+type RecordLoadStatus = "unloaded" | "loading" | "loaded";
+const recordLoadStatus = new Map<string, RecordLoadStatus>();
+const recordLoadInFlight = new Map<string, Promise<void>>();
+
+export function getEntityRecordsLoadStatus(entityId: string): RecordLoadStatus {
+  return recordLoadStatus.get(entityId) ?? "unloaded";
+}
+
+function markEntityRecordsLoaded(entityId: string) {
+  recordLoadStatus.set(entityId, "loaded");
+}
+
+/** Merge a fetched full record set into the store, keeping local recent writes. */
+function mergeLoadedEntityRecords(entityId: string, fetched: EntityRecord[]) {
+  mapEntityLocal(entityId, (entity) => {
+    const byId = new Map(entity.records.map((record) => [record.id, record]));
+    for (const record of fetched) {
+      // A row we just wrote locally may not have echoed yet — don't overwrite
+      // it with a staler fetched copy inside the echo window.
+      if (isRecentLocalWrite(record.id) && byId.has(record.id)) continue;
+      byId.set(record.id, record);
+    }
+    return { ...entity, records: [...byId.values()] };
+  });
+}
+
+/**
+ * Ensure an entity's records are present in the store (idempotent, deduped).
+ * No-op when already loaded or when Supabase is off (records are seeded eagerly).
+ */
+export function ensureEntityRecords(entityId: string): Promise<void> {
+  if (!isSupabaseConfigured) return Promise.resolve();
+  if (recordLoadStatus.get(entityId) === "loaded") return Promise.resolve();
+  const inFlight = recordLoadInFlight.get(entityId);
+  if (inFlight) return inFlight;
+
+  recordLoadStatus.set(entityId, "loading");
+  const promise = (async () => {
+    try {
+      const records = await fetchEntityRecordsForEntity(entityId);
+      mergeLoadedEntityRecords(entityId, records);
+      recordLoadStatus.set(entityId, "loaded");
+      notify();
+    } catch (error: unknown) {
+      recordLoadStatus.set(entityId, "unloaded");
+      console.error("[entity] ensureEntityRecords failed", entityId, error);
+      throw error;
+    } finally {
+      recordLoadInFlight.delete(entityId);
+    }
+  })();
+  recordLoadInFlight.set(entityId, promise);
+  return promise;
+}
+
+/**
+ * Ensure specific records are present by id, regardless of which entity owns
+ * them or whether it is loaded (cross-cutting pages: notifications, tasks,
+ * messenger, feed reference arbitrary records). Fetched rows are merged into
+ * their owning entity; a one-shot guard (shared with relation priming) prevents
+ * re-fetching the same id. No-op for ids already in the store.
+ */
+export async function ensureRecordsByIds(
+  ids: readonly string[],
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  const present = new Set<string>();
+  for (const entity of config.entities) {
+    for (const record of entity.records) present.add(record.id);
+  }
+  const missing = ids.filter((id) => id && !present.has(id));
+  const toFetch = claimRecordIdsToFetch(missing);
+  if (toFetch.length === 0) return;
+
+  const grouped = await fetchRecordsByIdsGrouped(toFetch);
+  for (const [entityId, records] of grouped) {
+    mergeLoadedEntityRecords(entityId, records);
+  }
+}
+
 function notify() {
   listeners.forEach((listener) => listener());
 }
@@ -233,6 +322,9 @@ function sameRecordContent(a: EntityRecord, b: EntityRecord) {
 
 function applyRemoteRecordUpsert(entityId: string, record: EntityRecord) {
   if (isRecentLocalWrite(record.id)) return;
+  // Don't partially materialize an entity whose records aren't loaded yet —
+  // `ensureEntityRecords` will fetch the full set when a page needs it.
+  if (getEntityRecordsLoadStatus(entityId) === "unloaded") return;
   const entity = config.entities.find((item) => item.id === entityId);
   if (!entity) return;
   const existing = entity.records.find((item) => item.id === record.id);
@@ -773,6 +865,9 @@ export async function initEntityConfig() {
           syncEntityMenuItems(menuLabels(config.entities));
         }
       }
+      // Eager init already seeded every entity's records — mark them loaded so
+      // page-scoped `ensureEntityRecords` is a no-op until init goes lazy.
+      for (const entity of config.entities) markEntityRecordsLoaded(entity.id);
       startRecordSync();
       startStructureSync();
       startVisibilityRefresh();
@@ -905,6 +1000,7 @@ export function addEntity(data: {
   persistStructure({
     entities: [...config.entities, entity],
   });
+  markEntityRecordsLoaded(entity.id);
   seedInitialSchemaVersion(entity);
 
   return entity;
@@ -936,6 +1032,7 @@ export function cloneEntity(
   });
 
   for (const entity of plan.entities) {
+    markEntityRecordsLoaded(entity.id);
     seedInitialSchemaVersion(entity);
   }
 
@@ -3679,6 +3776,7 @@ export function createEntityTimeTrackingJournal(hostEntityId: string) {
       entryEntity,
     ],
   });
+  markEntityRecordsLoaded(entryEntity.id);
   seedInitialSchemaVersion(entryEntity);
 
   return plan.timeTracking;

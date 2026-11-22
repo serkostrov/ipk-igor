@@ -227,6 +227,82 @@ export async function fetchRecordsByIds(
   return out;
 }
 
+/** Fetch all records of a single entity (page-scoped working-set load). */
+export async function fetchEntityRecordsForEntity(
+  entityId: string,
+): Promise<EntityRecord[]> {
+  const rows = await fetchEntityRecords(entityId);
+  return rows.map(rowToRecord);
+}
+
+/** Resolve which entity owns a record, without loading that entity's records. */
+export async function fetchRecordOwnerEntityId(
+  recordId: string,
+): Promise<string | null> {
+  if (!isSupabaseConfigured || !supabase) return null;
+  const { data, error } = await withTimeout(
+    supabase
+      .from("entity_records")
+      .select("entity_id")
+      .eq("id", recordId)
+      .maybeSingle() as unknown as Promise<{
+      data: { entity_id?: string } | null;
+      error: FetchPageError | null;
+    }>,
+    15_000,
+    "entity_records owner",
+  );
+  if (error) throw error;
+  return data?.entity_id ?? null;
+}
+
+/** Fetch records by id, grouped by owning entity (for by-id working-set fills). */
+export async function fetchRecordsByIdsGrouped(
+  ids: readonly string[],
+): Promise<Map<string, EntityRecord[]>> {
+  const grouped = new Map<string, EntityRecord[]>();
+  if (!isSupabaseConfigured || !supabase || ids.length === 0) return grouped;
+  const client = supabase;
+  for (let i = 0; i < ids.length; i += RECORD_BY_ID_FETCH_CHUNK) {
+    const chunk = ids.slice(i, i + RECORD_BY_ID_FETCH_CHUNK);
+    for (;;) {
+      const select = entityRecordsSelect();
+      const { data, error } = await withTimeout(
+        client
+          .from("entity_records")
+          .select(select)
+          .in("id", chunk) as unknown as Promise<{
+          data: unknown;
+          error: FetchPageError | null;
+        }>,
+        15_000,
+        "entity_records by ids grouped",
+      );
+      if (!error) {
+        for (const row of (data ?? []) as EntityRecordRow[]) {
+          const list = grouped.get(row.entity_id) ?? [];
+          list.push(rowToRecord(row));
+          grouped.set(row.entity_id, list);
+        }
+        break;
+      }
+      if (
+        entityRecordsSupportsSchemaVersion() &&
+        isMissingSchemaVersionColumn(error)
+      ) {
+        markEntityRecordsSchemaVersionUnsupported();
+        continue;
+      }
+      if (entityRecordsSupportsCreatedBy() && isMissingCreatedByColumn(error)) {
+        markEntityRecordsCreatedByUnsupported();
+        continue;
+      }
+      throw error;
+    }
+  }
+  return grouped;
+}
+
 export async function fetchRecordsByEntityId(): Promise<
   Record<string, EntityRecord[]>
 > {

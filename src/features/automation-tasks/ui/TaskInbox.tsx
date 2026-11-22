@@ -17,6 +17,7 @@ import {
 } from "@/entities/automation";
 import {
   getCurrentUserRecordId,
+  useEnsureRecordsByIds,
   useEntityConfig,
   useEntityValueContext,
 } from "@/entities/entity";
@@ -53,6 +54,10 @@ export function TaskInbox({
         ).filter((task) => !isAutomationSilentTaskKind(task.config.kind)))(),
     [role, tasks, sessionUser?.id, entities, valueContext],
   );
+
+  // By-id working-set load for each task's subject record, so inbox rows resolve
+  // labels and role/scope filtering sees the records even when unloaded.
+  useEnsureRecordsByIds(tasks.map((task) => task.recordId));
 
   const reload = useCallback(() => {
     setReloadToken((token) => token + 1);

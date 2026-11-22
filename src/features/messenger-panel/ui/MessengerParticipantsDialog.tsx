@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { getSystemUserNameByAuthId, useEntityConfig } from "@/entities/entity";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
@@ -50,10 +50,8 @@ export function MessengerParticipantsDialog({
   );
 
   const userOptions = useAsyncValue(
-    useCallback(
-      () => listMessengerUserOptions(entities, memberIds),
-      [entities, memberIds],
-    ),
+    () => listMessengerUserOptions(entities, memberIds),
+    [entities, memberIds],
   );
   const candidates = useMemo(() => {
     const base =

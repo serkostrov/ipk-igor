@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
@@ -125,15 +125,13 @@ export function TimelineGroupRecordsDialog({
     setEditing(null);
   }
 
-  const recordsByIdValue = useAsyncValue(
-    useCallback(async () => {
-      const map = new Map<string, EntityRecord>();
-      for (const record of await getEntityRecords(entity)) {
-        map.set(record.id, record);
-      }
-      return map;
-    }, [entity]),
-  );
+  const recordsByIdValue = useAsyncValue(async () => {
+    const map = new Map<string, EntityRecord>();
+    for (const record of await getEntityRecords(entity)) {
+      map.set(record.id, record);
+    }
+    return map;
+  }, [entity]);
   const recordsById =
     recordsByIdValue.status === "ready"
       ? recordsByIdValue.value

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   ArrowDown,
@@ -439,22 +439,20 @@ function DeptCalculationsEntityTableView({
   const { entities } = useEntityConfig();
   const currentUserRecordId = useCurrentUserRecordId();
   const needsFilter = isTkpDepartmentHeadRole(role);
-  const filtered = useAsyncValue(
-    useCallback(() => {
-      if (!needsFilter) return Promise.resolve(records);
-      const sessionId = getSessionUser()?.id ?? null;
-      return filterDeptCalculationRecordsForAssignee({
-        entity,
-        records,
-        entities,
-        assigneeUserId: currentUserRecordId ?? sessionId,
-        assigneeUserIds: [currentUserRecordId, sessionId].filter(
-          (id): id is string => Boolean(id),
-        ),
-        restrictToOwnDepartments: true,
-      });
-    }, [currentUserRecordId, entities, entity, needsFilter, records]),
-  );
+  const filtered = useAsyncValue(() => {
+    if (!needsFilter) return Promise.resolve(records);
+    const sessionId = getSessionUser()?.id ?? null;
+    return filterDeptCalculationRecordsForAssignee({
+      entity,
+      records,
+      entities,
+      assigneeUserId: currentUserRecordId ?? sessionId,
+      assigneeUserIds: [currentUserRecordId, sessionId].filter(
+        (id): id is string => Boolean(id),
+      ),
+      restrictToOwnDepartments: true,
+    });
+  }, [currentUserRecordId, entities, entity, needsFilter, records]);
   // Dept-head scope is async; show nothing until it resolves rather than
   // flashing other departments' rows. Other roles use the records as-is.
   const visibleRecords = needsFilter
@@ -535,7 +533,8 @@ function EntityTableViewInner({
     [entity, entities],
   );
   const nestedChildCountByHostValue = useAsyncValue(
-    useCallback(() => countNestedChildrenByHost(nestedTarget), [nestedTarget]),
+    () => countNestedChildrenByHost(nestedTarget),
+    [nestedTarget],
   );
   const nestedChildCountByHost =
     nestedChildCountByHostValue.status === "ready"
@@ -856,10 +855,8 @@ function EntityTableViewInner({
 
   // Total record count (store/DB) to detect a filtered subset — async.
   const totalRecordCount = useAsyncValue(
-    useCallback(
-      () => getEntityRecords(entity).then((rows) => rows.length),
-      [entity],
-    ),
+    () => getEntityRecords(entity).then((rows) => rows.length),
+    [entity],
   );
 
   if (tableColumns.length === 0) {

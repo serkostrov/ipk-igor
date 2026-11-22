@@ -43,6 +43,7 @@ import {
   updateEntityRecord,
   useEntityConfig,
   useEntityValueContext,
+  usePageRecordScope,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -202,6 +203,9 @@ export function TaskWorkspace({
   onCompleted: () => void;
 }) {
   const { entities } = useEntityConfig();
+  // Load the task's subject entity (and its relation targets via the closure),
+  // so the record form and its pickers work even when the entity is unloaded.
+  usePageRecordScope([task.entityId]);
   const entity = entities.find((item) => item.id === task.entityId);
   const current = useMemo(
     () => getEntityRecordById(entity, task.recordId),
@@ -299,8 +303,12 @@ function TaskWorkspaceBody({
   const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(
     () => getDefaultSelectedOutcomeId(task),
   );
-  const selectedOutcome =
-    task.config.outcomes.find((item) => item.id === selectedOutcomeId) ?? null;
+  const selectedOutcome = useMemo(
+    () =>
+      task.config.outcomes.find((item) => item.id === selectedOutcomeId) ??
+      null,
+    [task.config.outcomes, selectedOutcomeId],
+  );
   const autofillOutcomeId =
     selectedOutcomeId ??
     getDefaultSelectedOutcomeId(task) ??
@@ -339,38 +347,38 @@ function TaskWorkspaceBody({
     [task.config.actions, task.config.fieldAccess],
   );
   const createAskSlotsRawValue = useAsyncValue(
-    useCallback(
-      async () => [
-        ...(await getOutcomeCreateAskSlots(templateCreateOutcome, entities, {
-          sourceEntity: entity,
-          triggerRecordId: record?.id ?? task.recordId,
-          triggerValues: record?.values ?? {},
-          getRecordTitle: createAskTitle,
-        })),
-        ...(selectedOutcome
-          ? await getOutcomeCreateAskSlots(selectedOutcome, entities, {
-              sourceEntity: entity,
-              triggerRecordId: record?.id ?? task.recordId,
-              triggerValues: record?.values ?? {},
-              getRecordTitle: createAskTitle,
-            })
-          : []),
-      ],
-      [
-        templateCreateOutcome,
-        entities,
-        entity,
-        record,
-        task.recordId,
-        selectedOutcome,
-        createAskTitle,
-      ],
-    ),
+    async () => [
+      ...(await getOutcomeCreateAskSlots(templateCreateOutcome, entities, {
+        sourceEntity: entity,
+        triggerRecordId: record?.id ?? task.recordId,
+        triggerValues: record?.values ?? {},
+        getRecordTitle: createAskTitle,
+      })),
+      ...(selectedOutcome
+        ? await getOutcomeCreateAskSlots(selectedOutcome, entities, {
+            sourceEntity: entity,
+            triggerRecordId: record?.id ?? task.recordId,
+            triggerValues: record?.values ?? {},
+            getRecordTitle: createAskTitle,
+          })
+        : []),
+    ],
+    [
+      templateCreateOutcome,
+      entities,
+      entity,
+      record,
+      task.recordId,
+      selectedOutcome,
+      createAskTitle,
+    ],
   );
   if (createAskSlotsRawValue.status === "error")
     throw createAskSlotsRawValue.error;
   const createAskSlotsRaw =
-    createAskSlotsRawValue.status === "ready" ? createAskSlotsRawValue.value : [];
+    createAskSlotsRawValue.status === "ready"
+      ? createAskSlotsRawValue.value
+      : [];
   const requiredIds = new Set([
     ...templateAsk.requiredFieldIds,
     ...(ask?.requiredFieldIds ?? []),
@@ -440,23 +448,21 @@ function TaskWorkspaceBody({
   ];
 
   const relatedLayoutValue = useAsyncValue(
-    useCallback(
-      () =>
-        entity && relatedFieldsForForm.length > 0
-          ? resolveRelatedAskLayout({
-              triggerEntity: entity,
-              entities,
-              relatedFields: relatedFieldsForForm,
-              relatedRequiredIds: relatedRequiredForForm,
-              triggerValues: { ...(record?.values ?? {}), ...values },
-              triggerRecordId: record?.id ?? task.recordId,
-              ctx: previewContext,
-            })
-          : Promise.resolve({ groups: [], emptyRelations: [] }),
-      // relatedFields/required derive purely from these.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [entity, entities, selectedOutcome, task, record, previewContext, values],
-    ),
+    () =>
+      entity && relatedFieldsForForm.length > 0
+        ? resolveRelatedAskLayout({
+            triggerEntity: entity,
+            entities,
+            relatedFields: relatedFieldsForForm,
+            relatedRequiredIds: relatedRequiredForForm,
+            triggerValues: { ...(record?.values ?? {}), ...values },
+            triggerRecordId: record?.id ?? task.recordId,
+            ctx: previewContext,
+          })
+        : Promise.resolve({ groups: [], emptyRelations: [] }),
+    // relatedFields/required derive purely from these.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entity, entities, selectedOutcome, task, record, previewContext, values],
   );
   const relatedLayout =
     relatedLayoutValue.status === "ready"
@@ -482,42 +488,38 @@ function TaskWorkspaceBody({
       : []),
   ];
   const viewRelatedLayoutValue = useAsyncValue(
-    useCallback(
-      () =>
-        entity && viewRelatedFieldsForForm.length > 0
-          ? resolveRelatedAskLayout({
-              triggerEntity: entity,
-              entities,
-              relatedFields: viewRelatedFieldsForForm,
-              relatedRequiredIds: [],
-              triggerValues: { ...(record?.values ?? {}), ...values },
-              triggerRecordId: record?.id ?? task.recordId,
-              ctx: previewContext,
-            })
-          : Promise.resolve({ groups: [], emptyRelations: [] }),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [entity, entities, selectedOutcome, task, record, previewContext, values],
-    ),
+    () =>
+      entity && viewRelatedFieldsForForm.length > 0
+        ? resolveRelatedAskLayout({
+            triggerEntity: entity,
+            entities,
+            relatedFields: viewRelatedFieldsForForm,
+            relatedRequiredIds: [],
+            triggerValues: { ...(record?.values ?? {}), ...values },
+            triggerRecordId: record?.id ?? task.recordId,
+            ctx: previewContext,
+          })
+        : Promise.resolve({ groups: [], emptyRelations: [] }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entity, entities, selectedOutcome, task, record, previewContext, values],
   );
   const viewRelatedLayout =
     viewRelatedLayoutValue.status === "ready"
       ? viewRelatedLayoutValue.value
       : { groups: [], emptyRelations: [] };
   const viewEntityLayoutValue = useAsyncValue(
-    useCallback(
-      () =>
-        entity && viewEntityFieldsForForm.length > 0
-          ? resolveViewEntityFieldsLayout({
-              triggerEntity: entity,
-              entities,
-              entityFields: viewEntityFieldsForForm,
-              triggerValues: { ...(record?.values ?? {}), ...values },
-              ctx: previewContext,
-            })
-          : Promise.resolve({ groups: [], empty: [] }),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [entity, entities, selectedOutcome, task, record, previewContext, values],
-    ),
+    () =>
+      entity && viewEntityFieldsForForm.length > 0
+        ? resolveViewEntityFieldsLayout({
+            triggerEntity: entity,
+            entities,
+            entityFields: viewEntityFieldsForForm,
+            triggerValues: { ...(record?.values ?? {}), ...values },
+            ctx: previewContext,
+          })
+        : Promise.resolve({ groups: [], empty: [] }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entity, entities, selectedOutcome, task, record, previewContext, values],
   );
   const viewEntityLayout =
     viewEntityLayoutValue.status === "ready"
@@ -661,26 +663,24 @@ function TaskWorkspaceBody({
     });
   }).length;
   const missingRelatedRequiredCountValue = useAsyncValue(
-    useCallback(
-      () =>
-        entity && relatedFieldsForForm.length > 0
-          ? countMissingRelatedRequired({
-              triggerEntity: entity,
-              entities,
-              relatedFields: relatedFieldsForForm,
-              relatedRequiredIds: relatedRequiredForForm,
-              values: mergedValues,
-              triggerRecordId: record?.id ?? task.recordId,
-              ctx: previewContext,
-              isFieldFilled: (field, value, relationGroupsMode) =>
-                isTaskAskFieldFilled(field, value, {
-                  relationGroupsMode: relationGroupsMode ?? "full",
-                }),
-            })
-          : Promise.resolve(0),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [entity, entities, selectedOutcome, task, record, previewContext, values],
-    ),
+    () =>
+      entity && relatedFieldsForForm.length > 0
+        ? countMissingRelatedRequired({
+            triggerEntity: entity,
+            entities,
+            relatedFields: relatedFieldsForForm,
+            relatedRequiredIds: relatedRequiredForForm,
+            values: mergedValues,
+            triggerRecordId: record?.id ?? task.recordId,
+            ctx: previewContext,
+            isFieldFilled: (field, value, relationGroupsMode) =>
+              isTaskAskFieldFilled(field, value, {
+                relationGroupsMode: relationGroupsMode ?? "full",
+              }),
+          })
+        : Promise.resolve(0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entity, entities, selectedOutcome, task, record, previewContext, values],
   );
   const missingRelatedRequiredCount =
     missingRelatedRequiredCountValue.status === "ready"
@@ -1000,10 +1000,8 @@ function TaskWorkspaceBody({
 
   const assigneeName = resolveTaskAssigneeName(entities, task);
   const leadManager = useAsyncValue(
-    useCallback(
-      () => resolveTaskLeadManagerName(entities, entity, record),
-      [entities, entity, record],
-    ),
+    () => resolveTaskLeadManagerName(entities, entity, record),
+    [entities, entity, record],
   );
   if (leadManager.status === "error") throw leadManager.error;
   const leadManagerName =

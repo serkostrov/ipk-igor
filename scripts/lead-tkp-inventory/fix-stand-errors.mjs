@@ -290,7 +290,8 @@ async function main() {
     for (const o of outcomes) {
       const fa = o.fieldAccess || o.field_access;
       if (!fa) continue;
-      const strip = (ids) => (ids || []).filter((id) => id !== TKP_STAGES_LIST);
+      const strip = (ids) =>
+        (ids || []).filter((id) => id !== TKP_STAGES_LIST);
       fa.visibleFieldIds = strip(fa.visibleFieldIds);
       fa.requiredFieldIds = strip(fa.requiredFieldIds);
       if (!fa.visibleFieldIds.includes(TKP_GROUPS)) {
@@ -311,15 +312,11 @@ async function main() {
       }
       o.fieldAccess = fa;
     }
-    await api(
-      token,
-      `automation_task_templates?id=eq.atpl-tkp-select-dept-heads`,
-      {
-        method: "PATCH",
-        prefer: "return=minimal",
-        body: JSON.stringify({ outcomes }),
-      },
-    );
+    await api(token, `automation_task_templates?id=eq.atpl-tkp-select-dept-heads`, {
+      method: "PATCH",
+      prefer: "return=minimal",
+      body: JSON.stringify({ outcomes }),
+    });
     console.log("patched step 6 field access");
   }
 

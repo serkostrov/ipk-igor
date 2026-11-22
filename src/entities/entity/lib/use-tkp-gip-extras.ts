@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   formatTkpGipDepartmentExtras,
@@ -36,7 +36,7 @@ export function useTkpGipLeadContext(options: {
   ]);
   // `key` captures the relevant content of the object deps and `entities` is a
   // stable store snapshot, so this read only re-fires on real input changes.
-  const read = useCallback(
+  const result = useAsyncValue(
     () =>
       resolveTkpGipLeadContext({
         hostEntity,
@@ -47,7 +47,6 @@ export function useTkpGipLeadContext(options: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key, entities],
   );
-  const result = useAsyncValue(read);
   if (result.status === "error") throw result.error;
   return result.status === "ready" ? result.value : null;
 }
@@ -78,7 +77,12 @@ export function useTkpGipExtrasResolver(options: {
 
   return useMemo(() => {
     if (!leadParent) return undefined;
-    return ({ entity: departmentEntity, recordId, fieldIds, defaultExtras }) => {
+    return ({
+      entity: departmentEntity,
+      recordId,
+      fieldIds,
+      defaultExtras,
+    }) => {
       const key = `${leadKey}:${departmentEntity.id}:${recordId}:${fieldIds.join(
         ",",
       )}:${defaultExtras}`;

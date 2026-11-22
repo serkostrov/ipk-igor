@@ -702,20 +702,18 @@ export function Sidebar({
   );
   // Profile record comes from the store/DB asynchronously; fall back to the
   // session identity until it resolves.
-  const currentUserValue = useAsyncValue(
-    useCallback(async () => {
-      const usersEntity = entities.find(
-        (entity) => entity.id === SYSTEM_USERS_ENTITY_ID,
-      );
-      const profile =
-        sessionUser && usersEntity
-          ? ((await getEntityRecords(usersEntity)).find(
-              (record) => record.authUserId === sessionUser.id,
-            ) ?? null)
-          : null;
-      return deriveUser(profile);
-    }, [entities, sessionUser, deriveUser]),
-  );
+  const currentUserValue = useAsyncValue(async () => {
+    const usersEntity = entities.find(
+      (entity) => entity.id === SYSTEM_USERS_ENTITY_ID,
+    );
+    const profile =
+      sessionUser && usersEntity
+        ? ((await getEntityRecords(usersEntity)).find(
+            (record) => record.authUserId === sessionUser.id,
+          ) ?? null)
+        : null;
+    return deriveUser(profile);
+  }, [entities, sessionUser, deriveUser]);
   const currentUser =
     currentUserValue.status === "ready"
       ? currentUserValue.value

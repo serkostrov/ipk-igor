@@ -1,6 +1,5 @@
 import {
   Fragment,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -478,66 +477,64 @@ function RecordsTable({
   /** `null` — all groups expanded by default until the user toggles. */
   const [expandedIds, setExpandedIds] = useState<Set<string> | null>(null);
 
-  const hierarchyGroupIdsValue = useAsyncValue(
-    useCallback(async () => {
-      if (nestedTarget) {
-        return (
-          await flattenEntityTableNestedRows(
-            records,
-            nestedTarget,
-            new Set(),
-            (record) => getEntityRecordTitle(valueContext, entity, record),
-          )
-        )
-          .filter((row) => row.kind === "group")
-          .map((row) => row.id);
-      }
-      if (!parentField) return [] as string[];
-      if (isSelfHierarchy) {
-        const fullyExpanded = new Set(records.map((record) => record.id));
-        return flattenEntityTableHierarchyRows(
+  const hierarchyGroupIdsValue = useAsyncValue(async () => {
+    if (nestedTarget) {
+      return (
+        await flattenEntityTableNestedRows(
           records,
-          parentField,
-          fullyExpanded,
-          entities,
-          subgroupField,
-          entity.id,
-        ).flatMap((row) =>
-          row.kind === "record" && (row.childCount ?? 0) > 0
-            ? [row.record.id]
-            : [],
-        );
-      }
-      // Fully expand roots so subgroup row ids are included.
-      const rootIds = flattenEntityTableHierarchyRows(
+          nestedTarget,
+          new Set(),
+          (record) => getEntityRecordTitle(valueContext, entity, record),
+        )
+      )
+        .filter((row) => row.kind === "group")
+        .map((row) => row.id);
+    }
+    if (!parentField) return [] as string[];
+    if (isSelfHierarchy) {
+      const fullyExpanded = new Set(records.map((record) => record.id));
+      return flattenEntityTableHierarchyRows(
         records,
         parentField,
-        new Set(),
+        fullyExpanded,
         entities,
         subgroupField,
         entity.id,
       ).flatMap((row) =>
-        row.kind === "group" && row.depth === 0 ? [row.id] : [],
+        row.kind === "record" && (row.childCount ?? 0) > 0
+          ? [row.record.id]
+          : [],
       );
-      return flattenEntityTableHierarchyRows(
-        records,
-        parentField,
-        new Set(rootIds),
-        entities,
-        subgroupField,
-        entity.id,
-      ).flatMap((row) => (row.kind === "group" ? [row.id] : []));
-    }, [
-      entities,
-      entity,
-      isSelfHierarchy,
-      nestedTarget,
-      parentField,
+    }
+    // Fully expand roots so subgroup row ids are included.
+    const rootIds = flattenEntityTableHierarchyRows(
       records,
+      parentField,
+      new Set(),
+      entities,
       subgroupField,
-      valueContext,
-    ]),
-  );
+      entity.id,
+    ).flatMap((row) =>
+      row.kind === "group" && row.depth === 0 ? [row.id] : [],
+    );
+    return flattenEntityTableHierarchyRows(
+      records,
+      parentField,
+      new Set(rootIds),
+      entities,
+      subgroupField,
+      entity.id,
+    ).flatMap((row) => (row.kind === "group" ? [row.id] : []));
+  }, [
+    entities,
+    entity,
+    isSelfHierarchy,
+    nestedTarget,
+    parentField,
+    records,
+    subgroupField,
+    valueContext,
+  ]);
   const hierarchyGroupIds =
     hierarchyGroupIdsValue.status === "ready"
       ? hierarchyGroupIdsValue.value
@@ -548,57 +545,53 @@ function RecordsTable({
     [expandedIds, hierarchyGroupIds],
   );
 
-  const hierarchyRowsValue = useAsyncValue(
-    useCallback(async () => {
-      if (nestedTarget) {
-        return await flattenEntityTableNestedRows(
-          records,
-          nestedTarget,
-          effectiveExpandedIds,
-          (record) => getEntityRecordTitle(valueContext, entity, record),
-        );
-      }
-      if (!parentField) return null;
-      return flattenEntityTableHierarchyRows(
+  const hierarchyRowsValue = useAsyncValue(async () => {
+    if (nestedTarget) {
+      return await flattenEntityTableNestedRows(
         records,
-        parentField,
+        nestedTarget,
         effectiveExpandedIds,
-        entities,
-        subgroupField,
-        entity.id,
+        (record) => getEntityRecordTitle(valueContext, entity, record),
       );
-    }, [
+    }
+    if (!parentField) return null;
+    return flattenEntityTableHierarchyRows(
+      records,
+      parentField,
       effectiveExpandedIds,
       entities,
-      entity,
-      nestedTarget,
-      parentField,
-      records,
       subgroupField,
-      valueContext,
-    ]),
-  );
+      entity.id,
+    );
+  }, [
+    effectiveExpandedIds,
+    entities,
+    entity,
+    nestedTarget,
+    parentField,
+    records,
+    subgroupField,
+    valueContext,
+  ]);
   const hierarchyRows =
     hierarchyRowsValue.status === "ready" ? hierarchyRowsValue.value : null;
 
   /** Child counts for nested groups (even when collapsed). */
-  const nestedChildCountByParentIdValue = useAsyncValue(
-    useCallback(async () => {
-      if (!nestedTarget) return null;
-      const map = new Map<string, number>();
-      const nestedRecords = await getEntityRecords(nestedTarget.entity);
-      for (const parent of records) {
-        const count = nestedRecords.filter((record) =>
-          entityRelationIncludesId(
-            record.values[nestedTarget.parentLinkFieldId],
-            parent.id,
-          ),
-        ).length;
-        map.set(parent.id, count);
-      }
-      return map;
-    }, [nestedTarget, records]),
-  );
+  const nestedChildCountByParentIdValue = useAsyncValue(async () => {
+    if (!nestedTarget) return null;
+    const map = new Map<string, number>();
+    const nestedRecords = await getEntityRecords(nestedTarget.entity);
+    for (const parent of records) {
+      const count = nestedRecords.filter((record) =>
+        entityRelationIncludesId(
+          record.values[nestedTarget.parentLinkFieldId],
+          parent.id,
+        ),
+      ).length;
+      map.set(parent.id, count);
+    }
+    return map;
+  }, [nestedTarget, records]);
   const nestedChildCountByParentId =
     nestedChildCountByParentIdValue.status === "ready"
       ? nestedChildCountByParentIdValue.value
@@ -1950,16 +1943,12 @@ export function RecordEntityTabPanel({
     [entities, parentEntityId],
   );
 
-  const parentRecordValue = useAsyncValue(
-    useCallback(async () => {
-      if (isSelfRef) {
-        return (
-          (await getEntityRecordById(linkedEntity, parentRecordId)) ?? null
-        );
-      }
-      return (await getEntityRecordById(hostEntity, parentRecordId)) ?? null;
-    }, [hostEntity, isSelfRef, linkedEntity, parentRecordId]),
-  );
+  const parentRecordValue = useAsyncValue(async () => {
+    if (isSelfRef) {
+      return (await getEntityRecordById(linkedEntity, parentRecordId)) ?? null;
+    }
+    return (await getEntityRecordById(hostEntity, parentRecordId)) ?? null;
+  }, [hostEntity, isSelfRef, linkedEntity, parentRecordId]);
   const parentRecord =
     parentRecordValue.status === "ready" ? parentRecordValue.value : null;
   // Stable reference: an inline `{ entity, record }` here re-creates every render
@@ -1972,63 +1961,61 @@ export function RecordEntityTabPanel({
     [hostEntity, parentRecord],
   );
 
-  const recordsValue = useAsyncValue(
-    useCallback(async () => {
-      let ids = await collectLinkedTabRecordIds({
-        tab,
-        linkedEntity,
-        parentEntityId,
-        parentRecordId,
-      });
-      if (ids.length === 0) {
-        ids = await collectRecordsLinkedToParent({
-          childEntity: linkedEntity,
-          parentEntityId,
-          parentRecordId,
-          host: hostEntity,
-        });
-      }
-      if (ids.length === 0) return [] as EntityRecord[];
-      const byId = new Map(
-        (await getEntityRecords(linkedEntity)).map((record) => [
-          record.id,
-          record,
-        ]),
-      );
-      const linked = ids
-        .map((id) => byId.get(id))
-        .filter((record): record is EntityRecord => record != null);
-      if (!restrictDeptToOwn || !isDeptCalculationsEntity(linkedEntity)) {
-        return linked;
-      }
-      const sessionId = getSessionUser()?.id ?? null;
-      const leadParent =
-        hostEntity && parentRecord
-          ? { entity: hostEntity, record: parentRecord }
-          : null;
-      return filterDeptCalculationRecordsForAssignee({
-        entity: linkedEntity,
-        records: linked,
-        entities,
-        assigneeUserId: currentUserRecordId ?? sessionId,
-        assigneeUserIds: [currentUserRecordId, sessionId].filter(
-          (id): id is string => Boolean(id),
-        ),
-        leadParent,
-        restrictToOwnDepartments: true,
-      });
-    }, [
-      currentUserRecordId,
-      entities,
-      hostEntity,
+  const recordsValue = useAsyncValue(async () => {
+    let ids = await collectLinkedTabRecordIds({
+      tab,
       linkedEntity,
       parentEntityId,
-      parentRecord,
       parentRecordId,
-      restrictDeptToOwn,
-      tab,
-    ]),
-  );
+    });
+    if (ids.length === 0) {
+      ids = await collectRecordsLinkedToParent({
+        childEntity: linkedEntity,
+        parentEntityId,
+        parentRecordId,
+        host: hostEntity,
+      });
+    }
+    if (ids.length === 0) return [] as EntityRecord[];
+    const byId = new Map(
+      (await getEntityRecords(linkedEntity)).map((record) => [
+        record.id,
+        record,
+      ]),
+    );
+    const linked = ids
+      .map((id) => byId.get(id))
+      .filter((record): record is EntityRecord => record != null);
+    if (!restrictDeptToOwn || !isDeptCalculationsEntity(linkedEntity)) {
+      return linked;
+    }
+    const sessionId = getSessionUser()?.id ?? null;
+    const leadParent =
+      hostEntity && parentRecord
+        ? { entity: hostEntity, record: parentRecord }
+        : null;
+    return filterDeptCalculationRecordsForAssignee({
+      entity: linkedEntity,
+      records: linked,
+      entities,
+      assigneeUserId: currentUserRecordId ?? sessionId,
+      assigneeUserIds: [currentUserRecordId, sessionId].filter(
+        (id): id is string => Boolean(id),
+      ),
+      leadParent,
+      restrictToOwnDepartments: true,
+    });
+  }, [
+    currentUserRecordId,
+    entities,
+    hostEntity,
+    linkedEntity,
+    parentEntityId,
+    parentRecord,
+    parentRecordId,
+    restrictDeptToOwn,
+    tab,
+  ]);
   const records: EntityRecord[] =
     recordsValue.status === "ready" ? recordsValue.value : EMPTY_LINKED_RECORDS;
 
@@ -2155,32 +2142,30 @@ export function RecordEntityTabPanel({
    * Constrain row edits for heads (own depts) and GIP (only «ГИП» rows).
    * Admins / managers keep full edit (`null`).
    */
-  const editableDeptRecordIdsValue = useAsyncValue(
-    useCallback(async () => {
-      if (!isDeptCalculationsEntity(linkedEntity)) return null;
-      const forceLeadGip = isTkpGipRole(role);
-      if (!restrictDeptToOwn && !forceLeadGip) return null;
-      return resolveEditableDeptCalculationRecordIds({
-        entity: linkedEntity,
-        records,
-        entities,
-        assigneeUserId: currentUserRecordId,
-        assigneeUserIds: deptCalcViewerUserIds,
-        leadParent: deptCalcLeadParent,
-        restrictToOwnDepartments: restrictDeptToOwn,
-        forceLeadGip,
-      });
-    }, [
-      currentUserRecordId,
-      deptCalcLeadParent,
-      deptCalcViewerUserIds,
-      entities,
-      linkedEntity,
+  const editableDeptRecordIdsValue = useAsyncValue(async () => {
+    if (!isDeptCalculationsEntity(linkedEntity)) return null;
+    const forceLeadGip = isTkpGipRole(role);
+    if (!restrictDeptToOwn && !forceLeadGip) return null;
+    return resolveEditableDeptCalculationRecordIds({
+      entity: linkedEntity,
       records,
-      restrictDeptToOwn,
-      role,
-    ]),
-  );
+      entities,
+      assigneeUserId: currentUserRecordId,
+      assigneeUserIds: deptCalcViewerUserIds,
+      leadParent: deptCalcLeadParent,
+      restrictToOwnDepartments: restrictDeptToOwn,
+      forceLeadGip,
+    });
+  }, [
+    currentUserRecordId,
+    deptCalcLeadParent,
+    deptCalcViewerUserIds,
+    entities,
+    linkedEntity,
+    records,
+    restrictDeptToOwn,
+    role,
+  ]);
   const editableDeptRecordIds =
     editableDeptRecordIdsValue.status === "ready"
       ? editableDeptRecordIdsValue.value

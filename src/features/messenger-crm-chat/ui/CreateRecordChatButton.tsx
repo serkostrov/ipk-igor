@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
@@ -76,14 +76,12 @@ export function CreateRecordChatButton({
     recordTitle(entity, record),
   );
 
-  const userOptions = useAsyncValue(
-    useCallback(() => {
-      const exclude = new Set(
-        sessionUser?.id ? [sessionUser.id] : ([] as string[]),
-      );
-      return listMessengerUserOptions(entities, exclude);
-    }, [entities, sessionUser]),
-  );
+  const userOptions = useAsyncValue(() => {
+    const exclude = new Set(
+      sessionUser?.id ? [sessionUser.id] : ([] as string[]),
+    );
+    return listMessengerUserOptions(entities, exclude);
+  }, [entities, sessionUser]);
   const options = useMemo(() => {
     const base =
       userOptions.status === "ready"

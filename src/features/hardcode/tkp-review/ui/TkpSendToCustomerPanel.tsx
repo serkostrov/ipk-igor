@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
@@ -41,16 +41,13 @@ export function TkpSendToCustomerPanel({
   readOnly?: boolean;
 }) {
   const { entities } = useEntityConfig();
-  const liveValue = useAsyncValue(
-    useCallback(async () => {
-      const liveEntity = entities.find((item) => item.id === entity.id);
-      return (
-        (liveEntity
-          ? await getEntityRecordById(liveEntity, record.id)
-          : null) ?? record
-      );
-    }, [entities, entity.id, record]),
-  );
+  const liveValue = useAsyncValue(async () => {
+    const liveEntity = entities.find((item) => item.id === entity.id);
+    return (
+      (liveEntity ? await getEntityRecordById(liveEntity, record.id) : null) ??
+      record
+    );
+  }, [entities, entity.id, record]);
   const live = liveValue.status === "ready" ? liveValue.value : record;
   const approval = readTkpApprovalState(live.values);
   const effectiveRevisionId = revisionId?.trim() || approval.revisionId || "";

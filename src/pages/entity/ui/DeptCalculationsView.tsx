@@ -3,14 +3,7 @@
  * stage group → department summary row → expand «Работы отдела» + nested lines.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   ChevronDown,
@@ -253,45 +246,41 @@ export function DeptCalculationsView({
   const leadParentStageKey = leadParent
     ? resolveTkpHostStageOptionId(leadParent.entity, leadParent.record.values)
     : "";
-  const missingGipStages = useAsyncValue(
-    useCallback(async () => {
-      if (!leadParent) return "";
-      return (
-        await missingDeptCalculationGipStageIds({
-          entity,
-          entities,
-          parentEntity: leadParent.entity,
-          parentRecord: leadParent.record,
-          seedRecords: records,
-        })
-      ).join(",");
-    }, [entity, entities, leadParent, records]),
-  );
+  const missingGipStages = useAsyncValue(async () => {
+    if (!leadParent) return "";
+    return (
+      await missingDeptCalculationGipStageIds({
+        entity,
+        entities,
+        parentEntity: leadParent.entity,
+        parentRecord: leadParent.record,
+        seedRecords: records,
+      })
+    ).join(",");
+  }, [entity, entities, leadParent, records]);
   const missingGipStagesKey =
     missingGipStages.status === "ready" ? missingGipStages.value : "";
 
   // «Руководитель» per row resolves the lead «ГИП» asynchronously — precompute
   // a map so the render stays synchronous.
-  const managerNames = useAsyncValue(
-    useCallback(async () => {
-      const map = new Map<string, string | null>();
-      await Promise.all(
-        records.map(async (record) => {
-          map.set(
-            record.id,
-            await resolveDeptCalculationManagerName(
-              valueContext,
-              entity,
-              record,
-              entities,
-              leadParent,
-            ),
-          );
-        }),
-      );
-      return map;
-    }, [records, valueContext, entity, entities, leadParent]),
-  );
+  const managerNames = useAsyncValue(async () => {
+    const map = new Map<string, string | null>();
+    await Promise.all(
+      records.map(async (record) => {
+        map.set(
+          record.id,
+          await resolveDeptCalculationManagerName(
+            valueContext,
+            entity,
+            record,
+            entities,
+            leadParent,
+          ),
+        );
+      }),
+    );
+    return map;
+  }, [records, valueContext, entity, entities, leadParent]);
   const managerNameByRecordId =
     managerNames.status === "ready" ? managerNames.value : EMPTY_MANAGER_NAMES;
   const recordsRef = useRef(records);
@@ -602,7 +591,11 @@ export function DeptCalculationsView({
                     const contextSaved = hostFields.deadline
                       ? savedDeadline.length > 0
                       : !hostFields.description || savedDescription.length > 0;
-                    const lines = getDeptNestedLines(valueContext, record, nested);
+                    const lines = getDeptNestedLines(
+                      valueContext,
+                      record,
+                      nested,
+                    );
 
                     return (
                       <DepartmentBlock

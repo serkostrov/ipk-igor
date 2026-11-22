@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useEntityConfig } from "@/entities/entity";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
@@ -40,14 +40,12 @@ export function MessengerCreateDialog({
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const userOptions = useAsyncValue(
-    useCallback(() => {
-      const exclude = new Set(
-        sessionUser?.id ? [sessionUser.id] : ([] as string[]),
-      );
-      return listMessengerUserOptions(entities, exclude);
-    }, [entities, sessionUser]),
-  );
+  const userOptions = useAsyncValue(() => {
+    const exclude = new Set(
+      sessionUser?.id ? [sessionUser.id] : ([] as string[]),
+    );
+    return listMessengerUserOptions(entities, exclude);
+  }, [entities, sessionUser]);
   const options = useMemo(() => {
     const base =
       userOptions.status === "ready"

@@ -51,7 +51,12 @@ import {
 import { softFillEntityNameFromTemplate } from "./name-template";
 import { getEntityRecordsByRelation } from "./record-queries";
 import { fetchRecordsByIds } from "../api/entity-records-api";
-import { bumpRecordPrime } from "./record-prime-store";
+import {
+  addPrimedRecords,
+  bumpRecordPrime,
+  claimRecordIdsToFetch,
+  getPrimedRecords,
+} from "./record-prime-store";
 import {
   applyEntityScheduleFieldSync,
   getEntityScheduleFieldIds,
@@ -144,6 +149,14 @@ export function getEntityValueContext(
     for (const record of entity.records) {
       recordById.set(record.id, { entity, record });
       index.set(record.id, record);
+    }
+    // Overlay DB-primed records not held in the store, so a context rebuilt
+    // after a prior fill keeps those relation labels (store wins on conflict).
+    for (const record of getPrimedRecords(entity.id)) {
+      if (index.has(record.id)) continue;
+      list.push(record);
+      index.set(record.id, record);
+      recordById.set(record.id, { entity, record });
     }
     recordsByEntity.set(entity.id, list);
     recordIndexByEntity.set(entity.id, index);
@@ -252,20 +265,13 @@ export function primeContextRecords(
 }
 
 const primeInFlight = new WeakSet<EntityValueContext>();
-/**
- * Record ids already fetched (or attempted) across every context this session.
- * A referenced id that isn't in the DB (dangling reference to a deleted record)
- * would otherwise stay "missing" forever and be re-fetched by every new context
- * the store churns out during loading — a request storm. Claiming ids here before
- * fetching makes each id a one-shot: fetched at most once, never re-requested.
- */
-const attemptedRecordIds = new Set<string>();
 
 /**
  * Fetch relation targets referenced across the config that aren't in the local
- * store and prime them into `ctx`, so sync label resolvers find a name even for
- * records of growing relation targets. Each referenced id is fetched at most
- * once per session (see `attemptedRecordIds`).
+ * store and prime them, so sync label resolvers find a name even for records of
+ * growing relation targets. Each referenced id is fetched at most once per
+ * session, and fills land in the stable `record-prime-store` so a context
+ * rebuilt afterwards re-seeds them instead of re-fetching.
  */
 export async function primeMissingContextRecords(
   ctx: EntityValueContext,
@@ -274,30 +280,29 @@ export async function primeMissingContextRecords(
   if (primeInFlight.has(ctx)) return;
   primeInFlight.add(ctx);
   try {
-    // Phase 1 (sync): collect referenced ids absent from the context and not yet
-    // attempted, claiming them up front so concurrent contexts don't re-fetch.
+    // Phase 1 (sync): collect referenced ids absent from the context, claiming
+    // the not-yet-attempted ones up front so concurrent contexts don't re-fetch.
     const byEntity = new Map<string, string[]>();
     for (const entity of entities) {
       for (const { entityId, ids } of collectRelationLabelRefs(
         entity,
         entity.records,
       )) {
-        for (const id of ids) {
-          if (!id || attemptedRecordIds.has(id) || ctx.getRecord(entityId, id)) {
-            continue;
-          }
-          attemptedRecordIds.add(id);
-          const bucket = byEntity.get(entityId);
-          if (bucket) bucket.push(id);
-          else byEntity.set(entityId, [id]);
-        }
+        const missing = ids.filter((id) => id && !ctx.getRecord(entityId, id));
+        const toFetch = claimRecordIdsToFetch(missing);
+        if (toFetch.length === 0) continue;
+        const bucket = byEntity.get(entityId);
+        if (bucket) bucket.push(...toFetch);
+        else byEntity.set(entityId, toFetch);
       }
     }
     if (byEntity.size === 0) return;
-    // Phase 2 (async): fetch the claimed ids and prime them into the context.
+    // Phase 2 (async): fetch claimed ids, persist them to the stable store
+    // (survives ctx churn) and reflect them in the current context.
     let changed = false;
     for (const [entityId, ids] of byEntity) {
       const records = await fetchRecordsByIds(ids);
+      if (records.length > 0) addPrimedRecords(entityId, records);
       if (primeContextRecords(ctx, entityId, records)) changed = true;
     }
     if (changed) bumpRecordPrime();

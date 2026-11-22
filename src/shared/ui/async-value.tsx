@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Loader } from "@/shared/ui/loader";
 
@@ -16,7 +16,7 @@ type Props<T> = {
  * promise is pending, so churn degrades gracefully instead of hanging.
  */
 export function AsyncValue<T>({ promise, children }: Props<T>) {
-  const state = useAsyncValue(useCallback(() => promise, [promise]));
+  const state = useAsyncValue(() => promise, [promise]);
   if (state.status === "error") throw state.error;
   if (state.status === "loading") {
     return <Loader block label="Загрузка…" />;

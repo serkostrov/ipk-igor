@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type DependencyList } from "react";
 
 type Result<T> =
   | { status: "ready"; value: T }
   | { status: "error"; error: unknown };
+
+/** Stable loading sentinel — a fresh object each render would churn consumers. */
+const LOADING = { status: "loading" } as const;
 
 /** Structural equality for the common async result shapes (records, maps, arrays). */
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -54,15 +57,22 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Read the result of a memoized async computation for the current inputs.
+ * Read the result of a memoized async computation, re-running when `deps` change.
  *
- * Resilient to an unstable `read` (a new function identity every render): the
- * resolved value is compared structurally against the last one, so a read that
- * re-computes the *same* data never triggers a re-render — which would otherwise
- * re-fire the effect in an infinite loop and freeze the tab. The previous value
- * is kept while a new read is in flight (no flash to empty on reload).
+ * `deps` are an effect-style dependency array: the read re-runs only when they
+ * change, so `read` can be a fresh inline closure every render without needing
+ * `useCallback`. `react-hooks/exhaustive-deps` is configured with
+ * `additionalHooks: "useAsyncValue"`, so the deps array is lint-checked like an
+ * effect's.
+ *
+ * The resolved value is compared structurally against the last one, so a read
+ * that re-computes the *same* data never triggers a re-render. This is the guard
+ * against the store-write feedback loop: a resolve that would (directly or via a
+ * dependent effect) write the store and change `deps` must not re-fire the read
+ * for unchanged data, or the tab freezes. The previous value is also kept while
+ * a new read is in flight (no flash to empty on reload).
  */
-export function useAsyncValue<T>(read: () => Promise<T>) {
+export function useAsyncValue<T>(read: () => Promise<T>, deps: DependencyList) {
   const [completed, setCompleted] = useState<Result<T>>();
 
   useEffect(() => {
@@ -88,7 +98,9 @@ export function useAsyncValue<T>(read: () => Promise<T>) {
     return () => {
       active = false;
     };
-  }, [read]);
+    // `deps` is the caller's dependency array (validated via additionalHooks).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
 
-  return completed ?? { status: "loading" as const };
+  return completed ?? LOADING;
 }

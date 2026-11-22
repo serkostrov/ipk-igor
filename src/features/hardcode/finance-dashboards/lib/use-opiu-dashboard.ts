@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useEntityConfig, useEntityValueContext } from "@/entities/entity";
 import { adaptOpiuSourcesFromEntities } from "../../opiu/model/adapt-sources";
@@ -49,71 +48,66 @@ export function useOpiuDashboard(input: {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
 
-  const value = useAsyncValue(
-    useCallback(async () => {
-      const months = input.enabled
-        ? buildProfitLossPeriodMonths(input.dateFrom, input.dateTo)
-        : [];
-      const adapted = await adaptOpiuSourcesFromEntities(
-        valueContext,
-        entities,
-      );
-      const report = buildProfitLossReport({
-        months,
-        acts: adapted.acts,
-        entries: adapted.entries,
-        categories: adapted.categories,
-      });
+  const value = useAsyncValue(async () => {
+    const months = input.enabled
+      ? buildProfitLossPeriodMonths(input.dateFrom, input.dateTo)
+      : [];
+    const adapted = await adaptOpiuSourcesFromEntities(valueContext, entities);
+    const report = buildProfitLossReport({
+      months,
+      acts: adapted.acts,
+      entries: adapted.entries,
+      categories: adapted.categories,
+    });
 
-      const rowTotal = (key: string) => {
-        const row = getProfitLossRow(report, key);
-        return row ? (row.total ?? sumProfitLossValues(row.values)) : 0;
-      };
+    const rowTotal = (key: string) => {
+      const row = getProfitLossRow(report, key);
+      return row ? (row.total ?? sumProfitLossValues(row.values)) : 0;
+    };
 
-      const expenseBlocks: OpiuExpenseBlock[] = EXPENSE_BLOCKS.map((block) => {
-        const amount = rowTotal(block.key);
-        return {
-          key: block.key,
-          title: block.title,
-          color: block.color,
-          amount,
-          revenuePercent: profitLossPercentValue(amount, report.revenueTotal),
-          totalExpensePercent: profitLossPercentValue(
-            amount,
-            report.totalExpenses,
-          ),
-          details: block.detailKeys
-            .map((key) => {
-              const row = getProfitLossRow(report, key);
-              const value = row
-                ? (row.total ?? sumProfitLossValues(row.values))
-                : 0;
-              return {
-                key,
-                label: row?.label ?? key,
-                amount: value,
-                revenuePercent: profitLossPercentValue(
-                  value,
-                  report.revenueTotal,
-                ),
-              };
-            })
-            .filter((item) => item.amount !== 0)
-            .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)),
-        };
-      }).filter((block) => block.amount !== 0);
-
+    const expenseBlocks: OpiuExpenseBlock[] = EXPENSE_BLOCKS.map((block) => {
+      const amount = rowTotal(block.key);
       return {
-        report,
-        monthly: buildOpiuMonthlyChartData(report, months),
-        profitComparison: buildOpiuProfitComparisonData(report, months),
-        expenseBlocks,
-        hasActsEntity: adapted.sources.acts != null,
-        hasDdsEntity: adapted.sources.dds != null,
-        hasArticlesEntity: adapted.sources.articles != null,
+        key: block.key,
+        title: block.title,
+        color: block.color,
+        amount,
+        revenuePercent: profitLossPercentValue(amount, report.revenueTotal),
+        totalExpensePercent: profitLossPercentValue(
+          amount,
+          report.totalExpenses,
+        ),
+        details: block.detailKeys
+          .map((key) => {
+            const row = getProfitLossRow(report, key);
+            const value = row
+              ? (row.total ?? sumProfitLossValues(row.values))
+              : 0;
+            return {
+              key,
+              label: row?.label ?? key,
+              amount: value,
+              revenuePercent: profitLossPercentValue(
+                value,
+                report.revenueTotal,
+              ),
+            };
+          })
+          .filter((item) => item.amount !== 0)
+          .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)),
       };
-    }, [entities, valueContext, input.dateFrom, input.dateTo, input.enabled]),
-  );
+    }).filter((block) => block.amount !== 0);
+
+    return {
+      report,
+      monthly: buildOpiuMonthlyChartData(report, months),
+      profitComparison: buildOpiuProfitComparisonData(report, months),
+      expenseBlocks,
+      hasActsEntity: adapted.sources.acts != null,
+      hasDdsEntity: adapted.sources.dds != null,
+      hasArticlesEntity: adapted.sources.articles != null,
+    };
+  }, [entities, valueContext, input.dateFrom, input.dateTo, input.enabled]);
   if (value.status === "error") throw value.error;
   return value.status === "ready"
     ? value.value

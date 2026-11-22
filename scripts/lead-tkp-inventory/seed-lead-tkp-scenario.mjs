@@ -309,16 +309,10 @@ async function ensureCommercialGroups(token) {
     }
   }
 
-  const usersEnt = await api(
-    token,
-    `entities?id=eq.${USERS}&select=definition`,
-  );
+  const usersEnt = await api(token, `entities?id=eq.${USERS}&select=definition`);
   const userDef = usersEnt[0].definition;
   const roleField = userDef.fields.find((field) => field.id === USER_ROLE);
-  if (
-    roleField &&
-    !(roleField.listOptions || []).some((option) => option.id === ROLE_GD)
-  ) {
+  if (roleField && !(roleField.listOptions || []).some((option) => option.id === ROLE_GD)) {
     roleField.listOptions = [
       ...(roleField.listOptions || []),
       {
@@ -339,8 +333,7 @@ async function ensureCommercialGroups(token) {
   const value = docs[0]?.value || { roles: [] };
   const roles = Array.isArray(value.roles) ? [...value.roles] : [];
   if (!roles.some((role) => role.id === ROLE_GD)) {
-    const employee =
-      roles.find((role) => role.id === "role-system-employee") || {};
+    const employee = roles.find((role) => role.id === "role-system-employee") || {};
     roles.push({
       ...employee,
       id: ROLE_GD,
@@ -930,16 +923,8 @@ async function main() {
           ],
           {
             ...emptyAccess(),
-            visibleFieldIds: [
-              F.leadGip,
-              NEW.leadGipComment,
-              NEW.leadGipAssignDate,
-            ],
-            requiredFieldIds: [
-              F.leadGip,
-              NEW.leadGipComment,
-              NEW.leadGipAssignDate,
-            ],
+            visibleFieldIds: [F.leadGip, NEW.leadGipComment, NEW.leadGipAssignDate],
+            requiredFieldIds: [F.leadGip, NEW.leadGipComment, NEW.leadGipAssignDate],
           },
         ),
         outcome(
@@ -1478,7 +1463,8 @@ async function main() {
         fieldId: F.leadGip,
       },
       conditions: emptyCond,
-      message_template: "Отдел завершил расчёт по «{{name}}» — {{outcome}}",
+      message_template:
+        "Отдел завершил расчёт по «{{name}}» — {{outcome}}",
     },
   ];
   for (const rule of notifRules) {

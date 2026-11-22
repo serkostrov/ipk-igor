@@ -17,6 +17,7 @@ import {
   isEntityNameField,
   RecordChangeList,
   resolveRelationRecordLabel,
+  useEnsureRecordsByIds,
   useEntityConfig,
   useEntityValueContext,
   type Entity,
@@ -57,6 +58,8 @@ export function RecordHistoryTable({
   const valueContext = useEntityValueContext();
   const { events, hasMore, status, error, loadingMore, loadMore } =
     useEntityRecordEvents(query);
+  // By-id load for records referenced by the visible events (any entity).
+  useEnsureRecordsByIds(events.map((event) => event.recordId));
   return (
     <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs">
       <Table className="table-fixed text-[13px]">

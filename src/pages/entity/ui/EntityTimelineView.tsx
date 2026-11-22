@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChartGantt, ChevronDown, ChevronRight } from "lucide-react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
@@ -268,13 +261,11 @@ export function EntityTimelineView({
   ]);
 
   const groupsValue = useAsyncValue(
-    useCallback(
-      () =>
-        setup
-          ? buildTimelineGroups(valueContext, entity, setup, filteredRecords)
-          : Promise.resolve<TimelineGroup[]>([]),
-      [entity, filteredRecords, setup, valueContext],
-    ),
+    () =>
+      setup
+        ? buildTimelineGroups(valueContext, entity, setup, filteredRecords)
+        : Promise.resolve<TimelineGroup[]>([]),
+    [entity, filteredRecords, setup, valueContext],
   );
   const groups =
     groupsValue.status === "ready" ? groupsValue.value : EMPTY_TIMELINE_GROUPS;

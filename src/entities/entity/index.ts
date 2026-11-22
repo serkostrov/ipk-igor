@@ -455,6 +455,8 @@ export {
   usePrefetchEntitySchemaVersions,
   useRunningTimer,
 } from "./hooks/use-entity";
+export { usePageRecordScope } from "./hooks/use-page-record-scope";
+export { useEnsureRecordsByIds } from "./hooks/use-ensure-records";
 export {
   canStartEntityTimer,
   findRunningTimer,
@@ -679,6 +681,8 @@ export {
   createEntityRecordId,
   waitForEntityRecordInsert,
   waitForEntityRecordDelete,
+  ensureEntityRecords,
+  getEntityRecordsLoadStatus,
   appendEntityRecord,
   addEntityTab,
   addEntityMirrorTab,
@@ -769,6 +773,7 @@ export {
   getEntityRecordsByRelation,
   getEntityRecordsByFirstListOption,
 } from "./model/record-queries";
+export { resolveEntityRecordClosure } from "./model/record-closure";
 export {
   useTkpGipExtrasResolver,
   useTkpGipLeadContext,

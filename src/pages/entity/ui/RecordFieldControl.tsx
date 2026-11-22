@@ -5,7 +5,7 @@ import { Label } from "@/shared/ui/label";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   createEntityDraftRecord,
@@ -180,7 +180,8 @@ function TkpRelationGroupsControl({
 }) {
   // Live host values come from the store asynchronously; form draft overlays them.
   const storeHostRecord = useAsyncValue(
-    useCallback(() => getEntityRecordById(entity, recordId), [entity, recordId]),
+    () => getEntityRecordById(entity, recordId),
+    [entity, recordId],
   );
   const storeHostValues =
     storeHostRecord.status === "ready"
@@ -202,10 +203,8 @@ function TkpRelationGroupsControl({
     leadParent,
   });
   const gipDepartmentId = useAsyncValue(
-    useCallback(
-      () => resolveTkpGipDepartmentRecordId(entity, entities),
-      [entity, entities],
-    ),
+    () => resolveTkpGipDepartmentRecordId(entity, entities),
+    [entity, entities],
   );
   const hiddenNestedRecordIds = useMemo(() => {
     const gipId =
@@ -367,7 +366,11 @@ export function RecordFieldControl({
           ctx={ctx}
           entity={entity}
           field={{ ...dateManualEditField, hint: "" }}
-          value={isoDateValue && dateManualEditField.type === "datetime" ? isoDateValue : value}
+          value={
+            isoDateValue && dateManualEditField.type === "datetime"
+              ? isoDateValue
+              : value
+          }
           values={values}
           onChange={onChange}
           entities={entities}
@@ -653,9 +656,7 @@ export function RecordFieldControl({
     const withTime = field.datetimeWithTime !== false;
     const schedule = resolveEntityScheduleFields(entity);
     const isScheduleEnd = schedule?.endField.id === field.id;
-    const scheduleCaption = isScheduleEnd
-      ? "связан с длительностью"
-      : null;
+    const scheduleCaption = isScheduleEnd ? "связан с длительностью" : null;
 
     return (
       <div className="flex flex-col gap-2">

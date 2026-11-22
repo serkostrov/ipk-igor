@@ -23,14 +23,11 @@ const h = {
   "Content-Type": "application/json",
 };
 
-const r2 = await fetch(
-  `${SUPABASE_URL}/rest/v1/rpc/automation_render_template`,
-  {
-    method: "POST",
-    headers: h,
-    body: JSON.stringify({ p_template: "ok", p_values: {} }),
-  },
-);
+const r2 = await fetch(`${SUPABASE_URL}/rest/v1/rpc/automation_render_template`, {
+  method: "POST",
+  headers: h,
+  body: JSON.stringify({ p_template: "ok", p_values: {} }),
+});
 const t2 = await r2.text();
 if (r2.status === 200) {
   console.log("OK: overload fixed — spawn can create task names");

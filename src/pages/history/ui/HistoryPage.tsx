@@ -20,6 +20,7 @@ import {
   parseEntityRelationIds,
   useEntityConfig,
   useEntityValueContext,
+  usePageRecordScope,
 } from "@/entities/entity";
 import { RecordHistoryTable } from "./RecordHistoryTable";
 import { EntityHistoryTable } from "./EntityHistoryTable";
@@ -90,6 +91,9 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
       : undefined
     )?.authUserId ?? undefined;
   const entity = entities.find((item) => item.id === entityId);
+  // Load records for the filtered entity (+ Users for actor names). Events
+  // referencing other entities fall back to id-priming via the value context.
+  usePageRecordScope([entityId, users?.id ?? ""]);
   const query = { from, to, actorId, entityId: entityId || undefined };
   const hasFilters = Boolean(userRecordId || entityId || recordId);
 
