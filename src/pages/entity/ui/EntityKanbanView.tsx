@@ -39,6 +39,7 @@ import {
   recordMatchesSearch,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
+import { useKanbanColumnSummary } from "./use-kanban-column-summary";
 import { useRecordListChange } from "./use-record-list-change";
 import { useRecordTimers, type RecordTimers } from "./use-record-timers";
 import { TimerElapsed } from "./RecordTimer";
@@ -366,6 +367,7 @@ function KanbanCard({
 function KanbanColumn({
   ctx,
   column,
+  groupFieldId,
   records,
   entity,
   previewFields,
@@ -383,6 +385,7 @@ function KanbanColumn({
 }: {
   ctx: EntityValueContext;
   column: EntityKanbanColumn;
+  groupFieldId: string;
   records: EntityRecord[];
   entity: Entity;
   previewFields: EntityField[];
@@ -399,6 +402,13 @@ function KanbanColumn({
   onDragLeave: () => void;
   onDrop: (event: DragEvent) => void;
 }) {
+  const summary = useKanbanColumnSummary(
+    ctx,
+    entity,
+    groupFieldId,
+    column.id,
+    records,
+  );
   const color = column.color;
   const columnStyle = color
     ? {
@@ -440,7 +450,7 @@ function KanbanColumn({
             color ? "text-foreground/70" : "text-muted-foreground",
           )}
         >
-          {records.length}
+          {summary}
         </span>
       </header>
 
@@ -567,7 +577,7 @@ export function EntityKanbanView({
     });
   }
 
-  if (groupFields.length === 0) {
+  if (!groupField) {
     return (
       <EmptyState
         icon={<Columns3 className="size-5" aria-hidden />}
@@ -598,6 +608,7 @@ export function EntityKanbanView({
             key={column.id}
             timers={timers}
             column={column}
+            groupFieldId={groupField.id}
             records={recordsByColumn.get(column.id) ?? []}
             entity={entity}
             previewFields={previewFields}
