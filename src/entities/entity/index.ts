@@ -774,3 +774,4 @@ export {
   useTkpGipLeadContext,
   type TkpGipLeadContext,
 } from "./lib/use-tkp-gip-extras";
+export { parseEntityStructureRow } from "./api/entity-config-api";

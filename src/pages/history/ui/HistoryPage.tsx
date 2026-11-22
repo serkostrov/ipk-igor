@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { DatePicker } from "@/shared/ui/date-picker";
@@ -9,64 +10,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/shared/ui/table";
 import { addCalendarDays, todayIsoDate } from "@/shared/lib/business-days";
-import { formatTimestampDisplay } from "@/shared/lib/format-date";
 import {
   getRelationRecordOptions,
-  getSystemUserNameByAuthId,
+  getEntityDisplayName,
   getSystemUsersEntity,
-  isEntityNameField,
-  RecordChangeList,
   RelationSelect,
-  resolveRelationRecordLabel,
   serializeEntityRelationIds,
   parseEntityRelationIds,
   useEntityConfig,
   useEntityValueContext,
-  type Entity,
-  type EntityValueContext,
 } from "@/entities/entity";
-import {
-  useEntityRecordEvents,
-  type EntityRecordEvent,
-} from "@/entities/history";
+import { RecordHistoryTable } from "./RecordHistoryTable";
+import { EntityHistoryTable } from "./EntityHistoryTable";
 
 const ALL = "__all__";
-
-const headClass =
-  "h-9 border-b border-border bg-foreground/[0.045] px-3 text-[11px] font-semibold tracking-wide text-foreground/65 uppercase";
-
-function entityLabel(entity: Entity) {
-  return entity.namePlural.trim() || entity.name.trim() || "Без названия";
-}
-
-/** Current title, or the stored name for deleted records. */
-function recordTitle(
-  ctx: EntityValueContext,
-  entity: Entity | undefined,
-  event: EntityRecordEvent,
-) {
-  const exists = entity
-    ? Boolean(ctx.getRecord(entity.id, event.recordId))
-    : false;
-  if (entity && exists) {
-    return (
-      resolveRelationRecordLabel(entity, event.recordId, undefined, ctx) ??
-      "Без названия"
-    );
-  }
-  const nameField = entity?.fields.find((field) => isEntityNameField(field));
-  const change = nameField ? event.changes[nameField.id] : undefined;
-  return change?.old?.trim() || change?.new?.trim() || "Удалённая запись";
-}
 
 function FilterSelect({
   label,
@@ -120,6 +78,7 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
   const [to, setTo] = useState(today);
   const [userRecordId, setUserRecordId] = useState("");
   const [entityId, setEntityId] = useState("");
+  const [kind, setKind] = useState<"record" | "entity">("record");
   const [recordId, setRecordId] = useState("");
 
   const users = getSystemUsersEntity(entities);
@@ -128,30 +87,37 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
       ? valueContext
           .getRecords(users.id)
           .find((record) => record.id === userRecordId)
-      : undefined)?.authUserId ?? undefined;
+      : undefined
+    )?.authUserId ?? undefined;
   const entity = entities.find((item) => item.id === entityId);
-  const { events, hasMore, status, error, loadingMore, loadMore } =
-    useEntityRecordEvents({
-      from,
-      to,
-      actorId,
-      entityId: entityId || undefined,
-      recordId: recordId || undefined,
-    });
+  const query = { from, to, actorId, entityId: entityId || undefined };
   const hasFilters = Boolean(userRecordId || entityId || recordId);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-8">
+    <Tabs
+      value={kind}
+      onValueChange={(next) => {
+        if (next === "entity" || next === "record") {
+          setKind(next);
+          setRecordId("");
+        }
+      }}
+      className="min-h-0 flex-1 gap-3 overflow-hidden p-8"
+    >
       <div className="flex shrink-0 flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">
           История изменений
         </h1>
         <p className="text-sm text-muted-foreground">
-          Кто, когда и что поменял в записях.
+          Кто, когда и что поменял в записях и сущностях.
         </p>
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <TabsList aria-label="История изменений">
+          <TabsTrigger value="record">Записи</TabsTrigger>
+          <TabsTrigger value="entity">Сущности</TabsTrigger>
+        </TabsList>
         <div className="flex items-center gap-1.5">
           <DatePicker
             value={from}
@@ -181,14 +147,14 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
           label="Сущность"
           value={entityId}
           options={entities
-            .map((item) => ({ id: item.id, label: entityLabel(item) }))
+            .map((item) => ({ id: item.id, label: getEntityDisplayName(item) }))
             .sort((a, b) => a.label.localeCompare(b.label, "ru"))}
           onChange={(next) => {
             setEntityId(next);
             setRecordId("");
           }}
         />
-        {entity ? (
+        {entity && kind === "record" ? (
           <RelationSelect
             options={getRelationRecordOptions(entity)}
             value={recordId ? serializeEntityRelationIds([recordId]) : ""}
@@ -218,136 +184,16 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs">
-        <Table className="table-fixed text-[13px]">
-          <colgroup>
-            <col className="w-36" />
-            <col className="w-44" />
-            <col className="w-40" />
-            <col className="w-56" />
-            <col />
-          </colgroup>
-          <TableHeader className="sticky top-0 z-10">
-            <TableRow className="border-0 hover:bg-transparent">
-              <TableHead className={headClass}>Дата и время</TableHead>
-              <TableHead className={headClass}>Пользователь</TableHead>
-              <TableHead className={headClass}>Сущность</TableHead>
-              <TableHead className={headClass}>Запись</TableHead>
-              <TableHead className={headClass}>Изменения</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {status === "loading" ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell
-                  colSpan={5}
-                  className="py-10 text-center text-muted-foreground"
-                >
-                  Загрузка…
-                </TableCell>
-              </TableRow>
-            ) : status === "error" ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell
-                  colSpan={5}
-                  className="py-10 text-center text-destructive"
-                >
-                  Не удалось загрузить историю: {error}
-                </TableCell>
-              </TableRow>
-            ) : events.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell
-                  colSpan={5}
-                  className="py-10 text-center text-muted-foreground"
-                >
-                  Изменений за период нет
-                </TableCell>
-              </TableRow>
-            ) : (
-              events.map((event) => {
-                const eventEntity = entities.find(
-                  (item) => item.id === event.entityId,
-                );
-                const exists = eventEntity
-                  ? Boolean(
-                      valueContext.getRecord(eventEntity.id, event.recordId),
-                    )
-                  : false;
-                const title = recordTitle(valueContext, eventEntity, event);
-                return (
-                  <TableRow
-                    key={event.id}
-                    className="border-border/60 align-top"
-                  >
-                    <TableCell className="px-3 py-2 text-muted-foreground tabular-nums">
-                      {formatTimestampDisplay(event.createdAt)}
-                    </TableCell>
-                    <TableCell className="truncate px-3 py-2">
-                      {getSystemUserNameByAuthId(entities, event.actorId) ??
-                        (event.actorId ? "Пользователь" : "Система")}
-                    </TableCell>
-                    <TableCell className="truncate px-3 py-2 text-muted-foreground">
-                      {eventEntity ? entityLabel(eventEntity) : "—"}
-                    </TableCell>
-                    <TableCell className="px-3 py-2">
-                      {exists && eventEntity ? (
-                        <button
-                          type="button"
-                          className="max-w-full truncate text-left font-medium text-primary underline-offset-2 hover:underline"
-                          title={title}
-                          onClick={() =>
-                            onOpenRecord?.(eventEntity.id, event.recordId)
-                          }
-                        >
-                          {title}
-                        </button>
-                      ) : (
-                        <span
-                          className="block truncate text-muted-foreground"
-                          title={title}
-                        >
-                          {title}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="px-3 py-2 whitespace-normal">
-                      {event.action === "update" && eventEntity ? (
-                        <RecordChangeList
-                          ctx={valueContext}
-                          entity={eventEntity}
-                          changes={event.changes}
-                        />
-                      ) : (
-                        <span className="text-muted-foreground">
-                          {event.action === "insert"
-                            ? "Создание записи"
-                            : event.action === "delete"
-                              ? "Удаление записи"
-                              : "Изменение"}
-                        </span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-        {hasMore ? (
-          <div className="flex justify-center border-t border-border p-3">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={loadingMore}
-              onClick={loadMore}
-            >
-              {loadingMore ? "Загрузка…" : "Показать ещё"}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-    </div>
+      <TabsContent key={kind} value={kind} className="flex min-h-0 flex-col">
+        {kind === "record" ? (
+          <RecordHistoryTable
+            query={{ ...query, recordId: recordId || undefined }}
+            onOpenRecord={onOpenRecord}
+          />
+        ) : (
+          <EntityHistoryTable query={query} />
+        )}
+      </TabsContent>
+    </Tabs>
   );
 }
