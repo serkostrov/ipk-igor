@@ -2171,8 +2171,8 @@ export function RecordEntityTabPanel({
       ? editableDeptRecordIdsValue.value
       : null;
 
-  /** Hardcode: GIP cost summary lives at the end of «Расчёты отделов» on TKP. */
-  const tkpGipFooter =
+  /** Hardcode: GIP cost summary above the departments table on TKP. */
+  const tkpGipSummary =
     isDeptCalculationsEntity(linkedEntity) &&
     hostEntity &&
     parentRecord &&
@@ -2233,13 +2233,14 @@ export function RecordEntityTabPanel({
                   : "Добавьте первую запись, чтобы она появилась здесь."}
             </p>
           </div>
-          {tkpGipFooter ? (
-            <div className="px-3 pb-3">{tkpGipFooter}</div>
+          {tkpGipSummary ? (
+            <div className="px-3 pb-3">{tkpGipSummary}</div>
           ) : null}
         </div>
       ) : recordsDisplay === "table" && !singleRecord ? (
         isDeptCalculationsEntity(linkedEntity) ? (
           <div className="flex min-h-0 flex-1 flex-col gap-4 p-3 pt-0">
+            {tkpGipSummary}
             <DeptCalculationsView
               entity={linkedEntity}
               records={records}
@@ -2249,7 +2250,6 @@ export function RecordEntityTabPanel({
                 readOnly ? undefined : (record) => setDialogRecord(record)
               }
             />
-            {tkpGipFooter}
           </div>
         ) : (
           <RecordsTable

@@ -42,6 +42,7 @@ import { resolveAskRelatedTarget } from "./ask-related";
 import { resolveAutomationGateError } from "./blocking-error";
 import { executeAutomationActions } from "./execute-actions";
 import {
+  assigneeDefersProcessStage,
   getOutcomeStageOptionId,
   isAffirmativeDecisionOutcome,
   nextProcessStageOptionId,
@@ -525,10 +526,14 @@ async function validateRelatedRequiredFields(
       );
       const relatedRecord = byId.get(relatedRecordId);
       const draft = values[key];
+      const live = relatedRecord?.values[ask.fieldId] ?? "";
+      // «Расчёты отделов»: срок и описание пишутся таблицей, а черновик
+      // формы фиксируется в момент выбора исхода и остаётся пустым.
       const raw =
-        draft !== undefined
-          ? draft
-          : (relatedRecord?.values[ask.fieldId] ?? "");
+        isDeptCalculationsEntity(resolved!.relatedEntity) &&
+        (draft === undefined || draft.trim() === "")
+          ? live
+          : (draft ?? live);
       if (field.type === "boolean") continue;
       if (field.type === "relationGroups") {
         if (
@@ -627,6 +632,8 @@ export async function completeAutomationTask(
     values: valuesForForm,
     triggerOptionId: task.triggerOptionId,
     taskName: task.name,
+    outcomeLabel: outcome.label,
+    assigneeUserId: task.assigneeUserId,
   });
 
   // Required fields from outcome form + optional requireFields action.
@@ -940,6 +947,8 @@ export async function completeAutomationTask(
     launchPhase === "onEnter" &&
     task.config.kind === "decision" &&
     !hasExplicitStage &&
+    !rpcResult.waitingForAssignees &&
+    !assigneeDefersProcessStage(task.config.assignee) &&
     isAffirmativeDecisionOutcome(outcome)
   ) {
     const stageField = entity.fields.find((item) => item.id === triggerFieldId);
@@ -971,7 +980,8 @@ export async function completeAutomationTask(
 
   // Silent «actions» steps (stage advance after all dept tasks) must run even
   // when the task was closed from the inbox, not only from the fill dialog.
-  if (!flushingSilentTasks) {
+  // While siblings are still open, the next step is not released yet.
+  if (!flushingSilentTasks && !rpcResult.waitingForAssignees) {
     flushingSilentTasks = true;
     try {
       await completePendingSilentAutomationTasksForRecord(

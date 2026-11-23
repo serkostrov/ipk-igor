@@ -104,6 +104,7 @@ import {
   maybeEnsureDeptCalculationGipForTask,
   readTkpGipExecutionDurationDays,
   TkpGipExecutionDurationAsk,
+  TkpReviewHardcodeSlot,
 } from "@/features/hardcode";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
@@ -634,9 +635,14 @@ function TaskWorkspaceBody({
   /**
    * «Заполнить» only when the slot has real content (editable ask or view
    * fields). View tabs alone must not create an empty fill tab.
+   * GIP duration is hardcode, not a template field — still part of the form.
    */
   const showFillTab =
-    fields.length > 0 || hasRelatedAsk || hasCreateAsk || hasViewContext;
+    fields.length > 0 ||
+    hasRelatedAsk ||
+    hasCreateAsk ||
+    hasViewContext ||
+    showPinnedGipDuration;
   const missingLocalRequiredCount = [...requiredIds].filter((fieldId) => {
     const field = entity?.fields.find((item) => item.id === fieldId);
     if (!field) return false;
@@ -1238,6 +1244,16 @@ function TaskWorkspaceBody({
                       );
                     })}
                   </div>
+                ) : null}
+
+                {isGipFillTask && entity && record && !hasRelatedAsk ? (
+                  <TkpReviewHardcodeSlot
+                    entity={entity}
+                    record={buildTkpGipSoftFillParentRecord(record, values)}
+                    readOnly={busy}
+                    sections={["gip"]}
+                    hideExecutionDuration
+                  />
                 ) : null}
 
                 {showPinnedGipDuration && entity && record && !hasRelatedAsk ? (

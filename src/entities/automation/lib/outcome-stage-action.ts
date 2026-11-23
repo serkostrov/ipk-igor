@@ -3,6 +3,10 @@ import {
   createAutomationActionId,
   type AutomationAction,
 } from "../model/actions";
+import type {
+  AutomationAssigneeLeafResolver,
+  AutomationAssigneeResolver,
+} from "../model/assignee";
 import type { AutomationOutcome } from "../model/types";
 
 /**
@@ -57,6 +61,39 @@ export function isAffirmativeDecisionOutcome(
     return false;
   }
   return false;
+}
+
+function leafDefersProcessStage(
+  resolver: AutomationAssigneeLeafResolver,
+): boolean {
+  if (resolver.type === "relatedField" && resolver.fanOut === true) {
+    return (resolver.completeWhen ?? "all") === "all";
+  }
+  if (resolver.type === "relationFieldFanOut") {
+    return (resolver.completeWhen ?? "all") === "all";
+  }
+  if (resolver.type === "fixedUsers" || resolver.type === "role") {
+    return resolver.completeWhen === "all";
+  }
+  return false;
+}
+
+/**
+ * Parallel assignees who must all finish. The next template on this stage
+ * (or SQL `completeWhen`) owns the stage move — a green button without
+ * «Перейти на стадию» must not jump the record on its own.
+ */
+export function assigneeDefersProcessStage(
+  assignee: AutomationAssigneeResolver,
+): boolean {
+  if (assignee.type === "conditional") {
+    return (
+      assignee.branches.some((branch) =>
+        leafDefersProcessStage(branch.resolver),
+      ) || leafDefersProcessStage(assignee.elseResolver)
+    );
+  }
+  return leafDefersProcessStage(assignee);
 }
 
 /** Next visible process-stage option after `currentOptionId`, or null. */

@@ -3,19 +3,20 @@
  */
 
 import {
+  formatEntityListFieldValue,
   getRecordFieldNumber,
   parseEntityTableParentGroupIds,
   resolveEntityTableHierarchyGroupRecord,
   resolveEntityTableParentField,
   resolveRelationRecordLabel,
   type Entity,
+  type EntityField,
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
 import {
   getDeptNestedLines,
   resolveDeptCalcTypeLabelForRecord,
-  resolveDeptLineCost,
   resolveDeptLineHoursOrSum,
   resolveDeptLineTitle,
 } from "../../dept-calculations/model/aggregation";
@@ -30,7 +31,31 @@ import type {
   ReviewCostBreakdownLine,
   ReviewLineCalculationType,
 } from "./gip-cost";
-import { normalizeReviewExpenseCategory } from "./expense-category";
+import { reviewExpenseCategoryFromLabel } from "./expense-category";
+
+function listLabel(
+  field: EntityField | null,
+  record: EntityRecord,
+  entities: readonly Entity[],
+): string {
+  if (!field || field.type !== "list") return "";
+  const formatted = formatEntityListFieldValue(
+    field,
+    record.values[field.id],
+    entities,
+  ).trim();
+  return formatted === "—" ? "" : formatted;
+}
+
+function lineNumber(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField | null,
+): number | null {
+  if (!field) return null;
+  return getRecordFieldNumber(ctx, entity, record, field);
+}
 
 function resolveStageLabel(
   entity: Entity,
@@ -115,13 +140,8 @@ export function adaptDeptRecordsToGipDepartments(options: {
           entities,
           lineFields,
         );
-        const cost = resolveDeptLineCost(
-          ctx,
-          nested.entity,
-          line,
-          lineFields,
-          hoursOrSum.isHours,
-        );
+        // Base «Стоимость». Tax and coefficient are applied once in the GIP formula.
+        const baseCost = lineNumber(ctx, nested.entity, line, lineFields.cost);
         const title = resolveDeptLineTitle(
           ctx,
           nested.entity,
@@ -129,6 +149,7 @@ export function adaptDeptRecordsToGipDepartments(options: {
           lineFields,
         );
         const amount = hoursOrSum.value;
+        const categoryLabel = listLabel(lineFields.category, line, entities);
         breakdownLines.push({
           id: line.id,
           title,
@@ -137,13 +158,23 @@ export function adaptDeptRecordsToGipDepartments(options: {
           project_stage_name: projectStageName,
           calculation_type: calculationType,
           planned_hours: calculationType === "hours" ? (amount ?? 0) : 0,
-          cost:
-            calculationType === "hours" ? (cost ?? 0) : (cost ?? amount ?? 0),
-          // Already includes template coefficient when «Сумма с коэффициентом».
+          cost: baseCost ?? (calculationType === "hours" ? 0 : (amount ?? 0)),
           expense_category_snapshot:
-            calculationType === "amount"
-              ? normalizeReviewExpenseCategory("other_without_coefficient")
-              : null,
+            reviewExpenseCategoryFromLabel(categoryLabel),
+          tax_status_snapshot:
+            listLabel(lineFields.taxStatus, line, entities) || null,
+          tax_rate_snapshot: lineNumber(
+            ctx,
+            nested.entity,
+            line,
+            lineFields.tax,
+          ),
+          coefficient_snapshot: lineNumber(
+            ctx,
+            nested.entity,
+            line,
+            lineFields.coefficient,
+          ),
         });
       }
     }

@@ -39,12 +39,11 @@ import {
   formatEntityDecimalTotal,
   formatRecordFieldValue,
   getEntityConfig,
-  getEntityListOption,
+  getEntityFieldDisplayName,
   getEntityRecordById,
   getRecordFieldNumber,
+  parseEntityRelationIds,
   removeEntityRecord,
-  resolveEntityListFieldOptions,
-  resolveEntityListFieldPresentation,
   resolveTkpHostStageOptionId,
   serializeEntityRelationIds,
   updateEntityRecord,
@@ -61,7 +60,6 @@ import {
   formatDeptHours,
   formatDeptMoney,
   getDeptNestedLines,
-  resolveDeptCalcTypeLabelForRecord,
   resolveDeptLineCost,
   resolveDeptLineHoursOrSum,
   resolveDeptLineTitle,
@@ -93,6 +91,37 @@ const cellClass = "px-3 py-2.5 align-middle";
 
 /** Stable loading fallback for the async manager-name map. */
 const EMPTY_MANAGER_NAMES: ReadonlyMap<string, string | null> = new Map();
+
+function isDepartmentRelationName(name: string): boolean {
+  const normalized = name.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
+  return normalized === "отдел" || normalized.startsWith("отдел ");
+}
+
+/** Prefill line «Отдел» from the host calc row so template filter matches ТЗ. */
+function departmentPresetForLine(
+  host: Entity,
+  hostRecord: EntityRecord,
+  line: Entity,
+): Record<string, string> {
+  const hostField = host.fields.find(
+    (field) =>
+      (field.type === "relation" || field.type === "belonging") &&
+      isDepartmentRelationName(getEntityFieldDisplayName(field)),
+  );
+  const lineField = line.fields.find(
+    (field) =>
+      (field.type === "relation" || field.type === "belonging") &&
+      isDepartmentRelationName(getEntityFieldDisplayName(field)),
+  );
+  if (!hostField || !lineField) return {};
+  const departmentId = parseEntityRelationIds(
+    hostRecord.values[hostField.id],
+  )[0];
+  if (!departmentId) return {};
+  return {
+    [lineField.id]: serializeEntityRelationIds([departmentId]),
+  };
+}
 
 type DeptCalculationsViewProps = {
   entity: Entity;
@@ -703,10 +732,24 @@ export function DeptCalculationsView({
           entity={nested.entity}
           record={lineDialog.mode === "edit" ? lineDialog.record : null}
           entities={entities}
+          softFillParent={(() => {
+            const hostRecord = records.find(
+              (item) => item.id === lineDialog.hostId,
+            );
+            return hostRecord ? { entity, record: hostRecord } : null;
+          })()}
           presetValues={{
             [nested.parentLinkFieldId]: serializeEntityRelationIds([
               lineDialog.hostId,
             ]),
+            ...(() => {
+              const hostRecord = records.find(
+                (item) => item.id === lineDialog.hostId,
+              );
+              return hostRecord
+                ? departmentPresetForLine(entity, hostRecord, nested.entity)
+                : {};
+            })(),
           }}
           hiddenFieldIds={new Set([nested.parentLinkFieldId])}
           titleOverride={
@@ -1247,17 +1290,15 @@ function DepartmentBlock({
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[920px] table-fixed text-sm">
                         <colgroup>
-                          <col className="w-[32%]" />
+                          <col className="w-[36%]" />
                           <col className="w-[14%]" />
-                          <col className="w-[12%]" />
-                          <col className="w-[14%]" />
-                          <col className="w-[20%]" />
+                          <col className="w-[16%]" />
+                          <col className="w-[26%]" />
                           <col className="w-[8%]" />
                         </colgroup>
                         <thead className="border-b border-border bg-muted/30 text-left text-[11px] tracking-wide text-muted-foreground uppercase">
                           <tr>
                             <th className="px-3 py-2">Подзадача / шаблон</th>
-                            <th className="px-3 py-2">Тип расчёта</th>
                             <th className="px-3 py-2 text-right">
                               Часы / сумма
                             </th>
@@ -1281,35 +1322,6 @@ function DepartmentBlock({
                               entities,
                               lineFields,
                             );
-                            const calcLabel = resolveDeptCalcTypeLabelForRecord(
-                              valueContext,
-                              nested.entity,
-                              line,
-                              entities,
-                              lineFields,
-                            );
-                            const calcTypeField = lineFields.calcType;
-                            const calcTypePresentation = calcTypeField
-                              ? resolveEntityListFieldPresentation(
-                                  calcTypeField,
-                                  entities,
-                                )
-                              : null;
-                            const calcTypeOption =
-                              calcTypeField?.type === "list"
-                                ? getEntityListOption(
-                                    resolveEntityListFieldOptions(
-                                      calcTypeField,
-                                      entities,
-                                    ),
-                                    line.values[calcTypeField.id],
-                                  )
-                                : null;
-                            const calcTypeColor =
-                              calcTypePresentation?.listUseColors &&
-                              calcTypeOption?.color
-                                ? calcTypeOption.color
-                                : null;
                             const cost = resolveDeptLineCost(
                               valueContext,
                               nested.entity,
@@ -1335,12 +1347,6 @@ function DepartmentBlock({
                                   >
                                     {title}
                                   </span>
-                                </td>
-                                <td className="px-3 py-2.5 align-top">
-                                  <StatusPill
-                                    label={calcLabel}
-                                    color={calcTypeColor}
-                                  />
                                 </td>
                                 <td className="px-3 py-2.5 align-top text-right tabular-nums">
                                   {hoursOrSum.value == null

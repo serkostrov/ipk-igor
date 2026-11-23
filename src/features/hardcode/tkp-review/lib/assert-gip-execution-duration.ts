@@ -16,7 +16,11 @@ function normalizeTaskName(name: string): string {
   return name.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
 }
 
-/** GIP fill task: stage option «…ГИПа» or name contains «гип» + заполн/разбор. */
+/**
+ * GIP fill task: the process stage is «На заполнении ГИПа».
+ * Name is a fallback only when the task has no stage option.
+ * A silent step on an earlier stage («Переход на заполнение ГИПа») must not match.
+ */
 export function isTkpGipFillAutomationTask(options: {
   entityId: string;
   triggerOptionId?: string | null;
@@ -27,11 +31,12 @@ export function isTkpGipFillAutomationTask(options: {
   if (!entity || !isTkpAnalysisEntity(entity)) return false;
 
   const optionId = options.triggerOptionId?.trim() ?? "";
-  if (optionId && isTkpGipFillingOptionId(entity, optionId, entities)) {
-    return true;
+  if (optionId) {
+    return isTkpGipFillingOptionId(entity, optionId, entities);
   }
 
   const name = normalizeTaskName(options.taskName ?? "");
+  if (!name || name.includes("переход")) return false;
   if (!name.includes("гип")) return false;
   return name.includes("заполн") || name.includes("разбор");
 }

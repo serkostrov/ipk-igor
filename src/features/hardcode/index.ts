@@ -239,5 +239,6 @@ export { registerTkpNoVolumeAfterCompleteHook } from "./tkp-volumes/lib/register
 
 // Side-effect: register after-complete hardcode handlers.
 import "./tkp-gip/gip-filling-phase";
+import "./dept-calculations/lib/assert-dept-calc-lines";
 import { registerTkpNoVolumeAfterCompleteHook as __registerTkpNoVolume } from "./tkp-volumes/lib/register-no-volume-hook";
 __registerTkpNoVolume();

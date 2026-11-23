@@ -9,6 +9,7 @@ import {
   formatEntityDecimalTotal,
   formatEntityListFieldValue,
   formatRecordFieldValue,
+  getEntityFieldDisplayName,
   getEntityListOption,
   getEntityListOptions,
   getEntityRecordTitle,
@@ -26,12 +27,15 @@ import {
   type EntityTableNestedTarget,
   type EntityValueContext,
 } from "@/entities/entity";
+import { reviewExpenseCategoryFromLabel } from "../../tkp-gip-cost/model/expense-category";
 import {
   resolveDeptCalculationsHostFields,
   resolveDeptCalculationsSubtaskFields,
   type DeptCalculationsHostFields,
   type DeptCalculationsSubtaskFields,
 } from "./fields";
+
+const FIX_BASE_TAX_STATUSES = new Set(["ИП", "СЗ", "ГПХ"]);
 
 export type DeptCalculationsBreakdown = {
   hours: number;
@@ -247,10 +251,23 @@ function readDeptLineHoursOrSumValue(
   return firstNumericValue(ctx, entity, record, [fields.sum, fields.hours]);
 }
 
+function lineListLabel(
+  ctx: EntityValueContext,
+  field: EntityField | null,
+  record: EntityRecord,
+): string {
+  if (!field) return "";
+  return (
+    resolveCalcTypeName(ctx.entities, field, record.values[field.id]) ?? ""
+  ).trim();
+}
+
 /**
- * Money for the «Стоимость» column / rollups:
- * - «Часы» → «Стоимость»
- * - «Сумма» → «Сумма с коэффициентом», then «Стоимость»
+ * Money that this line contributes to the department total:
+ * - «Часы» and plain expenses → «Стоимость»
+ * - Подряд ИП / СЗ / ГПХ → «Стоимость с налогом» (inside the FIX base)
+ * - Подряд ООО, изыскания, экспертиза, прочие с коэффициентом →
+ *   «Сумма с коэффициентом» (after FIX)
  */
 export function resolveDeptLineCost(
   ctx: EntityValueContext,
@@ -265,9 +282,36 @@ export function resolveDeptLineCost(
       fields.sumWithCoeff,
     ]);
   }
+
+  const category = reviewExpenseCategoryFromLabel(
+    lineListLabel(ctx, fields.category, record),
+  );
+  const taxStatus = lineListLabel(ctx, fields.taxStatus, record);
+  const withCoefficient =
+    category === "survey" ||
+    category === "expertise" ||
+    category === "other_with_coefficient" ||
+    (category === "subcontractor" && taxStatus === "ООО");
+
+  if (category === "subcontractor" && FIX_BASE_TAX_STATUSES.has(taxStatus)) {
+    return firstNumericValue(ctx, entity, record, [
+      fields.costWithTax,
+      fields.cost,
+      fields.sum,
+    ]);
+  }
+  if (withCoefficient) {
+    return firstNumericValue(ctx, entity, record, [
+      fields.sumWithCoeff,
+      fields.costWithTax,
+      fields.cost,
+      fields.sum,
+    ]);
+  }
   return firstNumericValue(ctx, entity, record, [
-    fields.sumWithCoeff,
     fields.cost,
+    fields.sum,
+    fields.sumWithCoeff,
   ]);
 }
 
@@ -504,9 +548,31 @@ export function resolveDeptLineTitle(
   fields: DeptCalculationsSubtaskFields,
 ): string {
   if (fields.name) {
-    return getEntityRecordTitle(ctx, entity, record);
+    const title = getEntityRecordTitle(ctx, entity, record).trim();
+    if (title && title !== "—") return title;
   }
   const nameField = entity.fields.find((field) => isEntityNameField(field));
-  if (nameField) return getEntityRecordTitle(ctx, entity, record);
+  if (nameField) {
+    const title = getEntityRecordTitle(ctx, entity, record).trim();
+    if (title && title !== "—") return title;
+  }
+  const templateField =
+    entity.fields.find((field) => {
+      if (field.type !== "relation") return false;
+      const name = getEntityFieldDisplayName(field)
+        .trim()
+        .toLocaleLowerCase("ru")
+        .replaceAll("ё", "е");
+      return name === "шаблон" || name.startsWith("шаблон ");
+    }) ?? null;
+  if (templateField) {
+    const label = formatRecordFieldValue(
+      ctx,
+      entity,
+      record,
+      templateField,
+    ).trim();
+    if (label && label !== "—") return label;
+  }
   return "—";
 }

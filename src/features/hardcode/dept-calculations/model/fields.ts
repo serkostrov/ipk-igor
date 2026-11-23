@@ -110,6 +110,11 @@ const CALC_TYPE_KEYS = [
   "calc type",
 ] as const;
 const COST_KEYS = ["стоимость"] as const;
+const COST_WITH_TAX_KEYS = ["стоимость с налогом"] as const;
+const CATEGORY_KEYS = ["категория расходов", "категория"] as const;
+const TAX_STATUS_KEYS = ["налоговый статус"] as const;
+const TAX_KEYS = ["налог"] as const;
+const COEFFICIENT_KEYS = ["коэффициент"] as const;
 
 function nameLooksLikeSumWithCoeff(field: EntityField): boolean {
   const name = normalizeName(getEntityFieldDisplayName(field));
@@ -132,9 +137,16 @@ export type DeptCalculationsSubtaskFields = {
   calcType: EntityField | null;
   hours: EntityField | null;
   sum: EntityField | null;
-  /** Formula «Сумма с коэффициентом» — money for type «Сумма». */
+  /** Formula «Сумма с коэффициентом» — cost with tax × coefficient. */
   sumWithCoeff: EntityField | null;
+  /** Formula «Стоимость» — hours × rate, or the entered sum. */
   cost: EntityField | null;
+  /** Formula «Стоимость с налогом». */
+  costWithTax: EntityField | null;
+  category: EntityField | null;
+  taxStatus: EntityField | null;
+  tax: EntityField | null;
+  coefficient: EntityField | null;
   comment: EntityField | null;
 };
 
@@ -228,6 +240,10 @@ export function resolveDeptCalculationsSubtaskFields(
     null;
   if (sum) usedIds.add(sum.id);
 
+  const costWithTax = findNumericInputField(entity, COST_WITH_TAX_KEYS, {
+    excludeFieldIds: usedIds,
+  });
+  if (costWithTax) usedIds.add(costWithTax.id);
   const cost =
     findNumericInputField(entity, COST_KEYS, {
       excludeFieldIds: usedIds,
@@ -235,6 +251,28 @@ export function resolveDeptCalculationsSubtaskFields(
     findNumericInputField(entity, LABOR_KEYS, {
       excludeFieldIds: usedIds,
     });
+  const category = findField(
+    entity,
+    CATEGORY_KEYS,
+    (field) => field.type === "list",
+  );
+  const taxStatus = findField(
+    entity,
+    TAX_STATUS_KEYS,
+    (field) => field.type === "list",
+  );
+  const tax = findNumericInputField(entity, TAX_KEYS, {
+    excludeFieldIds: new Set(
+      [costWithTax?.id, cost?.id, sumWithCoeff?.id].filter((id): id is string =>
+        Boolean(id),
+      ),
+    ),
+  });
+  const coefficient = findNumericInputField(entity, COEFFICIENT_KEYS, {
+    excludeFieldIds: new Set(
+      [sumWithCoeff?.id].filter((id): id is string => Boolean(id)),
+    ),
+  });
   const comment = findField(
     entity,
     COMMENT_KEYS,
@@ -247,6 +285,11 @@ export function resolveDeptCalculationsSubtaskFields(
     sum,
     sumWithCoeff,
     cost,
+    costWithTax,
+    category,
+    taxStatus,
+    tax,
+    coefficient,
     comment,
   };
 }

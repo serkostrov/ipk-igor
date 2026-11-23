@@ -272,6 +272,24 @@ export type RelatedAskPersistUpdate = {
  * Related asks written during fill/autosave: every visible related field so
  * drafts survive reload (same expectation as local required/record fields).
  */
+/**
+ * Deadline, description and comment are edited in the departments table,
+ * which saves the row itself. The task form only keeps a snapshot from
+ * when the outcome was opened.
+ */
+function isDeptCalculationTableHostField(
+  entity: Entity,
+  fieldId: string,
+): boolean {
+  if (!isDeptCalculationsEntity(entity)) return false;
+  const host = resolveDeptCalculationsHostFields(entity);
+  return (
+    fieldId === host.deadline?.id ||
+    fieldId === host.description?.id ||
+    fieldId === host.comment?.id
+  );
+}
+
 function relatedAskIdsToPersist(
   access: AutomationOutcomeFieldAccess,
 ): Set<string> {
@@ -389,6 +407,14 @@ export async function buildRelatedAskPersistUpdates(options: {
         const patch = byTarget.get(mapKey) ?? {};
         patch[ask.fieldId] = richest.value;
         byTarget.set(mapKey, patch);
+        continue;
+      }
+
+      // Table saves these fields. A blank or stale form snapshot must not
+      // overwrite the row on autosave or on «Готово».
+      if (
+        isDeptCalculationTableHostField(resolved.relatedEntity, ask.fieldId)
+      ) {
         continue;
       }
 
@@ -663,18 +689,11 @@ export async function validateRelatedAskRequired(options: {
         continue;
       }
       const incomplete = scoped.some((record) => {
-        const key = relatedAskValueKey(
-          resolved.scopeKey,
-          record.id,
-          ask.fieldId,
-        );
-        const draft = values[key];
+        // The departments table is the editor and writes the row immediately.
+        // The form snapshot is taken when the outcome opens and stays blank
+        // after that save — do not let it hide the stored deadline.
         const live = record.values[ask.fieldId] ?? "";
-        return !isFieldFilled(
-          field,
-          draft !== undefined ? draft : live,
-          ask.relationGroupsMode ?? "full",
-        );
+        return !isFieldFilled(field, live, ask.relationGroupsMode ?? "full");
       });
       if (incomplete) missingLabels.push(`${relationLabel} · ${fieldLabel}`);
       continue;

@@ -2782,15 +2782,96 @@ export function applyEntityFieldValue(
       : sanitizeDependentRelationValues(entity, mirrored, entities);
   const cleaned = sanitizeRelationGroupsValues(entity, afterDeps, entities);
   const scheduled = applyEntityScheduleFieldSync(entity, cleaned, fieldId);
-  if (!entity.nameTemplate.trim()) return scheduled;
+  const fromTemplate = softFillFieldsFromTemplateRelation(
+    entity,
+    scheduled,
+    fieldId,
+    entities,
+  );
+  if (!entity.nameTemplate.trim()) return fromTemplate;
   const ctx = getEntityValueContext(entities);
   return softFillEntityNameFromTemplate(
     ctx,
     entity,
     values,
-    scheduled,
+    fromTemplate,
     fieldId,
   );
+}
+
+/** Normalized names copied from «Шаблоны работ» when «Шаблон» relation changes. */
+const TEMPLATE_COPY_FIELD_NAMES = new Set([
+  "тип расчета",
+  "категория расходов",
+  "налоговый статус",
+  "налог",
+  "коэффициент",
+]);
+
+function normalizeFieldLabel(value: string): string {
+  return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
+}
+
+function isWorkTemplatesEntity(
+  target: Pick<Entity, "name" | "namePlural"> | null | undefined,
+): boolean {
+  if (!target) return false;
+  const haystack = `${target.name} ${target.namePlural}`;
+  const normalized = normalizeFieldLabel(haystack);
+  return (
+    normalized.includes("шаблон") &&
+    (normalized.includes("работ") || normalized.includes("работа"))
+  );
+}
+
+/**
+ * When a relation to «Шаблоны работ» changes, copy calc defaults onto this
+ * record (тип / категория / налог / коэффициент). Overwrites on change per ТЗ.
+ */
+function softFillFieldsFromTemplateRelation(
+  entity: Entity,
+  values: Record<string, string>,
+  changedFieldId: string,
+  entities: readonly Entity[],
+): Record<string, string> {
+  const bridge = findField(entity, changedFieldId);
+  if (!bridge || bridge.type !== "relation") return values;
+  const targetId = getEntityRelationTargetId(bridge);
+  if (!targetId) return values;
+  const target = entities.find((item) => item.id === targetId) ?? null;
+  if (!isWorkTemplatesEntity(target)) return values;
+
+  const relatedIds = parseEntityRelationIds(values[bridge.id]);
+  const relatedId = relatedIds[0] ?? "";
+  const relatedRecord = relatedId
+    ? (target!.records.find((record) => record.id === relatedId) ?? null)
+    : null;
+
+  const sourceByName = new Map<string, EntityField>();
+  for (const field of target!.fields) {
+    if (isEntityNameField(field)) continue;
+    sourceByName.set(
+      normalizeFieldLabel(getEntityFieldDisplayName(field)),
+      field,
+    );
+  }
+
+  let next = values;
+  for (const dest of entity.fields) {
+    if (dest.id === bridge.id) continue;
+    if (isEntityNameField(dest)) continue;
+    const key = normalizeFieldLabel(getEntityFieldDisplayName(dest));
+    if (!TEMPLATE_COPY_FIELD_NAMES.has(key)) continue;
+    const source = sourceByName.get(key);
+    if (!source) continue;
+    if (dest.type !== source.type) continue;
+    if (dest.type !== "list" && dest.type !== "number") continue;
+    const raw = relatedRecord ? (relatedRecord.values[source.id] ?? "") : "";
+    if ((next[dest.id] ?? "") === raw) continue;
+    if (next === values) next = { ...values };
+    next[dest.id] = raw;
+  }
+  return next;
 }
 
 /** Drop relation values that no longer match filters / nested parent scope. */

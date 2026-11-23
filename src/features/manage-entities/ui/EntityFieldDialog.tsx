@@ -648,8 +648,8 @@ function RelationSpawnPerUserControl({
           Отдельная запись на пользователя
         </Label>
         <span className="text-[11px] leading-tight text-muted-foreground">
-          При создании для каждого выбранного пользователя создаётся своя
-          запись этой сущности
+          При создании для каждого выбранного пользователя создаётся своя запись
+          этой сущности
         </span>
       </div>
       <Switch

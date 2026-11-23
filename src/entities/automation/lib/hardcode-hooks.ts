@@ -10,6 +10,8 @@ export type BeforeAutomationTaskCompleteHook = (args: {
   values: Record<string, string>;
   triggerOptionId?: string | null;
   taskName?: string | null;
+  outcomeLabel?: string | null;
+  assigneeUserId?: string | null;
 }) => void;
 
 export type AfterAutomationTaskCompleteHook = (args: {
@@ -37,14 +39,20 @@ export type BeforeAutomationStageSpawnHook = (args: {
   destinationStageId: string;
 }) => void | Promise<void>;
 
-let beforeTaskCompleteHook: BeforeAutomationTaskCompleteHook | null = null;
+const beforeTaskCompleteHooks: BeforeAutomationTaskCompleteHook[] = [];
 const afterTaskCompleteHooks: AfterAutomationTaskCompleteHook[] = [];
 const beforeStageSpawnHooks: BeforeAutomationStageSpawnHook[] = [];
 
 export function registerBeforeAutomationTaskCompleteHook(
   hook: BeforeAutomationTaskCompleteHook | null,
 ) {
-  beforeTaskCompleteHook = hook;
+  if (hook == null) {
+    beforeTaskCompleteHooks.length = 0;
+    return;
+  }
+  if (!beforeTaskCompleteHooks.includes(hook)) {
+    beforeTaskCompleteHooks.push(hook);
+  }
 }
 
 /**
@@ -95,8 +103,12 @@ export function runBeforeAutomationTaskCompleteHook(args: {
   values: Record<string, string>;
   triggerOptionId?: string | null;
   taskName?: string | null;
+  outcomeLabel?: string | null;
+  assigneeUserId?: string | null;
 }): void {
-  beforeTaskCompleteHook?.(args);
+  for (const hook of beforeTaskCompleteHooks) {
+    hook(args);
+  }
 }
 
 export async function runAfterAutomationTaskCompleteHook(args: {

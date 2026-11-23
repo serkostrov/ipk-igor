@@ -13,10 +13,7 @@ import {
 } from "@/shared/ui/select";
 import { cn } from "@/shared/lib/cn";
 import { getProjectZonedParts } from "@/shared/lib/datetime";
-import {
-  formatDateDisplay,
-  parseDateDisplay,
-} from "@/shared/lib/format-date";
+import { formatDateDisplay, parseDateDisplay } from "@/shared/lib/format-date";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
 

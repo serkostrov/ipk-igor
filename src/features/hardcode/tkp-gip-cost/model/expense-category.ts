@@ -38,6 +38,22 @@ export function normalizeReviewExpenseCategory(
     : null;
 }
 
+/** Map a Russian list label («Подрядные работы», «Изыскания», …) to a bucket. */
+export function reviewExpenseCategoryFromLabel(
+  label: string,
+): ReviewExpenseCategory | null {
+  const name = label.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
+  if (!name || name === "—" || name.includes("трудозатрат")) return null;
+  if (name.includes("подряд")) return "subcontractor";
+  if (name.includes("менеджер")) return "manager_expense";
+  if (name.includes("командир")) return "travel_expense";
+  if (name.includes("изыск")) return "survey";
+  if (name.includes("эксперт")) return "expertise";
+  if (name.includes("без коэф")) return "other_without_coefficient";
+  if (name.includes("коэф")) return "other_with_coefficient";
+  return null;
+}
+
 export function reviewExpenseCategoryRequirements(
   category: ReviewExpenseCategory | null,
 ): {

@@ -1,0 +1,8 @@
+{
+  "workTemplatesEntity": "entity-work-templates-seed",
+  "linesEntity": "entity-dept-calc-lines-seed",
+  "deptCalcEntity": "entity-dept-calculations-seed",
+  "sampleTemplates": 60,
+  "backfilledDept": 0,
+  "step7FanOut": true
+}

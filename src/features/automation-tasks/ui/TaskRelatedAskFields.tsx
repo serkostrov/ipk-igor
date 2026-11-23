@@ -414,6 +414,15 @@ export function TaskRelatedAskFields({
 
       {showDeptTable && deptBundle ? (
         <div className="flex flex-col gap-2">
+          {softFillParent && isTkpAnalysisEntity(softFillParent.entity) ? (
+            <TkpReviewHardcodeSlot
+              entity={softFillParent.entity}
+              record={softFillParent.record}
+              readOnly={disabled}
+              sections={["gip"]}
+              hideExecutionDuration={showGipDurationAsk}
+            />
+          ) : null}
           <p className="truncate text-[11px] font-medium text-muted-foreground">
             {deptBundle.relationLabel}
           </p>
@@ -433,15 +442,6 @@ export function TaskRelatedAskFields({
               editableRecordIds={editableDeptRecordIds}
             />
           )}
-          {softFillParent && isTkpAnalysisEntity(softFillParent.entity) ? (
-            <TkpReviewHardcodeSlot
-              entity={softFillParent.entity}
-              record={softFillParent.record}
-              readOnly={disabled}
-              sections={["gip"]}
-              hideExecutionDuration={showGipDurationAsk}
-            />
-          ) : null}
         </div>
       ) : null}
 

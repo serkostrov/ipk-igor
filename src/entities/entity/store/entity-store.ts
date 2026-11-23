@@ -2518,9 +2518,7 @@ export function updateEntityTab(
                   ? patch.singleRecord
                   : tab.singleRecord,
               tableFlat:
-                patch.tableFlat !== undefined
-                  ? patch.tableFlat
-                  : tab.tableFlat,
+                patch.tableFlat !== undefined ? patch.tableFlat : tab.tableFlat,
               ...(isMirror ? { sourceRelationFieldId, sourceTabId } : null),
               locked: isOverview,
             })

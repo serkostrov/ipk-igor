@@ -484,6 +484,27 @@ function normalizedCoefficient(value: unknown, fallback = 1): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/**
+ * Coefficient applies to extra works and to ООО subcontractors.
+ * ИП / СЗ / ГПХ stay in the FIX base at cost-with-tax (coefficient 1).
+ */
+function reviewLineCoefficient(
+  category: ReviewExpenseCategory | null,
+  taxStatus: ReviewLineTaxStatus | null,
+  legacyCoefficient: boolean,
+  snapshot: unknown,
+): number {
+  const apply =
+    legacyCoefficient ||
+    category === "survey" ||
+    category === "expertise" ||
+    category === "other_with_coefficient" ||
+    (category === "subcontractor" && taxStatus === "ООО");
+  return apply
+    ? normalizedCoefficient(snapshot, DEFAULT_REVIEW_LINE_COEFFICIENT)
+    : 1;
+}
+
 function preciseNonNegative(value: unknown): PreciseDecimal {
   try {
     const decimal = PreciseDecimal.from(
@@ -565,10 +586,6 @@ export function calculateReviewDepartmentLineCostAdjustment(
   );
   const isLegacyCoefficientLine =
     category === null && line.requires_coefficient_snapshot === true;
-  const isCoefficientCategory =
-    category === "survey" ||
-    category === "expertise" ||
-    category === "other_with_coefficient";
   const taxRate =
     category === "subcontractor"
       ? normalizedTaxRate(line.tax_rate_snapshot)
@@ -577,13 +594,12 @@ export function calculateReviewDepartmentLineCostAdjustment(
     category === "subcontractor"
       ? normalizeReviewLineTaxStatus(line.tax_status_snapshot)
       : null;
-  const coefficient =
-    isCoefficientCategory || isLegacyCoefficientLine
-      ? normalizedCoefficient(
-          line.coefficient_snapshot,
-          DEFAULT_REVIEW_LINE_COEFFICIENT,
-        )
-      : 1;
+  const coefficient = reviewLineCoefficient(
+    category,
+    taxStatus,
+    isLegacyCoefficientLine,
+    line.coefficient_snapshot,
+  );
 
   return {
     taxStatus,
@@ -774,10 +790,6 @@ export function calculateReviewCostBreakdown({
         category === "survey" ||
         category === "expertise" ||
         category === "other_with_coefficient";
-      const isCoefficientCategory =
-        category === "survey" ||
-        category === "expertise" ||
-        category === "other_with_coefficient";
       const taxRate =
         category === "subcontractor"
           ? normalizedTaxRate(line.tax_rate_snapshot)
@@ -786,13 +798,12 @@ export function calculateReviewCostBreakdown({
         category === "subcontractor"
           ? normalizeReviewLineTaxStatus(line.tax_status_snapshot)
           : null;
-      const coefficient =
-        isCoefficientCategory || isLegacyCoefficientLine
-          ? normalizedCoefficient(
-              line.coefficient_snapshot,
-              DEFAULT_REVIEW_LINE_COEFFICIENT,
-            )
-          : 1;
+      const coefficient = reviewLineCoefficient(
+        category,
+        taxStatus,
+        isLegacyCoefficientLine,
+        line.coefficient_snapshot,
+      );
       const isHourlyLabor =
         category === null &&
         !isLegacyCoefficientLine &&
@@ -825,10 +836,10 @@ export function calculateReviewCostBreakdown({
 
       if (isContractorCategory || isLegacyCoefficientLine) {
         contractorItems.push(item);
-      } else if (category === "manager_expense" || isHourlyLabor) {
+      } else if (isHourlyLabor) {
         laborItems.push(item);
       } else {
-        // travel_expense, other_without_coefficient and legacy uncategorized amount lines.
+        // Manager, travel, other without coefficient, and uncategorized amounts.
         expenseItems.push(item);
       }
     }

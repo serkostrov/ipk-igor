@@ -729,6 +729,24 @@ export async function ensureDeptCalculationGipRows(options: {
       if (!encoded) continue;
       // Only parent links — never copy nested lines / costs from a sibling.
       const seed: Record<string, string> = { [groupsField.id]: encoded };
+      const deptField = entity.fields.find((field) => {
+        if (field.type !== "relation" && field.type !== "belonging") {
+          return false;
+        }
+        if (getEntityRelationTargetId(field) !== departmentEntity.id) {
+          return false;
+        }
+        const name = getEntityFieldDisplayName(field)
+          .trim()
+          .toLocaleLowerCase("ru")
+          .replaceAll("ё", "е");
+        return name === "отдел" || name.startsWith("отдел ");
+      });
+      if (deptField && pair.departmentId.trim()) {
+        seed[deptField.id] = serializeEntityRelationIds([
+          pair.departmentId.trim(),
+        ]);
+      }
       if (template) {
         for (const field of linkFields) {
           const value = (template.values[field.id] ?? "").trim();

@@ -36,10 +36,7 @@ import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
 import { cn } from "@/shared/lib/cn";
-import {
-  joinDatetime,
-  splitDatetime,
-} from "@/shared/lib/format-date";
+import { joinDatetime, splitDatetime } from "@/shared/lib/format-date";
 
 type DraftLink = {
   kind: "external" | "google_form";

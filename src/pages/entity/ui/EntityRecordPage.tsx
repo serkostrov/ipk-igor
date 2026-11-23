@@ -1471,9 +1471,7 @@ function EntityRecordContent({
             />
           ) : null
         }
-        iconActions={
-          <CreateRecordChatButton entity={entity} record={record} />
-        }
+        iconActions={<CreateRecordChatButton entity={entity} record={record} />}
         onEdit={canUpdate ? () => setEditOpen(true) : undefined}
         onDelete={canDelete ? () => setDeleteOpen(true) : undefined}
         onDuplicate={isUsersEntity || !canCreate ? undefined : handleDuplicate}
