@@ -5,9 +5,7 @@ import {
 } from "../model/field";
 import { SYSTEM_USERS_ENTITY_ID } from "../model/system-entities";
 import type { Entity, EntityField, EntityRecord } from "../model/types";
-import {
-  addEntityRecord,
-} from "../store/entity-store";
+import { addEntityRecord } from "../store/entity-store";
 
 /** Multi-user relation that fans out into one record per selected person. */
 export function isUserSpawnRelationField(

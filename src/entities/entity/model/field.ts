@@ -287,6 +287,8 @@ export {
   pruneEntityRelationGroupsValue,
   resolveRelationGroupsModeDepth,
   serializeEntityRelationGroups,
+  serializeEntityRelationGroupsFromIds,
+  coerceToEntityRelationGroupsValue,
   updateRelationGroupsNodeChildren,
   withEntityRelationGroupsDefaultNested,
   withEntityRelationGroupsDefaults,

@@ -592,6 +592,7 @@ export function EntityKanbanView({
       {showFilters ? (
         <div className="shrink-0">
           <EntityBrowseFilters
+            entity={entity}
             fields={filterFields}
             entities={entities}
             search={search}

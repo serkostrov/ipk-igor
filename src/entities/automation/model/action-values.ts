@@ -10,11 +10,13 @@ import {
   isEntityNameField,
   isEntityRelationLikeFieldType,
   isEntityTabWithLinkedEntity,
+  coerceToEntityRelationGroupsValue,
   parseEntityRelationGroups,
   parseEntityRelationIds,
   resolveEntityLookupTarget,
   resolveRelationRecordLabel,
   serializeEntityRelationGroups,
+  serializeEntityRelationGroupsFromIds,
   serializeEntityRelationIds,
   type Entity,
   type EntityField,
@@ -111,7 +113,12 @@ function resolveCopiedFieldValue(
   rawValue: string,
   options: ResolveAutomationActionValueOptions,
 ): string {
-  if (!rawValue || wantsRelationIds(options.fieldType)) return rawValue;
+  if (!rawValue) return rawValue;
+  if (wantsRelationIds(options.fieldType)) return rawValue;
+  // «Стадии» (relation) → «Стадия/отделы» (groups): keep ids as roots.
+  if (wantsRelationGroupsValue(options.fieldType)) {
+    return coerceToEntityRelationGroupsValue(rawValue);
+  }
   const trigger = options.entities?.find(
     (item) => item.id === options.triggerEntityId,
   );
@@ -136,6 +143,8 @@ function resolveNestedFieldDisplayValue(
   options: ResolveAutomationActionValueOptions,
 ): string {
   if (!rawValue || wantsRelationIds(options.fieldType)) return rawValue;
+  // Keep raw relation / groups payloads for relationGroups targets.
+  if (wantsRelationGroupsValue(options.fieldType)) return rawValue;
   const nestedField = relatedEntity.fields.find(
     (item) => item.id === nestedFieldId,
   );
@@ -472,6 +481,9 @@ async function resolveRelatedFieldValue(
     if (wantsRelationIds(options.fieldType)) {
       return serializeEntityRelationIds(unique);
     }
+    if (wantsRelationGroupsValue(options.fieldType)) {
+      return serializeEntityRelationGroupsFromIds(unique);
+    }
     if (!relatedEntity) return unique.join(", ");
     const labels = unique
       .map((id) => resolveRelationRecordLabel(relatedEntity, id)?.trim() || id)
@@ -508,6 +520,9 @@ async function resolveRelatedFieldValue(
     if (!part) continue;
     if (wantsRelationIds(options.fieldType)) {
       nestedParts.push(...parseEntityRelationIds(part));
+    } else if (wantsRelationGroupsValue(options.fieldType)) {
+      // Relation ids or groups JSON — coerce later as one tree union.
+      nestedParts.push(part);
     } else {
       nestedParts.push(part);
     }
@@ -516,10 +531,12 @@ async function resolveRelatedFieldValue(
   if (wantsRelationIds(options.fieldType)) {
     return serializeEntityRelationIds([...new Set(nestedParts)]);
   }
-  // Groups JSON must not be joined with commas — merge trees instead.
+  // Groups JSON / flat stage ids must not be joined with commas.
   if (wantsRelationGroupsValue(options.fieldType)) {
     const trees = nestedParts
-      .map((part) => parseEntityRelationGroups(part))
+      .map((part) =>
+        parseEntityRelationGroups(coerceToEntityRelationGroupsValue(part)),
+      )
       .filter((nodes) => nodes.length > 0);
     if (trees.length === 0) return "";
     return serializeEntityRelationGroups(mergeRelationGroupsTrees(trees));

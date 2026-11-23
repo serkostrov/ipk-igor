@@ -376,6 +376,74 @@ export function serializeEntityRelationGroups(
   return groups.length > 0 ? JSON.stringify(groups) : "";
 }
 
+function looksLikeEntityRecordId(id: string): boolean {
+  const trimmed = id.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  return (
+    trimmed.startsWith("record-") ||
+    trimmed.startsWith("list-") ||
+    /^[a-z][a-z0-9_-]*-[a-z0-9_-]+$/i.test(trimmed)
+  );
+}
+
+/**
+ * Flat record ids → relationGroups roots with empty nested lists.
+ * Used when automation copies «Стадии» (relation) into «Стадия/отделы».
+ */
+export function serializeEntityRelationGroupsFromIds(
+  ids: readonly string[],
+): string {
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of ids) {
+    const id = raw.trim();
+    if (!id || !looksLikeEntityRecordId(id) || seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  return serializeEntityRelationGroups(
+    unique.map((id) => ({ id, children: [] as EntityRelationGroupNode[] })),
+  );
+}
+
+/**
+ * Accept relationGroups JSON or a flat relation-ids payload.
+ * Flat ids become stage roots so departments can be filled later.
+ */
+export function coerceToEntityRelationGroupsValue(
+  value: string | undefined,
+): string {
+  const raw = value?.trim() ?? "";
+  if (!raw) return "";
+  const asGroups = parseEntityRelationGroups(raw);
+  if (asGroups.length > 0) return serializeEntityRelationGroups(asGroups);
+
+  // Flat relation payload: JSON string array or CSV ids.
+  if (raw.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (
+        Array.isArray(parsed) &&
+        parsed.every(
+          (item) => typeof item === "string" || typeof item === "number",
+        )
+      ) {
+        return serializeEntityRelationGroupsFromIds(
+          parsed.map((item) => String(item)),
+        );
+      }
+    } catch {
+      // fall through
+    }
+  }
+  const csvIds = raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => looksLikeEntityRecordId(item));
+  if (csvIds.length > 0) return serializeEntityRelationGroupsFromIds(csvIds);
+  return "";
+}
+
 function seedChildrenFromDefaults(
   defaultsByLevel: readonly (readonly string[])[],
   depth: number,

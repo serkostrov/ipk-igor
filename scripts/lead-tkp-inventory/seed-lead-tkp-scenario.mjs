@@ -1013,7 +1013,23 @@ async function main() {
         outcome(
           "Заполнить данные",
           "#22c55e",
-          [],
+          [
+            // Стадии с протокола → корни «Стадия/отделы» на ТКП
+            // (отделы дозаполняет задание выбора руководителей).
+            {
+              id: uid("aact"),
+              kind: "updateRecords",
+              entityId: TKP,
+              linkMode: "backRelation",
+              linkFieldId: F.tkpLead,
+              mappings: [
+                {
+                  targetFieldId: NEW.tkpGroups,
+                  source: `{{tab:${F.leadProtoTab}.${F.protoStages}}}`,
+                },
+              ],
+            },
+          ],
           askAccess([
             {
               id: "rel-proto-dept",
@@ -1165,6 +1181,10 @@ async function main() {
               NEW.tkpCalcDeadline,
               NEW.tkpHeadsComment,
             ],
+            // Стадии уже с лида/протокола — на ТКП только отделы.
+            fieldAskOptions: {
+              [NEW.tkpGroups]: { relationGroupsMode: "nested" },
+            },
           },
         ),
       ],

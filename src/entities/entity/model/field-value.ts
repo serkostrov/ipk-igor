@@ -1951,8 +1951,23 @@ export function getRecordFieldSortValue(
   const kind = getEntityFieldValueKind(entity, field, ctx.entities);
   if (kind === "number")
     return getRecordFieldNumber(ctx, entity, record, field);
-  const cell = resolveRecordFieldCells(ctx, entity, record, field)[0];
+
+  // Prefer auto lookup cells; fall back to a manual stand-in on the host.
+  let cell = resolveRecordFieldCells(ctx, entity, record, field)[0];
+  if (
+    !cell &&
+    field.type === "lookup" &&
+    isEntityFieldManualInputEnabled(field)
+  ) {
+    const editField = resolveEntityComputedManualEditField(
+      entity,
+      field,
+      ctx.entities ?? [],
+    );
+    if (editField) cell = { entity, record, field: editField };
+  }
   if (!cell) return null;
+
   if (kind === "boolean") {
     return cell.record.values[cell.field.id] === "true" ? 1 : 0;
   }

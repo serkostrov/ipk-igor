@@ -329,6 +329,7 @@ function FiltersPanelView({
 
   return (
     <EntityBrowseFilters
+      entity={entity}
       fields={fields}
       entities={entities}
       search={search}
@@ -671,6 +672,7 @@ export function EntityBoardView({
           <div className="flex shrink-0 flex-col gap-3">
             {hasFiltersPanel ? null : (
               <EntityBrowseFilters
+                entity={entity}
                 fields={filterFields}
                 entities={entities}
                 search={search}

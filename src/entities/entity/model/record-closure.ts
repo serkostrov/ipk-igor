@@ -55,7 +55,11 @@ export function resolveEntityRecordClosure(
         enqueue(field.rollup.sourceEntityId);
       } else if (field.type === "relationGroups" && field.relationGroups) {
         // Two nesting levels (rows = depth 0, nested = depth 1).
-        for (let depth = 0; depth < field.relationGroups.levels.length; depth++) {
+        for (
+          let depth = 0;
+          depth < field.relationGroups.levels.length;
+          depth++
+        ) {
           enqueue(resolveRelationGroupsBridgeEntityId(field, entities, depth));
         }
       }

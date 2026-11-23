@@ -474,7 +474,10 @@ export type GetOutcomeCreateAskSlotsOptions = {
   sourceEntity?: Entity | null;
   triggerRecordId?: string;
   triggerValues?: Record<string, string>;
-  getRecordTitle?: (entity: Entity, recordId: string) => string | Promise<string>;
+  getRecordTitle?: (
+    entity: Entity,
+    recordId: string,
+  ) => string | Promise<string>;
 };
 
 /**
@@ -979,7 +982,10 @@ export async function validateCreateAskRequired(options: {
   sourceEntity?: Entity | null;
   triggerRecordId?: string;
   triggerValues?: Record<string, string>;
-  getRecordTitle?: (entity: Entity, recordId: string) => string | Promise<string>;
+  getRecordTitle?: (
+    entity: Entity,
+    recordId: string,
+  ) => string | Promise<string>;
   ctx?: EntityValueContext;
   isFieldFilled: (
     field: EntityField,

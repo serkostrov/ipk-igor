@@ -1,8 +1,7 @@
 import { useEffect, useState, type DependencyList } from "react";
 
 type Result<T> =
-  | { status: "ready"; value: T }
-  | { status: "error"; error: unknown };
+  { status: "ready"; value: T } | { status: "error"; error: unknown };
 
 /** Stable loading sentinel — a fresh object each render would churn consumers. */
 const LOADING = { status: "loading" } as const;

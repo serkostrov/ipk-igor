@@ -26,10 +26,7 @@ import {
   serializeEntityRelationGroups,
 } from "../model/relation-groups";
 import { collectViewerDepartmentIds } from "../model/departments";
-import {
-  getEntityRecordById,
-  getEntityRecords,
-} from "../model/record-queries";
+import { getEntityRecordById, getEntityRecords } from "../model/record-queries";
 import {
   findSystemUserByAuthId,
   getSystemUserName,

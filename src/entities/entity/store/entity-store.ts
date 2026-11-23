@@ -57,10 +57,7 @@ import {
   applyEntityFilesTabDefaults,
   collectLookupSoftFillPatchesFromRelated,
 } from "../model/field-value";
-import {
-  getEntityRecordById,
-  getEntityRecords,
-} from "../model/record-queries";
+import { getEntityRecordById, getEntityRecords } from "../model/record-queries";
 import {
   getEntityTimelineSetup,
   scheduleEntityTimeline,
@@ -2568,7 +2565,10 @@ export async function removeEntityTab(
       try {
         await deleteEntityRecordsByEntityId(ownedLinkedId);
       } catch (error: unknown) {
-        handlePersistError(error, "Не удалось удалить записи связанной сущности");
+        handlePersistError(
+          error,
+          "Не удалось удалить записи связанной сущности",
+        );
         throw error;
       }
     } else if (linkFieldId && !linkFieldStillUsed && linkedEntityId) {

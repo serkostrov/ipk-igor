@@ -1079,6 +1079,7 @@ function EntityTableViewInner({
       {hideFilters ? null : (
         <div className="shrink-0">
           <EntityBrowseFilters
+            entity={entity}
             fields={filterFields}
             entities={entities}
             search={search}

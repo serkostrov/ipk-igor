@@ -301,6 +301,8 @@ export {
   serializeEntityDependencies,
   parseEntityRelationGroups,
   serializeEntityRelationGroups,
+  serializeEntityRelationGroupsFromIds,
+  coerceToEntityRelationGroupsValue,
   buildEntityRelationGroupsValue,
   withEntityRelationGroupsDefaultNested,
   withEntityRelationGroupsDefaults,

@@ -13,23 +13,27 @@ import {
 } from "@/shared/ui/select";
 import { cn } from "@/shared/lib/cn";
 import {
-  entityListValueIncludesId,
-  entityRelationIncludesId,
   formatEntityFieldFilesSummary,
   formatEntityPeriodDisplay,
   formatRecordFieldValue,
   getEntityFieldDisplayName,
   getEntityListOption,
   getEntityRelationTargetId,
+  getRecordFieldIds,
   getRecordFieldNumber,
   getRelationRecordOptions,
+  isEntityFieldManualInputEnabled,
   isEntityNameField,
   isEntityNumericFieldType,
   normalizeEntityDecimalInput,
   parseEntityDecimal,
   parseEntityPeriod,
+  resolveEntityComputedManualEditField,
+  resolveEntityFieldSource,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
+  resolveEntityLookupTarget,
+  resolveRecordFieldCells,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -46,6 +50,60 @@ export function getEntityBrowseFilterFields(entity: Entity): EntityField[] {
   return entity.fields.filter(
     (field) => field.showInFilters !== false && !isEntityNameField(field),
   );
+}
+
+/**
+ * Field that drives the filter control (lookups inherit the target field type).
+ * Manual-input lookups reuse the same stand-in as the form editor.
+ */
+function resolveBrowseFilterSource(
+  entity: Entity,
+  field: EntityField,
+  entities: Entity[],
+): { entity: Entity; field: EntityField } | null {
+  if (field.type !== "lookup") return { entity, field };
+
+  if (isEntityFieldManualInputEnabled(field)) {
+    const editField = resolveEntityComputedManualEditField(
+      entity,
+      field,
+      entities,
+    );
+    if (editField) {
+      const target = resolveEntityLookupTarget(entity, field, entities);
+      return { entity: target?.entity ?? entity, field: editField };
+    }
+  }
+
+  return resolveEntityFieldSource(entity, field, entities);
+}
+
+/**
+ * Stored / looked-up raw strings used by range and boolean filters.
+ * When auto lookup cells are empty, falls back to a manual override on the host.
+ */
+function getBrowseFilterRawValues(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField,
+): string[] {
+  if (field.type !== "lookup") return [record.values[field.id] ?? ""];
+
+  const fromCells = resolveRecordFieldCells(ctx, entity, record, field)
+    .map((cell) => cell.record.values[cell.field.id] ?? "")
+    .filter((raw) => raw.trim().length > 0);
+  if (fromCells.length > 0) return fromCells;
+
+  if (!isEntityFieldManualInputEnabled(field)) return [];
+  const editField = resolveEntityComputedManualEditField(
+    entity,
+    field,
+    ctx.entities ?? [],
+  );
+  if (!editField) return [];
+  const stored = (record.values[field.id] ?? "").trim();
+  return stored ? [stored] : [];
 }
 
 export const ENTITY_FILTER_ALL_OPTION = "__all__";
@@ -131,37 +189,42 @@ export function recordMatchesFilters(
     const filter = filters[field.id];
     if (!filter || !isEntityFilterActive(filter)) return true;
 
-    const raw = record.values[field.id] ?? "";
-
     if (filter.kind === "boolean") {
-      return raw === filter.value;
+      return getBrowseFilterRawValues(ctx, entity, record, field).some(
+        (raw) => raw === filter.value,
+      );
     }
 
     if (filter.kind === "list") {
-      if (field.type === "relation") {
-        return entityRelationIncludesId(raw, filter.optionId);
-      }
-      if (field.type === "list" && field.listMultiple) {
-        return entityListValueIncludesId(raw, filter.optionId);
-      }
-      return raw === filter.optionId;
+      // Covers list / relation / belonging and lookups of those kinds.
+      return getRecordFieldIds(ctx, entity, record, field).includes(
+        filter.optionId,
+      );
     }
 
     if (filter.kind === "datetime") {
-      const date = extractDatePart(raw);
-      if (!date) return false;
-      if (filter.from && date < filter.from) return false;
-      if (filter.to && date > filter.to) return false;
-      return true;
+      return getBrowseFilterRawValues(ctx, entity, record, field).some(
+        (raw) => {
+          const date = extractDatePart(raw);
+          if (!date) return false;
+          if (filter.from && date < filter.from) return false;
+          if (filter.to && date > filter.to) return false;
+          return true;
+        },
+      );
     }
 
     if (filter.kind === "period") {
-      const period = parseEntityPeriod(raw);
-      if (!period) return false;
-      // Overlap: period intersects the filter window.
-      if (filter.from && period.end < filter.from) return false;
-      if (filter.to && period.start > filter.to) return false;
-      return true;
+      return getBrowseFilterRawValues(ctx, entity, record, field).some(
+        (raw) => {
+          const period = parseEntityPeriod(raw);
+          if (!period) return false;
+          // Overlap: period intersects the filter window.
+          if (filter.from && period.end < filter.from) return false;
+          if (filter.to && period.start > filter.to) return false;
+          return true;
+        },
+      );
     }
 
     if (filter.kind === "number") {
@@ -297,6 +360,7 @@ function DateRangeFilterControl({
 }
 
 export function EntityBrowseFilters({
+  entity,
   fields,
   entities = [],
   search,
@@ -307,6 +371,8 @@ export function EntityBrowseFilters({
   layout = "bar",
   searchId = "entity-browse-search",
 }: {
+  /** Host entity — needed to resolve lookup filter controls. */
+  entity: Entity;
   fields: EntityField[];
   entities?: Entity[];
   search: string;
@@ -373,8 +439,11 @@ export function EntityBrowseFilters({
       {fields.map((field) => {
         const label = getEntityFieldDisplayName(field);
         const fieldId = `entity-filter-${field.id}`;
+        // Lookups reuse the target field's control (list / relation / …).
+        const browseSource = resolveBrowseFilterSource(entity, field, entities);
+        const browseField = browseSource?.field ?? null;
 
-        if (field.type === "boolean") {
+        if (browseField?.type === "boolean") {
           const current = filters[field.id];
           const value =
             current?.kind === "boolean" && current.value
@@ -420,12 +489,15 @@ export function EntityBrowseFilters({
           );
         }
 
-        if (field.type === "list") {
+        if (browseField?.type === "list") {
           const current = filters[field.id];
           const optionId = current?.kind === "list" ? current.optionId : "";
-          const listOptions = resolveEntityListFieldOptions(field, entities);
+          const listOptions = resolveEntityListFieldOptions(
+            browseField,
+            entities,
+          );
           const listPresentation = resolveEntityListFieldPresentation(
-            field,
+            browseField,
             entities,
           );
           const selected = getEntityListOption(listOptions, optionId);
@@ -493,8 +565,16 @@ export function EntityBrowseFilters({
           );
         }
 
-        if (field.type === "relation") {
-          const targetId = getEntityRelationTargetId(field);
+        if (
+          browseSource &&
+          (browseSource.field.type === "relation" ||
+            browseSource.field.type === "belonging")
+        ) {
+          const relationField = browseSource.field;
+          const targetId =
+            relationField.type === "belonging"
+              ? browseSource.entity.id
+              : getEntityRelationTargetId(relationField);
           const target = targetId
             ? (entities.find((item) => item.id === targetId) ?? null)
             : null;
@@ -542,7 +622,7 @@ export function EntityBrowseFilters({
           );
         }
 
-        if (field.type === "datetime") {
+        if (browseField?.type === "datetime") {
           const current = filters[field.id];
           const from = current?.kind === "datetime" ? current.from : "";
           const to = current?.kind === "datetime" ? current.to : "";
@@ -564,7 +644,7 @@ export function EntityBrowseFilters({
           );
         }
 
-        if (field.type === "period") {
+        if (browseField?.type === "period") {
           const current = filters[field.id];
           const from = current?.kind === "period" ? current.from : "";
           const to = current?.kind === "period" ? current.to : "";
@@ -586,7 +666,7 @@ export function EntityBrowseFilters({
           );
         }
 
-        if (isEntityNumericFieldType(field.type)) {
+        if (browseField && isEntityNumericFieldType(browseField.type)) {
           const current = filters[field.id];
           const from = current?.kind === "number" ? current.from : "";
           const to = current?.kind === "number" ? current.to : "";

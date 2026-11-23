@@ -21,12 +21,14 @@ export function Loader({ label, block, className }: Props) {
       )}
     >
       <Loader2 className="size-4 animate-spin" aria-hidden />
-      {label ? <span>{label}</span> : <span className="sr-only">Загрузка…</span>}
+      {label ? (
+        <span>{label}</span>
+      ) : (
+        <span className="sr-only">Загрузка…</span>
+      )}
     </span>
   );
 
   if (!block) return spinner;
-  return (
-    <div className="flex items-center justify-center p-4">{spinner}</div>
-  );
+  return <div className="flex items-center justify-center p-4">{spinner}</div>;
 }
