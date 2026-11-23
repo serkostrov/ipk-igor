@@ -5,6 +5,7 @@
  */
 
 import {
+  getEntityRecordById,
   getEntityConfig,
   getEntityRecordTitle,
   getEntityTabFilesValueKey,
@@ -47,14 +48,14 @@ export async function submitTkpDocumentForApproval(input: {
   revision: TkpPriceRevisionSummary;
   entities: readonly Entity[];
 }): Promise<SubmitTkpDocumentForApprovalResult> {
-  assertTkpDocumentApprovalReady({
+  await assertTkpDocumentApprovalReady({
     entity: input.entity,
     record: input.record,
     entities: input.entities,
     revision: input.revision,
   });
 
-  const target = resolveTkpDocumentFilesTarget({
+  const target = await resolveTkpDocumentFilesTarget({
     entity: input.entity,
     record: input.record,
     entities: input.entities,
@@ -85,10 +86,12 @@ export async function submitTkpDocumentForApproval(input: {
 
   const valueKey = getEntityTabFilesValueKey(target.tab.id);
   const liveValues =
-    getEntityConfig()
-      .entities.find((item) => item.id === target.entity.id)
-      ?.records.find((item) => item.id === target.record.id)?.values ??
-    target.record.values;
+    (
+      await getEntityRecordById(
+        getEntityConfig().entities.find((item) => item.id === target.entity.id),
+        target.record.id,
+      )
+    )?.values ?? target.record.values;
   let entries = parseEntityTabFileEntries(liveValues[valueKey]);
   const ensured = ensureTkpDocumentsFolder(entries);
   entries = ensured.entries;

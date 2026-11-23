@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   ArrowUpRight,
   ChevronDown,
@@ -58,6 +59,8 @@ import {
   formatRecordFieldValue,
   ENTITY_FIELD_GROUP_COLUMNS,
   getEntityFieldDisplayName,
+  getEntityRecordById,
+  getEntityRecords,
   getEntityRecordTitle,
   getEntityRelationTargetId,
   getEntityTableDisplayColumnNumber,
@@ -148,6 +151,10 @@ type RecordEntityTabPanelProps = {
 };
 
 type AddFlow = "closed" | "choice" | "existing";
+
+/** Stable identity for the loading fallback so downstream memos don't churn. */
+const EMPTY_HIERARCHY_GROUP_IDS: string[] = [];
+const EMPTY_LINKED_RECORDS: EntityRecord[] = [];
 
 function getRecordCardFields(entity: Entity, parentLinkFieldId: string | null) {
   return entity.fields.filter(
@@ -470,13 +477,15 @@ function RecordsTable({
   /** `null` — all groups expanded by default until the user toggles. */
   const [expandedIds, setExpandedIds] = useState<Set<string> | null>(null);
 
-  const hierarchyGroupIds = useMemo(() => {
+  const hierarchyGroupIdsValue = useAsyncValue(async () => {
     if (nestedTarget) {
-      return flattenEntityTableNestedRows(
-        records,
-        nestedTarget,
-        new Set(),
-        (record) => getEntityRecordTitle(valueContext, entity, record),
+      return (
+        await flattenEntityTableNestedRows(
+          records,
+          nestedTarget,
+          new Set(),
+          (record) => getEntityRecordTitle(valueContext, entity, record),
+        )
       )
         .filter((row) => row.kind === "group")
         .map((row) => row.id);
@@ -526,15 +535,19 @@ function RecordsTable({
     subgroupField,
     valueContext,
   ]);
+  const hierarchyGroupIds =
+    hierarchyGroupIdsValue.status === "ready"
+      ? hierarchyGroupIdsValue.value
+      : EMPTY_HIERARCHY_GROUP_IDS;
 
   const effectiveExpandedIds = useMemo(
     () => expandedIds ?? new Set(hierarchyGroupIds),
     [expandedIds, hierarchyGroupIds],
   );
 
-  const hierarchyRows = useMemo(() => {
+  const hierarchyRowsValue = useAsyncValue(async () => {
     if (nestedTarget) {
-      return flattenEntityTableNestedRows(
+      return await flattenEntityTableNestedRows(
         records,
         nestedTarget,
         effectiveExpandedIds,
@@ -560,13 +573,16 @@ function RecordsTable({
     subgroupField,
     valueContext,
   ]);
+  const hierarchyRows =
+    hierarchyRowsValue.status === "ready" ? hierarchyRowsValue.value : null;
 
   /** Child counts for nested groups (even when collapsed). */
-  const nestedChildCountByParentId = useMemo(() => {
+  const nestedChildCountByParentIdValue = useAsyncValue(async () => {
     if (!nestedTarget) return null;
     const map = new Map<string, number>();
+    const nestedRecords = await getEntityRecords(nestedTarget.entity);
     for (const parent of records) {
-      const count = nestedTarget.entity.records.filter((record) =>
+      const count = nestedRecords.filter((record) =>
         entityRelationIncludesId(
           record.values[nestedTarget.parentLinkFieldId],
           parent.id,
@@ -576,6 +592,10 @@ function RecordsTable({
     }
     return map;
   }, [nestedTarget, records]);
+  const nestedChildCountByParentId =
+    nestedChildCountByParentIdValue.status === "ready"
+      ? nestedChildCountByParentIdValue.value
+      : null;
 
   const columns = getLinkedTableColumns(
     entity,
@@ -1923,35 +1943,45 @@ export function RecordEntityTabPanel({
     [entities, parentEntityId],
   );
 
-  const parentRecord = useMemo(() => {
+  const parentRecordValue = useAsyncValue(async () => {
     if (isSelfRef) {
-      return (
-        linkedEntity.records.find((item) => item.id === parentRecordId) ?? null
-      );
+      return (await getEntityRecordById(linkedEntity, parentRecordId)) ?? null;
     }
-    return (
-      hostEntity?.records.find((item) => item.id === parentRecordId) ?? null
-    );
-  }, [hostEntity, isSelfRef, linkedEntity.records, parentRecordId]);
+    return (await getEntityRecordById(hostEntity, parentRecordId)) ?? null;
+  }, [hostEntity, isSelfRef, linkedEntity, parentRecordId]);
+  const parentRecord =
+    parentRecordValue.status === "ready" ? parentRecordValue.value : null;
+  // Stable reference: an inline `{ entity, record }` here re-creates every render
+  // and would re-fire the dialog's async GIP overlay in an infinite setValues loop.
+  const softFillParent = useMemo(
+    () =>
+      hostEntity && parentRecord
+        ? { entity: hostEntity, record: parentRecord }
+        : null,
+    [hostEntity, parentRecord],
+  );
 
-  const records = useMemo(() => {
-    let ids = collectLinkedTabRecordIds({
+  const recordsValue = useAsyncValue(async () => {
+    let ids = await collectLinkedTabRecordIds({
       tab,
       linkedEntity,
       parentEntityId,
       parentRecordId,
     });
     if (ids.length === 0) {
-      ids = collectRecordsLinkedToParent({
+      ids = await collectRecordsLinkedToParent({
         childEntity: linkedEntity,
         parentEntityId,
         parentRecordId,
         host: hostEntity,
       });
     }
-    if (ids.length === 0) return [];
+    if (ids.length === 0) return [] as EntityRecord[];
     const byId = new Map(
-      (linkedEntity.records ?? []).map((record) => [record.id, record]),
+      (await getEntityRecords(linkedEntity)).map((record) => [
+        record.id,
+        record,
+      ]),
     );
     const linked = ids
       .map((id) => byId.get(id))
@@ -1986,6 +2016,8 @@ export function RecordEntityTabPanel({
     restrictDeptToOwn,
     tab,
   ]);
+  const records: EntityRecord[] =
+    recordsValue.status === "ready" ? recordsValue.value : EMPTY_LINKED_RECORDS;
 
   const linkedRecordIds = useMemo(
     () => new Set(records.map((record) => record.id)),
@@ -2110,7 +2142,7 @@ export function RecordEntityTabPanel({
    * Constrain row edits for heads (own depts) and GIP (only «ГИП» rows).
    * Admins / managers keep full edit (`null`).
    */
-  const editableDeptRecordIds = useMemo(() => {
+  const editableDeptRecordIdsValue = useAsyncValue(async () => {
     if (!isDeptCalculationsEntity(linkedEntity)) return null;
     const forceLeadGip = isTkpGipRole(role);
     if (!restrictDeptToOwn && !forceLeadGip) return null;
@@ -2134,6 +2166,10 @@ export function RecordEntityTabPanel({
     restrictDeptToOwn,
     role,
   ]);
+  const editableDeptRecordIds =
+    editableDeptRecordIdsValue.status === "ready"
+      ? editableDeptRecordIdsValue.value
+      : null;
 
   /** Hardcode: GIP cost summary lives at the end of «Расчёты отделов» on TKP. */
   const tkpGipFooter =
@@ -2304,13 +2340,11 @@ export function RecordEntityTabPanel({
             onOpenChange={(open) => {
               if (!open) setAddFlow("closed");
             }}
-            onSubmit={(recordId) => {
+            onSubmit={async (recordId) => {
               if (!parentLinkFieldId || atSingleRecordLimit) return;
-              const record = linkedEntity.records.find(
-                (item) => item.id === recordId,
-              );
+              const record = await getEntityRecordById(linkedEntity, recordId);
               if (!record) return;
-              updateEntityRecord(linkedEntity.id, recordId, {
+              await updateEntityRecord(linkedEntity.id, recordId, {
                 ...record.values,
                 [parentLinkFieldId]: serializeEntityRelationIds([
                   ...parseEntityRelationIds(record.values[parentLinkFieldId]),
@@ -2332,11 +2366,7 @@ export function RecordEntityTabPanel({
             entity={linkedEntity}
             record={dialogRecord === "new" ? null : dialogRecord}
             entities={entities}
-            softFillParent={
-              hostEntity && parentRecord
-                ? { entity: hostEntity, record: parentRecord }
-                : null
-            }
+            softFillParent={softFillParent}
             presetValues={presetValues}
             hiddenFieldIds={
               parentLinkFieldId ? new Set([parentLinkFieldId]) : undefined
@@ -2439,9 +2469,9 @@ export function RecordEntityTabPanel({
                   : "Вы уверены, что хотите удалить эту запись?"
               }
               confirmLabel="Удалить"
-              onConfirm={() => {
+              onConfirm={async () => {
                 if (!canDelete || !pendingDelete) return;
-                removeEntityRecord(linkedEntity.id, pendingDelete.id);
+                await removeEntityRecord(linkedEntity.id, pendingDelete.id);
               }}
             />
           ) : (
@@ -2457,7 +2487,7 @@ export function RecordEntityTabPanel({
                   : "Убрать запись с этой вкладки? Она останется в системе."
               }
               confirmLabel="Убрать"
-              onConfirm={() => {
+              onConfirm={async () => {
                 if (!pendingDelete || !parentLinkFieldId) return;
 
                 // Direct link: related → current. Reverse self-link: current → related.
@@ -2467,7 +2497,7 @@ export function RecordEntityTabPanel({
                     parentRecordId,
                   )
                 ) {
-                  updateEntityRecord(linkedEntity.id, pendingDelete.id, {
+                  await updateEntityRecord(linkedEntity.id, pendingDelete.id, {
                     ...pendingDelete.values,
                     [parentLinkFieldId]: serializeEntityRelationIds(
                       parseEntityRelationIds(
@@ -2483,7 +2513,7 @@ export function RecordEntityTabPanel({
                     pendingDelete.id,
                   )
                 ) {
-                  updateEntityRecord(linkedEntity.id, parentRecord.id, {
+                  await updateEntityRecord(linkedEntity.id, parentRecord.id, {
                     ...parentRecord.values,
                     [parentLinkFieldId]: serializeEntityRelationIds(
                       parseEntityRelationIds(

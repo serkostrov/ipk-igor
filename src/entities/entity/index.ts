@@ -449,11 +449,14 @@ export {
   useEntityConfig,
   useEntityError,
   useEntityForRecord,
+  useFirstEntityRecord,
   useEntityStatus,
   useEntityValueContext,
   usePrefetchEntitySchemaVersions,
   useRunningTimer,
 } from "./hooks/use-entity";
+export { usePageRecordScope } from "./hooks/use-page-record-scope";
+export { useEnsureRecordsByIds } from "./hooks/use-ensure-records";
 export {
   canStartEntityTimer,
   findRunningTimer,
@@ -486,7 +489,7 @@ export { RelationSelect } from "./ui/RelationSelect";
 export { RelationGroupsFieldControl } from "./ui/RelationGroupsFieldControl";
 export {
   ENTITY_TABLE_HIERARCHY_EMPTY_GROUP_ID,
-  countEntityTableNestedChildren,
+  countNestedChildrenByHost,
   encodeEntityTableSubgroupRowId,
   findEntityManagerUserField,
   flattenEntityTableBelongingTreeRows,
@@ -678,6 +681,8 @@ export {
   createEntityRecordId,
   waitForEntityRecordInsert,
   waitForEntityRecordDelete,
+  ensureEntityRecords,
+  getEntityRecordsLoadStatus,
   appendEntityRecord,
   addEntityTab,
   addEntityMirrorTab,
@@ -759,3 +764,19 @@ export {
   entityHasUnpublishedSchemaChanges,
   resolveEntityForRecord,
 } from "./model/schema-version";
+export {
+  getFirstEntityRecord,
+  getEntityRecords,
+  getEntityOwningRecord,
+  getEntityRecordById,
+  getEntityRecordsByIds,
+  getEntityRecordsByRelation,
+  getEntityRecordsByFirstListOption,
+} from "./model/record-queries";
+export { resolveEntityRecordClosure } from "./model/record-closure";
+export {
+  useTkpGipExtrasResolver,
+  useTkpGipLeadContext,
+  type TkpGipLeadContext,
+} from "./lib/use-tkp-gip-extras";
+export { parseEntityStructureRow } from "./api/entity-config-api";

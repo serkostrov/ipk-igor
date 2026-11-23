@@ -334,9 +334,9 @@ export function RecordTimeSessionsTabPanel({
         title="Удалить сессию?"
         description="Запись времени будет удалена без возможности восстановления."
         confirmLabel="Удалить"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!deleteRow || !setup) return;
-          removeEntityRecord(setup.entryEntity.id, deleteRow.entry.id);
+          await removeEntityRecord(setup.entryEntity.id, deleteRow.entry.id);
         }}
       />
     </section>

@@ -32,3 +32,16 @@ export type EntityRecordEventsPage = {
   events: EntityRecordEvent[];
   hasMore: boolean;
 };
+
+export type EntityEventsQuery = Omit<EntityRecordEventsQuery, "recordId">;
+
+export type EntityStructureEvent = Pick<
+  EntityRecordEvent,
+  "id" | "entityId" | "actorId" | "createdAt"
+> & {
+  action: EntityRecordEventAction | "publish";
+  entityName: string;
+  version: number | null;
+  message: string | null;
+  hasDetails: boolean;
+};

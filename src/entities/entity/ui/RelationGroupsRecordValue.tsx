@@ -8,9 +8,9 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import {
-  formatTkpGipDepartmentExtras,
-  resolveTkpGipLeadContext,
-} from "../lib/hardcode-tkp-gip";
+  useTkpGipExtrasResolver,
+  useTkpGipLeadContext,
+} from "../lib/use-tkp-gip-extras";
 import {
   getRelationGroupsDisplayTree,
   type EntityValueContext,
@@ -85,33 +85,21 @@ export function RelationGroupsRecordValue({
   className?: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
-  const leadParent = resolveTkpGipLeadContext({
+  const leadParent = useTkpGipLeadContext({
     hostEntity: entity,
     hostRecord: record,
     entities: ctx.entities,
+  });
+  const resolveRecordExtras = useTkpGipExtrasResolver({
+    ctx,
+    hostEntity: entity,
+    leadParent,
   });
   const tree = getRelationGroupsDisplayTree(
     ctx,
     field,
     record.values[field.id] ?? "",
-    leadParent
-      ? ({
-          entity: departmentEntity,
-          recordId: departmentRecordId,
-          fieldIds,
-          defaultExtras,
-        }) =>
-          formatTkpGipDepartmentExtras({
-            ctx,
-            hostEntity: entity,
-            parentEntity: leadParent.entity,
-            parentRecord: leadParent.record,
-            departmentEntity,
-            departmentRecordId,
-            displayFieldIds: fieldIds,
-            defaultExtras,
-          })
-      : undefined,
+    resolveRecordExtras,
   );
   const openNode = openId
     ? (tree.find((node) => node.id === openId) ?? null)

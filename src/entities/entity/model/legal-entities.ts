@@ -1,4 +1,5 @@
 import { getEntityRelationTargetId, parseEntityRelationIds } from "./field";
+import { getEntityRecordById } from "./record-queries";
 import type { Entity, EntityRecord } from "./types";
 
 const LEGAL_ENTITY_NAMES = ["Юрлица", "Юрлицо", "Юридические лица"] as const;
@@ -91,14 +92,14 @@ export function entityCanLinkToLegalEntities(
 /**
  * Collect юрлицо record ids linked to this record (direct + short hops).
  */
-export function collectRecordLegalEntityIds(
+export async function collectRecordLegalEntityIds(
   entity: Entity,
   record: EntityRecord,
   legalEntitiesEntityId: string,
   entities: readonly Entity[],
   depth = 0,
   visited = new Set<string>(),
-): string[] {
+): Promise<string[]> {
   const key = `${entity.id}:${record.id}`;
   if (depth > 3 || visited.has(key)) return [];
   visited.add(key);
@@ -132,9 +133,9 @@ export function collectRecordLegalEntityIds(
       continue;
     }
     for (const relatedId of parseEntityRelationIds(record.values[field.id])) {
-      const related = target.records.find((item) => item.id === relatedId);
+      const related = await getEntityRecordById(target, relatedId);
       if (!related) continue;
-      for (const id of collectRecordLegalEntityIds(
+      for (const id of await collectRecordLegalEntityIds(
         target,
         related,
         legalEntitiesEntityId,
@@ -155,13 +156,13 @@ export function collectRecordLegalEntityIds(
  * Entities without a path to Юрлица stay visible.
  * Linked records must intersect allowedIds.
  */
-export function recordMatchesLegalEntityScope(
+export async function recordMatchesLegalEntityScope(
   entity: Entity,
   record: EntityRecord,
   allowedLegalEntityIds: readonly string[],
   legalEntitiesEntity: Entity | null,
   entities: readonly Entity[],
-): boolean {
+): Promise<boolean> {
   if (allowedLegalEntityIds.length === 0) return true;
   if (!legalEntitiesEntity) return true;
 
@@ -169,7 +170,7 @@ export function recordMatchesLegalEntityScope(
     return true;
   }
 
-  const linked = collectRecordLegalEntityIds(
+  const linked = await collectRecordLegalEntityIds(
     entity,
     record,
     legalEntitiesEntity.id,

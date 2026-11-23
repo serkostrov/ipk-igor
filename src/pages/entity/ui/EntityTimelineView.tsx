@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChartGantt, ChevronDown, ChevronRight } from "lucide-react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { isWeekendDayNumber } from "@/shared/lib/business-days";
@@ -45,6 +46,9 @@ import {
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 import { TimelineGroupRecordsDialog } from "./TimelineGroupRecordsDialog";
+
+/** Stable identity for the loading fallback so downstream memos don't churn. */
+const EMPTY_TIMELINE_GROUPS: TimelineGroup[] = [];
 
 function filtersWithoutField(
   filters: EntityFiltersState,
@@ -256,13 +260,15 @@ export function EntityTimelineView({
     valueContext,
   ]);
 
-  const groups = useMemo(
+  const groupsValue = useAsyncValue(
     () =>
       setup
         ? buildTimelineGroups(valueContext, entity, setup, filteredRecords)
-        : [],
+        : Promise.resolve<TimelineGroup[]>([]),
     [entity, filteredRecords, setup, valueContext],
   );
+  const groups =
+    groupsValue.status === "ready" ? groupsValue.value : EMPTY_TIMELINE_GROUPS;
   const range = useMemo(() => getTimelineRange(groups, scale), [groups, scale]);
   const columns = useMemo(
     () => getTimelineColumns(scale, range),

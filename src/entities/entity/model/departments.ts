@@ -1,9 +1,11 @@
+import { getEntityRecordById } from "./record-queries";
 import {
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
   parseEntityRelationIds,
 } from "./field";
 import { findEntityManagerUserField } from "./table-hierarchy";
+import { getEntityValueContext } from "./field-value";
 import {
   findSystemUserByAuthId,
   getSystemUsersEntity,
@@ -130,7 +132,9 @@ export function collectUserDepartmentIds(
 
   const managerField = findEntityManagerUserField(departmentsEntity);
   if (managerField) {
-    for (const department of departmentsEntity.records) {
+    for (const department of getEntityValueContext(entities).getRecords(
+      departmentsEntity.id,
+    )) {
       const managers = parseEntityRelationIds(
         department.values[managerField.id],
       );
@@ -138,7 +142,6 @@ export function collectUserDepartmentIds(
     }
   }
 
-  void entities;
   return [...found];
 }
 
@@ -158,8 +161,9 @@ export function collectViewerDepartmentIds(
 
   const userRecord =
     (options.currentUserRecordId
-      ? usersEntity.records.find(
-          (record) => record.id === options.currentUserRecordId,
+      ? getEntityValueContext(entities).getRecord(
+          usersEntity.id,
+          options.currentUserRecordId,
         )
       : null) ?? findSystemUserByAuthId(entities, options.authUserId);
 
@@ -215,14 +219,14 @@ function entityCanLinkToDepartments(
  * Collect department ids linked to a record: direct «Отдел», short hops, and
  * departments of related Users.
  */
-export function collectRecordDepartmentIds(
+export async function collectRecordDepartmentIds(
   entity: Entity,
   record: EntityRecord,
   departmentsEntity: Entity,
   entities: readonly Entity[],
   depth = 0,
   visited = new Set<string>(),
-): string[] {
+): Promise<string[]> {
   const key = `${entity.id}:${record.id}`;
   if (depth > 3 || visited.has(key)) return [];
   visited.add(key);
@@ -253,7 +257,7 @@ export function collectRecordDepartmentIds(
   if (usersEntity) {
     for (const field of getUserLinkFields(entity)) {
       for (const userId of parseEntityRelationIds(record.values[field.id])) {
-        const user = usersEntity.records.find((item) => item.id === userId);
+        const user = await getEntityRecordById(usersEntity, userId);
         if (!user) continue;
         for (const id of collectUserDepartmentIds(
           user,
@@ -287,9 +291,9 @@ export function collectRecordDepartmentIds(
       continue;
     }
     for (const relatedId of parseEntityRelationIds(record.values[field.id])) {
-      const related = target.records.find((item) => item.id === relatedId);
+      const related = await getEntityRecordById(target, relatedId);
       if (!related) continue;
-      for (const id of collectRecordDepartmentIds(
+      for (const id of await collectRecordDepartmentIds(
         target,
         related,
         departmentsEntity,
@@ -305,16 +309,16 @@ export function collectRecordDepartmentIds(
   return [...found];
 }
 
-function recordCreatedBySameDepartment(
+async function recordCreatedBySameDepartment(
   record: EntityRecord,
   viewerDepartmentIds: ReadonlySet<string>,
   departmentsEntity: Entity,
   entities: readonly Entity[],
-): boolean {
+): Promise<boolean> {
   const usersEntity = getSystemUsersEntity(entities);
   if (!usersEntity || !record.createdBy) return false;
   const creator =
-    usersEntity.records.find((item) => item.id === record.createdBy) ??
+    (await getEntityRecordById(usersEntity, record.createdBy)) ??
     findSystemUserByAuthId(entities, record.createdBy);
   if (!creator) return false;
   return collectUserDepartmentIds(
@@ -331,7 +335,7 @@ function recordCreatedBySameDepartment(
  * involved on the card (same rules as «только свои»). Empty viewer
  * departments → only involved / own records.
  */
-export function recordMatchesDepartmentScope(
+export async function recordMatchesDepartmentScope(
   entity: Entity,
   record: EntityRecord,
   viewerDepartmentIds: readonly string[],
@@ -341,7 +345,7 @@ export function recordMatchesDepartmentScope(
     authUserId: string | null;
     currentUserRecordId: string | null;
   },
-): boolean {
+): Promise<boolean> {
   if (
     recordMatchesOwnScope(entity, record, {
       authUserId: options.authUserId,
@@ -355,7 +359,7 @@ export function recordMatchesDepartmentScope(
   if (!departmentsEntity || viewerDepartmentIds.length === 0) return false;
 
   const allowed = new Set(viewerDepartmentIds);
-  const linked = collectRecordDepartmentIds(
+  const linked = await collectRecordDepartmentIds(
     entity,
     record,
     departmentsEntity,

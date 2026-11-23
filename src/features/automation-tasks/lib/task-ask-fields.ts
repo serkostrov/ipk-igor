@@ -22,6 +22,7 @@ import {
   createEntityDraftRecord,
   getEntityDisplayName,
   getEntityFieldDisplayName,
+  getEntityRecordById,
   isEntityFieldVisibleByConditions,
   isEntityNameField,
   isEntityTabWithLinkedEntity,
@@ -66,8 +67,11 @@ function childEntityLabel(parent: Entity | null, child: Entity): string {
   return getEntityDisplayName(child);
 }
 
-function fallbackRelatedParentTitle(entity: Entity, recordId: string): string {
-  const record = entity.records.find((item) => item.id === recordId);
+async function fallbackRelatedParentTitle(
+  entity: Entity,
+  recordId: string,
+): Promise<string> {
+  const record = await getEntityRecordById(entity, recordId);
   if (!record) return "Запись";
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   const raw = nameField ? (record.values[nameField.id] ?? "").trim() : "";
@@ -470,7 +474,7 @@ export type GetOutcomeCreateAskSlotsOptions = {
   sourceEntity?: Entity | null;
   triggerRecordId?: string;
   triggerValues?: Record<string, string>;
-  getRecordTitle?: (entity: Entity, recordId: string) => string;
+  getRecordTitle?: (entity: Entity, recordId: string) => string | Promise<string>;
 };
 
 /**
@@ -527,11 +531,11 @@ function nestedSpecToSlot(
 }
 
 /** createRecord actions that need a task-form section. */
-export function getOutcomeCreateAskSlots(
+export async function getOutcomeCreateAskSlots(
   outcome: AutomationOutcome,
   entities: Entity[],
   options: GetOutcomeCreateAskSlotsOptions = {},
-): AutomationCreateAskSlot[] {
+): Promise<AutomationCreateAskSlot[]> {
   const sourceEntity = options.sourceEntity ?? null;
   const slots: AutomationCreateAskSlot[] = [];
   for (const action of outcome.actions) {
@@ -605,7 +609,7 @@ export function getOutcomeCreateAskSlots(
       const relatedParentsList: AutomationCreateAskUnderRelatedParent[] = [];
       if (sourceEntity && options.triggerRecordId) {
         for (const parentFrom of parentFromRelatedList) {
-          const resolved = resolveCreateParentFromRelated({
+          const resolved = await resolveCreateParentFromRelated({
             triggerEntity: sourceEntity,
             entities,
             parentFrom,
@@ -618,17 +622,18 @@ export function getOutcomeCreateAskSlots(
           for (const parentRecordId of new Set(resolved.parentRecordIds)) {
             if (seenParentRecords.has(parentRecordId)) continue;
             seenParentRecords.add(parentRecordId);
+            const provided = await options.getRecordTitle?.(
+              resolved.parentEntity,
+              parentRecordId,
+            );
             relatedParentsList.push({
               parentRecordId,
               parentTitle:
-                options.getRecordTitle?.(
+                provided ??
+                (await fallbackRelatedParentTitle(
                   resolved.parentEntity,
                   parentRecordId,
-                ) ??
-                fallbackRelatedParentTitle(
-                  resolved.parentEntity,
-                  parentRecordId,
-                ),
+                )),
               nestedId: createRecordUnderRelatedNestedId(parentRecordId),
             });
           }
@@ -967,27 +972,31 @@ export function buildSingleCreateAskDraftRecord(
   );
 }
 
-export function validateCreateAskRequired(options: {
+export async function validateCreateAskRequired(options: {
   outcome: AutomationOutcome;
   entities: Entity[];
   values: Record<string, string>;
   sourceEntity?: Entity | null;
   triggerRecordId?: string;
   triggerValues?: Record<string, string>;
-  getRecordTitle?: (entity: Entity, recordId: string) => string;
+  getRecordTitle?: (entity: Entity, recordId: string) => string | Promise<string>;
   ctx?: EntityValueContext;
   isFieldFilled: (
     field: EntityField,
     value: string,
     relationGroupsMode?: string,
   ) => boolean;
-}): string | null {
-  const slots = getOutcomeCreateAskSlots(options.outcome, options.entities, {
-    sourceEntity: options.sourceEntity,
-    triggerRecordId: options.triggerRecordId,
-    triggerValues: options.triggerValues,
-    getRecordTitle: options.getRecordTitle,
-  });
+}): Promise<string | null> {
+  const slots = await getOutcomeCreateAskSlots(
+    options.outcome,
+    options.entities,
+    {
+      sourceEntity: options.sourceEntity,
+      triggerRecordId: options.triggerRecordId,
+      triggerValues: options.triggerValues,
+      getRecordTitle: options.getRecordTitle,
+    },
+  );
   const missingLabels: string[] = [];
   for (const slot of slots) {
     const entity = options.entities.find((item) => item.id === slot.entityId);

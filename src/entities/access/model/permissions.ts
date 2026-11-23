@@ -15,6 +15,7 @@ import {
   findLegalEntitiesEntity,
   findSystemUserByAuthId,
   getSystemUsersEntity,
+  getEntityRecordById,
   matchesEntityConditions,
   recordMatchesDepartmentScope,
   recordMatchesLegalEntityScope,
@@ -107,12 +108,12 @@ export function roleLegalEntityIds(
 }
 
 /** Whether a record is visible under the role's юрлицо restriction. */
-export function canViewRecordForLegalEntities(
+export async function canViewRecordForLegalEntities(
   role: Role | null | undefined,
   entity: Entity,
   record: EntityRecord,
   entities: readonly Entity[],
-): boolean {
+): Promise<boolean> {
   const allowed = roleLegalEntityIds(role);
   if (allowed.length === 0) return true;
   return recordMatchesLegalEntityScope(
@@ -125,7 +126,7 @@ export function canViewRecordForLegalEntities(
 }
 
 /** Whether a record is visible under entity data scope (all / own / department / filter). */
-export function canViewRecordForDataScope(
+export async function canViewRecordForDataScope(
   role: Role | null | undefined,
   entity: Entity,
   record: EntityRecord,
@@ -135,7 +136,7 @@ export function canViewRecordForDataScope(
     currentUserRecordId: string | null;
     valueContext?: EntityValueContext;
   },
-): boolean {
+): Promise<boolean> {
   if (!role || isAdminRole(role)) return true;
   const scope = entityScope(role, entity.id);
   if (scope === "all") return true;
@@ -316,14 +317,14 @@ type AutomationTaskVisibilityTarget = {
   recordId: string;
 };
 
-function taskAssigneeInViewerDepartment(
+async function taskAssigneeInViewerDepartment(
   assigneeUserId: string | null,
   options: {
     authUserId: string | null;
     userRecordId: string | null;
     entities: Entity[];
   },
-): boolean {
+): Promise<boolean> {
   if (!assigneeUserId) return true;
   if (options.authUserId != null && assigneeUserId === options.authUserId) {
     return true;
@@ -345,7 +346,7 @@ function taskAssigneeInViewerDepartment(
   if (viewerDepartmentIds.size === 0) return false;
 
   const assignee =
-    usersEntity.records.find((item) => item.id === assigneeUserId) ??
+    (await getEntityRecordById(usersEntity, assigneeUserId)) ??
     findSystemUserByAuthId(options.entities, assigneeUserId);
   if (!assignee) return false;
 
@@ -357,7 +358,7 @@ function taskAssigneeInViewerDepartment(
   ).some((id) => viewerDepartmentIds.has(id));
 }
 
-function taskMatchesAutomationScope(
+async function taskMatchesAutomationScope(
   role: Role | null | undefined,
   task: AutomationTaskVisibilityTarget,
   options: {
@@ -366,7 +367,7 @@ function taskMatchesAutomationScope(
     entities: Entity[];
     valueContext: EntityValueContext;
   },
-): boolean {
+): Promise<boolean> {
   const scope = automationTasksScope(role);
   if (scope === "all") return true;
 
@@ -389,7 +390,7 @@ function taskMatchesAutomationScope(
 
   if (scope === "department") {
     if (
-      taskAssigneeInViewerDepartment(task.assigneeUserId, {
+      await taskAssigneeInViewerDepartment(task.assigneeUserId, {
         authUserId: options.authUserId,
         userRecordId: options.userRecordId,
         entities: options.entities,
@@ -398,7 +399,7 @@ function taskMatchesAutomationScope(
       return true;
     }
     const entity = options.entities.find((item) => item.id === task.entityId);
-    const record = entity?.records.find((item) => item.id === task.recordId);
+    const record = await getEntityRecordById(entity, task.recordId);
     if (!entity || !record) return false;
     const viewerDepartmentIds = collectViewerDepartmentIds(options.entities, {
       authUserId: options.authUserId,
@@ -423,7 +424,7 @@ function taskMatchesAutomationScope(
   if (filter.conditions.length === 0) return false;
   const entity = options.entities.find((item) => item.id === filter.entityId);
   if (!entity) return false;
-  const record = entity.records.find((item) => item.id === task.recordId);
+  const record = await getEntityRecordById(entity, task.recordId);
   if (!record) return false;
   return matchesEntityConditions(
     options.valueContext,
@@ -434,7 +435,7 @@ function taskMatchesAutomationScope(
 }
 
 /** Whether the role may open / see this automation task instance. */
-export function canViewAutomationTask(
+export async function canViewAutomationTask(
   role: Role | null | undefined,
   task: AutomationTaskVisibilityTarget,
   options: {
@@ -443,17 +444,17 @@ export function canViewAutomationTask(
     entities: Entity[];
     valueContext: EntityValueContext;
   },
-): boolean {
+): Promise<boolean> {
   if (!canAccessAutomationTasks(role)) return false;
-  if (!taskMatchesAutomationScope(role, task, options)) return false;
+  if (!(await taskMatchesAutomationScope(role, task, options))) return false;
 
   const entity = options.entities.find((item) => item.id === task.entityId);
-  const record = entity?.records.find((item) => item.id === task.recordId);
+  const record = await getEntityRecordById(entity, task.recordId);
   if (!entity || !record) return true;
   return canViewRecordForLegalEntities(role, entity, record, options.entities);
 }
 
-export function filterAutomationTasksForRole<
+export async function filterAutomationTasksForRole<
   T extends AutomationTaskVisibilityTarget,
 >(
   role: Role | null | undefined,
@@ -464,12 +465,15 @@ export function filterAutomationTasksForRole<
     entities: Entity[];
     valueContext: EntityValueContext;
   },
-): T[] {
+): Promise<T[]> {
   if (!canAccessAutomationTasks(role)) return [];
   const scope = automationTasksScope(role);
   const hasLegalRestriction = roleLegalEntityIds(role).length > 0;
   if (scope === "all" && !hasLegalRestriction) return tasks;
-  return tasks.filter((task) => canViewAutomationTask(role, task, options));
+  const visible = await Promise.all(
+    tasks.map((task) => canViewAutomationTask(role, task, options)),
+  );
+  return tasks.filter((_, index) => visible[index]);
 }
 
 export function canAccessNotifications(role: Role | null | undefined): boolean {

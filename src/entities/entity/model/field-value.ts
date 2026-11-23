@@ -49,6 +49,14 @@ import {
   isEntityListOptionProblem,
 } from "./list-process";
 import { softFillEntityNameFromTemplate } from "./name-template";
+import { getEntityRecordsByRelation } from "./record-queries";
+import { fetchRecordsByIds } from "../api/entity-records-api";
+import {
+  addPrimedRecords,
+  bumpRecordPrime,
+  claimRecordIdsToFetch,
+  getPrimedRecords,
+} from "./record-prime-store";
 import {
   applyEntityScheduleFieldSync,
   getEntityScheduleFieldIds,
@@ -100,6 +108,14 @@ export type EntityValueContext = {
   today: string;
   entityById: Map<string, Entity>;
   recordById: Map<string, RecordRef>;
+  /** Mutable per-entity record lists (seeded from the store; primed from DB). */
+  recordsByEntity: Map<string, EntityRecord[]>;
+  /** Per-entity id index mirroring `recordsByEntity`. */
+  recordIndexByEntity: Map<string, Map<string, EntityRecord>>;
+  /** Records of `entityId` (store + anything primed into the index). */
+  getRecords: (entityId: string) => readonly EntityRecord[];
+  /** A single record of `entityId` by id, or `undefined`. */
+  getRecord: (entityId: string, id: string) => EntityRecord | undefined;
   linkIndexes: Map<string, Map<string, EntityRecord[]>>;
   formulaCache: Map<string, FormulaValue>;
   rollupCache: Map<string, number | null>;
@@ -107,6 +123,7 @@ export type EntityValueContext = {
 };
 
 const LOOKUP_DEPTH_LIMIT = 4;
+const EMPTY_RECORDS: readonly EntityRecord[] = [];
 const contextCache = new WeakMap<readonly Entity[], EntityValueContext>();
 
 export function getEntityValueContext(
@@ -124,10 +141,25 @@ export function getEntityValueContext(
   }
   const entityById = new Map(entities.map((entity) => [entity.id, entity]));
   const recordById = new Map<string, RecordRef>();
+  const recordsByEntity = new Map<string, EntityRecord[]>();
+  const recordIndexByEntity = new Map<string, Map<string, EntityRecord>>();
   for (const entity of entities) {
+    const list = [...entity.records];
+    const index = new Map<string, EntityRecord>();
     for (const record of entity.records) {
       recordById.set(record.id, { entity, record });
+      index.set(record.id, record);
     }
+    // Overlay DB-primed records not held in the store, so a context rebuilt
+    // after a prior fill keeps those relation labels (store wins on conflict).
+    for (const record of getPrimedRecords(entity.id)) {
+      if (index.has(record.id)) continue;
+      list.push(record);
+      index.set(record.id, record);
+      recordById.set(record.id, { entity, record });
+    }
+    recordsByEntity.set(entity.id, list);
+    recordIndexByEntity.set(entity.id, index);
   }
   const context: EntityValueContext = {
     entities,
@@ -135,6 +167,10 @@ export function getEntityValueContext(
     today,
     entityById,
     recordById,
+    recordsByEntity,
+    recordIndexByEntity,
+    getRecords: (entityId) => recordsByEntity.get(entityId) ?? EMPTY_RECORDS,
+    getRecord: (entityId, id) => recordIndexByEntity.get(entityId)?.get(id),
     linkIndexes: new Map(),
     formulaCache: new Map(),
     rollupCache: new Map(),
@@ -164,6 +200,118 @@ function findField(entity: Pick<Entity, "fields">, fieldId: string | null) {
   return entity.fields.find((item) => item.id === fieldId) ?? null;
 }
 
+export type RecordLabelRefs = { entityId: string; ids: readonly string[] };
+
+/**
+ * Relation/belonging/lookup target ids referenced by the given records, grouped
+ * by target entity — the records whose labels a view needs to display.
+ */
+export function collectRelationLabelRefs(
+  entity: Entity,
+  records: readonly EntityRecord[],
+): RecordLabelRefs[] {
+  const byEntity = new Map<string, Set<string>>();
+  for (const field of entity.fields) {
+    if (
+      field.type !== "relation" &&
+      field.type !== "belonging" &&
+      field.type !== "lookup"
+    ) {
+      continue;
+    }
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) continue;
+    const bucket = byEntity.get(targetId) ?? new Set<string>();
+    for (const record of records) {
+      for (const id of parseEntityRelationIds(record.values[field.id])) {
+        if (id) bucket.add(id);
+      }
+    }
+    if (bucket.size > 0) byEntity.set(targetId, bucket);
+  }
+  return [...byEntity].map(([entityId, ids]) => ({ entityId, ids: [...ids] }));
+}
+
+/**
+ * Insert fetched records of `entityId` into the context index (idempotent).
+ * Returns `true` when anything new landed (callers notify subscribers).
+ */
+export function primeContextRecords(
+  ctx: EntityValueContext,
+  entityId: string,
+  records: readonly EntityRecord[],
+): boolean {
+  const entity = ctx.entityById.get(entityId);
+  if (!entity) return false;
+  let list = ctx.recordsByEntity.get(entityId);
+  if (!list) {
+    list = [];
+    ctx.recordsByEntity.set(entityId, list);
+  }
+  let index = ctx.recordIndexByEntity.get(entityId);
+  if (!index) {
+    index = new Map();
+    ctx.recordIndexByEntity.set(entityId, index);
+  }
+  let changed = false;
+  for (const record of records) {
+    if (index.has(record.id)) continue;
+    list.push(record);
+    index.set(record.id, record);
+    ctx.recordById.set(record.id, { entity, record });
+    changed = true;
+  }
+  return changed;
+}
+
+const primeInFlight = new WeakSet<EntityValueContext>();
+
+/**
+ * Fetch relation targets referenced across the config that aren't in the local
+ * store and prime them, so sync label resolvers find a name even for records of
+ * growing relation targets. Each referenced id is fetched at most once per
+ * session, and fills land in the stable `record-prime-store` so a context
+ * rebuilt afterwards re-seeds them instead of re-fetching.
+ */
+export async function primeMissingContextRecords(
+  ctx: EntityValueContext,
+  entities: readonly Entity[],
+): Promise<void> {
+  if (primeInFlight.has(ctx)) return;
+  primeInFlight.add(ctx);
+  try {
+    // Phase 1 (sync): collect referenced ids absent from the context, claiming
+    // the not-yet-attempted ones up front so concurrent contexts don't re-fetch.
+    const byEntity = new Map<string, string[]>();
+    for (const entity of entities) {
+      for (const { entityId, ids } of collectRelationLabelRefs(
+        entity,
+        entity.records,
+      )) {
+        const missing = ids.filter((id) => id && !ctx.getRecord(entityId, id));
+        const toFetch = claimRecordIdsToFetch(missing);
+        if (toFetch.length === 0) continue;
+        const bucket = byEntity.get(entityId);
+        if (bucket) bucket.push(...toFetch);
+        else byEntity.set(entityId, toFetch);
+      }
+    }
+    if (byEntity.size === 0) return;
+    // Phase 2 (async): fetch claimed ids, persist them to the stable store
+    // (survives ctx churn) and reflect them in the current context.
+    let changed = false;
+    for (const [entityId, ids] of byEntity) {
+      const records = await fetchRecordsByIds(ids);
+      if (records.length > 0) addPrimedRecords(entityId, records);
+      if (primeContextRecords(ctx, entityId, records)) changed = true;
+    }
+    if (changed) bumpRecordPrime();
+  } catch {
+    // Claimed ids stay marked: a transient failure degrades a label to "Без
+    // названия" until reload rather than reopening a refetch storm.
+  }
+}
+
 /** Records of `sourceEntityId` whose relation `linkFieldId` contains the parent. */
 export function getEntityLinkedRecords(
   ctx: EntityValueContext,
@@ -175,8 +323,7 @@ export function getEntityLinkedRecords(
   let index = ctx.linkIndexes.get(key);
   if (!index) {
     index = new Map();
-    const source = ctx.entityById.get(sourceEntityId);
-    for (const record of source?.records ?? []) {
+    for (const record of ctx.getRecords(sourceEntityId)) {
       for (const parentId of parseEntityRelationIds(
         record.values[linkFieldId],
       )) {
@@ -1136,7 +1283,9 @@ function getRelationLabel(
   recordId: string,
 ): string | null {
   const target = ctx.entityById.get(getEntityRelationTargetId(field) ?? "");
-  return target ? resolveRelationRecordLabel(target, recordId) : null;
+  return target
+    ? resolveRelationRecordLabel(target, recordId, undefined, ctx)
+    : null;
 }
 
 /** Resolve a formula field as an operand (preserves date results). */
@@ -1425,7 +1574,7 @@ function formatRelationGroupsExtras(
   fieldIds: readonly string[],
 ): string {
   if (fieldIds.length === 0) return "";
-  const record = entity.records.find((item) => item.id === recordId);
+  const record = ctx.getRecord(entity.id, recordId);
   if (!record) return "";
   const parts: string[] = [];
   for (const fieldId of fieldIds) {
@@ -1538,11 +1687,11 @@ export function getRelationGroupsDisplayTree(
       if (!option?.name.trim()) return null;
       title = option.name;
     } else {
-      if (isEntityRelationRecordGhost(entity, node.id, ctx.entities)) {
+      if (isEntityRelationRecordGhost(entity, node.id, ctx.entities, ctx)) {
         return null;
       }
       title =
-        resolveRelationRecordLabel(entity, node.id, ctx.entities) ??
+        resolveRelationRecordLabel(entity, node.id, ctx.entities, ctx) ??
         "Без названия";
     }
     const extras =
@@ -1682,14 +1831,25 @@ export function formatRecordFieldValue(
     case "relation":
     case "belonging": {
       const target = ctx.entityById.get(getEntityRelationTargetId(field) ?? "");
-      return resolveRelationRecordLabel(target, record.values[field.id]) ?? "—";
+      return (
+        resolveRelationRecordLabel(
+          target,
+          record.values[field.id],
+          undefined,
+          ctx,
+        ) ?? "—"
+      );
     }
     case "dependencies": {
       const parts = parseEntityDependencies(record.values[field.id]).map(
         (dependency) => {
           const label =
-            resolveRelationRecordLabel(entity, dependency.recordId) ??
-            "Без названия";
+            resolveRelationRecordLabel(
+              entity,
+              dependency.recordId,
+              undefined,
+              ctx,
+            ) ?? "Без названия";
           const lag = formatEntityDependencyLag(dependency.lag);
           const kind = ENTITY_DEPENDENCY_TYPE_LABELS[dependency.type].short;
           return `${label} · ${kind}${lag ? ` ${lag}` : ""}`;
@@ -2126,7 +2286,8 @@ export function getRelationFieldOptions(
   const belongingRecordId =
     field.type === "belonging" ? (recordId?.trim() ?? "") : "";
 
-  return target.records
+  return ctx
+    .getRecords(target.id)
     .filter((candidate) => {
       if (belongingRecordId) {
         if (candidate.id === belongingRecordId) return false;
@@ -2140,7 +2301,7 @@ export function getRelationFieldOptions(
             parseEntityRelationIds(
               (walk === candidate.id
                 ? candidate
-                : target.records.find((item) => item.id === walk)
+                : ctx.getRecord(target.id, walk)
               )?.values[field.id],
             )[0] ?? "";
           if (!parentId) break;
@@ -2246,7 +2407,7 @@ export function filterRelationGroupsCatalogOptions(
   }
   const ctx = getEntityValueContext(entities);
   return options.filter((option) => {
-    const record = levelEntity.records.find((item) => item.id === option.id);
+    const record = ctx.getRecord(levelEntity.id, option.id);
     if (!record) return false;
     return recordMatchesRelationGroupsFilter(
       ctx,
@@ -2505,16 +2666,18 @@ function syncRelationsFromLookups(
  * When a related record’s field is filled later, soft-fill dependents that
  * look it up (empty local relationGroups / relations). Returns patches to apply.
  */
-export function collectLookupSoftFillPatchesFromRelated(
+export async function collectLookupSoftFillPatchesFromRelated(
   entities: readonly Entity[],
   sourceEntityId: string,
   sourceRecordId: string,
   changedFieldIds: readonly string[],
-): Array<{
-  entityId: string;
-  recordId: string;
-  values: Record<string, string>;
-}> {
+): Promise<
+  Array<{
+    entityId: string;
+    recordId: string;
+    values: Record<string, string>;
+  }>
+> {
   if (changedFieldIds.length === 0) return [];
   const changed = new Set(changedFieldIds);
   const patches: Array<{
@@ -2546,14 +2709,11 @@ export function collectLookupSoftFillPatchesFromRelated(
       if (!bridge || bridge.type !== "relation") continue;
       if (getEntityRelationTargetId(bridge) !== sourceEntityId) continue;
 
-      for (const record of entity.records) {
-        if (
-          !parseEntityRelationIds(record.values[bridge.id]).includes(
-            sourceRecordId,
-          )
-        ) {
-          continue;
-        }
+      for (const record of await getEntityRecordsByRelation(
+        entity,
+        bridge.id,
+        sourceRecordId,
+      )) {
         const next = syncRelationsFromLookups(
           entity,
           record.values,
@@ -2737,7 +2897,12 @@ export function sanitizeEntityRelationGroupsFieldValue(
     }
     const host = levelEntityAt(depth);
     if (!host) return false;
-    return !isEntityRelationRecordGhost(host, itemId, entities);
+    return !isEntityRelationRecordGhost(
+      host,
+      itemId,
+      entities,
+      getEntityValueContext(entities),
+    );
   }
 
   return pruneEntityRelationGroupsValue(value, isValidId);

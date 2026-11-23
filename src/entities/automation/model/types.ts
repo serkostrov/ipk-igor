@@ -386,7 +386,7 @@ export function normalizeAutomationOutcomeFieldAccess(
   const relatedVisibleIds = new Set(
     relatedVisibleFields.map((field) => field.id),
   );
-  let relatedRequiredIds = normalizeStringIdList(
+  const relatedRequiredIds = normalizeStringIdList(
     access.relatedRequiredIds ?? access.related_required_ids,
   ).filter((id) => relatedVisibleIds.has(id));
   // Seeded templates stored `required` on each `relatedFields` row.

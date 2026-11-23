@@ -1,5 +1,6 @@
 import {
   getEntityListOption,
+  getEntityRecords,
   getRecordFieldNumber,
   isEntityNameField,
   isEntityNumericFieldType,
@@ -80,10 +81,10 @@ const DDS_WITHOUT_VAT_NAMES = ["Без НДС", "Сумма без НДС"] as c
 const DDS_WITH_VAT_NAMES = ["С НДС", "Сумма с НДС", "Сумма"] as const;
 const DDS_RBP_NAMES = ["Месяцы РБП", "РБП", "РБП месяцы"] as const;
 
-export function adaptActsToSources(
+export async function adaptActsToSources(
   ctx: EntityValueContext,
   actsEntity: Entity | null,
-): ProfitLossActSource[] {
+): Promise<ProfitLossActSource[]> {
   if (!actsEntity) return [];
   const dateField = findField(
     actsEntity,
@@ -104,7 +105,7 @@ export function adaptActsToSources(
   if (!dateField) return [];
 
   const out: ProfitLossActSource[] = [];
-  for (const record of actsEntity.records) {
+  for (const record of await getEntityRecords(actsEntity)) {
     const actDate = extractDatePart(record.values[dateField.id] ?? "");
     if (!actDate) continue;
     const withoutVat = readNumber(ctx, actsEntity, record, withoutVatField);
@@ -121,15 +122,15 @@ export function adaptActsToSources(
   return out;
 }
 
-export function adaptArticlesToCategories(
+export async function adaptArticlesToCategories(
   articlesEntity: Entity | null,
-): ProfitLossCategorySource[] {
+): Promise<ProfitLossCategorySource[]> {
   if (!articlesEntity) return [];
   const nameField =
     articlesEntity.fields.find((field) => isEntityNameField(field)) ?? null;
   const parentField = resolveEntityTableParentField(articlesEntity);
 
-  return articlesEntity.records.map((record) => {
+  return (await getEntityRecords(articlesEntity)).map((record) => {
     const name =
       (nameField
         ? resolveRelationRecordLabel(articlesEntity, record.id)
@@ -149,10 +150,10 @@ export function adaptArticlesToCategories(
   });
 }
 
-export function adaptDdsToCashflowSources(
+export async function adaptDdsToCashflowSources(
   ctx: EntityValueContext,
   ddsEntity: Entity | null,
-): ProfitLossCashflowSource[] {
+): Promise<ProfitLossCashflowSource[]> {
   if (!ddsEntity) return [];
   const dateField = findField(
     ddsEntity,
@@ -193,7 +194,7 @@ export function adaptDdsToCashflowSources(
   );
 
   const out: ProfitLossCashflowSource[] = [];
-  for (const record of ddsEntity.records) {
+  for (const record of await getEntityRecords(ddsEntity)) {
     const entryDate = extractDatePart(record.values[dateField.id] ?? "");
     if (!entryDate) continue;
 
@@ -234,15 +235,15 @@ export function adaptDdsToCashflowSources(
   return out;
 }
 
-export function adaptOpiuSourcesFromEntities(
+export async function adaptOpiuSourcesFromEntities(
   ctx: EntityValueContext,
   entities: readonly Entity[],
 ) {
   const sources = resolveOpiuSourceEntities(entities);
   return {
     sources,
-    acts: adaptActsToSources(ctx, sources.acts),
-    entries: adaptDdsToCashflowSources(ctx, sources.dds),
-    categories: adaptArticlesToCategories(sources.articles),
+    acts: await adaptActsToSources(ctx, sources.acts),
+    entries: await adaptDdsToCashflowSources(ctx, sources.dds),
+    categories: await adaptArticlesToCategories(sources.articles),
   };
 }

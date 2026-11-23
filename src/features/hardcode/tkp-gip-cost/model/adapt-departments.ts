@@ -95,7 +95,7 @@ export function adaptDeptRecordsToGipDepartments(options: {
       entities,
     );
     const projectStageName = resolveStageLabel(hostEntity, record, entities);
-    const lines = getDeptNestedLines(record, nested);
+    const lines = getDeptNestedLines(ctx, record, nested);
     const breakdownLines: ReviewCostBreakdownLine[] = [];
 
     if (nested && lineFields && lines.length > 0) {

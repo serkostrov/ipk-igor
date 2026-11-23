@@ -1,3 +1,4 @@
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   useCallback,
   useEffect,
@@ -56,6 +57,7 @@ import {
   ENTITY_TABLE_PAGE_SIZES,
   ENTITY_TABLE_PAGE_SIZE_STORAGE_KEY,
   getCurrentUserRecordId,
+  getEntityRecordById,
   getSystemUserName,
   isEntityNameField,
   isEntityTablePageSize,
@@ -74,6 +76,7 @@ import {
   resolveTaskLeadManagerName,
 } from "../lib/task-people";
 
+const EMPTY_TASKS: AutomationTask[] = [];
 const ALL_OPTION = "__all__";
 const NONE_ASSIGNEE = "__none__";
 
@@ -269,13 +272,13 @@ function TablePagination({
   );
 }
 
-function taskRecordTitle(
+async function taskRecordTitle(
   entities: ReturnType<typeof useEntityConfig>["entities"],
   task: AutomationTask,
 ) {
   const entity = entities.find((item) => item.id === task.entityId);
   if (!entity) return null;
-  const record = entity.records.find((item) => item.id === task.recordId);
+  const record = await getEntityRecordById(entity, task.recordId);
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   const raw = nameField ? (record?.values[nameField.id] ?? "").trim() : "";
   if (raw && raw !== task.recordId && !raw.startsWith("record-")) {
@@ -363,7 +366,6 @@ export function TaskTableView({
         setLoading(true);
         setError(null);
         try {
-          void registerOverdueAutomationTasksRpc().catch(() => null);
           const next = await fetchAutomationTasks(
             statusFilter === "active"
               ? { status: ["pending", "returned"] }
@@ -391,21 +393,63 @@ export function TaskTableView({
     };
   }, [reloadToken, statusFilter]);
 
+  // Mark overdue tasks once on mount — not inside the reload path, where the
+  // write would echo back via realtime and retrigger an endless reload loop.
+  useEffect(() => {
+    void registerOverdueAutomationTasksRpc().catch(() => null);
+  }, []);
+
   useEffect(() => {
     return subscribeAutomationTasks(() => {
       setReloadToken((token) => token + 1);
     });
   }, []);
 
-  const scopedTasks = useMemo(
-    () =>
-      filterAutomationTasksForRole(role, tasks, {
-        authUserId: sessionUser?.id ?? null,
-        userRecordId: getCurrentUserRecordId(),
-        entities,
-        valueContext,
-      }).filter((task) => !isAutomationSilentTaskKind(task.config.kind)),
+  const visible = useAsyncValue(
+    async () =>
+      (
+        await filterAutomationTasksForRole(role, tasks, {
+          authUserId: sessionUser?.id ?? null,
+          userRecordId: getCurrentUserRecordId(),
+          entities,
+          valueContext,
+        })
+      ).filter((task) => !isAutomationSilentTaskKind(task.config.kind)),
     [role, tasks, sessionUser?.id, entities, valueContext],
+  );
+  if (visible.status === "error") throw visible.error;
+  const scopedTasks = visible.status === "ready" ? visible.value : EMPTY_TASKS;
+
+  const meta = useAsyncValue(async () => {
+    const map = new Map<
+      string,
+      { recordTitle: string | null; leadManager: string | null }
+    >();
+    await Promise.all(
+      scopedTasks.map(async (task) => {
+        const entity = entities.find((item) => item.id === task.entityId);
+        const record = entity
+          ? await getEntityRecordById(entity, task.recordId)
+          : undefined;
+        const [recordTitle, leadManager] = await Promise.all([
+          taskRecordTitle(entities, task),
+          resolveTaskLeadManagerName(entities, entity, record),
+        ]);
+        map.set(task.id, { recordTitle, leadManager });
+      }),
+    );
+    return map;
+  }, [scopedTasks, entities]);
+  if (meta.status === "error") throw meta.error;
+  const taskMeta = useMemo(
+    () =>
+      meta.status === "ready"
+        ? meta.value
+        : new Map<
+            string,
+            { recordTitle: string | null; leadManager: string | null }
+          >(),
+    [meta],
   );
 
   const entityOptions = useMemo(() => {
@@ -428,13 +472,13 @@ export function TaskTableView({
       if (seen.has(task.recordId)) continue;
       seen.set(
         task.recordId,
-        taskRecordTitle(entities, task) ?? "Без названия",
+        taskMeta.get(task.id)?.recordTitle ?? "Без названия",
       );
     }
     return [...seen.entries()]
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "ru"));
-  }, [scopedTasks, entities, entityFilter]);
+  }, [scopedTasks, taskMeta, entityFilter]);
 
   const assigneeOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -504,11 +548,10 @@ export function TaskTableView({
       }
       if (!needle) return true;
       const entity = entities.find((item) => item.id === task.entityId);
-      const recordTitle = taskRecordTitle(entities, task) ?? "";
+      const info = taskMeta.get(task.id);
+      const recordTitle = info?.recordTitle ?? "";
       const assignee = resolveTaskAssigneeName(entities, task) ?? "";
-      const record = entity?.records.find((item) => item.id === task.recordId);
-      const leadManager =
-        resolveTaskLeadManagerName(entities, entity, record) ?? "";
+      const leadManager = info?.leadManager ?? "";
       const haystack = [
         task.name,
         task.description,
@@ -527,6 +570,7 @@ export function TaskTableView({
     scopedTasks,
     search,
     entities,
+    taskMeta,
     effectiveEntityFilter,
     effectiveRecordFilter,
     effectiveAssigneeFilter,
@@ -787,16 +831,10 @@ export function TaskTableView({
                     const entity = entities.find(
                       (item) => item.id === task.entityId,
                     );
-                    const recordTitle = taskRecordTitle(entities, task);
+                    const info = taskMeta.get(task.id);
+                    const recordTitle = info?.recordTitle ?? null;
                     const assignee = resolveTaskAssigneeName(entities, task);
-                    const leadRecord = entity?.records.find(
-                      (item) => item.id === task.recordId,
-                    );
-                    const leadManager = resolveTaskLeadManagerName(
-                      entities,
-                      entity,
-                      leadRecord,
-                    );
+                    const leadManager = info?.leadManager ?? null;
                     const entityLabel =
                       entity?.namePlural?.trim() || entity?.name || "—";
                     const description = task.description.trim();

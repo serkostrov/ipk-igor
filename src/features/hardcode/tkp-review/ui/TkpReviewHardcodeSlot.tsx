@@ -8,6 +8,8 @@ import { useCurrentRole } from "@/entities/access";
 import { collectRecordsLinkedToParent } from "@/entities/automation";
 import {
   filterDeptCalculationRecordsForAssignee,
+  getEntityRecordById,
+  getEntityRecords,
   getSystemUserName,
   updateEntityRecord,
   useCurrentUserRecordId,
@@ -17,6 +19,7 @@ import {
   type EntityRecord,
 } from "@/entities/entity";
 import { getSessionUser } from "@/entities/session";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { adaptDeptRecordsToGipDepartments } from "../../tkp-gip-cost/model/adapt-departments";
 import {
   calculateReviewCostBreakdown,
@@ -100,26 +103,32 @@ export function TkpReviewHardcodeSlot({
     () => entities.find((item) => item.id === entity.id) ?? entity,
     [entities, entity],
   );
-  const liveRecord = useMemo(
-    () => liveEntity.records.find((item) => item.id === record.id) ?? record,
-    [liveEntity, record],
+  const liveRecordValue = useAsyncValue(
+    () => getEntityRecordById(liveEntity, record.id),
+    [liveEntity, record.id],
   );
+  const liveRecord =
+    liveRecordValue.status === "ready"
+      ? (liveRecordValue.value ?? record)
+      : record;
 
   const deptEntity = useMemo(
     () => findDeptCalculationsLinkedEntity(liveEntity, entities),
     [liveEntity, entities],
   );
 
-  const deptRecords = useMemo(() => {
-    if (!deptEntity) return [];
-    const ids = collectRecordsLinkedToParent({
+  const deptRecordsValue = useAsyncValue(async () => {
+    if (!deptEntity) return [] as EntityRecord[];
+    const ids = await collectRecordsLinkedToParent({
       childEntity: deptEntity,
       parentEntityId: liveEntity.id,
       parentRecordId: liveRecord.id,
       host: liveEntity,
     });
     const idSet = new Set(ids);
-    const linked = deptEntity.records.filter((item) => idSet.has(item.id));
+    const linked = (await getEntityRecords(deptEntity)).filter((item) =>
+      idSet.has(item.id),
+    );
     if (!visibility.showDepartmentRestrictedTotals) return linked;
     const sessionId = getSessionUser()?.id ?? null;
     return filterDeptCalculationRecordsForAssignee({
@@ -141,6 +150,10 @@ export function TkpReviewHardcodeSlot({
     liveRecord,
     visibility.showDepartmentRestrictedTotals,
   ]);
+  const deptRecords = useMemo(
+    () => (deptRecordsValue.status === "ready" ? deptRecordsValue.value : []),
+    [deptRecordsValue],
+  );
 
   const gipBreakdown = useMemo(() => {
     if (!deptEntity) {

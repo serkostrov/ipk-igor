@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChartGantt } from "lucide-react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import { Loader } from "@/shared/ui/loader";
 import { useCurrentRole } from "@/entities/access";
 import {
   getEntityRecordTitle,
@@ -59,7 +61,7 @@ export function ProjectGanttHardcodeSlot({
     [entity, entities],
   );
 
-  const binding = useMemo(() => {
+  const bindingValue = useAsyncValue(async () => {
     if (!tasksLink) return null;
     // Re-resolve against live entity from the store (records update).
     const liveTasks =
@@ -72,6 +74,7 @@ export function ProjectGanttHardcodeSlot({
       tab: tasksLink.tab,
     });
   }, [tasksLink, entities, entity, record]);
+  const binding = bindingValue.status === "ready" ? bindingValue.value : null;
 
   const comparison = useMemo<ProjectGanttComparison | null>(() => {
     if (!binding) return null;
@@ -119,6 +122,10 @@ export function ProjectGanttHardcodeSlot({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [reloadLifecycle]);
+
+  if (tasksLink && bindingValue.status === "loading") {
+    return <Loader block label="Загрузка…" />;
+  }
 
   if (!tasksLink || !binding) {
     return (

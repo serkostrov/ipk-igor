@@ -11,6 +11,7 @@ import {
   type AutomationTask,
 } from "@/entities/automation";
 import {
+  getEntityRecordById,
   applyEntityFieldValue,
   getCurrentUserRecordId,
   getEntityConfig,
@@ -711,7 +712,7 @@ registerPendingRecordListChangeApplier(async (change) => {
   const entity = entities.find((item) => item.id === change.entityId);
   if (!entity) return false;
   const field = entity.fields.find((item) => item.id === change.fieldId);
-  const record = entity.records.find((item) => item.id === change.recordId);
+  const record = await getEntityRecordById(entity, change.recordId);
   if (!field || !record) return false;
   return applyRecordListChange(entity, record, field, change.value, entities);
 });

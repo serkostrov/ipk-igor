@@ -18,6 +18,7 @@ import {
   getEntityFormulaOperands,
   getEntityPreviewValueContext,
   useEntityValueContext,
+  useFirstEntityRecord,
   type Entity,
   type EntityFormulaResultType,
   type EntityNumberDecimals,
@@ -128,7 +129,7 @@ export function FormulaSettings({
   const [fieldPickKey, setFieldPickKey] = useState(0);
   const operands = entity ? getEntityFormulaOperands(entity, fieldId) : [];
   const compiled = text.trim() ? compileFormulaText(text, operands) : null;
-  const sample = entity?.records[0] ?? null;
+  const sample = useFirstEntityRecord(entity) ?? null;
   const preview =
     compiled?.ok && entity && sample
       ? formatEntityFormulaPreview(

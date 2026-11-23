@@ -12,14 +12,15 @@ import {
   SYSTEM_USERS_FIELD_ROLE_ID,
   collectRelationGroupsIdsAtDepth,
   collectRelationGroupsLeafIds,
-  entityRelationIncludesId,
+  getEntityRecordsByRelation,
+  getEntityRecordById,
+  getEntityRecordsByFirstListOption,
   getEntityRelationTargetId,
   getRelationGroupsLeafEntityId,
   getRelationGroupsLevelEntityId,
   getSystemUsersEntity,
   findEntityManagerUserField,
   isEntityRelationLikeFieldType,
-  parseEntityListValueIds,
   parseEntityRelationGroups,
   parseEntityRelationIds,
   resolveTkpGipAssigneeUserIds,
@@ -108,7 +109,7 @@ function bridgeTargetEntityId(
   return null;
 }
 
-function collectLinkedChildCursors(
+async function collectLinkedChildCursors(
   linkedChild: {
     entityId: string;
     parentFieldId: string;
@@ -116,18 +117,19 @@ function collectLinkedChildCursors(
   entities: Entity[],
   triggerRecordId: string,
   fanOut: boolean,
-): Array<{
-  entity: Entity;
-  values: Record<string, string | undefined>;
-  recordId: string;
-}> {
+): Promise<
+  Array<{
+    entity: Entity;
+    values: Record<string, string | undefined>;
+    recordId: string;
+  }>
+> {
   const childEntity = entities.find((item) => item.id === linkedChild.entityId);
   if (!childEntity) return [];
-  const children = childEntity.records.filter((record) =>
-    entityRelationIncludesId(
-      record.values[linkedChild.parentFieldId],
-      triggerRecordId,
-    ),
+  const children = await getEntityRecordsByRelation(
+    childEntity,
+    linkedChild.parentFieldId,
+    triggerRecordId,
   );
   const pick = fanOut ? children : children.slice(0, 1);
   return pick.map((record) => ({
@@ -137,10 +139,10 @@ function collectLinkedChildCursors(
   }));
 }
 
-function resolveRelatedFieldUserIds(
+async function resolveRelatedFieldUserIds(
   resolver: Extract<AutomationAssigneeLeafResolver, { type: "relatedField" }>,
   ctx: ResolveAssigneeContext,
-): string[] {
+): Promise<string[]> {
   const values = ctx.values;
   const entities = ctx.entities;
   const triggerEntityId = ctx.triggerEntityId;
@@ -171,7 +173,7 @@ function resolveRelatedFieldUserIds(
   if (linkedChild) {
     const triggerRecordId = ctx.triggerRecordId?.trim() ?? "";
     if (!triggerRecordId) return [];
-    cursors = collectLinkedChildCursors(
+    cursors = await collectLinkedChildCursors(
       linkedChild,
       entities,
       triggerRecordId,
@@ -217,8 +219,9 @@ function resolveRelatedFieldUserIds(
 
       const usersEntity = getSystemUsersEntity(entities);
       for (const relatedId of hopIds) {
-        const relatedRecord = relatedEntity.records.find(
-          (record) => record.id === relatedId,
+        const relatedRecord = await getEntityRecordById(
+          relatedEntity,
+          relatedId,
         );
         if (relatedRecord) {
           nextCursors.push({
@@ -229,9 +232,7 @@ function resolveRelatedFieldUserIds(
           continue;
         }
         // Managers-task may store Users ids in department slots — still hop.
-        const userRecord = usersEntity?.records.find(
-          (record) => record.id === relatedId,
-        );
+        const userRecord = await getEntityRecordById(usersEntity, relatedId);
         if (!userRecord || !usersEntity) continue;
         nextCursors.push({
           entity: usersEntity,
@@ -270,7 +271,7 @@ function resolveRelatedFieldUserIds(
     }
     const stored =
       (cursor.recordId
-        ? cursor.entity.records.find((item) => item.id === cursor.recordId)
+        ? await getEntityRecordById(cursor.entity, cursor.recordId)
         : null) ?? null;
     const departmentRecord = stored ?? {
       id: cursor.recordId ?? "draft",
@@ -281,7 +282,7 @@ function resolveRelatedFieldUserIds(
       createdBy: null,
       schemaVersion: 0,
     };
-    const gipIds = resolveTkpGipAssigneeUserIds({
+    const gipIds = await resolveTkpGipAssigneeUserIds({
       triggerEntity: rootEntity,
       triggerValues: values,
       triggerRecordId,
@@ -301,10 +302,10 @@ function resolveRelatedFieldUserIds(
   return userIds;
 }
 
-function resolveLeaf(
+async function resolveLeaf(
   resolver: AutomationAssigneeLeafResolver,
   ctx: ResolveAssigneeContext,
-): string[] {
+): Promise<string[]> {
   switch (resolver.type) {
     case "none":
       return [];
@@ -321,14 +322,12 @@ function resolveLeaf(
     case "role": {
       const users = ctx.entities ? getSystemUsersEntity(ctx.entities) : null;
       if (!users) return [];
-      return users.records
-        .filter(
-          (record) =>
-            parseEntityListValueIds(
-              record.values[SYSTEM_USERS_FIELD_ROLE_ID],
-            )[0] === resolver.roleId,
-        )
-        .map((record) => record.id);
+      const records = await getEntityRecordsByFirstListOption(
+        users,
+        SYSTEM_USERS_FIELD_ROLE_ID,
+        resolver.roleId,
+      );
+      return records.map((record) => record.id);
     }
     case "recordCreator": {
       const creator =
@@ -345,10 +344,10 @@ function resolveLeaf(
 }
 
 /** Resolve assignee / watcher / recipient ids from a resolver + record values. */
-export function resolveAssigneeUserIds(
+export async function resolveAssigneeUserIds(
   resolver: AutomationAssigneeResolver,
   ctx: ResolveAssigneeContext,
-): string[] {
+): Promise<string[]> {
   if (resolver.type !== "conditional") {
     return resolveLeaf(resolver, ctx);
   }

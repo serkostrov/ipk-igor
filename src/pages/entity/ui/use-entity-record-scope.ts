@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import { useState } from "react";
 import {
   canViewRecordForDataScope,
   canViewRecordForLegalEntities,
@@ -6,6 +7,7 @@ import {
 } from "@/entities/access";
 import {
   getEntityHiddenListOptionIds,
+  getEntityRecords,
   getCurrentUserRecordId,
   isEntityRecordHidden,
   useEntityValueContext,
@@ -45,7 +47,7 @@ export function useEntityRecordScope(entity: Entity | null): EntityRecordScope {
   }
   const { showHidden } = current;
 
-  const scope = useMemo(() => {
+  const scope = useAsyncValue(async () => {
     if (!entity) {
       return {
         records: [],
@@ -55,18 +57,27 @@ export function useEntityRecordScope(entity: Entity | null): EntityRecordScope {
     }
     const authUserId = sessionUser?.id ?? null;
     const currentUserRecordId = getCurrentUserRecordId();
-    const scopedRecords = entity.records
-      .filter((record) =>
-        canViewRecordForDataScope(role, entity, record, {
-          entities: ctx.entities,
-          authUserId,
-          currentUserRecordId,
-          valueContext: ctx,
-        }),
-      )
-      .filter((record) =>
-        canViewRecordForLegalEntities(role, entity, record, ctx.entities),
-      );
+    const records = await getEntityRecords(entity);
+    const visibility = await Promise.all(
+      records.map(async (record) => {
+        if (
+          !(await canViewRecordForDataScope(role, entity, record, {
+            entities: ctx.entities,
+            authUserId,
+            currentUserRecordId,
+            valueContext: ctx,
+          }))
+        )
+          return false;
+        return canViewRecordForLegalEntities(
+          role,
+          entity,
+          record,
+          ctx.entities,
+        );
+      }),
+    );
+    const scopedRecords = records.filter((_, index) => visibility[index]);
     const hiddenOptionIds = getEntityHiddenListOptionIds(entity, ctx.entities);
     const unhidden = scopedRecords.filter(
       (record) => !isEntityRecordHidden(record, hiddenOptionIds),
@@ -76,10 +87,17 @@ export function useEntityRecordScope(entity: Entity | null): EntityRecordScope {
       hiddenCount: scopedRecords.length - unhidden.length,
       hiddenOptionIds,
     };
-  }, [ctx, ctx.entities, entity, showHidden, role, sessionUser?.id]);
+  }, [ctx, entity, showHidden, role, sessionUser?.id]);
+  if (scope.status === "error") throw scope.error;
 
   return {
-    ...scope,
+    ...(scope.status === "ready"
+      ? scope.value
+      : {
+          records: [],
+          hiddenCount: 0,
+          hiddenOptionIds: new Map<string, Set<string>>(),
+        }),
     showHidden,
     setShowHidden: (next) =>
       setState((value) => ({ ...value, showHidden: next })),

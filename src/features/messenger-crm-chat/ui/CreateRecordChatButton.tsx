@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   filterMessengerUserOptions,
   formatMessengerCrmChatTitle,
@@ -9,7 +10,10 @@ import {
   openOrCreateCrmChat,
   selectMessengerChat,
   useMessengerChats,
+  type MessengerUserOption,
 } from "@/entities/messenger";
+
+const EMPTY_MESSENGER_USER_OPTIONS: MessengerUserOption[] = [];
 import {
   resolveRelationRecordLabel,
   useEntityConfig,
@@ -72,15 +76,19 @@ export function CreateRecordChatButton({
     recordTitle(entity, record),
   );
 
-  const options = useMemo(() => {
+  const userOptions = useAsyncValue(() => {
     const exclude = new Set(
       sessionUser?.id ? [sessionUser.id] : ([] as string[]),
     );
-    return filterMessengerUserOptions(
-      listMessengerUserOptions(entities, exclude),
-      query,
-    );
-  }, [entities, query, sessionUser]);
+    return listMessengerUserOptions(entities, exclude);
+  }, [entities, sessionUser]);
+  const options = useMemo(() => {
+    const base =
+      userOptions.status === "ready"
+        ? userOptions.value
+        : EMPTY_MESSENGER_USER_OPTIONS;
+    return filterMessengerUserOptions(base, query);
+  }, [userOptions, query]);
 
   if (!eligible) return null;
 

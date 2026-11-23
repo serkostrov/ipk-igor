@@ -8,6 +8,8 @@ import {
   ENTITY_KANBAN_EMPTY_COLUMN_ID,
   getEntityKanbanColumns,
   getEntityListOption,
+  getEntityRecordById,
+  getEntityRecords,
   getEntityRelationTargetId,
   getEntityTimelineDates,
   getRecordFieldIds,
@@ -110,16 +112,16 @@ function describeOption(
   return { label: id, color: null as string | null };
 }
 
-function relatedRowRecord(
+async function relatedRowRecord(
   ctx: EntityValueContext,
   entity: Entity,
   record: EntityRecord,
   groupField: EntityField,
   target: Entity,
-): EntityRecord | null {
+): Promise<EntityRecord | null> {
   const id = getRecordFieldIds(ctx, entity, record, groupField)[0];
   if (!id) return null;
-  return target.records.find((item) => item.id === id) ?? null;
+  return (await getEntityRecordById(target, id)) ?? null;
 }
 
 type NestLevel = {
@@ -205,19 +207,19 @@ function relatedMatchesAncestors(
 }
 
 /** All option / relation ids for a nest level (multi-list → several buckets). */
-function levelValueIds(
+async function levelValueIds(
   ctx: EntityValueContext,
   entity: Entity,
   item: TimelineItem,
   level: NestLevel,
   groupField: EntityField,
   target: Entity | null,
-): string[] {
+): Promise<string[]> {
   if (!level.fromRelated) {
     return getRecordFieldIds(ctx, entity, item.record, level.field);
   }
   if (!target) return [];
-  const related = relatedRowRecord(
+  const related = await relatedRowRecord(
     ctx,
     entity,
     item.record,
@@ -228,7 +230,7 @@ function levelValueIds(
   return getRecordFieldIds(ctx, target, related, level.field);
 }
 
-function nestItems(
+async function nestItems(
   ctx: EntityValueContext,
   entity: Entity,
   setup: EntityTimelineSetup,
@@ -239,7 +241,7 @@ function nestItems(
   target: Entity | null,
   groupField: EntityField,
   ancestors: AncestorConstraint[],
-): TimelineGroup[] {
+): Promise<TimelineGroup[]> {
   const [level, ...rest] = levels;
   if (!level) {
     return [];
@@ -252,9 +254,7 @@ function nestItems(
       if (column.id === ENTITY_KANBAN_EMPTY_COLUMN_ID) continue;
       // Leaf «Строки»: only seed articles that match parent split/cluster.
       if (!level.fromRelated && target && ancestors.length > 0) {
-        const related = target.records.find(
-          (record) => record.id === column.id,
-        );
+        const related = await getEntityRecordById(target, column.id);
         if (
           !related ||
           !relatedMatchesAncestors(ctx, related, target, ancestors)
@@ -277,7 +277,14 @@ function nestItems(
   }
 
   for (const item of items) {
-    const ids = levelValueIds(ctx, entity, item, level, groupField, target);
+    const ids = await levelValueIds(
+      ctx,
+      entity,
+      item,
+      level,
+      groupField,
+      target,
+    );
     const buckets =
       ids.length === 0
         ? ["__none__"]
@@ -320,47 +327,49 @@ function nestItems(
       : ordered;
   }
 
-  return ordered.map((group) => {
-    const nextAncestors = level.fromRelated
-      ? [
-          ...ancestors,
-          {
-            field: level.field,
-            owner: level.owner,
-            valueId: group.optionId === "__none__" ? "" : group.optionId,
-          },
-        ]
-      : ancestors;
-    return {
-      ...group,
-      children: nestItems(
-        ctx,
-        entity,
-        setup,
-        group.items,
-        rest,
-        depth + 1,
-        `${group.key}/`,
-        target,
-        groupField,
-        nextAncestors,
-      ),
-    };
-  });
+  return Promise.all(
+    ordered.map(async (group) => {
+      const nextAncestors = level.fromRelated
+        ? [
+            ...ancestors,
+            {
+              field: level.field,
+              owner: level.owner,
+              valueId: group.optionId === "__none__" ? "" : group.optionId,
+            },
+          ]
+        : ancestors;
+      return {
+        ...group,
+        children: await nestItems(
+          ctx,
+          entity,
+          setup,
+          group.items,
+          rest,
+          depth + 1,
+          `${group.key}/`,
+          target,
+          groupField,
+          nextAncestors,
+        ),
+      };
+    }),
+  );
 }
 
 /**
  * Nest «Строки» by the related entity's table parent field (belonging /
  * self-relation), matching the entity table hierarchy with expand/collapse.
  */
-function nestTimelineRowGroupsByTableParent(
+async function nestTimelineRowGroupsByTableParent(
   ctx: EntityValueContext,
   groups: TimelineGroup[],
   target: Entity | null,
   depth: number,
   path: string,
   ancestors: AncestorConstraint[],
-): TimelineGroup[] {
+): Promise<TimelineGroup[]> {
   if (!target) return groups;
   const parentField = resolveEntityTableParentField(target);
   if (!parentField) return groups;
@@ -376,7 +385,7 @@ function nestTimelineRowGroupsByTableParent(
     ]),
   );
   const parentIdOf = new Map<string, string>();
-  for (const record of target.records) {
+  for (const record of await getEntityRecords(target)) {
     parentIdOf.set(
       record.id,
       parseEntityTableParentId(record.values[parentField.id]),
@@ -389,7 +398,7 @@ function nestTimelineRowGroupsByTableParent(
     for (const id of [...byId.keys()]) {
       const parentId = parentIdOf.get(id) ?? "";
       if (!parentId || byId.has(parentId)) continue;
-      const record = target.records.find((item) => item.id === parentId);
+      const record = await getEntityRecordById(target, parentId);
       if (!record) continue;
       if (
         ancestors.length > 0 &&
@@ -463,12 +472,12 @@ function nestTimelineRowGroupsByTableParent(
 }
 
 /** Items sorted by start; nested by split → cluster → rows. */
-export function buildTimelineGroups(
+export async function buildTimelineGroups(
   ctx: EntityValueContext,
   entity: Entity,
   setup: EntityTimelineSetup,
   records: readonly EntityRecord[],
-): TimelineGroup[] {
+): Promise<TimelineGroup[]> {
   const items = records
     .map((record) => {
       const dates = getEntityTimelineDates(setup, record);

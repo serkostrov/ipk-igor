@@ -11,6 +11,7 @@ import {
   ENTITY_KANBAN_EMPTY_COLUMN_ID,
   formatRecordFieldValue,
   getEntityRecordTitle,
+  getEntityRecordById,
   getEntityKanbanColumns,
   getEntityKanbanGroupFields,
   getEntityListOption,
@@ -38,6 +39,7 @@ import {
   recordMatchesSearch,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
+import { useKanbanColumnSummary } from "./use-kanban-column-summary";
 import { useRecordListChange } from "./use-record-list-change";
 import { useRecordTimers, type RecordTimers } from "./use-record-timers";
 import { TimerElapsed } from "./RecordTimer";
@@ -365,6 +367,7 @@ function KanbanCard({
 function KanbanColumn({
   ctx,
   column,
+  groupFieldId,
   records,
   entity,
   previewFields,
@@ -382,6 +385,7 @@ function KanbanColumn({
 }: {
   ctx: EntityValueContext;
   column: EntityKanbanColumn;
+  groupFieldId: string;
   records: EntityRecord[];
   entity: Entity;
   previewFields: EntityField[];
@@ -398,6 +402,13 @@ function KanbanColumn({
   onDragLeave: () => void;
   onDrop: (event: DragEvent) => void;
 }) {
+  const summary = useKanbanColumnSummary(
+    ctx,
+    entity,
+    groupFieldId,
+    column.id,
+    records,
+  );
   const color = column.color;
   const columnStyle = color
     ? {
@@ -439,7 +450,7 @@ function KanbanColumn({
             color ? "text-foreground/70" : "text-muted-foreground",
           )}
         >
-          {records.length}
+          {summary}
         </span>
       </header>
 
@@ -544,9 +555,9 @@ export function EntityKanbanView({
   const previewFields = groupField
     ? resolveEntityKanbanCardFields(entity, groupField.id)
     : [];
-  function moveRecord(recordId: string, toColumnId: string) {
+  async function moveRecord(recordId: string, toColumnId: string) {
     if (!groupField) return;
-    const record = entity.records.find((item) => item.id === recordId);
+    const record = await getEntityRecordById(entity, recordId);
     if (!record) return;
 
     const fromColumnId = getEntityRecordKanbanColumnId(
@@ -566,7 +577,7 @@ export function EntityKanbanView({
     });
   }
 
-  if (groupFields.length === 0) {
+  if (!groupField) {
     return (
       <EmptyState
         icon={<Columns3 className="size-5" aria-hidden />}
@@ -597,6 +608,7 @@ export function EntityKanbanView({
             key={column.id}
             timers={timers}
             column={column}
+            groupFieldId={groupField.id}
             records={recordsByColumn.get(column.id) ?? []}
             entity={entity}
             previewFields={previewFields}
@@ -621,13 +633,13 @@ export function EntityKanbanView({
                 current === column.id ? null : current,
               );
             }}
-            onDrop={(event) => {
+            onDrop={async (event) => {
               event.preventDefault();
               setDropColumnId(null);
               setDraggingId(null);
               const payload = parseDragPayload(event);
               if (!payload) return;
-              moveRecord(payload.recordId, column.id);
+              await moveRecord(payload.recordId, column.id);
             }}
           />
         ))}

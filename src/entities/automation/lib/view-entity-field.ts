@@ -1,6 +1,7 @@
 import {
   getEntityDisplayName,
   getEntityFieldDisplayName,
+  getEntityRecords,
   getEntityRecordTitle,
   parseEntityRelationIds,
   type Entity,
@@ -99,16 +100,16 @@ function recordMatchesView(
  * Resolve read-only fields from arbitrary entities by match parameters
  * against the trigger record.
  */
-export function resolveViewEntityFieldsLayout(options: {
+export async function resolveViewEntityFieldsLayout(options: {
   triggerEntity: Entity;
   entities: Entity[];
   entityFields: AutomationViewEntityField[];
   triggerValues: Record<string, string>;
   ctx: EntityValueContext;
-}): {
+}): Promise<{
   groups: ViewEntityGroup[];
   empty: ViewEntityEmpty[];
-} {
+}> {
   const { triggerEntity, entities, entityFields, triggerValues, ctx } = options;
   if (entityFields.length === 0) {
     return { groups: [], empty: [] };
@@ -135,7 +136,7 @@ export function resolveViewEntityFieldsLayout(options: {
       continue;
     }
 
-    const matches = entity.records.filter((record) =>
+    const matches = (await getEntityRecords(entity)).filter((record) =>
       recordMatchesView(record, entity, view, triggerEntity, triggerValues),
     );
 

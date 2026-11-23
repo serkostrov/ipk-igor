@@ -59,9 +59,9 @@ function EditTimeEntryForm({
       ? getTimeEntryHours(start, end)
       : null;
 
-  function submit() {
+  async function submit() {
     try {
-      updateTimeEntry(entity.id, row.entry.id, {
+      await updateTimeEntry(entity.id, row.entry.id, {
         start: joinDatetime(startDate, startTime),
         end: joinDatetime(endDate, endTime),
         comment,

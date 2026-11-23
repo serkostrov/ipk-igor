@@ -5,6 +5,7 @@
  */
 
 import {
+  getEntityRecordById,
   getEntityConfig,
   getEntityTabFilesValueKey,
   isEntityFilesTab,
@@ -97,10 +98,14 @@ export async function mirrorFileFieldsToFilesTab(options: {
 
   const valueKey = getEntityTabFilesValueKey(tab.id);
   const latestValues =
-    getEntityConfig()
-      .entities.find((item) => item.id === options.entity.id)
-      ?.records.find((item) => item.id === options.record.id)?.values ??
-    options.values;
+    (
+      await getEntityRecordById(
+        getEntityConfig().entities.find(
+          (item) => item.id === options.entity.id,
+        ),
+        options.record.id,
+      )
+    )?.values ?? options.values;
 
   let entries = parseEntityTabFileEntries(
     latestValues[valueKey] ?? options.record.values[valueKey],

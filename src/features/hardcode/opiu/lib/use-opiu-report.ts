@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useEntityConfig, useEntityValueContext } from "@/entities/entity";
 import { adaptOpiuSourcesFromEntities } from "../model/adapt-sources";
 import { buildProfitLossReport } from "../model/calculation";
@@ -14,9 +14,9 @@ export function useOpiuReport(year: number): {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
 
-  return useMemo(() => {
+  const value = useAsyncValue(async () => {
     const months = buildProfitLossYearMonths(year);
-    const adapted = adaptOpiuSourcesFromEntities(valueContext, entities);
+    const adapted = await adaptOpiuSourcesFromEntities(valueContext, entities);
     const report = buildProfitLossReport({
       months,
       acts: adapted.acts,
@@ -30,4 +30,18 @@ export function useOpiuReport(year: number): {
       hasArticlesEntity: adapted.sources.articles != null,
     };
   }, [entities, valueContext, year]);
+  if (value.status === "error") throw value.error;
+  return value.status === "ready"
+    ? value.value
+    : {
+        report: buildProfitLossReport({
+          months: [],
+          acts: [],
+          entries: [],
+          categories: [],
+        }),
+        hasActsEntity: false,
+        hasDdsEntity: false,
+        hasArticlesEntity: false,
+      };
 }

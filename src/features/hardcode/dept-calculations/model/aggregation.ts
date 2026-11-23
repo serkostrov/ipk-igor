@@ -272,13 +272,16 @@ export function resolveDeptLineCost(
 }
 
 function nestedLinesForHost(
+  ctx: EntityValueContext,
   host: EntityRecord,
   nested: EntityTableNestedTarget | null,
 ): EntityRecord[] {
   if (!nested) return [];
-  return nested.entity.records.filter((child) =>
-    entityRelationIncludesId(child.values[nested.parentLinkFieldId], host.id),
-  );
+  return ctx
+    .getRecords(nested.entity.id)
+    .filter((child) =>
+      entityRelationIncludesId(child.values[nested.parentLinkFieldId], host.id),
+    );
 }
 
 export function calculateDeptCalculationsBreakdown(
@@ -294,7 +297,7 @@ export function calculateDeptCalculationsBreakdown(
     ? resolveDeptCalculationsSubtaskFields(nested.entity)
     : null,
 ): DeptCalculationsBreakdown {
-  const lines = nestedLinesForHost(record, nested);
+  const lines = nestedLinesForHost(ctx, record, nested);
 
   if (lines.length > 0 && nested && lineFields) {
     let hours = 0;
@@ -487,10 +490,11 @@ export function resolveDeptCalcTypeLabelForRecord(
 }
 
 export function getDeptNestedLines(
+  ctx: EntityValueContext,
   host: EntityRecord,
   nested: EntityTableNestedTarget | null,
 ): EntityRecord[] {
-  return nestedLinesForHost(host, nested);
+  return nestedLinesForHost(ctx, host, nested);
 }
 
 export function resolveDeptLineTitle(

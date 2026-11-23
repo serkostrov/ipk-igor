@@ -5,6 +5,7 @@
 import {
   findTkpLeadRelationField,
   getEntityFieldDisplayName,
+  getEntityRecordById,
   getEntityRelationTargetId,
   parseEntityListValueIds,
   parseEntityRelationIds,
@@ -46,7 +47,9 @@ export type TkpSendToCustomerInput = {
   fullyApproved: boolean;
 };
 
-export function assertTkpSendToCustomer(input: TkpSendToCustomerInput): void {
+export async function assertTkpSendToCustomer(
+  input: TkpSendToCustomerInput,
+): Promise<void> {
   if (!input.fullyApproved) {
     throw new Error(
       "Отправку можно зафиксировать только после полного согласования",
@@ -75,7 +78,7 @@ export function assertTkpSendToCustomer(input: TkpSendToCustomerInput): void {
     throw new Error("У разбора нет менеджера / лида");
   }
   const leadEntity = input.entities.find((item) => item.id === leadEntityId);
-  const leadRecord = leadEntity?.records.find((item) => item.id === leadId);
+  const leadRecord = await getEntityRecordById(leadEntity, leadId);
   if (!leadEntity || !leadRecord) {
     throw new Error("У разбора нет менеджера / лида");
   }

@@ -3836,7 +3836,7 @@ export function EntityFieldsEditor({
     });
   }
 
-  function handleSubmit(data: EntityFieldFormData): string {
+  async function handleSubmit(data: EntityFieldFormData): Promise<string> {
     const pinToHeader = data.group.trim() === ENTITY_HEADER_FIELD_GROUP;
     const group = pinToHeader ? PRIMARY_ENTITY_FIELD_GROUP : data.group;
 
@@ -3859,7 +3859,7 @@ export function EntityFieldsEditor({
         data.type === "lookup" &&
         data.settings.lookup
       ) {
-        convertTabLinkRelationFieldToLookup(entity.id, dialog.field.id, {
+        await convertTabLinkRelationFieldToLookup(entity.id, dialog.field.id, {
           name: data.name,
           hint: data.hint,
           group,
@@ -4228,9 +4228,9 @@ export function EntityFieldsEditor({
             dialog.mode === "edit" && isSystemEntityField(dialog.field)
           }
           listOptionCount={dialogListOptionCount}
-          onConfigureList={(data) => {
+          onConfigureList={async (data) => {
             if (data.listSourceFieldId) return;
-            const fieldId = handleSubmit({ ...data, type: "list" });
+            const fieldId = await handleSubmit({ ...data, type: "list" });
             setListSettingsFieldId(fieldId);
           }}
           onSubmit={handleSubmit}
@@ -5172,9 +5172,9 @@ export function EntityFieldsEditor({
           dialog.mode === "edit" && isSystemEntityField(dialog.field)
         }
         listOptionCount={dialogListOptionCount}
-        onConfigureList={(data) => {
+        onConfigureList={async (data) => {
           if (data.listSourceFieldId) return;
-          const fieldId = handleSubmit({ ...data, type: "list" });
+          const fieldId = await handleSubmit({ ...data, type: "list" });
           setListSettingsFieldId(fieldId);
         }}
         onSubmit={handleSubmit}

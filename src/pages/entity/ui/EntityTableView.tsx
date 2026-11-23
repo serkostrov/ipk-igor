@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   ArrowDown,
   ArrowUp,
@@ -42,6 +43,7 @@ import {
   getEntityFieldTypeLabel,
   getEntityListParentField,
   getEntityRelationTargetId,
+  getEntityRecords,
   getEntityTableDisplayColumnNumber,
   getEntityTableFields,
   isEntityInternal,
@@ -66,7 +68,7 @@ import {
   removeEntityRecord,
   resolveEntityTableDisplayColumnField,
   resolveRelationRecordLabel,
-  countEntityTableNestedChildren,
+  countNestedChildrenByHost,
   findEntityManagerUserField,
   flattenEntityTableHierarchyRows,
   getSystemUserName,
@@ -119,6 +121,10 @@ import {
   recordMatchesSearch,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
+
+/** Stable identity for the loading fallback so renders don't churn. */
+const EMPTY_NESTED_COUNT_BY_HOST = new Map<string, number>();
+const EMPTY_DEPT_CALCULATION_RECORDS: EntityRecord[] = [];
 
 function getVisiblePages(current: number, total: number) {
   if (total <= 7) {
@@ -432,8 +438,9 @@ function DeptCalculationsEntityTableView({
   const role = useCurrentRole();
   const { entities } = useEntityConfig();
   const currentUserRecordId = useCurrentUserRecordId();
-  const visibleRecords = useMemo(() => {
-    if (!isTkpDepartmentHeadRole(role)) return records;
+  const needsFilter = isTkpDepartmentHeadRole(role);
+  const filtered = useAsyncValue(() => {
+    if (!needsFilter) return Promise.resolve(records);
     const sessionId = getSessionUser()?.id ?? null;
     return filterDeptCalculationRecordsForAssignee({
       entity,
@@ -445,7 +452,14 @@ function DeptCalculationsEntityTableView({
       ),
       restrictToOwnDepartments: true,
     });
-  }, [currentUserRecordId, entities, entity, records, role]);
+  }, [currentUserRecordId, entities, entity, needsFilter, records]);
+  // Dept-head scope is async; show nothing until it resolves rather than
+  // flashing other departments' rows. Other roles use the records as-is.
+  const visibleRecords = needsFilter
+    ? filtered.status === "ready"
+      ? filtered.value
+      : EMPTY_DEPT_CALCULATION_RECORDS
+    : records;
 
   return (
     <DeptCalculationsView
@@ -477,6 +491,8 @@ function EntityTableViewInner({
   const valueContext = useEntityValueContext();
   const canDelete = useCanEntity(entity.id, "delete");
   usePrefetchEntitySchemaVersions(entity.id, records);
+  // Relation labels for growing targets are primed centrally by
+  // `useEntityValueContext`, so names resolve even for records not kept locally.
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<EntityFiltersState>({});
@@ -516,6 +532,14 @@ function EntityTableViewInner({
     () => resolveEntityTableNestedTarget(entity, entities),
     [entity, entities],
   );
+  const nestedChildCountByHostValue = useAsyncValue(
+    () => countNestedChildrenByHost(nestedTarget),
+    [nestedTarget],
+  );
+  const nestedChildCountByHost =
+    nestedChildCountByHostValue.status === "ready"
+      ? nestedChildCountByHostValue.value
+      : EMPTY_NESTED_COUNT_BY_HOST;
   const subgroupRelationGroupsDepth: 0 | 1 =
     isEntityTableRelationGroupsNestedSubgroup(parentField, subgroupField)
       ? 1
@@ -829,12 +853,22 @@ function EntityTableViewInner({
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
+  // Total record count (store/DB) to detect a filtered subset — async.
+  const totalRecordCount = useAsyncValue(
+    () => getEntityRecords(entity).then((rows) => rows.length),
+    [entity],
+  );
+
   if (tableColumns.length === 0) {
     return <FieldEmptyState title={title} />;
   }
 
+  const totalRecords =
+    totalRecordCount.status === "ready"
+      ? totalRecordCount.value
+      : records.length;
   const isFiltered =
-    records.length !== entity.records.length ||
+    records.length !== totalRecords ||
     search.trim().length > 0 ||
     filterFields.some((field) => isEntityFilterActive(filters[field.id]));
   const emptyMessage = isFiltered
@@ -1168,10 +1202,13 @@ function EntityTableViewInner({
                           ).includes(row.valueId);
                         },
                       );
-                      const nestedSubtaskCount = countEntityTableNestedChildren(
-                        groupChildRecords,
-                        nestedTarget,
-                      );
+                      const nestedSubtaskCount = nestedTarget
+                        ? groupChildRecords.reduce(
+                            (sum, host) =>
+                              sum + (nestedChildCountByHost.get(host.id) ?? 0),
+                            0,
+                          )
+                        : 0;
                       const subtaskCount =
                         nestedSubtaskCount > 0
                           ? nestedSubtaskCount
@@ -2034,10 +2071,10 @@ function EntityTableViewInner({
             : "Вы уверены, что хотите удалить эту запись? Это действие нельзя отменить."
         }
         confirmLabel="Удалить"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!canDelete || !pendingDelete) return;
           const deletedId = pendingDelete.id;
-          removeEntityRecord(entity.id, deletedId);
+          await removeEntityRecord(entity.id, deletedId);
           setSelectedIds((prev) => prev.filter((id) => id !== deletedId));
         }}
       />
@@ -2050,13 +2087,20 @@ function EntityTableViewInner({
         title="Удалить выбранные записи?"
         description={`Вы уверены, что хотите удалить ${selectedCount} ${pluralRu(selectedCount, "запись", "записи", "записей")}? Это действие нельзя отменить.`}
         confirmLabel="Удалить"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!canDelete) return;
           const ids = [...selectedIds];
+          // DB-first: delete what we can; keep rows that failed still selected.
+          const deleted: string[] = [];
           for (const id of ids) {
-            removeEntityRecord(entity.id, id);
+            try {
+              await removeEntityRecord(entity.id, id);
+              deleted.push(id);
+            } catch {
+              // Persist error already surfaced via entity store status.
+            }
           }
-          setSelectedIds([]);
+          setSelectedIds((prev) => prev.filter((id) => !deleted.includes(id)));
         }}
       />
 

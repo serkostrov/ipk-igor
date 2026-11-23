@@ -10,6 +10,8 @@ import {
   createEntityDraftRecord,
   filterDeptCalculationRecordsForAssignee,
   findDeptCalculationsGroupsField,
+  getEntityRecordById,
+  getEntityRecordsByIds,
   getEntityRecordTitle,
   isDeptCalculationsEntity,
   isEntityFieldVisibleByConditions,
@@ -42,6 +44,8 @@ export type RelatedAskGroup = {
   relatedEntity: Entity;
   relatedRecordId: string;
   relatedRecordTitle: string;
+  /** Resolved related record (loaded with the layout). */
+  relatedRecord: EntityRecord | null;
   fields: RelatedAskFieldRow[];
 };
 
@@ -50,7 +54,7 @@ export type RelatedAskEmptyRelation = {
   relationLabel: string;
 };
 
-export function resolveRelatedAskLayout(options: {
+export async function resolveRelatedAskLayout(options: {
   triggerEntity: Entity;
   entities: Entity[];
   relatedFields: AutomationAskRelatedField[];
@@ -59,10 +63,10 @@ export function resolveRelatedAskLayout(options: {
   triggerValues: Record<string, string>;
   triggerRecordId: string;
   ctx: EntityValueContext;
-}): {
+}): Promise<{
   groups: RelatedAskGroup[];
   emptyRelations: RelatedAskEmptyRelation[];
-} {
+}> {
   const {
     triggerEntity,
     entities,
@@ -95,7 +99,7 @@ export function resolveRelatedAskLayout(options: {
   for (const [, asks] of byScope) {
     const sample = asks[0];
     if (!sample) continue;
-    const resolved = resolveAskRelatedTarget({
+    const resolved = await resolveAskRelatedTarget({
       triggerEntity,
       entities,
       ask: sample,
@@ -117,8 +121,9 @@ export function resolveRelatedAskLayout(options: {
 
     const relatedRecordIds = [...new Set(resolved.relatedRecordIds)];
     for (const relatedRecordId of relatedRecordIds) {
-      const relatedRecord = resolved.relatedEntity.records.find(
-        (item) => item.id === relatedRecordId,
+      const relatedRecord = await getEntityRecordById(
+        resolved.relatedEntity,
+        relatedRecordId,
       );
       const fields: RelatedAskFieldRow[] = [];
       for (const ask of asks) {
@@ -160,6 +165,7 @@ export function resolveRelatedAskLayout(options: {
         relatedRecordTitle: relatedRecord
           ? getEntityRecordTitle(ctx, resolved.relatedEntity, relatedRecord)
           : relatedRecordId,
+        relatedRecord: relatedRecord ?? null,
         fields,
       };
       groupByRecord.set(mergeKey, group);
@@ -171,7 +177,7 @@ export function resolveRelatedAskLayout(options: {
 }
 
 /** Seed namespaced related values from related entity records. */
-export function seedRelatedAskValues(options: {
+export async function seedRelatedAskValues(options: {
   triggerEntity: Entity;
   entities: Entity[];
   relatedFields: AutomationAskRelatedField[];
@@ -179,7 +185,7 @@ export function seedRelatedAskValues(options: {
   triggerRecordId: string;
   /** Existing draft — keeps user edits for still-active keys. */
   currentValues?: Record<string, string>;
-}): Record<string, string> {
+}): Promise<Record<string, string>> {
   const {
     triggerEntity,
     entities,
@@ -194,7 +200,7 @@ export function seedRelatedAskValues(options: {
   }
 
   for (const ask of relatedFields) {
-    const resolved = resolveAskRelatedTarget({
+    const resolved = await resolveAskRelatedTarget({
       triggerEntity,
       entities,
       ask,
@@ -217,8 +223,9 @@ export function seedRelatedAskValues(options: {
         next[key] = currentValues[key]!;
         continue;
       }
-      const relatedRecord = resolved.relatedEntity.records.find(
-        (item) => item.id === relatedRecordId,
+      const relatedRecord = await getEntityRecordById(
+        resolved.relatedEntity,
+        relatedRecordId,
       );
       const raw = relatedRecord?.values[ask.fieldId] ?? "";
       next[key] = normalizeEntityFieldInputValue(field, raw);
@@ -232,14 +239,14 @@ export function seedRelatedAskValues(options: {
  * After a local field change: if it is a relation used by related asks,
  * re-seed related:* keys (drop cleared links, add new ones).
  */
-export function syncRelatedAskValuesAfterLocalChange(options: {
+export async function syncRelatedAskValuesAfterLocalChange(options: {
   triggerEntity: Entity;
   entities: Entity[];
   relatedFields: AutomationAskRelatedField[];
   changedFieldId: string;
   values: Record<string, string>;
   triggerRecordId: string;
-}): Record<string, string> {
+}): Promise<Record<string, string>> {
   const usesRelation = options.relatedFields.some(
     (item) =>
       !item.linkedTabId && item.relationFieldId === options.changedFieldId,
@@ -303,7 +310,7 @@ function richestRelatedGroupsDraft(options: {
 }
 
 /** Build per-related-record patches from form values. */
-export function buildRelatedAskPersistUpdates(options: {
+export async function buildRelatedAskPersistUpdates(options: {
   triggerEntity: Entity;
   entities: Entity[];
   fieldAccess: AutomationOutcomeFieldAccess | AutomationOutcomeFieldAccess[];
@@ -312,7 +319,7 @@ export function buildRelatedAskPersistUpdates(options: {
   triggerRecordId: string;
   /** Skip writing when equal to live related record values. */
   skipUnchanged?: boolean;
-}): RelatedAskPersistUpdate[] {
+}): Promise<RelatedAskPersistUpdate[]> {
   const accesses = Array.isArray(options.fieldAccess)
     ? options.fieldAccess
     : [options.fieldAccess];
@@ -322,7 +329,7 @@ export function buildRelatedAskPersistUpdates(options: {
     const persistAskIds = relatedAskIdsToPersist(access);
     for (const ask of access.relatedVisibleFields) {
       if (!persistAskIds.has(ask.id)) continue;
-      const resolved = resolveAskRelatedTarget({
+      const resolved = await resolveAskRelatedTarget({
         triggerEntity: options.triggerEntity,
         entities: options.entities,
         ask,
@@ -353,11 +360,16 @@ export function buildRelatedAskPersistUpdates(options: {
         });
         if (!richest) continue;
         if (options.skipUnchanged) {
+          const liveRecords = await getEntityRecordsByIds(
+            resolved.relatedEntity,
+            resolved.relatedRecordIds,
+          );
+          const liveById = new Map(
+            liveRecords.map((record) => [record.id, record]),
+          );
           const liveKeys = new Set(
             resolved.relatedRecordIds.flatMap((recordId) => {
-              const record = resolved.relatedEntity.records.find(
-                (item) => item.id === recordId,
-              );
+              const record = liveById.get(recordId);
               return collectTkpStageDepartmentPairs(
                 record?.values[ask.fieldId],
               ).map((pair) => `${pair.stageId}\0${pair.departmentId}`);
@@ -389,8 +401,9 @@ export function buildRelatedAskPersistUpdates(options: {
         if (options.values[key] === undefined) continue;
         const next = options.values[key]!;
         if (options.skipUnchanged) {
-          const relatedRecord = resolved.relatedEntity.records.find(
-            (item) => item.id === relatedRecordId,
+          const relatedRecord = await getEntityRecordById(
+            resolved.relatedEntity,
+            relatedRecordId,
           );
           if ((relatedRecord?.values[ask.fieldId] ?? "") === next) continue;
         }
@@ -508,7 +521,7 @@ export async function persistRelatedAskUpdates(
   }
 }
 
-export function validateRelatedAskRequired(options: {
+export async function validateRelatedAskRequired(options: {
   triggerEntity: Entity;
   entities: Entity[];
   fieldAccess: AutomationOutcomeFieldAccess;
@@ -524,7 +537,7 @@ export function validateRelatedAskRequired(options: {
     value: string,
     relationGroupsMode?: "full" | "items" | "nested",
   ) => boolean;
-}): string | null {
+}): Promise<string | null> {
   const {
     fieldAccess,
     values,
@@ -548,7 +561,7 @@ export function validateRelatedAskRequired(options: {
   const missingLabels: string[] = [];
 
   for (const ask of requiredAsks) {
-    const resolved = resolveAskRelatedTarget({
+    const resolved = await resolveAskRelatedTarget({
       triggerEntity,
       entities,
       ask,
@@ -610,8 +623,9 @@ export function validateRelatedAskRequired(options: {
         field.id === hostFields.description?.id ||
         field.id === hostFields.comment?.id);
     if (isTableHostField) {
-      const linked = resolved.relatedEntity.records.filter((record) =>
-        resolved.relatedRecordIds.includes(record.id),
+      const linked = await getEntityRecordsByIds(
+        resolved.relatedEntity,
+        resolved.relatedRecordIds,
       );
       const parent =
         leadParent ??
@@ -625,7 +639,7 @@ export function validateRelatedAskRequired(options: {
             schemaVersion: 0,
           },
         } as const);
-      const visible = filterDeptCalculationRecordsForAssignee({
+      const visible = await filterDeptCalculationRecordsForAssignee({
         entity: resolved.relatedEntity,
         records: linked,
         entities,
@@ -634,7 +648,7 @@ export function validateRelatedAskRequired(options: {
         leadParent: parent,
         restrictToOwnDepartments,
       });
-      const editableIds = resolveEditableDeptCalculationRecordIds({
+      const editableIds = await resolveEditableDeptCalculationRecordIds({
         entity: resolved.relatedEntity,
         records: visible,
         entities,
@@ -673,8 +687,9 @@ export function validateRelatedAskRequired(options: {
         ask.fieldId,
       );
       if (ctx) {
-        const relatedRecord = resolved.relatedEntity.records.find(
-          (item) => item.id === relatedRecordId,
+        const relatedRecord = await getEntityRecordById(
+          resolved.relatedEntity,
+          relatedRecordId,
         );
         const relatedMerged = {
           ...(relatedRecord?.values ?? {}),
@@ -721,7 +736,7 @@ export function validateRelatedAskRequired(options: {
   return `Заполните: ${[...new Set(missingLabels)].join(", ")}`;
 }
 
-export function countMissingRelatedRequired(options: {
+export async function countMissingRelatedRequired(options: {
   triggerEntity: Entity;
   entities: Entity[];
   relatedFields: AutomationAskRelatedField[];
@@ -734,9 +749,9 @@ export function countMissingRelatedRequired(options: {
     value: string,
     relationGroupsMode?: "full" | "items" | "nested",
   ) => boolean;
-}): number {
+}): Promise<number> {
   if (options.relatedRequiredIds.length === 0) return 0;
-  const message = validateRelatedAskRequired({
+  const message = await validateRelatedAskRequired({
     triggerEntity: options.triggerEntity,
     entities: options.entities,
     fieldAccess: {

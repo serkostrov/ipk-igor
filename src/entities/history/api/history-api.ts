@@ -2,6 +2,8 @@ import { isSupabaseConfigured, supabase } from "@/shared/api/supabase";
 import { projectDayStartUtcIso } from "@/shared/lib/datetime";
 import type {
   EntityRecordEvent,
+  EntityEventsQuery,
+  EntityStructureEvent,
   EntityRecordEventAction,
   EntityRecordEventChange,
   EntityRecordEventsPage,
@@ -96,4 +98,58 @@ export async function fetchEntityRecordEvents(
     events: rows.slice(0, page.limit).map(rowToEvent),
     hasMore: rows.length > page.limit,
   };
+}
+
+export async function fetchEntityEvents(
+  query: EntityEventsQuery,
+  page: { offset: number; limit: number },
+): Promise<{ events: EntityStructureEvent[]; hasMore: boolean }> {
+  if (!isSupabaseConfigured || !supabase) return { events: [], hasMore: false };
+  let request = supabase
+    .from("entity_events")
+    .select(
+      "id, entity_id, entity_name, action, version, message, has_details, actor_id, created_at",
+    )
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(page.offset, page.offset + page.limit);
+
+  if (query.entityId) request = request.eq("entity_id", query.entityId);
+  if (query.actorId) request = request.eq("actor_id", query.actorId);
+  if (query.from)
+    request = request.gte("created_at", localDayStartIso(query.from));
+  if (query.to)
+    request = request.lt("created_at", localDayStartIso(query.to, 1));
+
+  const { data, error } = await request;
+  if (error) throw error;
+
+  const rows = data ?? [];
+  return {
+    events: rows.slice(0, page.limit).map((row) => ({
+      id: row.id,
+      entityId: row.entity_id,
+      entityName: row.entity_name,
+      action: row.action,
+      version: row.version,
+      message: row.message,
+      hasDetails: row.has_details,
+      actorId: row.actor_id,
+      createdAt: row.created_at,
+    })),
+    hasMore: rows.length > page.limit,
+  };
+}
+
+export async function fetchEntityEventDefinitions(
+  eventId: number,
+): Promise<{ before: unknown; after: unknown }> {
+  if (!supabase) throw new Error("Supabase не настроен");
+  const { data, error } = await supabase
+    .from("entity_events")
+    .select("before_definition, after_definition")
+    .eq("id", eventId)
+    .single();
+  if (error) throw error;
+  return { before: data.before_definition, after: data.after_definition };
 }

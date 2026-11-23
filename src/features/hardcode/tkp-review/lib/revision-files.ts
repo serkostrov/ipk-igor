@@ -4,6 +4,7 @@
  */
 
 import {
+  getEntityRecordById,
   DEFAULT_ENTITY_FOLDER_COLOR,
   getEntityConfig,
   getEntityTabFilesValueKey,
@@ -163,7 +164,7 @@ export async function uploadTkpRevisionFiles(input: {
     return { uploadedCount: 0, filesTabName: "Файлы", createdFilesTab: false };
   }
 
-  const target = resolveTkpDocumentFilesTarget({
+  const target = await resolveTkpDocumentFilesTarget({
     entity: input.entity,
     record: input.record,
     entities: input.entities,
@@ -174,10 +175,12 @@ export async function uploadTkpRevisionFiles(input: {
   // values still include the process stage and would trip AUTOMATION_BLOCKED
   // if spread into updateEntityRecord as a full snapshot.
   const liveValues =
-    getEntityConfig()
-      .entities.find((item) => item.id === target.entity.id)
-      ?.records.find((item) => item.id === target.record.id)?.values ??
-    target.record.values;
+    (
+      await getEntityRecordById(
+        getEntityConfig().entities.find((item) => item.id === target.entity.id),
+        target.record.id,
+      )
+    )?.values ?? target.record.values;
 
   let entries = parseEntityTabFileEntries(liveValues[valueKey]);
   const ensured = ensureTkpDocumentsFolder(entries);

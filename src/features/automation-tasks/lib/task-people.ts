@@ -1,6 +1,7 @@
 import {
   getEntityFieldDisplayName,
   getEntityParentLinkField,
+  getEntityRecordById,
   getEntityRelationTargetId,
   getSystemUserName,
   parseEntityRelationIds,
@@ -66,17 +67,17 @@ function managerNameOnRecord(
  * Lead / parent record for a task trigger row (owned sub-entity or explicit
  * relation to an entity whose name looks like «Лид»).
  */
-function resolveLeadRecord(
+async function resolveLeadRecord(
   entities: Entity[],
   entity: Entity,
   record: EntityRecord,
-): { entity: Entity; record: EntityRecord } | null {
+): Promise<{ entity: Entity; record: EntityRecord } | null> {
   if (entity.parentEntityId) {
     const parent = entities.find((item) => item.id === entity.parentEntityId);
     const link = getEntityParentLinkField(entity);
     if (parent && link) {
       const parentId = parseEntityRelationIds(record.values[link.id])[0];
-      const parentRecord = parent.records.find((item) => item.id === parentId);
+      const parentRecord = await getEntityRecordById(parent, parentId);
       if (parentRecord) return { entity: parent, record: parentRecord };
     }
   }
@@ -90,7 +91,7 @@ function resolveLeadRecord(
     const label = `${target.name} ${target.namePlural}`.toLocaleLowerCase("ru");
     if (!label.includes("лид")) continue;
     const relatedId = parseEntityRelationIds(record.values[field.id])[0];
-    const related = target.records.find((item) => item.id === relatedId);
+    const related = await getEntityRecordById(target, relatedId);
     if (related) return { entity: target, record: related };
   }
 
@@ -110,7 +111,7 @@ export function resolveTaskAssigneeName(
  * «Менеджер лида»: Users field on the trigger record, or on the parent / linked
  * lead record when the task runs on a child entity (e.g. «Разбор ТКП»).
  */
-export function resolveTaskLeadManagerName(
+export async function resolveTaskLeadManagerName(
   entities: Entity[],
   entity: Entity | undefined,
   record: EntityRecord | undefined,
@@ -120,7 +121,7 @@ export function resolveTaskLeadManagerName(
   const onTrigger = managerNameOnRecord(entities, entity, record);
   if (onTrigger) return onTrigger;
 
-  const lead = resolveLeadRecord(entities, entity, record);
+  const lead = await resolveLeadRecord(entities, entity, record);
   if (!lead) return null;
   return managerNameOnRecord(entities, lead.entity, lead.record);
 }

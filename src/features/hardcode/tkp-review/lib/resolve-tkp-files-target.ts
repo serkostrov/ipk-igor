@@ -5,6 +5,7 @@
  */
 
 import {
+  getEntityRecordById,
   addEntityTab,
   DEFAULT_ENTITY_FOLDER_COLOR,
   getEntityConfig,
@@ -45,24 +46,22 @@ export function listNativeFilesTabs(entity: Entity): EntityTab[] {
  * Ensure the host entity has a writable native «Файлы» tab for TKP docs.
  * Returns a fresh entity snapshot from the store when a tab is created.
  */
-export function resolveTkpDocumentFilesTarget(input: {
+export async function resolveTkpDocumentFilesTarget(input: {
   entity: Entity;
   record: EntityRecord;
   entities: readonly Entity[];
-}): TkpDocumentFilesTarget {
+}): Promise<TkpDocumentFilesTarget> {
   void input.entities;
 
   const fresh =
     getEntityConfig().entities.find((item) => item.id === input.entity.id) ??
     input.entity;
-  const record =
-    fresh.records.find((item) => item.id === input.record.id) ?? input.record;
-
   const existing = findPreferredTkpFilesTab(fresh);
   if (existing) {
     return {
       entity: fresh,
-      record,
+      record:
+        (await getEntityRecordById(fresh, input.record.id)) ?? input.record,
       tab: existing,
       createdTab: false,
     };
@@ -94,7 +93,7 @@ export function resolveTkpDocumentFilesTarget(input: {
   }
 
   const nextRecord =
-    afterCreate.records.find((item) => item.id === input.record.id) ?? record;
+    (await getEntityRecordById(afterCreate, input.record.id)) ?? input.record;
 
   return {
     entity: afterCreate,

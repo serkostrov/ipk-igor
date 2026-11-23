@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useEntityConfig, useEntityValueContext } from "@/entities/entity";
 import { adaptFinanceDashboardFromEntities } from "../model/adapt-dds-dashboard";
 import { buildFinanceDashboardData } from "../model/dds-calculations";
@@ -26,8 +27,11 @@ export function useDdsDashboard(input: {
   const valueContext = useEntityValueContext();
   const today = useMemo(() => localIsoDate(), []);
 
-  return useMemo(() => {
-    const adapted = adaptFinanceDashboardFromEntities(valueContext, entities);
+  const value = useAsyncValue(async () => {
+    const adapted = await adaptFinanceDashboardFromEntities(
+      valueContext,
+      entities,
+    );
     const data = buildFinanceDashboardData({
       balanceView: input.balanceView,
       dateFrom: input.dateFrom,
@@ -59,4 +63,27 @@ export function useDdsDashboard(input: {
     input.selectedLegalId,
     input.selectedProjectId,
   ]);
+  if (value.status === "error") throw value.error;
+  return value.status === "ready"
+    ? value.value
+    : {
+        data: buildFinanceDashboardData({
+          balanceView: input.balanceView,
+          dateFrom: input.dateFrom,
+          dateTo: input.dateTo,
+          today,
+          entries: [],
+          categories: [],
+          wallets: [],
+          plannedReceipts: [],
+          plannedOutflows: [],
+          selectedLegalId: input.selectedLegalId,
+          selectedProjectId: input.selectedProjectId,
+        }),
+        legalEntities: [],
+        projects: [],
+        hasDdsEntity: false,
+        hasWalletsEntity: false,
+        hasArticlesEntity: false,
+      };
 }

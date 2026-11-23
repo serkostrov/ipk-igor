@@ -77,7 +77,7 @@ function formatRecordExtras(
   fieldIds: readonly string[],
 ): string {
   if (fieldIds.length === 0) return "";
-  const record = entity.records.find((item) => item.id === recordId);
+  const record = ctx.getRecord(entity.id, recordId);
   if (!record) return "";
   const parts: string[] = [];
   for (const fieldId of fieldIds) {
@@ -94,11 +94,11 @@ function formatRecordExtras(
 function isSelectableRecord(
   entity: Entity | null | undefined,
   id: string,
-  entities?: readonly Entity[],
+  ctx: EntityValueContext,
 ) {
   if (!entity || !id.trim()) return false;
-  if (!entity.records.some((item) => item.id === id)) return false;
-  return !isEntityRelationRecordGhost(entity, id, entities);
+  if (!ctx.getRecord(entity.id, id)) return false;
+  return !isEntityRelationRecordGhost(entity, id, ctx.entities, ctx);
 }
 
 function isSelectableListOption(
@@ -116,10 +116,11 @@ function recordTitle(
   recordId: string,
   ctx: EntityValueContext,
 ) {
-  const record = entity.records.find((item) => item.id === recordId);
+  const record = ctx.getRecord(entity.id, recordId);
   if (!record) return "Удалённая запись";
   return (
-    resolveRelationRecordLabel(entity, recordId, ctx.entities) ?? "Без названия"
+    resolveRelationRecordLabel(entity, recordId, ctx.entities, ctx) ??
+    "Без названия"
   );
 }
 
@@ -214,13 +215,14 @@ function NodesGrid({
  *   is what this picker edits, so an empty parent would make the list unusable.
  */
 function allowedIdsFromParent(
+  ctx: EntityValueContext,
   parentEntity: Entity | null,
   parentId: string,
   level: EntityRelationGroupsLevel,
 ): Set<string> | null {
   if (level.source.kind === "entity") {
     if (!level.source.limitFieldId || !parentEntity) return null;
-    const record = parentEntity.records.find((item) => item.id === parentId);
+    const record = ctx.getRecord(parentEntity.id, parentId);
     if (!record) return null;
     const ids = parseEntityRelationIds(
       record.values[level.source.limitFieldId],
@@ -247,11 +249,11 @@ function passesLevelCatalogFilter(
   parentId: string,
 ): boolean {
   if (!filter) return true;
-  const record = levelEntity.records.find((item) => item.id === recordId);
+  const record = ctx.getRecord(levelEntity.id, recordId);
   if (!record) return false;
   const parentRecord =
     parentEntity && parentId
-      ? (parentEntity.records.find((item) => item.id === parentId) ?? null)
+      ? (ctx.getRecord(parentEntity.id, parentId) ?? null)
       : null;
   return recordMatchesRelationGroupsFilter(
     ctx,
@@ -378,7 +380,7 @@ export function RelationGroupsFieldControl({
         return isSelectableListOption(sourceField, itemId);
       }
     }
-    return isSelectableRecord(levelEntityAt(depth), itemId, ctx.entities);
+    return isSelectableRecord(levelEntityAt(depth), itemId, ctx);
   }
 
   const parsedGroups = parseEntityRelationGroups(value);
@@ -473,9 +475,9 @@ export function RelationGroupsFieldControl({
   const rootFilterParent = catalogFilterSource?.entity ?? null;
   const rootFilterParentId = catalogFilterSource?.record.id ?? "";
   const rootOptions = enrichOptions(
-    getRelationRecordOptions(rootEntity, ctx.entities).filter(
+    getRelationRecordOptions(rootEntity, ctx.entities, ctx).filter(
       (option) =>
-        isSelectableRecord(rootEntity, option.id, ctx.entities) &&
+        isSelectableRecord(rootEntity, option.id, ctx) &&
         passesLevelCatalogFilter(
           ctx,
           rootEntity,
@@ -513,7 +515,7 @@ export function RelationGroupsFieldControl({
     const entity = levelEntityAt(depth);
     if (!isListSource && !entity) return null;
 
-    const allowed = allowedIdsFromParent(parentEntity, parentId, level);
+    const allowed = allowedIdsFromParent(ctx, parentEntity, parentId, level);
     const catalogFilter = levelCatalogFilter(level);
     const filterParentEntity = catalogFilterSource?.entity ?? parentEntity;
     const filterParentId = catalogFilterSource?.record.id ?? parentId;
@@ -525,10 +527,10 @@ export function RelationGroupsFieldControl({
         ? withSelectedOptions(
             entity,
             enrichOptions(
-              getRelationRecordOptions(entity, ctx.entities).filter(
+              getRelationRecordOptions(entity, ctx.entities, ctx).filter(
                 (option) =>
                   !hiddenNested.has(option.id) &&
-                  isSelectableRecord(entity, option.id, ctx.entities) &&
+                  isSelectableRecord(entity, option.id, ctx) &&
                   (allowed ? allowed.has(option.id) : true) &&
                   passesLevelCatalogFilter(
                     ctx,

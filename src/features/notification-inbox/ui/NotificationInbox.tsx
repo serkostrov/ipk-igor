@@ -16,7 +16,7 @@ import {
   useNotificationInboxStatus,
   type Notification,
 } from "@/entities/notification";
-import { useEntityConfig } from "@/entities/entity";
+import { useEnsureRecordsByIds, useEntityConfig } from "@/entities/entity";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
 import { formatTimestampDisplay } from "@/shared/lib/format-date";
@@ -54,6 +54,10 @@ export function NotificationInbox({
     const start = (currentPage - 1) * PAGE_SIZE;
     return items.slice(start, start + PAGE_SIZE);
   }, [currentPage, items]);
+
+  // By-id working-set load for the visible page's referenced records, so their
+  // labels resolve even when the owning entities aren't page-loaded.
+  useEnsureRecordsByIds(pageItems.map((item) => item.recordId ?? ""));
 
   const from = items.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
   const to = Math.min(currentPage * PAGE_SIZE, items.length);

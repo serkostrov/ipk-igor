@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { X } from "lucide-react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
@@ -15,6 +16,7 @@ import {
   ENTITY_DEPENDENCY_TYPES,
   getEntityFieldDisplayName,
   getRecordFieldIds,
+  getEntityRecords,
   getRelationRecordOptions,
   parseEntityDependencies,
   parseEntityRelationIds,
@@ -24,8 +26,12 @@ import {
   type EntityDependency,
   type EntityDependencyType,
   type EntityField,
+  type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+
+/** Stable identity for the loading fallback so renders don't churn. */
+const EMPTY_RECORDS_BY_ID = new Map<string, EntityRecord>();
 
 type DependenciesFieldControlProps = {
   id: string;
@@ -98,9 +104,17 @@ export function DependenciesFieldControl({
   const scopeMissing = scopeField != null && scopeIds.length === 0;
   const allOptions = getRelationRecordOptions(entity);
   const usedIds = new Set(dependencies.map((item) => item.recordId));
+  const recordsByIdValue = useAsyncValue(
+    async () => new Map((await getEntityRecords(entity)).map((r) => [r.id, r])),
+    [entity],
+  );
+  const recordsById =
+    recordsByIdValue.status === "ready"
+      ? recordsByIdValue.value
+      : EMPTY_RECORDS_BY_ID;
   const inScope = (candidateId: string) => {
     if (!scopeField) return true;
-    const candidate = entity.records.find((item) => item.id === candidateId);
+    const candidate = recordsById.get(candidateId);
     return candidate
       ? getRecordFieldIds(ctx, entity, candidate, scopeField).some((itemId) =>
           scopeIds.includes(itemId),

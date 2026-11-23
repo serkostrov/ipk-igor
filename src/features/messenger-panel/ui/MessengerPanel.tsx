@@ -11,6 +11,7 @@ import {
   useMessengerChats,
   useShowArchivedChats,
 } from "@/entities/messenger";
+import { useEnsureRecordsByIds } from "@/entities/entity";
 import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { cn } from "@/shared/lib/cn";
 import { MessengerChatList } from "./MessengerChatList";
@@ -42,6 +43,8 @@ export function MessengerPanel({
 }) {
   const activeChatId = useActiveMessengerChatId();
   const chats = useMessengerChats();
+  // By-id load for records linked to chats, so the chat list shows their labels.
+  useEnsureRecordsByIds(chats.map((chat) => chat.recordId ?? ""));
   const showArchived = useShowArchivedChats();
   const [mobileThread, setMobileThread] = useState(false);
   const [listWidth, setListWidth] = useLocalStorageState(

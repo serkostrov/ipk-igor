@@ -1,4 +1,11 @@
-import { createElement, useMemo, useState, type ReactNode } from "react";
+import {
+  createElement,
+  useCallback,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
   ChevronDown,
   LogOut,
@@ -15,6 +22,7 @@ import {
   SYSTEM_USERS_ENTITY_ID,
   SYSTEM_USERS_FIELD_EMAIL_ID,
   SYSTEM_USERS_FIELD_NAME_ID,
+  getEntityRecords,
   isEntityInternal,
   useEntityConfig,
   useEntityStatus,
@@ -674,29 +682,42 @@ export function Sidebar({
     return roleMenuFlat(role) ? flattenMenuEntriesToItems(visible) : visible;
   }, [entries, entities, role]);
 
-  const currentUser = useMemo(() => {
+  const deriveUser = useCallback(
+    (profile: { values: Record<string, string> } | null) => {
+      const profileName = profile?.values[SYSTEM_USERS_FIELD_NAME_ID]?.trim();
+      const profileEmail = profile?.values[SYSTEM_USERS_FIELD_EMAIL_ID]?.trim();
+      const metaName =
+        typeof sessionUser?.user_metadata?.full_name === "string"
+          ? sessionUser.user_metadata.full_name.trim()
+          : "";
+      const email = profileEmail || sessionUser?.email?.trim() || "";
+      const name =
+        profileName ||
+        metaName ||
+        (email.includes("@") ? email.split("@")[0]! : email) ||
+        "Пользователь";
+      return { name, email };
+    },
+    [sessionUser],
+  );
+  // Profile record comes from the store/DB asynchronously; fall back to the
+  // session identity until it resolves.
+  const currentUserValue = useAsyncValue(async () => {
     const usersEntity = entities.find(
       (entity) => entity.id === SYSTEM_USERS_ENTITY_ID,
     );
-    const profile = sessionUser
-      ? (usersEntity?.records.find(
-          (record) => record.authUserId === sessionUser.id,
-        ) ?? null)
-      : null;
-    const profileName = profile?.values[SYSTEM_USERS_FIELD_NAME_ID]?.trim();
-    const profileEmail = profile?.values[SYSTEM_USERS_FIELD_EMAIL_ID]?.trim();
-    const metaName =
-      typeof sessionUser?.user_metadata?.full_name === "string"
-        ? sessionUser.user_metadata.full_name.trim()
-        : "";
-    const email = profileEmail || sessionUser?.email?.trim() || "";
-    const name =
-      profileName ||
-      metaName ||
-      (email.includes("@") ? email.split("@")[0]! : email) ||
-      "Пользователь";
-    return { name, email };
-  }, [entities, sessionUser]);
+    const profile =
+      sessionUser && usersEntity
+        ? ((await getEntityRecords(usersEntity)).find(
+            (record) => record.authUserId === sessionUser.id,
+          ) ?? null)
+        : null;
+    return deriveUser(profile);
+  }, [entities, sessionUser, deriveUser]);
+  const currentUser =
+    currentUserValue.status === "ready"
+      ? currentUserValue.value
+      : deriveUser(null);
 
   function toggleGroup(groupId: string) {
     setCollapsedGroupIds((current) => {

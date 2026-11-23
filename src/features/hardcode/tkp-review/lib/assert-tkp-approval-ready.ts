@@ -5,6 +5,7 @@
 import {
   findTkpLeadRelationField,
   getEntityFieldDisplayName,
+  getEntityRecordById,
   getEntityRelationTargetId,
   parseEntityRelationIds,
   type Entity,
@@ -33,11 +34,11 @@ function findCommercialGroupField(entity: Entity): string | null {
   return field?.id ?? null;
 }
 
-function resolveLeadRecord(options: {
+async function resolveLeadRecord(options: {
   entity: Entity;
   record: EntityRecord;
   entities: readonly Entity[];
-}): { leadEntity: Entity; leadRecord: EntityRecord } | null {
+}): Promise<{ leadEntity: Entity; leadRecord: EntityRecord } | null> {
   const leadField = findTkpLeadRelationField(options.entity, options.entities);
   if (!leadField) return null;
   const leadEntityId = getEntityRelationTargetId(leadField);
@@ -46,17 +47,17 @@ function resolveLeadRecord(options: {
   if (!leadEntity) return null;
   const leadId = parseEntityRelationIds(options.record.values[leadField.id])[0];
   if (!leadId) return null;
-  const leadRecord = leadEntity.records.find((item) => item.id === leadId);
+  const leadRecord = await getEntityRecordById(leadEntity, leadId);
   if (!leadRecord) return null;
   return { leadEntity, leadRecord };
 }
 
-export function assertTkpDocumentApprovalReady(options: {
+export async function assertTkpDocumentApprovalReady(options: {
   entity: Entity;
   record: EntityRecord;
   entities: readonly Entity[];
   revision: TkpPriceRevisionSummary | null | undefined;
-}): void {
+}): Promise<void> {
   const { entity, record, entities, revision } = options;
 
   if (!revision) {
@@ -87,7 +88,7 @@ export function assertTkpDocumentApprovalReady(options: {
   }
 
   const hostGroupFieldId = findCommercialGroupField(entity);
-  const lead = resolveLeadRecord({ entity, record, entities });
+  const lead = await resolveLeadRecord({ entity, record, entities });
   const leadGroupFieldId = lead
     ? findCommercialGroupField(lead.leadEntity)
     : null;

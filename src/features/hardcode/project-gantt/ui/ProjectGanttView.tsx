@@ -240,7 +240,7 @@ export function ProjectGanttView({
       return;
     }
     try {
-      createProjectGanttTaskDependency({
+      await createProjectGanttTaskDependency({
         binding,
         predecessorWorkItemId: depPredecessorId,
         successorWorkItemId: depSuccessorId,
@@ -250,7 +250,7 @@ export function ProjectGanttView({
         (item) => item.id === depSuccessorId,
       );
       if (successor?.startDate && successor.endDate) {
-        rescheduleProjectGanttTaskRecord({
+        await rescheduleProjectGanttTaskRecord({
           binding,
           workItemId: successor.id,
           newStartDate: successor.startDate,
@@ -270,7 +270,7 @@ export function ProjectGanttView({
 
   async function handleDeleteDependency(dependencyId: string) {
     try {
-      deleteProjectGanttTaskDependency({ binding, dependencyId });
+      await deleteProjectGanttTaskDependency({ binding, dependencyId });
       toast.success("Зависимость удалена");
     } catch (error) {
       toast.error(

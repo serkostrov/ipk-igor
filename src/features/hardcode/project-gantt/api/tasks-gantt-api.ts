@@ -4,6 +4,7 @@
 
 import {
   addEntityRecord,
+  getEntityRecordById,
   parseEntityDependencies,
   rescheduleEntityRecord,
   serializeEntityDependencies,
@@ -14,7 +15,7 @@ import type { WorkItemDependencyType } from "../model/contracts";
 import type { ProjectGanttTasksBinding } from "../model/tasks-snapshot";
 import { WORK_DEP_TYPE_TO_ENTITY } from "../model/tasks-snapshot";
 
-export function upsertProjectGanttTaskRecord(input: {
+export async function upsertProjectGanttTaskRecord(input: {
   binding: ProjectGanttTasksBinding;
   name: string;
   stageId: string | null;
@@ -23,7 +24,7 @@ export function upsertProjectGanttTaskRecord(input: {
   plannedHours: number | null;
   departmentId: string | null;
   workItemId: string | null;
-}): string {
+}): Promise<string> {
   const { binding } = input;
   const { fields, tasksEntity, parentLinkFieldId, projectRecord } = binding;
   const values: Record<string, string> = {
@@ -50,9 +51,7 @@ export function upsertProjectGanttTaskRecord(input: {
   }
 
   if (input.workItemId) {
-    const existing = tasksEntity.records.find(
-      (record) => record.id === input.workItemId,
-    );
+    const existing = await getEntityRecordById(tasksEntity, input.workItemId);
     if (!existing) throw new Error("Задача не найдена");
     const next = { ...existing.values, ...values };
 
@@ -71,24 +70,25 @@ export function upsertProjectGanttTaskRecord(input: {
       input.dueDate &&
       fields.fromTimeline
     ) {
-      updateEntityRecord(tasksEntity.id, existing.id, next);
-      rescheduleEntityRecord(
+      // Persist the task first so the dependent reschedule sees fresh dates.
+      await updateEntityRecord(tasksEntity.id, existing.id, next);
+      await rescheduleEntityRecord(
         tasksEntity.id,
         existing.id,
         input.startDate,
         input.dueDate,
       );
     } else {
-      updateEntityRecord(tasksEntity.id, existing.id, next);
+      await updateEntityRecord(tasksEntity.id, existing.id, next);
     }
     return existing.id;
   }
 
-  const created = addEntityRecord(tasksEntity.id, values);
+  const created = await addEntityRecord(tasksEntity.id, values);
   return created.id;
 }
 
-export function createProjectGanttTaskDependency(input: {
+export async function createProjectGanttTaskDependency(input: {
   binding: ProjectGanttTasksBinding;
   predecessorWorkItemId: string;
   successorWorkItemId: string;
@@ -98,8 +98,9 @@ export function createProjectGanttTaskDependency(input: {
   const field = input.binding.fields.dependenciesField;
   if (!field) throw new Error("У задач нет поля «Предшественники»");
 
-  const successor = input.binding.tasksEntity.records.find(
-    (record) => record.id === input.successorWorkItemId,
+  const successor = await getEntityRecordById(
+    input.binding.tasksEntity,
+    input.successorWorkItemId,
   );
   if (!successor) throw new Error("Задача-последователь не найдена");
 
@@ -117,13 +118,13 @@ export function createProjectGanttTaskDependency(input: {
     },
   ];
 
-  updateEntityRecord(input.binding.tasksEntity.id, successor.id, {
+  await updateEntityRecord(input.binding.tasksEntity.id, successor.id, {
     ...successor.values,
     [field.id]: serializeEntityDependencies(next),
   });
 }
 
-export function deleteProjectGanttTaskDependency(input: {
+export async function deleteProjectGanttTaskDependency(input: {
   binding: ProjectGanttTasksBinding;
   dependencyId: string;
 }) {
@@ -138,21 +139,19 @@ export function deleteProjectGanttTaskDependency(input: {
   const succ = rest.split(":")[0] ?? "";
   if (!pred || !succ) throw new Error("Некорректная зависимость");
 
-  const successor = input.binding.tasksEntity.records.find(
-    (record) => record.id === succ,
-  );
+  const successor = await getEntityRecordById(input.binding.tasksEntity, succ);
   if (!successor) return;
 
   const next = parseEntityDependencies(successor.values[field.id]).filter(
     (item) => item.recordId !== pred,
   );
-  updateEntityRecord(input.binding.tasksEntity.id, successor.id, {
+  await updateEntityRecord(input.binding.tasksEntity.id, successor.id, {
     ...successor.values,
     [field.id]: serializeEntityDependencies(next),
   });
 }
 
-export function rescheduleProjectGanttTaskRecord(input: {
+export async function rescheduleProjectGanttTaskRecord(input: {
   binding: ProjectGanttTasksBinding;
   workItemId: string;
   newStartDate: string;
@@ -165,7 +164,7 @@ export function rescheduleProjectGanttTaskRecord(input: {
   }
 
   if (fields.fromTimeline) {
-    rescheduleEntityRecord(
+    await rescheduleEntityRecord(
       tasksEntity.id,
       input.workItemId,
       input.newStartDate,
@@ -174,11 +173,9 @@ export function rescheduleProjectGanttTaskRecord(input: {
     return;
   }
 
-  const record = tasksEntity.records.find(
-    (item) => item.id === input.workItemId,
-  );
+  const record = await getEntityRecordById(tasksEntity, input.workItemId);
   if (!record) throw new Error("Задача не найдена");
-  updateEntityRecord(tasksEntity.id, record.id, {
+  await updateEntityRecord(tasksEntity.id, record.id, {
     ...record.values,
     [fields.startField.id]: input.newStartDate,
     [fields.endField.id]: input.newEndDate,

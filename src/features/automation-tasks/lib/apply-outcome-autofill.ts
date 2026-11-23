@@ -40,7 +40,7 @@ export function automationActionValueDependsOnField(
  * (e.g. pick «Воронка» → fill «Главный инженер» from the related record).
  * Without it, all mappings resolve (open form / switch outcome).
  */
-export function applyAutomationSetFieldAutofill(input: {
+export async function applyAutomationSetFieldAutofill(input: {
   entity: Entity;
   entities: Entity[];
   values: Record<string, string>;
@@ -49,7 +49,7 @@ export function applyAutomationSetFieldAutofill(input: {
   /** Trigger record id — needed for «Текущая запись» and label resolution. */
   triggerRecordId?: string | null;
   changedFieldId?: string;
-}): Record<string, string> {
+}): Promise<Record<string, string>> {
   const {
     entity,
     entities,
@@ -83,7 +83,7 @@ export function applyAutomationSetFieldAutofill(input: {
     }
 
     const field = entity.fields.find((item) => item.id === targetId);
-    const resolved = resolveAutomationActionValue(raw, next, {
+    const resolved = await resolveAutomationActionValue(raw, next, {
       entities,
       triggerEntityId: entity.id,
       triggerRecordId: triggerRecordId?.trim() || undefined,

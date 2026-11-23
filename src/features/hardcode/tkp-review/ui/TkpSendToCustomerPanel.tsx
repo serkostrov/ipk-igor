@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { Label } from "@/shared/ui/label";
 import {
   findTkpLeadRelationField,
+  getEntityRecordById,
   getEntityRelationTargetId,
   parseEntityRelationIds,
   updateEntityRecord,
@@ -39,10 +41,14 @@ export function TkpSendToCustomerPanel({
   readOnly?: boolean;
 }) {
   const { entities } = useEntityConfig();
-  const live =
-    entities
-      .find((item) => item.id === entity.id)
-      ?.records.find((item) => item.id === record.id) ?? record;
+  const liveValue = useAsyncValue(async () => {
+    const liveEntity = entities.find((item) => item.id === entity.id);
+    return (
+      (liveEntity ? await getEntityRecordById(liveEntity, record.id) : null) ??
+      record
+    );
+  }, [entities, entity.id, record]);
+  const live = liveValue.status === "ready" ? liveValue.value : record;
   const approval = readTkpApprovalState(live.values);
   const effectiveRevisionId = revisionId?.trim() || approval.revisionId || "";
   const alreadySent =
@@ -69,7 +75,7 @@ export function TkpSendToCustomerPanel({
     }
     setBusy(true);
     try {
-      assertTkpSendToCustomer({
+      await assertTkpSendToCustomer({
         entity,
         record: live,
         entities,

@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { AsyncValue } from "@/shared/ui/async-value";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ChartGantt,
   ChevronDown,
@@ -16,6 +17,7 @@ import {
   addEntityRecord,
   appendEntityRecord,
   getEntityBrowseViews,
+  getEntityRecordById,
   inviteSystemUser,
   isEntityBrowseView,
   isEntityInternal,
@@ -27,6 +29,7 @@ import {
   resolveEntityTableSubgroupField,
   useEntityConfig,
   useEntityStatus,
+  usePageRecordScope,
   type EntityBrowseView,
   type EntityRecord,
 } from "@/entities/entity";
@@ -136,9 +139,12 @@ export function EntityPage({
 }: EntityPageProps) {
   const { entities } = useEntityConfig();
   const status = useEntityStatus();
+  const { ready: pageRecordsReady } = usePageRecordScope([entityId]);
   const entity = entities.find((item) => item.id === entityId);
   const isInternal = entity != null && isEntityInternal(entity);
-  const scope = useEntityRecordScope(entity ?? null);
+  const scope = useEntityRecordScope(
+    !isInternal && recordId ? null : (entity ?? null),
+  );
   const location = useAppLocation();
   const { go, replace, back, openRecord } = useAppNavigate();
   const locationState = useAppLocationState();
@@ -173,12 +179,29 @@ export function EntityPage({
 
   const editRecordId = locationState?.editRecordId ?? null;
 
-  if (editRecordId && editRecordId !== handledEditId && isInternal && entity) {
-    setHandledEditId(editRecordId);
-    const record =
-      entity.records.find((item) => item.id === editRecordId) ?? null;
-    setEditingRecord(record);
-  }
+  const viewingRecord = useMemo(
+    () => getEntityRecordById(entity, recordId),
+    [entity, recordId],
+  );
+
+  useEffect(() => {
+    if (
+      !editRecordId ||
+      editRecordId === handledEditId ||
+      !isInternal ||
+      !entity
+    )
+      return;
+    let active = true;
+    void getEntityRecordById(entity, editRecordId).then((record) => {
+      if (!active) return;
+      setHandledEditId(editRecordId);
+      setEditingRecord(record ?? null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [editRecordId, handledEditId, isInternal, entity]);
 
   useEffect(() => {
     if (!editRecordId) return;
@@ -187,7 +210,7 @@ export function EntityPage({
     replace(entityListLocation(entityId));
   }, [editRecordId, handledEditId, replace, entityId]);
 
-  if (status === "idle" || status === "loading") {
+  if (status === "idle" || status === "loading" || !pageRecordsReady) {
     return (
       <div className="flex h-full flex-col gap-2 p-8" aria-busy="true">
         <div className="flex items-start justify-between gap-4">
@@ -244,42 +267,43 @@ export function EntityPage({
   const canCreateRecord =
     canOpenRecord && canCreateEntity && (!isUsersEntity || canInvite);
 
-  const viewingRecord: EntityRecord | null =
-    !isInternal && recordId
-      ? (currentEntity.records.find((item) => item.id === recordId) ?? null)
-      : null;
-
   if (!isInternal && recordId) {
-    if (!viewingRecord) {
-      return (
-        <div className="flex min-h-0 flex-1 flex-col overflow-auto p-8">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Запись не найдена
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Возможно, она была удалена.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-4 w-fit"
-            onClick={() => replace(entityListLocation(entityId))}
-          >
-            К списку
-          </Button>
-        </div>
-      );
-    }
-
     return (
-      <EntityRecordPage
-        key={`${currentEntity.id}-${viewingRecord.id}`}
-        entity={currentEntity}
-        record={viewingRecord}
-        onBack={() => back(entityListLocation(entityId))}
-        onDeleted={() => replace(entityListLocation(entityId))}
-        onOpenRelation={onOpenRelation}
-      />
+      <AsyncValue promise={viewingRecord}>
+        {(record) => {
+          if (!record) {
+            return (
+              <div className="flex min-h-0 flex-1 flex-col overflow-auto p-8">
+                <h1 className="text-2xl font-semibold tracking-tight">
+                  Запись не найдена
+                </h1>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Возможно, она была удалена.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4 w-fit"
+                  onClick={() => replace(entityListLocation(entityId))}
+                >
+                  К списку
+                </Button>
+              </div>
+            );
+          }
+
+          return (
+            <EntityRecordPage
+              key={`${currentEntity.id}-${record.id}`}
+              entity={currentEntity}
+              record={record}
+              onBack={() => back(entityListLocation(entityId))}
+              onDeleted={() => replace(entityListLocation(entityId))}
+              onOpenRelation={onOpenRelation}
+            />
+          );
+        }}
+      </AsyncValue>
     );
   }
 
@@ -562,7 +586,7 @@ export function EntityPage({
             isUsersEntity
               ? async (values, meta) => {
                   if (!isSupabaseConfigured) {
-                    addEntityRecord(currentEntity.id, values, {
+                    await addEntityRecord(currentEntity.id, values, {
                       id: meta.recordId,
                     });
                     return;

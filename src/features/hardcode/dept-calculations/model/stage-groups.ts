@@ -12,6 +12,7 @@ import {
   getEntityFieldDisplayName,
   getEntityRecordTitle,
   getEntityRelationTargetId,
+  getEntityValueContext,
   getRecordFieldIds,
   getSystemUserName,
   isEntityTableRelationGroupsNestedSubgroup,
@@ -95,10 +96,11 @@ function listOrRelationLabels(
       : null;
     const labels = new Map<string, string>();
     if (!target) return labels;
-    for (const record of target.records) {
+    const ctx = getEntityValueContext(entities);
+    for (const record of ctx.getRecords(target.id)) {
       labels.set(
         record.id,
-        resolveRelationRecordLabel(target, record.id, entities) ??
+        resolveRelationRecordLabel(target, record.id, entities, ctx) ??
           "Без названия",
       );
     }
@@ -303,7 +305,10 @@ function resolveLeadParentForDeptCalc(
     if (!target || !hostCanResolveGip(target, entities)) continue;
     const parentId = parseEntityRelationIds(record.values[field.id])[0];
     if (!parentId) continue;
-    const parentRecord = target.records.find((item) => item.id === parentId);
+    const parentRecord = getEntityValueContext(entities).getRecord(
+      target.id,
+      parentId,
+    );
     if (!parentRecord) continue;
     return { entity: target, record: parentRecord };
   }
@@ -423,8 +428,10 @@ function resolveLeadHostForDeptCalc(
   if (!preferred) return null;
   // Prefer filled live lead values (draft empties must not wipe «ГИП»).
   const live =
-    preferred.entity.records.find((item) => item.id === preferred.record.id) ??
-    null;
+    getEntityValueContext(entities).getRecord(
+      preferred.entity.id,
+      preferred.record.id,
+    ) ?? null;
   if (!live) return preferred;
   const values: Record<string, string> = { ...live.values };
   for (const [key, value] of Object.entries(preferred.record.values)) {
@@ -449,8 +456,9 @@ function resolveDeptCalcDepartmentRecord(
       record.values[groupsField.id],
     )) {
       if (!pair.departmentId.trim()) continue;
-      const deptRecord = departmentEntity.records.find(
-        (item) => item.id === pair.departmentId,
+      const deptRecord = getEntityValueContext(entities).getRecord(
+        departmentEntity.id,
+        pair.departmentId,
       );
       if (!deptRecord) continue;
       const hit = { entity: departmentEntity, record: deptRecord };
@@ -516,18 +524,18 @@ function isDeptCalcGipRow(
     : false;
 }
 
-function resolveGipManagerNameFromLead(
+async function resolveGipManagerNameFromLead(
   entity: Entity,
   record: EntityRecord,
   entities: readonly Entity[],
   leadParent?: { entity: Entity; record: EntityRecord } | null,
-): string | null {
+): Promise<string | null> {
   if (!isDeptCalcGipRow(entity, record, entities)) return null;
   const lead = resolveLeadHostForDeptCalc(entity, record, entities, leadParent);
   if (!lead) return null;
   return namesFromUserIds(
     entities,
-    resolveTkpGipUserIdsFromHost({
+    await resolveTkpGipUserIdsFromHost({
       hostEntity: lead.entity,
       hostValues: lead.record.values,
       entities,
@@ -570,14 +578,14 @@ function resolveManagerNameFromDepartment(
  * - other departments → catalog «Руководитель» (via «Стадия/отделы» / hierarchy);
  * - only then the row’s own manager field / lookup.
  */
-export function resolveDeptCalculationManagerName(
+export async function resolveDeptCalculationManagerName(
   ctx: EntityValueContext,
   entity: Entity,
   record: EntityRecord,
   entities: readonly Entity[],
   leadParent?: { entity: Entity; record: EntityRecord } | null,
-): string | null {
-  const fromLead = resolveGipManagerNameFromLead(
+): Promise<string | null> {
+  const fromLead = await resolveGipManagerNameFromLead(
     entity,
     record,
     entities,

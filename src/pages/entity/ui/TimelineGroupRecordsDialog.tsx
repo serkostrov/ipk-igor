@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
+import { Loader } from "@/shared/ui/loader";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +22,7 @@ import { formatDateDisplay } from "@/shared/lib/format-date";
 import { pluralRu } from "@/shared/lib/plural";
 import {
   formatRecordFieldValue,
+  getEntityRecords,
   getEntityTimelineDates,
   getEntityTimelineSetup,
   resolveRelationRecordLabel,
@@ -41,6 +44,9 @@ import { EntityRecordDialog } from "./EntityRecordDialog";
 
 const PAGE_SIZES = [10, 25, 50] as const;
 type DialogPageSize = (typeof PAGE_SIZES)[number];
+
+/** Stable identity for the loading fallback so renders don't churn. */
+const EMPTY_RECORDS_BY_ID = new Map<string, EntityRecord>();
 
 function isDialogPageSize(value: number): value is DialogPageSize {
   return (PAGE_SIZES as readonly number[]).includes(value);
@@ -119,13 +125,17 @@ export function TimelineGroupRecordsDialog({
     setEditing(null);
   }
 
-  const recordsById = useMemo(() => {
+  const recordsByIdValue = useAsyncValue(async () => {
     const map = new Map<string, EntityRecord>();
-    for (const record of entity.records) {
+    for (const record of await getEntityRecords(entity)) {
       map.set(record.id, record);
     }
     return map;
-  }, [entity.records]);
+  }, [entity]);
+  const recordsById =
+    recordsByIdValue.status === "ready"
+      ? recordsByIdValue.value
+      : EMPTY_RECORDS_BY_ID;
 
   const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
   const paginationResetKey = `${search}|${filtersKey}|${pageSize}`;
@@ -236,7 +246,9 @@ export function TimelineGroupRecordsDialog({
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {rows.length === 0 ? (
+              {recordsByIdValue.status === "loading" ? (
+                <Loader block label="Загрузка…" />
+              ) : rows.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-muted-foreground">
                   {sourceCount === 0
                     ? "Нет записей за этот период"

@@ -1,8 +1,21 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { getEntityValueContext } from "../model/field-value";
-import { findRunningTimer } from "../model/time-tracking";
-import type { EntityRecord } from "../model/types";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
+  getEntityValueContext,
+  primeMissingContextRecords,
+} from "../model/field-value";
+import {
+  getRecordPrimeVersion,
+  subscribeRecordPrime,
+} from "../model/record-prime-store";
+import {
+  findRunningTimer,
+  getEntityTimeTracking,
+} from "../model/time-tracking";
+import { getFirstEntityRecord } from "../model/record-queries";
+import type { Entity, EntityRecord } from "../model/types";
+import {
+  ensureEntityRecords,
   ensureEntitySchemaVersion,
   getCurrentUserRecordId,
   getEntityConfig,
@@ -18,6 +31,13 @@ export function useEntityConfig() {
     getEntityConfig,
     getEntityConfig,
   );
+}
+
+/** Sample record for settings previews. Discard reads for a superseded snapshot. */
+export function useFirstEntityRecord(entity: Entity | null | undefined) {
+  const sample = useAsyncValue(() => getFirstEntityRecord(entity), [entity]);
+  if (sample.status === "error") throw sample.error;
+  return sample.status === "ready" ? sample.value : undefined;
 }
 
 export function useEntityStatus() {
@@ -49,13 +69,34 @@ export function useCurrentUserRecordId() {
 export function useEntityValueContext() {
   const { entities } = useEntityConfig();
   const currentUserRecordId = useCurrentUserRecordId();
-  return getEntityValueContext(entities, currentUserRecordId);
+  // Re-render when async priming fills the context's record index.
+  useSyncExternalStore(
+    subscribeRecordPrime,
+    getRecordPrimeVersion,
+    getRecordPrimeVersion,
+  );
+  const ctx = getEntityValueContext(entities, currentUserRecordId);
+  useEffect(() => {
+    void primeMissingContextRecords(ctx, entities);
+  }, [ctx, entities]);
+  return ctx;
 }
 
 /** Timer the signed-in user is running (any tracked entity). */
 export function useRunningTimer() {
   const { entities } = useEntityConfig();
   const currentUserRecordId = useCurrentUserRecordId();
+  // This badge reads records of every time-entry journal, so it must load them
+  // even without their page open — otherwise a running timer is invisible once
+  // init goes lazy. Entry entities are few; resolved from config (no records).
+  useEffect(() => {
+    const entryEntityIds = new Set<string>();
+    for (const entity of entities) {
+      const setup = getEntityTimeTracking(entity, entities);
+      if (setup) entryEntityIds.add(setup.entryEntity.id);
+    }
+    for (const id of entryEntityIds) void ensureEntityRecords(id);
+  }, [entities]);
   return useMemo(
     () => findRunningTimer(entities, currentUserRecordId),
     [currentUserRecordId, entities],

@@ -4,6 +4,7 @@
 
 import { registerAfterAutomationTaskCompleteHook } from "@/entities/automation/lib/hardcode-hooks";
 import {
+  getEntityRecordById,
   getEntityConfig,
   getEntityRecordTitle,
   getEntityValueContext,
@@ -46,8 +47,7 @@ export async function handleNoVolumeAfterComplete(args: {
   const entity = entities.find((item) => item.id === args.entityId);
   if (!entity || !isTkpAnalysisEntity(entity)) return;
 
-  const record =
-    entity.records.find((item) => item.id === args.recordId) ?? null;
+  const record = (await getEntityRecordById(entity, args.recordId)) ?? null;
   const hostRecord = record
     ? { ...record, values: { ...record.values, ...args.values } }
     : {
@@ -75,7 +75,7 @@ export async function handleNoVolumeAfterComplete(args: {
     },
   });
 
-  const gipIds = resolveTkpGipUserIdsFromHost({
+  const gipIds = await resolveTkpGipUserIdsFromHost({
     hostEntity: entity,
     hostValues: hostRecord.values,
     entities,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useCurrentRole } from "@/entities/access";
 import {
   collectDeptCalculationSiblingRecords,
@@ -37,6 +38,10 @@ import type {
   RelatedAskGroup,
 } from "../lib/task-related-ask";
 
+/** Stable loading fallbacks so async-backed memos don't churn renders. */
+const EMPTY_DISPLAY_GROUPS: DisplayAskGroup[] = [];
+const EMPTY_DEPT_RECORDS: EntityRecord[] = [];
+
 /** One relationGroups value with all stage×department pairs from sibling rows. */
 function mergeDeptCalculationGroupsValue(
   entity: Entity,
@@ -60,11 +65,11 @@ type DisplayAskGroup = RelatedAskGroup & {
  * groups). Flat field controls remain a fallback when the groups field is
  * the only ask (department selection step).
  */
-function collapseDeptCalculationGroups(
+async function collapseDeptCalculationGroups(
   groups: RelatedAskGroup[],
   entities: Entity[],
   softFillParent?: { entity: Entity; record: EntityRecord } | null,
-): DisplayAskGroup[] {
+): Promise<DisplayAskGroup[]> {
   const deptByEntity = new Map<string, RelatedAskGroup[]>();
   const other: DisplayAskGroup[] = [];
 
@@ -91,7 +96,7 @@ function collapseDeptCalculationGroups(
         : null;
     // Ask layout may only list a subset — pull every fan-out sibling that
     // shares the same parent so stages do not lose departments on reload.
-    const records = collectDeptCalculationSiblingRecords(
+    const records = await collectDeptCalculationSiblingRecords(
       live,
       recordIds,
       parent,
@@ -225,26 +230,33 @@ export function TaskRelatedAskFields({
     softFillParent != null &&
     isTkpAnalysisEntity(softFillParent.entity);
 
-  const displayGroups = useMemo(
+  const displayGroupsValue = useAsyncValue(
     () => collapseDeptCalculationGroups(groups, entities, softFillParent),
     [groups, entities, softFillParent],
   );
+  const displayGroups =
+    displayGroupsValue.status === "ready"
+      ? displayGroupsValue.value
+      : EMPTY_DISPLAY_GROUPS;
 
   const deptBundle = useMemo(
     () => collectDeptCalcAskBundle(groups, entities),
     [groups, entities],
   );
 
-  const deptTableRecords = useMemo(() => {
-    if (!deptBundle) return [];
+  const deptTableRecordsValue = useAsyncValue(async () => {
+    if (!deptBundle) return EMPTY_DEPT_RECORDS;
     const live =
       entities.find((item) => item.id === deptBundle.entity.id) ??
       deptBundle.entity;
     const parent =
       softFillParent != null
-        ? { entity: softFillParent.entity, recordId: softFillParent.record.id }
+        ? {
+            entity: softFillParent.entity,
+            recordId: softFillParent.record.id,
+          }
         : null;
-    const linked = collectDeptCalculationSiblingRecords(
+    const linked = await collectDeptCalculationSiblingRecords(
       live,
       deptBundle.recordIds,
       parent,
@@ -266,8 +278,12 @@ export function TaskRelatedAskFields({
     softFillParent,
     viewerUserIds,
   ]);
+  const deptTableRecords =
+    deptTableRecordsValue.status === "ready"
+      ? deptTableRecordsValue.value
+      : EMPTY_DEPT_RECORDS;
 
-  const editableDeptRecordIds = useMemo(() => {
+  const editableDeptRecordIdsValue = useAsyncValue(async () => {
     if (!deptBundle) return null;
     const live =
       entities.find((item) => item.id === deptBundle.entity.id) ??
@@ -292,6 +308,10 @@ export function TaskRelatedAskFields({
     softFillParent,
     viewerUserIds,
   ]);
+  const editableDeptRecordIds =
+    editableDeptRecordIdsValue.status === "ready"
+      ? editableDeptRecordIdsValue.value
+      : null;
 
   const flatGroups = useMemo(() => {
     if (!deptBundle) return displayGroups;
@@ -339,9 +359,7 @@ export function TaskRelatedAskFields({
         continue;
       }
 
-      const livePrimary = group.relatedEntity.records.find(
-        (item) => item.id === group.relatedRecordId,
-      );
+      const livePrimary = group.relatedRecord;
       const liveRaw = livePrimary?.values[groupsField.id] ?? "";
       const lastSeeded = lastAutoSeedRef.current[key] ?? "";
       const currentPairs = collectTkpStageDepartmentPairs(current);
@@ -459,9 +477,7 @@ export function TaskRelatedAskFields({
                 relatedEntity,
                 field,
               );
-              const relatedRecord = relatedEntity.records.find(
-                (item) => item.id === group.relatedRecordId,
-              );
+              const relatedRecord = group.relatedRecord;
               const relatedMerged = {
                 ...(relatedRecord?.values ?? {}),
                 ...Object.fromEntries(
@@ -553,14 +569,10 @@ export function TaskRelatedAskFields({
             })}
             {isDeptCalculationsEntity(group.relatedEntity) &&
             !disabled &&
-            group.relatedEntity.records.find(
-              (item) => item.id === group.relatedRecordId,
-            ) ? (
+            group.relatedRecord ? (
               <TkpMissingSourceAsk
                 entity={group.relatedEntity}
-                record={group.relatedEntity.records.find(
-                  (item) => item.id === group.relatedRecordId,
-                )!}
+                record={group.relatedRecord}
               />
             ) : null}
           </div>

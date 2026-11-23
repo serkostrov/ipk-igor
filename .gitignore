@@ -17,6 +17,11 @@ dist-ssr
 .env
 .todo
 
+# Дампы/данные стенда и скрипт с боевыми кредами — НЕ коммитить
+_stand_dump/
+ipknew_postgres_full_*.sql
+pull-stand-db.sh
+
 logs
 *.log
 npm-debug.log*

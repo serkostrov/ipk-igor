@@ -5,6 +5,7 @@
 
 import {
   getEntityFieldDisplayName,
+  getEntityRecordById,
   getEntityRelationTargetId,
   getRecordFieldIds,
   parseEntityListValueIds,
@@ -63,11 +64,11 @@ export function findProjectLeadingDepartmentField(
   return candidates[0] ?? null;
 }
 
-function resolveRecordLabelAcrossEntities(
+async function resolveRecordLabelAcrossEntities(
   entities: readonly Entity[],
   recordId: string,
   preferredTargetId: string | null,
-): string {
+): Promise<string> {
   if (preferredTargetId) {
     const target =
       entities.find((item) => item.id === preferredTargetId) ?? null;
@@ -79,7 +80,7 @@ function resolveRecordLabelAcrossEntities(
     if (label) return label;
   }
   for (const entity of entities) {
-    if (!entity.records.some((record) => record.id === recordId)) continue;
+    if (!(await getEntityRecordById(entity, recordId))) continue;
     const label = resolveRelationRecordLabel(
       entity,
       recordId,
@@ -94,12 +95,12 @@ function resolveRecordLabelAcrossEntities(
  * Leading department from the project record’s «Ведущий отдел» field.
  * Returns null when the field is missing or empty.
  */
-export function resolveProjectLeadingDepartmentFromRecord(input: {
+export async function resolveProjectLeadingDepartmentFromRecord(input: {
   entity: Entity;
   record: EntityRecord;
   entities: readonly Entity[];
   valueContext: EntityValueContext;
-}): { id: string; name: string } | null {
+}): Promise<{ id: string; name: string } | null> {
   const field = findProjectLeadingDepartmentField(input.entity);
   if (!field) return null;
 
@@ -128,7 +129,7 @@ export function resolveProjectLeadingDepartmentFromRecord(input: {
   }
   if (!id) return null;
 
-  const name = resolveRecordLabelAcrossEntities(
+  const name = await resolveRecordLabelAcrossEntities(
     input.entities,
     id,
     getEntityRelationTargetId(field),

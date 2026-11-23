@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
 import {
+  getEntityRecordById,
   isTkpAnalysisEntity,
   useEntityConfig,
   type Entity,
@@ -26,10 +28,14 @@ export function TkpNoVolumeBanner({
 }) {
   const sessionUser = useSessionUser();
   const { entities } = useEntityConfig();
-  const live =
-    entities
-      .find((item) => item.id === entity.id)
-      ?.records.find((item) => item.id === record.id) ?? record;
+  const liveValue = useAsyncValue(async () => {
+    const liveEntity = entities.find((item) => item.id === entity.id);
+    return (
+      (liveEntity ? await getEntityRecordById(liveEntity, record.id) : null) ??
+      record
+    );
+  }, [entities, entity.id, record]);
+  const live = liveValue.status === "ready" ? liveValue.value : record;
   const issues = parseTkpNoVolumeIssues(live.values);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
