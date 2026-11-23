@@ -12,7 +12,7 @@ export type BeforeAutomationTaskCompleteHook = (args: {
   taskName?: string | null;
   outcomeLabel?: string | null;
   assigneeUserId?: string | null;
-}) => void;
+}) => void | Promise<void>;
 
 export type AfterAutomationTaskCompleteHook = (args: {
   entityId: string;
@@ -97,7 +97,7 @@ export async function runBeforeAutomationStageSpawnHook(args: {
 }
 
 /** Throws when hardcode blocks complete (e.g. missing GIP duration). */
-export function runBeforeAutomationTaskCompleteHook(args: {
+export async function runBeforeAutomationTaskCompleteHook(args: {
   entityId: string;
   recordId: string;
   values: Record<string, string>;
@@ -105,9 +105,9 @@ export function runBeforeAutomationTaskCompleteHook(args: {
   taskName?: string | null;
   outcomeLabel?: string | null;
   assigneeUserId?: string | null;
-}): void {
+}): Promise<void> {
   for (const hook of beforeTaskCompleteHooks) {
-    hook(args);
+    await hook(args);
   }
 }
 

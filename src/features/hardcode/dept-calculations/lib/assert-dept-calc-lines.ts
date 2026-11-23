@@ -9,6 +9,8 @@ import {
   entityRelationIncludesId,
   filterDeptCalculationRecordsForAssignee,
   getEntityConfig,
+  getEntityRecordById,
+  getEntityRecords,
   isDeptCalculationsEntity,
   isTkpAnalysisEntity,
   isTkpGipFillingOptionId,
@@ -46,14 +48,14 @@ export function isDeptCalculationFillTask(options: {
   return name.includes("заполнить разбор");
 }
 
-export function assertDeptCalculationLinesForComplete(options: {
+export async function assertDeptCalculationLinesForComplete(options: {
   entityId: string;
   recordId: string;
   triggerOptionId?: string | null;
   taskName?: string | null;
   outcomeLabel?: string | null;
   assigneeUserId?: string | null;
-}): void {
+}): Promise<void> {
   if (
     !isDeptCalculationFillTask({
       entityId: options.entityId,
@@ -68,22 +70,22 @@ export function assertDeptCalculationLinesForComplete(options: {
   const entities = getEntityConfig().entities;
   const host = entities.find((item) => item.id === options.entityId);
   const dept = entities.find((item) => isDeptCalculationsEntity(item));
-  const hostRecord = host?.records.find((item) => item.id === options.recordId);
+  const hostRecord = await getEntityRecordById(host, options.recordId);
   if (!host || !dept || !hostRecord) return;
 
-  const linked = collectDeptCalculationRecordsForParent(dept, {
+  const linked = await collectDeptCalculationRecordsForParent(dept, {
     entity: host,
     recordId: hostRecord.id,
   });
   const leadParent = { entity: host, record: hostRecord };
-  const visible = filterDeptCalculationRecordsForAssignee({
+  const visible = await filterDeptCalculationRecordsForAssignee({
     entity: dept,
     records: linked,
     entities,
     assigneeUserId: options.assigneeUserId,
     leadParent,
   });
-  const editableIds = resolveEditableDeptCalculationRecordIds({
+  const editableIds = await resolveEditableDeptCalculationRecordIds({
     entity: dept,
     records: visible,
     entities,
@@ -98,12 +100,13 @@ export function assertDeptCalculationLinesForComplete(options: {
   }
 
   const nested = resolveDeptCalculationsNestedTarget(dept, entities);
+  const nestedRecords = nested ? await getEntityRecords(nested.entity) : [];
   // «Хотя бы одна» среди строк, которые исполнитель может править
   // (у ГИПа несколько стадий — пустая соседняя не блокирует).
   const hasLine =
     nested != null &&
     scoped.some((record) =>
-      nested.entity.records.some((child) =>
+      nestedRecords.some((child) =>
         entityRelationIncludesId(
           child.values[nested.parentLinkFieldId],
           record.id,
@@ -117,6 +120,6 @@ export function assertDeptCalculationLinesForComplete(options: {
   }
 }
 
-registerBeforeAutomationTaskCompleteHook((args) => {
-  assertDeptCalculationLinesForComplete(args);
-});
+registerBeforeAutomationTaskCompleteHook((args) =>
+  assertDeptCalculationLinesForComplete(args),
+);
