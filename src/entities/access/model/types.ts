@@ -55,7 +55,7 @@ export function isDataScope(value: string): value is DataScope {
 }
 
 export type SettingsTabId =
-  "menu" | "entities" | "automations" | "notifications" | "roles";
+  "menu" | "entities" | "automations" | "notifications" | "roles" | "timesheet";
 
 export type RolePermissions = {
   menuItemIds: string[] | "*";
@@ -124,6 +124,7 @@ export const SETTINGS_TAB_IDS: SettingsTabId[] = [
   "automations",
   "notifications",
   "roles",
+  "timesheet",
 ];
 
 export function isSettingsTabId(value: string): value is SettingsTabId {

@@ -18,6 +18,7 @@ import {
   HISTORY_ITEM_ID,
   OPIU_ITEM_ID,
   FINANCE_DASHBOARDS_ITEM_ID,
+  PROJECT_TIMESHEET_ITEM_ID,
   NOTIFICATIONS_ITEM_ID,
   SETTINGS_ITEM_ID,
   walkMenuGroups,
@@ -160,6 +161,7 @@ const SYSTEM_PAGE_ITEMS: MenuItem[] = [
   { id: FEED_ITEM_ID, label: "Лента", icon: "newspaper" },
   { id: OPIU_ITEM_ID, label: "ОПиУ", icon: "calculator" },
   { id: FINANCE_DASHBOARDS_ITEM_ID, label: "Дашборды", icon: "layout" },
+  { id: PROJECT_TIMESHEET_ITEM_ID, label: "Табель времени", icon: "calendar" },
 ];
 
 function hasMenuItem(entries: MenuEntry[], itemId: string): boolean {

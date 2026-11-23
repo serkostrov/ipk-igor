@@ -5,6 +5,7 @@ import { EntitySettings } from "@/features/manage-entities";
 import { AutomationSettings } from "@/features/manage-automations";
 import { NotificationSettings } from "@/features/manage-notifications";
 import { RoleSettings } from "@/features/manage-roles";
+import { TimesheetSettings } from "@/features/hardcode/project-timesheet";
 import {
   SETTINGS_TAB_IDS,
   isSettingsTabId,
@@ -51,6 +52,9 @@ function SettingsTabsList({ tabs }: { tabs: SettingsTabId[] }) {
         {tabs.includes("roles") ? (
           <TabsTrigger value="roles">Роли</TabsTrigger>
         ) : null}
+        {tabs.includes("timesheet") ? (
+          <TabsTrigger value="timesheet">Табель</TabsTrigger>
+        ) : null}
       </TabsList>
     </div>
   );
@@ -86,6 +90,7 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
   const canAutomations = useCanSettingsTab("automations");
   const canNotifications = useCanSettingsTab("notifications");
   const canRoles = useCanSettingsTab("roles");
+  const canTimesheet = useCanSettingsTab("timesheet");
   const [storedTab, setStoredTab] = useLocalStorageState(
     SETTINGS_TAB_KEY,
     parseStoredSettingsTab,
@@ -109,9 +114,17 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
       if (tab === "automations") return canAutomations;
       if (tab === "notifications") return canNotifications;
       if (tab === "roles") return canRoles;
+      if (tab === "timesheet") return canTimesheet;
       return false;
     });
-  }, [canMenu, canEntities, canAutomations, canNotifications, canRoles]);
+  }, [
+    canMenu,
+    canEntities,
+    canAutomations,
+    canNotifications,
+    canRoles,
+    canTimesheet,
+  ]);
 
   const locationTab =
     location.type === "settings" &&
@@ -306,6 +319,17 @@ export function SettingsPage({ onOpenEntity }: SettingsPageProps) {
           >
             <SettingsTabPanel>
               <RoleSettings leading={<SettingsTabsList tabs={tabs} />} />
+            </SettingsTabPanel>
+          </TabsContent>
+        ) : null}
+
+        {canTimesheet ? (
+          <TabsContent
+            value="timesheet"
+            className="mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          >
+            <SettingsTabPanel>
+              <TimesheetSettings leading={<SettingsTabsList tabs={tabs} />} />
             </SettingsTabPanel>
           </TabsContent>
         ) : null}
