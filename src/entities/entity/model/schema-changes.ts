@@ -1,5 +1,15 @@
 import { getEntityFieldDisplayName, getEntityFieldTypeLabel } from "./field";
-import type { Entity, EntityField, EntityTab } from "./types";
+import {
+  ENTITY_CONDITION_OPERATOR_LABELS,
+  type EntityCondition,
+} from "./condition";
+import {
+  getEntityDisplayName,
+  getEntityTableFields,
+  type Entity,
+  type EntityField,
+  type EntityTab,
+} from "./types";
 import { toEntityStructure } from "../lib/parse-entity-config";
 
 /** One human-readable schema diff line (settings history UI). */
@@ -12,28 +22,81 @@ export type EntitySchemaChangeItem = {
 
 type Structure = ReturnType<typeof toEntityStructure>;
 
-function text(value: unknown): string {
+/** Registry used to turn stored ids into human captions. */
+type EntityRegistry = ReadonlyArray<Pick<Entity, "id" | "name" | "namePlural">>;
+
+/** Resolve an entity / field / tab id to a caption, or `null` when unknown. */
+type ResolveLabel = (id: string) => string | null;
+
+/** Render a scalar config value as a readable string — never raw JSON. */
+function humanize(value: unknown, resolve: ResolveLabel): string {
   if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
+  if (typeof value === "boolean") return value ? "да" : "нет";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") return resolve(value) ?? value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => humanize(item, resolve))
+      .filter(Boolean)
+      .join(", ");
   }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
+  return String(value);
 }
 
+function formatCondition(condition: EntityCondition, resolve: ResolveLabel) {
+  const field = resolve(condition.fieldId) ?? condition.fieldId;
+  const operator =
+    ENTITY_CONDITION_OPERATOR_LABELS[condition.operator] ?? condition.operator;
+  const operands = condition.values?.length
+    ? condition.values.map((value) => resolve(value) ?? value)
+    : condition.value
+      ? [resolve(condition.value) ?? condition.value]
+      : [];
+  return [field, operator, operands.join(", ")].filter(Boolean).join(" ");
+}
+
+function formatConditions(
+  conditions: EntityCondition[],
+  resolve: ResolveLabel,
+) {
+  return conditions
+    .map((condition) => formatCondition(condition, resolve))
+    .join("; ");
+}
+
+function buildResolveLabel(
+  entities: EntityRegistry,
+  structures: Structure[],
+): ResolveLabel {
+  const fieldNames = new Map<string, string>();
+  const tabNames = new Map<string, string>();
+  for (const structure of structures) {
+    for (const field of structure.fields) {
+      fieldNames.set(field.id, getEntityFieldDisplayName(field));
+    }
+    for (const tab of structure.tabs) {
+      if (tab.name.trim()) tabNames.set(tab.id, tab.name.trim());
+    }
+  }
+  return (id) => {
+    if (!id) return null;
+    const entity = entities.find((item) => item.id === id);
+    if (entity) return getEntityDisplayName(entity);
+    return fieldNames.get(id) ?? tabNames.get(id) ?? null;
+  };
+}
+
+/** Diff two already-readable values into a «было → стало» line. */
 function pushChange(
+  resolve: ResolveLabel,
   items: EntitySchemaChangeItem[],
   key: string,
   label: string,
   before: unknown,
   after: unknown,
 ) {
-  const left = text(before);
-  const right = text(after);
+  const left = humanize(before, resolve);
+  const right = humanize(after, resolve);
   if (left === right) return;
   items.push({
     key,
@@ -41,6 +104,30 @@ function pushChange(
     before: left.length > 0 ? left : null,
     after: right.length > 0 ? right : null,
   });
+}
+
+/** Mark a rarely-inspected nested config as «изменено» without a deep diff. */
+function pushCoarseChange(
+  items: EntitySchemaChangeItem[],
+  key: string,
+  label: string,
+  before: unknown,
+  after: unknown,
+) {
+  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  items.push({ key, label, before: null, after: "изменено" });
+}
+
+/**
+ * Field equality ignoring `tableOrder` — it is diffed at the table-column
+ * level, not per field. Used by the per-field safety net so a column reorder
+ * is not double-reported as «прочие настройки».
+ */
+function sameFieldIgnoringTableOrder(a: EntityField, b: EntityField) {
+  return (
+    JSON.stringify({ ...a, tableOrder: 0 }) ===
+    JSON.stringify({ ...b, tableOrder: 0 })
+  );
 }
 
 function fieldSummary(field: EntityField) {
@@ -57,6 +144,7 @@ function tabSummary(tab: EntityTab) {
 }
 
 function compareField(
+  resolve: ResolveLabel,
   items: EntitySchemaChangeItem[],
   before: EntityField | undefined,
   after: EntityField | undefined,
@@ -82,7 +170,9 @@ function compareField(
   if (!before || !after) return;
 
   const label = `Поле «${getEntityFieldDisplayName(after)}»`;
+  const explicitStart = items.length;
   pushChange(
+    resolve,
     items,
     `field:${after.id}:name`,
     `${label} · название`,
@@ -90,6 +180,7 @@ function compareField(
     after.name,
   );
   pushChange(
+    resolve,
     items,
     `field:${after.id}:type`,
     `${label} · тип`,
@@ -97,6 +188,23 @@ function compareField(
     getEntityFieldTypeLabel(after.type),
   );
   pushChange(
+    resolve,
+    items,
+    `field:${after.id}:group`,
+    `${label} · группа`,
+    before.group,
+    after.group,
+  );
+  pushChange(
+    resolve,
+    items,
+    `field:${after.id}:tab`,
+    `${label} · вкладка`,
+    before.tabId,
+    after.tabId,
+  );
+  pushChange(
+    resolve,
     items,
     `field:${after.id}:hint`,
     `${label} · подсказка`,
@@ -104,13 +212,39 @@ function compareField(
     after.hint,
   );
   pushChange(
+    resolve,
     items,
     `field:${after.id}:required`,
     `${label} · обязательное`,
-    before.required ? "да" : "нет",
-    after.required ? "да" : "нет",
+    before.required,
+    after.required,
   );
   pushChange(
+    resolve,
+    items,
+    `field:${after.id}:showInTable`,
+    `${label} · показывать в таблице`,
+    before.showInTable,
+    after.showInTable,
+  );
+  pushChange(
+    resolve,
+    items,
+    `field:${after.id}:showInFilters`,
+    `${label} · показывать в фильтрах`,
+    before.showInFilters,
+    after.showInFilters,
+  );
+  pushChange(
+    resolve,
+    items,
+    `field:${after.id}:showOnRecord`,
+    `${label} · показывать на записи`,
+    before.showOnRecord,
+    after.showOnRecord,
+  );
+  pushChange(
+    resolve,
     items,
     `field:${after.id}:formula`,
     `${label} · формула`,
@@ -118,6 +252,7 @@ function compareField(
     after.formula?.expression ?? "",
   );
   pushChange(
+    resolve,
     items,
     `field:${after.id}:rollup`,
     `${label} · rollup`,
@@ -125,6 +260,7 @@ function compareField(
     after.rollup ?? null,
   );
   pushChange(
+    resolve,
     items,
     `field:${after.id}:lookup`,
     `${label} · lookup`,
@@ -132,6 +268,7 @@ function compareField(
     after.lookup ?? null,
   );
   pushChange(
+    resolve,
     items,
     `field:${after.id}:default`,
     `${label} · значение по умолчанию`,
@@ -139,6 +276,7 @@ function compareField(
     after.defaultValue ?? null,
   );
   pushChange(
+    resolve,
     items,
     `field:${after.id}:listOptions`,
     `${label} · варианты списка`,
@@ -146,32 +284,60 @@ function compareField(
     after.listOptions.map((option) => option.name).join(", "),
   );
   pushChange(
+    resolve,
     items,
     `field:${after.id}:visibility`,
     `${label} · условия показа`,
-    before.visibilityConditions,
-    after.visibilityConditions,
+    formatConditions(before.visibilityConditions, resolve),
+    formatConditions(after.visibilityConditions, resolve),
   );
   pushChange(
+    resolve,
     items,
-    `field:${after.id}:relation`,
-    `${label} · связь`,
-    {
-      relationEntityId: before.relationEntityId,
-      relationMultiple: before.relationMultiple,
-      relationSpawnPerUser: before.relationSpawnPerUser,
-      relationFilter: before.relationFilter ?? null,
-    },
-    {
-      relationEntityId: after.relationEntityId,
-      relationMultiple: after.relationMultiple,
-      relationSpawnPerUser: after.relationSpawnPerUser,
-      relationFilter: after.relationFilter ?? null,
-    },
+    `field:${after.id}:relationEntity`,
+    `${label} · связь · сущность`,
+    before.relationEntityId,
+    after.relationEntityId,
   );
+  pushChange(
+    resolve,
+    items,
+    `field:${after.id}:relationMultiple`,
+    `${label} · связь · несколько записей`,
+    before.relationMultiple,
+    after.relationMultiple,
+  );
+  pushChange(
+    resolve,
+    items,
+    `field:${after.id}:relationSpawn`,
+    `${label} · связь · своя запись на пользователя`,
+    before.relationSpawnPerUser,
+    after.relationSpawnPerUser,
+  );
+  pushCoarseChange(
+    items,
+    `field:${after.id}:relationFilter`,
+    `${label} · связь · фильтр`,
+    before.relationFilter ?? null,
+    after.relationFilter ?? null,
+  );
+  // Safety net: field changed but no explicit line above covered it.
+  if (
+    items.length === explicitStart &&
+    !sameFieldIgnoringTableOrder(before, after)
+  ) {
+    items.push({
+      key: `field:${after.id}:other`,
+      label: `${label} · прочие настройки`,
+      before: null,
+      after: "изменено",
+    });
+  }
 }
 
 function compareTab(
+  resolve: ResolveLabel,
   items: EntitySchemaChangeItem[],
   before: EntityTab | undefined,
   after: EntityTab | undefined,
@@ -198,6 +364,7 @@ function compareTab(
 
   const label = `Вкладка «${after.name}»`;
   pushChange(
+    resolve,
     items,
     `tab:${after.id}:name`,
     `${label} · название`,
@@ -205,6 +372,7 @@ function compareTab(
     after.name,
   );
   pushChange(
+    resolve,
     items,
     `tab:${after.id}:kind`,
     `${label} · тип`,
@@ -212,25 +380,128 @@ function compareTab(
     after.kind,
   );
   pushChange(
+    resolve,
     items,
-    `tab:${after.id}:link`,
-    `${label} · связь`,
-    {
-      linkedEntityId: before.linkedEntityId,
-      parentLinkFieldId: before.parentLinkFieldId,
-      sourceRelationFieldId: before.sourceRelationFieldId,
-      sourceTabId: before.sourceTabId,
-      singleRecord: before.singleRecord,
-      tableFlat: before.tableFlat,
-    },
-    {
-      linkedEntityId: after.linkedEntityId,
-      parentLinkFieldId: after.parentLinkFieldId,
-      sourceRelationFieldId: after.sourceRelationFieldId,
-      sourceTabId: after.sourceTabId,
-      singleRecord: after.singleRecord,
-      tableFlat: after.tableFlat,
-    },
+    `tab:${after.id}:linkedEntity`,
+    `${label} · связь · сущность`,
+    before.linkedEntityId,
+    after.linkedEntityId,
+  );
+  pushChange(
+    resolve,
+    items,
+    `tab:${after.id}:parentField`,
+    `${label} · связь · родительское поле`,
+    before.parentLinkFieldId,
+    after.parentLinkFieldId,
+  );
+  pushChange(
+    resolve,
+    items,
+    `tab:${after.id}:sourceField`,
+    `${label} · связь · поле-источник`,
+    before.sourceRelationFieldId,
+    after.sourceRelationFieldId,
+  );
+  pushChange(
+    resolve,
+    items,
+    `tab:${after.id}:sourceTab`,
+    `${label} · связь · вкладка-источник`,
+    before.sourceTabId,
+    after.sourceTabId,
+  );
+  pushChange(
+    resolve,
+    items,
+    `tab:${after.id}:single`,
+    `${label} · связь · единственная запись`,
+    before.singleRecord,
+    after.singleRecord,
+  );
+  pushChange(
+    resolve,
+    items,
+    `tab:${after.id}:flat`,
+    `${label} · связь · плоская таблица`,
+    before.tableFlat,
+    after.tableFlat,
+  );
+}
+
+/** Ordered field names grouped by owning tab + group (for reorder diffs). */
+function groupFieldSequences(fields: Structure["fields"]) {
+  const map = new Map<
+    string,
+    { groupName: string; ids: string[]; names: string[] }
+  >();
+  for (const field of fields) {
+    const key = `${field.tabId} ${field.group}`;
+    const entry = map.get(key) ?? {
+      groupName: field.group,
+      ids: [],
+      names: [],
+    };
+    entry.ids.push(field.id);
+    entry.names.push(getEntityFieldDisplayName(field));
+    map.set(key, entry);
+  }
+  return map;
+}
+
+/** Report reordering of fields within a group (same members, new order). */
+function compareFieldOrder(
+  resolve: ResolveLabel,
+  items: EntitySchemaChangeItem[],
+  before: Structure,
+  after: Structure,
+) {
+  const beforeGroups = groupFieldSequences(before.fields);
+  const afterGroups = groupFieldSequences(after.fields);
+  for (const [key, beforeGroup] of beforeGroups) {
+    const afterGroup = afterGroups.get(key);
+    if (!afterGroup) continue;
+    const sameMembers =
+      [...beforeGroup.ids].sort().join(" ") ===
+      [...afterGroup.ids].sort().join(" ");
+    if (!sameMembers) continue;
+    if (beforeGroup.ids.join(" ") === afterGroup.ids.join(" ")) {
+      continue;
+    }
+    const groupLabel = beforeGroup.groupName.trim();
+    pushChange(
+      resolve,
+      items,
+      `order:${key}`,
+      groupLabel ? `Порядок полей · «${groupLabel}»` : "Порядок полей",
+      beforeGroup.names.join(", "),
+      afterGroup.names.join(", "),
+    );
+  }
+}
+
+/** Report reordering of table columns (same visible columns, new order). */
+function compareTableColumnOrder(
+  resolve: ResolveLabel,
+  items: EntitySchemaChangeItem[],
+  before: Structure,
+  after: Structure,
+) {
+  const beforeColumns = getEntityTableFields(before.fields);
+  const afterColumns = getEntityTableFields(after.fields);
+  const beforeIds = beforeColumns.map((field) => field.id);
+  const afterIds = afterColumns.map((field) => field.id);
+  const sameMembers =
+    [...beforeIds].sort().join(" ") === [...afterIds].sort().join(" ");
+  // Column show/hide is reported per field — here only a pure reorder.
+  if (!sameMembers || beforeIds.join(" ") === afterIds.join(" ")) return;
+  pushChange(
+    resolve,
+    items,
+    "meta:tableColumns",
+    "Порядок колонок таблицы",
+    beforeColumns.map(getEntityFieldDisplayName).join(", "),
+    afterColumns.map(getEntityFieldDisplayName).join(", "),
   );
 }
 
@@ -247,13 +518,16 @@ function asStructure(
 export function describeEntitySchemaChanges(
   beforeEntity: Pick<Entity, keyof Structure> | Structure,
   afterEntity: Pick<Entity, keyof Structure> | Structure,
+  entities: EntityRegistry = [],
 ): EntitySchemaChangeItem[] {
   const before = asStructure(beforeEntity);
   const after = asStructure(afterEntity);
+  const resolve = buildResolveLabel(entities, [before, after]);
   const items: EntitySchemaChangeItem[] = [];
 
-  pushChange(items, "meta:name", "Название", before.name, after.name);
+  pushChange(resolve, items, "meta:name", "Название", before.name, after.name);
   pushChange(
+    resolve,
     items,
     "meta:namePlural",
     "Название (мн. ч.)",
@@ -261,6 +535,7 @@ export function describeEntitySchemaChanges(
     after.namePlural,
   );
   pushChange(
+    resolve,
     items,
     "meta:description",
     "Описание",
@@ -268,14 +543,15 @@ export function describeEntitySchemaChanges(
     after.description,
   );
   pushChange(
+    resolve,
     items,
     "meta:nameTemplate",
     "Шаблон названия",
     before.nameTemplate,
     after.nameTemplate,
   );
-  pushChange(items, "meta:views", "Отображение", before.views, after.views);
   pushChange(
+    resolve,
     items,
     "meta:defaultView",
     "Вид по умолчанию",
@@ -283,60 +559,66 @@ export function describeEntitySchemaChanges(
     after.defaultView,
   );
   pushChange(
+    resolve,
     items,
     "meta:headerFieldId",
     "Поле в шапке",
     before.headerFieldId,
     after.headerFieldId,
   );
-  pushChange(
+  pushCoarseChange(
+    items,
+    "meta:views",
+    "Отображение",
+    before.views,
+    after.views,
+  );
+  pushCoarseChange(
     items,
     "meta:kanban",
     "Канбан",
-    {
-      kanbanFieldId: before.kanbanFieldId,
-      kanbanCardFieldIds: before.kanbanCardFieldIds,
-      kanbanShowFilters: before.kanbanShowFilters,
-    },
-    {
-      kanbanFieldId: after.kanbanFieldId,
-      kanbanCardFieldIds: after.kanbanCardFieldIds,
-      kanbanShowFilters: after.kanbanShowFilters,
-    },
+    [before.kanbanFieldId, before.kanbanCardFieldIds, before.kanbanShowFilters],
+    [after.kanbanFieldId, after.kanbanCardFieldIds, after.kanbanShowFilters],
   );
-  pushChange(
+  pushCoarseChange(
     items,
     "meta:table",
     "Таблица",
-    {
-      tableMassSelection: before.tableMassSelection,
-      tableParentFieldId: before.tableParentFieldId,
-      tableSubgroupFieldId: before.tableSubgroupFieldId,
-      tableNestedEntityId: before.tableNestedEntityId,
-    },
-    {
-      tableMassSelection: after.tableMassSelection,
-      tableParentFieldId: after.tableParentFieldId,
-      tableSubgroupFieldId: after.tableSubgroupFieldId,
-      tableNestedEntityId: after.tableNestedEntityId,
-    },
+    [
+      before.tableMassSelection,
+      before.tableParentFieldId,
+      before.tableSubgroupFieldId,
+      before.tableNestedEntityId,
+    ],
+    [
+      after.tableMassSelection,
+      after.tableParentFieldId,
+      after.tableSubgroupFieldId,
+      after.tableNestedEntityId,
+    ],
   );
-  pushChange(items, "meta:timeline", "График", before.timeline, after.timeline);
-  pushChange(
+  pushCoarseChange(
+    items,
+    "meta:timeline",
+    "График",
+    before.timeline,
+    after.timeline,
+  );
+  pushCoarseChange(
     items,
     "meta:timeTracking",
     "Учёт времени",
     before.timeTracking,
     after.timeTracking,
   );
-  pushChange(
+  pushCoarseChange(
     items,
     "meta:pageLayout",
     "Макет страницы",
     before.pageLayout,
     after.pageLayout,
   );
-  pushChange(
+  pushCoarseChange(
     items,
     "meta:fieldGroups",
     "Группы полей",
@@ -348,14 +630,26 @@ export function describeEntitySchemaChanges(
   const afterFields = new Map(after.fields.map((field) => [field.id, field]));
   const fieldIds = new Set([...beforeFields.keys(), ...afterFields.keys()]);
   for (const id of fieldIds) {
-    compareField(items, beforeFields.get(id), afterFields.get(id));
+    compareField(resolve, items, beforeFields.get(id), afterFields.get(id));
   }
+  compareFieldOrder(resolve, items, before, after);
+  compareTableColumnOrder(resolve, items, before, after);
 
   const beforeTabs = new Map(before.tabs.map((tab) => [tab.id, tab]));
   const afterTabs = new Map(after.tabs.map((tab) => [tab.id, tab]));
   const tabIds = new Set([...beforeTabs.keys(), ...afterTabs.keys()]);
   for (const id of tabIds) {
-    compareTab(items, beforeTabs.get(id), afterTabs.get(id));
+    compareTab(resolve, items, beforeTabs.get(id), afterTabs.get(id));
+  }
+
+  // Safety net: a changed definition must never read as «нет изменений».
+  if (items.length === 0 && JSON.stringify(before) !== JSON.stringify(after)) {
+    items.push({
+      key: "other",
+      label: "Прочие изменения",
+      before: null,
+      after: "изменено",
+    });
   }
 
   return items;

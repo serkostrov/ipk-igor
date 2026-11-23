@@ -132,7 +132,7 @@ function firstAllowedLocation(
 export function AppShell() {
   const { pathname } = useLocation();
   const location = useAppLocation();
-  const { replace, goMenu, openRecord } = useAppNavigate();
+  const { go, replace, goMenu, openRecord } = useAppNavigate();
   const { entities } = useEntityConfig();
   const entityStatus = useEntityStatus();
   const menuConfig = useMenuConfig();
@@ -344,7 +344,16 @@ export function AppShell() {
             onOpenRelation={handleOpenRecord}
           />
         ) : accessResolved.type === "history" ? (
-          <HistoryPage onOpenRecord={handleOpenRecord} />
+          <HistoryPage
+            tab={accessResolved.tab}
+            onSelectTab={(tab) =>
+              go({
+                type: "history",
+                ...(tab === "entity" ? { tab: "entity" } : {}),
+              })
+            }
+            onOpenRecord={handleOpenRecord}
+          />
         ) : accessResolved.type === "tasks" ||
           accessResolved.type === "task" ? (
           <AutomationTasksPage

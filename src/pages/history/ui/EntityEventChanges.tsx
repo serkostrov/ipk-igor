@@ -4,6 +4,7 @@ import {
   describeEntitySchemaChanges,
   parseEntityStructureRow,
   SchemaChangeList,
+  useEntityConfig,
 } from "@/entities/entity";
 import {
   fetchEntityEventDefinitions,
@@ -12,6 +13,7 @@ import {
 
 function SchemaDetails({ event }: { event: EntityStructureEvent }) {
   const { id, entityId } = event;
+  const { entities } = useEntityConfig();
   const result = useAsyncValue(async () => {
     const { before, after } = await fetchEntityEventDefinitions(id);
     const previous = parseEntityStructureRow({
@@ -24,8 +26,8 @@ function SchemaDetails({ event }: { event: EntityStructureEvent }) {
     });
     if (!previous || !current)
       throw new Error("Не удалось прочитать версию схемы");
-    return describeEntitySchemaChanges(previous, current);
-  }, [id, entityId]);
+    return describeEntitySchemaChanges(previous, current, entities);
+  }, [id, entityId, entities]);
 
   if (result.status === "loading")
     return <p className="text-muted-foreground">Загрузка…</p>;

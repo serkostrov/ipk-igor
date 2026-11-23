@@ -35,6 +35,9 @@ export function isEntityBrowsePathView(
   return value === "table" || value === "kanban" || value === "timeline";
 }
 
+/** History page tabs. `record` lives at `/history`, `entity` at `/history/entity`. */
+export type HistoryPathTab = "record" | "entity";
+
 export type AppLocation =
   | {
       type: "settings";
@@ -44,7 +47,7 @@ export type AppLocation =
       /** Entity schema / record tab id. */
       entityTabId?: string;
     }
-  | { type: "history" }
+  | { type: "history"; tab?: HistoryPathTab }
   | { type: "tasks" }
   | { type: "task"; taskId: string }
   | { type: "notifications" }
@@ -75,7 +78,7 @@ export function toPath(location: AppLocation): string {
         : base;
     }
     case "history":
-      return "/history";
+      return location.tab === "entity" ? "/history/entity" : "/history";
     case "tasks":
       return "/tasks";
     case "task":
@@ -115,6 +118,7 @@ export function parsePath(pathname: string): AppLocation | null {
   const path = pathname.replace(/\/+$/, "") || "/";
   if (path === "/" || path === "/settings") return { type: "settings" };
   if (path === "/history") return { type: "history" };
+  if (path === "/history/entity") return { type: "history", tab: "entity" };
   if (path === "/tasks") return { type: "tasks" };
   if (path === "/notifications") return { type: "notifications" };
   if (path === "/feed") return { type: "feed" };
@@ -301,7 +305,10 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
         (a.entityTabId ?? null) === (other.entityTabId ?? null)
       );
     }
-    case "history":
+    case "history": {
+      const other = b as typeof a;
+      return (a.tab ?? null) === (other.tab ?? null);
+    }
     case "tasks":
     case "notifications":
     case "feed":
