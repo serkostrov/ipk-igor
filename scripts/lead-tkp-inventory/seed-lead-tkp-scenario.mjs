@@ -967,7 +967,8 @@ async function main() {
               askFieldIds: [],
               multiple: false,
             },
-            // Протокол → лид (withParentLink) и → только что созданный разбор ТКП.
+            // Протокол во вкладке «Разборы ТКП» + к текущему лиду
+            // (parentFromRelated + alsoLinkTrigger → protoTkp / protoLead).
             {
               id: uid("aact"),
               kind: "createRecord",
@@ -977,13 +978,11 @@ async function main() {
                   targetFieldId: F.protoName,
                   source: `{{${F.leadName}}}`,
                 },
-                {
-                  targetFieldId: F.protoTkp,
-                  source: "{{created}}",
-                },
               ],
+              parentFromRelated: [{ linkedTabId: F.leadTkpTab }],
+              alsoLinkTrigger: true,
               askFieldIds: [],
-              multiple: false,
+              multiple: true,
             },
             setField(F.leadStage, LEAD_STAGE.gipLeadDept),
           ],
@@ -1517,8 +1516,7 @@ async function main() {
     }),
   });
 
-  // createRecord auto-links child→trigger via withParentLink
-  // (TKP.Лид / Протокол.Лид). Протокол.Разбор ТКП ← {{created}} (разбор).
+  // TKP → лид (withParentLink). Протокол → вкладка «Разборы ТКП» + лид.
   const step3 = leadTemplates.find((t) => t.id === "atpl-lead-chief-decision");
   step3.outcomes[0].actions = [
     {
@@ -1538,10 +1536,11 @@ async function main() {
       entityId: PROTO,
       mappings: [
         { targetFieldId: F.protoName, source: `{{${F.leadName}}}` },
-        { targetFieldId: F.protoTkp, source: "{{created}}" },
       ],
+      parentFromRelated: [{ linkedTabId: F.leadTkpTab }],
+      alsoLinkTrigger: true,
       askFieldIds: [],
-      multiple: false,
+      multiple: true,
     },
     setField(F.leadStage, LEAD_STAGE.gipLeadDept),
   ];
