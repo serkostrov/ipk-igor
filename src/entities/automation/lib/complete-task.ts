@@ -626,7 +626,7 @@ export async function completeAutomationTask(
   }
 
   // Product hardcode gates (e.g. GIP «Общий срок расчёта»).
-  runBeforeAutomationTaskCompleteHook({
+  await runBeforeAutomationTaskCompleteHook({
     entityId: task.entityId,
     recordId: task.recordId,
     values: valuesForForm,

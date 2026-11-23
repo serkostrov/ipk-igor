@@ -2859,7 +2859,7 @@ function softFillFieldsFromTemplateRelation(
   const relatedIds = parseEntityRelationIds(values[bridge.id]);
   const relatedId = relatedIds[0] ?? "";
   const relatedRecord = relatedId
-    ? (target!.records.find((record) => record.id === relatedId) ?? null)
+    ? (getEntityValueContext(entities).getRecord(target!.id, relatedId) ?? null)
     : null;
 
   const sourceByName = new Map<string, EntityField>();
