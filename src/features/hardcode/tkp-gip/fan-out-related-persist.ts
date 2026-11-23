@@ -13,6 +13,7 @@ import {
   coerceTkpNestedIdsToDepartments,
   collectTkpStageDepartmentPairs,
   collectTkpStageRootIds,
+  deptCalculationSoleStagePair,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
   ensureTkpGipDepartmentInGroupsValue,
@@ -465,6 +466,9 @@ async function resolveDeptCalculationHealSiblings(options: {
 /** Do not retry the same stage×dept create after a failed persist (avoids UI hang). */
 const failedEnsurePairKeys = new Set<string>();
 
+/** Serialize concurrent ensure/heal for the same parent (avoids duplicate rows). */
+const ensureDeptCalcInflight = new Map<string, Promise<void>>();
+
 function ensurePairFailKey(
   entityId: string,
   parentRecordId: string | null | undefined,
@@ -472,6 +476,144 @@ function ensurePairFailKey(
   departmentId: string,
 ) {
   return `${entityId}:${parentRecordId ?? ""}:${stageId}\0${departmentId}`;
+}
+
+function ensureParentLockKey(
+  entityId: string,
+  parentRecordId: string | null | undefined,
+) {
+  return `${entityId}:${parentRecordId ?? ""}`;
+}
+
+/**
+ * Prefer the richer fan-out row when collapsing duplicates of the same
+ * stage×department (hours / deadline / description / filled manager).
+ */
+function scoreDeptCalculationDuplicate(
+  entity: Entity,
+  record: EntityRecord,
+  groupsFieldId: string,
+): number {
+  let score = 0;
+  if (deptCalculationSoleStagePair(record.values[groupsFieldId])) score += 100;
+  const { manager } = findDeptCalculationUserFields(entity);
+  if (manager && parseEntityRelationIds(record.values[manager.id]).length > 0) {
+    score += 10;
+  }
+  for (const field of entity.fields) {
+    const name = getEntityFieldDisplayName(field)
+      .trim()
+      .toLocaleLowerCase("ru")
+      .replaceAll("ё", "е");
+    const raw = (record.values[field.id] ?? "").trim();
+    if (!raw) continue;
+    if (name.includes("срок")) score += 5;
+    if (name.includes("описан")) score += 5;
+    if (name.includes("час") || name.includes("итог") || name.includes("сумм")) {
+      const n = Number(raw.replace(",", "."));
+      if (Number.isFinite(n) && n !== 0) score += 20;
+    }
+  }
+  return score;
+}
+
+/**
+ * Drop extra «Расчёты отделов» rows that share the same sole stage×department
+ * under one parent. Keeps the richest row; strips parent forward links.
+ */
+export async function dedupeDeptCalculationSiblingPairs(options: {
+  entity: Entity;
+  records?: readonly EntityRecord[];
+  parentEntity?: Entity | null;
+  parentRecord?: EntityRecord | null;
+}): Promise<EntityRecord[]> {
+  const {
+    entity,
+    records = [],
+    parentEntity = null,
+    parentRecord = null,
+  } = options;
+  if (!isDeptCalculationsEntity(entity)) return [...records];
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  if (!groupsField) return [...records];
+
+  const siblings = await resolveDeptCalculationHealSiblings({
+    entity,
+    records,
+    parentEntity,
+    parentRecord,
+  });
+  if (siblings.length <= 1) return siblings;
+
+  const byPair = new Map<string, EntityRecord[]>();
+  const multiPair: EntityRecord[] = [];
+  for (const record of siblings) {
+    const sole = deptCalculationSoleStagePair(record.values[groupsField.id]);
+    if (!sole) {
+      multiPair.push(record);
+      continue;
+    }
+    const key = pairKey(sole);
+    const list = byPair.get(key) ?? [];
+    list.push(record);
+    byPair.set(key, list);
+  }
+
+  const keepIds = new Set<string>();
+  const toRemove: string[] = [];
+  for (const list of byPair.values()) {
+    if (list.length === 1) {
+      keepIds.add(list[0]!.id);
+      continue;
+    }
+    const ranked = [...list].sort((left, right) => {
+      const scoreDiff =
+        scoreDeptCalculationDuplicate(entity, right, groupsField.id) -
+        scoreDeptCalculationDuplicate(entity, left, groupsField.id);
+      if (scoreDiff !== 0) return scoreDiff;
+      return left.id.localeCompare(right.id);
+    });
+    keepIds.add(ranked[0]!.id);
+    for (const extra of ranked.slice(1)) toRemove.push(extra.id);
+  }
+
+  // Legacy multi-pair trees: drop when every pair already has a sole row.
+  for (const record of multiPair) {
+    const pairs = collectTkpStageDepartmentPairs(
+      record.values[groupsField.id],
+    );
+    const covered =
+      pairs.length > 0 &&
+      pairs.every((pair) => {
+        const key = pairKey(pair);
+        const holders = byPair.get(key) ?? [];
+        return holders.some((item) => keepIds.has(item.id));
+      });
+    if (covered || pairs.length === 0) {
+      toRemove.push(record.id);
+      continue;
+    }
+    keepIds.add(record.id);
+  }
+
+  if (toRemove.length === 0) {
+    return siblings.filter((record) => keepIds.has(record.id));
+  }
+
+  const linkFields = parentLinkFields(entity, parentEntity);
+  const parentLinks =
+    parentEntity && parentRecord
+      ? [{ parentEntityId: parentEntity.id, parentRecordId: parentRecord.id }]
+      : siblings.flatMap((record) =>
+          collectParentLinksFromValues(linkFields, record.values),
+        );
+
+  await Promise.all(
+    toRemove.map((recordId) => removeEntityRecord(entity.id, recordId)),
+  );
+  await stripChildrenFromParents(entity.id, toRemove, parentLinks);
+
+  return siblings.filter((record) => keepIds.has(record.id));
 }
 
 /** Clear failed GIP creates for this parent so a new heal can finish all stages. */
@@ -564,6 +706,8 @@ export async function missingDeptCalculationGipStageIds(options: {
  *
  * Existence is checked among siblings of this parent only — another ТКП
  * already having ПД×ГИП must not block creating it here.
+ * Concurrent calls for the same parent share one run; afterwards duplicates
+ * of the same stage×department are collapsed.
  */
 export async function ensureDeptCalculationGipRows(options: {
   entity: Entity;
@@ -574,6 +718,34 @@ export async function ensureDeptCalculationGipRows(options: {
   /** View heal: only create missing «ГИП» rows, not other departments. */
   gipOnly?: boolean;
 }): Promise<void> {
+  const { entity, records, parentEntity, parentRecord } = options;
+  if (!isDeptCalculationsEntity(entity)) return;
+  if (records.length === 0 && !(parentEntity && parentRecord)) return;
+
+  const lockKey = ensureParentLockKey(entity.id, parentRecord?.id ?? null);
+  // Queue behind any in-flight ensure for this parent so parallel heal +
+  // stage-spawn + task-open cannot each insert the same stage×department.
+  const previous = ensureDeptCalcInflight.get(lockKey) ?? Promise.resolve();
+  const work = previous
+    .catch(() => undefined)
+    .then(() => runEnsureDeptCalculationGipRows(options));
+  const tracked = work.finally(() => {
+    if (ensureDeptCalcInflight.get(lockKey) === tracked) {
+      ensureDeptCalcInflight.delete(lockKey);
+    }
+  });
+  ensureDeptCalcInflight.set(lockKey, tracked);
+  await work;
+}
+
+async function runEnsureDeptCalculationGipRows(options: {
+  entity: Entity;
+  records: readonly EntityRecord[];
+  entities: readonly Entity[];
+  parentEntity?: Entity | null;
+  parentRecord?: EntityRecord | null;
+  gipOnly?: boolean;
+}): Promise<void> {
   const {
     entity,
     records,
@@ -582,8 +754,6 @@ export async function ensureDeptCalculationGipRows(options: {
     parentRecord,
     gipOnly = false,
   } = options;
-  if (!isDeptCalculationsEntity(entity)) return;
-  if (records.length === 0 && !(parentEntity && parentRecord)) return;
 
   const groupsField = findDeptCalculationsGroupsField(entity);
   const departmentEntity = resolveDepartmentEntity(entity, entities);
@@ -671,137 +841,151 @@ export async function ensureDeptCalculationGipRows(options: {
       pushMissing(stageId, gipId);
     }
   }
-  if (missingPairs.length === 0) return;
 
-  const linkFields = parentLinkFields(entity, parentEntity);
-  const template = siblings[0] ?? records[0] ?? null;
-  const { manager, performer } = findDeptCalculationUserFields(entity);
-  const templateLinks = template
-    ? collectParentLinksFromValues(linkFields, template.values)
-    : [];
-  const ensuredParentLinks =
-    templateLinks.length > 0
-      ? templateLinks
-      : parentEntity && parentRecord
-        ? [{ parentEntityId: parentEntity.id, parentRecordId: parentRecord.id }]
-        : [];
+  if (missingPairs.length > 0) {
+    const linkFields = parentLinkFields(entity, parentEntity);
+    const template = siblings[0] ?? records[0] ?? null;
+    const { manager, performer } = findDeptCalculationUserFields(entity);
+    const templateLinks = template
+      ? collectParentLinksFromValues(linkFields, template.values)
+      : [];
+    const ensuredParentLinks =
+      templateLinks.length > 0
+        ? templateLinks
+        : parentEntity && parentRecord
+          ? [
+              {
+                parentEntityId: parentEntity.id,
+                parentRecordId: parentRecord.id,
+              },
+            ]
+          : [];
 
-  const withParentLinks = (
-    values: Record<string, string>,
-  ): Record<string, string> => {
-    if (!parentEntity || !parentRecord || linkFields.length === 0) {
-      return values;
-    }
-    let next = values;
-    for (const field of linkFields) {
-      if (getEntityRelationTargetId(field) !== parentEntity.id) continue;
-      const existing = parseEntityRelationIds(next[field.id]);
-      if (existing.includes(parentRecord.id)) continue;
-      if (next === values) next = { ...values };
-      next[field.id] = serializeEntityRelationIds([
-        ...existing,
-        parentRecord.id,
-      ]);
-    }
-    return next;
-  };
-
-  for (const pair of missingPairs) {
-    try {
-      const live =
-        getEntityConfig().entities.find((item) => item.id === entity.id) ??
-        entity;
-      const liveSiblings = await resolveDeptCalculationHealSiblings({
-        entity: live,
-        records: siblings.length > 0 ? siblings : records,
-        parentEntity,
-        parentRecord,
-      });
-      const already = liveSiblings.some((record) =>
-        deptCalculationValuesMatchStagePair(
-          record.values[groupsField.id],
-          pair,
-        ),
-      );
-      if (already) continue;
-
-      const encoded = encodeTkpStageDepartmentPair(pair);
-      if (!encoded) continue;
-      // Only parent links — never copy nested lines / costs from a sibling.
-      const seed: Record<string, string> = { [groupsField.id]: encoded };
-      const deptField = entity.fields.find((field) => {
-        if (field.type !== "relation" && field.type !== "belonging") {
-          return false;
-        }
-        if (getEntityRelationTargetId(field) !== departmentEntity.id) {
-          return false;
-        }
-        const name = getEntityFieldDisplayName(field)
-          .trim()
-          .toLocaleLowerCase("ru")
-          .replaceAll("ё", "е");
-        return name === "отдел" || name.startsWith("отдел ");
-      });
-      if (deptField && pair.departmentId.trim()) {
-        seed[deptField.id] = serializeEntityRelationIds([
-          pair.departmentId.trim(),
+    const withParentLinks = (
+      values: Record<string, string>,
+    ): Record<string, string> => {
+      if (!parentEntity || !parentRecord || linkFields.length === 0) {
+        return values;
+      }
+      let next = values;
+      for (const field of linkFields) {
+        if (getEntityRelationTargetId(field) !== parentEntity.id) continue;
+        const existing = parseEntityRelationIds(next[field.id]);
+        if (existing.includes(parentRecord.id)) continue;
+        if (next === values) next = { ...values };
+        next[field.id] = serializeEntityRelationIds([
+          ...existing,
+          parentRecord.id,
         ]);
       }
-      if (template) {
-        for (const field of linkFields) {
-          const value = (template.values[field.id] ?? "").trim();
-          if (value) seed[field.id] = value;
-        }
-      }
-      for (const field of [manager, performer]) {
-        if (!field) continue;
-        seed[field.id] = "";
-      }
-      const createBase = withParentLinks(seed);
-      const withUsers = await applyCatalogManagerToValues({
-        entity,
-        values: await withGipUsers({
-          entity,
-          values: createBase,
-          entities,
-          groupsFieldId: groupsField.id,
+      return next;
+    };
+
+    for (const pair of missingPairs) {
+      try {
+        const live =
+          getEntityConfig().entities.find((item) => item.id === entity.id) ??
+          entity;
+        const liveSiblings = await resolveDeptCalculationHealSiblings({
+          entity: live,
+          records: siblings.length > 0 ? siblings : records,
           parentEntity,
           parentRecord,
-        }),
-        entities,
-        groupsFieldId: groupsField.id,
-      });
-      const nameField = entity.fields.find(
-        (field) => field.name.trim().toLocaleLowerCase("ru") === "название",
-      );
-      const createValues =
-        nameField && !(withUsers[nameField.id] ?? "").trim()
-          ? { ...withUsers, [nameField.id]: "Расчёт отдела" }
-          : withUsers;
-      const created = await addEntityRecord(entity.id, createValues);
-      if (ensuredParentLinks.length > 0) {
-        await writeBackChildToParents(
-          entity.id,
-          created.id,
-          ensuredParentLinks,
+        });
+        const already = liveSiblings.some((record) =>
+          deptCalculationValuesMatchStagePair(
+            record.values[groupsField.id],
+            pair,
+          ),
+        );
+        if (already) continue;
+
+        const encoded = encodeTkpStageDepartmentPair(pair);
+        if (!encoded) continue;
+        // Only parent links — never copy nested lines / costs from a sibling.
+        const seed: Record<string, string> = { [groupsField.id]: encoded };
+        const deptField = entity.fields.find((field) => {
+          if (field.type !== "relation" && field.type !== "belonging") {
+            return false;
+          }
+          if (getEntityRelationTargetId(field) !== departmentEntity.id) {
+            return false;
+          }
+          const name = getEntityFieldDisplayName(field)
+            .trim()
+            .toLocaleLowerCase("ru")
+            .replaceAll("ё", "е");
+          return name === "отдел" || name.startsWith("отдел ");
+        });
+        if (deptField && pair.departmentId.trim()) {
+          seed[deptField.id] = serializeEntityRelationIds([
+            pair.departmentId.trim(),
+          ]);
+        }
+        if (template) {
+          for (const field of linkFields) {
+            const value = (template.values[field.id] ?? "").trim();
+            if (value) seed[field.id] = value;
+          }
+        }
+        for (const field of [manager, performer]) {
+          if (!field) continue;
+          seed[field.id] = "";
+        }
+        const createBase = withParentLinks(seed);
+        const withUsers = await applyCatalogManagerToValues({
+          entity,
+          values: await withGipUsers({
+            entity,
+            values: createBase,
+            entities,
+            groupsFieldId: groupsField.id,
+            parentEntity,
+            parentRecord,
+          }),
+          entities,
+          groupsFieldId: groupsField.id,
+        });
+        const nameField = entity.fields.find(
+          (field) => field.name.trim().toLocaleLowerCase("ru") === "название",
+        );
+        const createValues =
+          nameField && !(withUsers[nameField.id] ?? "").trim()
+            ? { ...withUsers, [nameField.id]: "Расчёт отдела" }
+            : withUsers;
+        const created = await addEntityRecord(entity.id, createValues);
+        if (ensuredParentLinks.length > 0) {
+          await writeBackChildToParents(
+            entity.id,
+            created.id,
+            ensuredParentLinks,
+          );
+        }
+      } catch (error: unknown) {
+        failedEnsurePairKeys.add(
+          ensurePairFailKey(
+            entity.id,
+            parentRecordId,
+            pair.stageId,
+            pair.departmentId,
+          ),
+        );
+        console.warn(
+          "[dept-calc] failed to ensure stage×department row",
+          pair,
+          error,
         );
       }
-    } catch (error: unknown) {
-      failedEnsurePairKeys.add(
-        ensurePairFailKey(
-          entity.id,
-          parentRecordId,
-          pair.stageId,
-          pair.departmentId,
-        ),
-      );
-      console.warn(
-        "[dept-calc] failed to ensure stage×department row",
-        pair,
-        error,
-      );
     }
   }
+
+  // Collapse race duplicates even when nothing was missing this pass.
+  await dedupeDeptCalculationSiblingPairs({
+    entity,
+    records,
+    parentEntity,
+    parentRecord,
+  });
 }
 
 /**

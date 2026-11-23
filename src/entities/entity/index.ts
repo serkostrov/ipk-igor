@@ -616,6 +616,7 @@ export {
   collectTkpStageDepartmentPairs,
   collectTkpStageRootIds,
   coerceTkpNestedIdsToDepartments,
+  deptCalculationSoleStagePair,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
   collectDeptCalculationRecordsForParent,

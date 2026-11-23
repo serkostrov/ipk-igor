@@ -6,6 +6,7 @@ import {
   addEntityRecord,
   applyTkpAnalysisCreateDefaults,
   applyTkpGipDepartmentUsers,
+  collectDeptCalculationRecordsForParent,
   deptCalculationValuesMatchStagePair,
   encodeTkpStageDepartmentPair,
   entityNameValueHasTemplate,
@@ -595,18 +596,35 @@ async function findExistingLinkedChildForDeptPair(
   pair: TkpStageDepartmentPair,
 ): Promise<{ id: string } | null> {
   // Always reuse the same stage×department row — never two calcs for one pair.
+  const liveChild =
+    getEntityConfig().entities.find((entity) => entity.id === childEntity.id) ??
+    childEntity;
   const host =
-    ctx.entities.find((entity) => entity.id === parentEntityId) ?? null;
+    getEntityConfig().entities.find((entity) => entity.id === parentEntityId) ??
+    ctx.entities.find((entity) => entity.id === parentEntityId) ??
+    null;
+
+  // Prefer parent-scoped discovery (belonging + forward) — covers rows from
+  // ensure/heal that may not yet be listed on a linked tab.
+  if (host) {
+    for (const record of await collectDeptCalculationRecordsForParent(
+      liveChild,
+      { entity: host, recordId: parentRecordId },
+    )) {
+      if (
+        deptCalculationValuesMatchStagePair(record.values[groupsFieldId], pair)
+      ) {
+        return { id: record.id };
+      }
+    }
+  }
+
   const linkedIds = await collectRecordsLinkedToParent({
-    childEntity,
+    childEntity: liveChild,
     parentEntityId,
     parentRecordId,
     host,
   });
-  // Prefer live store (ctx.entities may be stale after prior inserts).
-  const liveChild =
-    getEntityConfig().entities.find((entity) => entity.id === childEntity.id) ??
-    childEntity;
   const records = await getEntityRecordsByIds(liveChild, linkedIds);
   const byId = new Map(records.map((record) => [record.id, record]));
   for (const id of linkedIds) {

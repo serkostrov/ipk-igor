@@ -76,6 +76,7 @@ import {
   resolveDeptCalculationManagerName,
 } from "@/features/hardcode/dept-calculations/model/stage-groups";
 import {
+  dedupeDeptCalculationSiblingPairs,
   ensureDeptCalculationGipRows,
   missingDeptCalculationGipStageIds,
   syncDeptCalculationCatalogManagers,
@@ -328,6 +329,31 @@ export function DeptCalculationsView({
     void syncDeptCalculationCatalogManagers({ entity, records, entities });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity, recordIdsKey]);
+
+  // Collapse race-created duplicate stage×department rows once per record set.
+  useEffect(() => {
+    if (!leadParentEntityId || !leadParentRecordId) return;
+    let cancelled = false;
+    void (async () => {
+      const parentEntity =
+        entities.find((item) => item.id === leadParentEntityId) ?? null;
+      if (!parentEntity) return;
+      const parentRecord = await getEntityRecordById(
+        parentEntity,
+        leadParentRecordId,
+      );
+      if (!parentRecord || cancelled) return;
+      await dedupeDeptCalculationSiblingPairs({
+        entity,
+        records: recordsRef.current,
+        parentEntity,
+        parentRecord,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entity, entities, leadParentEntityId, leadParentRecordId, recordIdsKey]);
 
   // Ensure «ГИП» under every parent stage. Retries only when the missing-set
   // changes — never on every records mutate (that hung the UI).

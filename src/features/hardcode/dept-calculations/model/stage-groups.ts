@@ -4,6 +4,7 @@
 
 import {
   collectTkpStageDepartmentPairs,
+  deptCalculationSoleStagePair,
   findDeptCalculationsGroupsField,
   findEntityManagerUserField,
   findTkpGipUserField,
@@ -137,28 +138,68 @@ function relationGroupsLabels(
   return labels;
 }
 
+/**
+ * One visible row per stage×department. Parallel ensure/fan-out can leave
+ * duplicate records; keep the first occurrence (stable id order).
+ */
+function dedupeRecordsBySoleStageDepartment(
+  entity: Entity,
+  records: readonly EntityRecord[],
+): EntityRecord[] {
+  const groupsField = findDeptCalculationsGroupsField(entity);
+  if (!groupsField) return [...records];
+  const kept: EntityRecord[] = [];
+  const claimed = new Set<string>();
+  const seenIds = new Set<string>();
+  for (const record of records) {
+    if (seenIds.has(record.id)) continue;
+    seenIds.add(record.id);
+    const sole = deptCalculationSoleStagePair(record.values[groupsField.id]);
+    if (sole) {
+      const key = `${sole.stageId}\0${sole.departmentId}`;
+      if (claimed.has(key)) continue;
+      claimed.add(key);
+    }
+    kept.push(record);
+  }
+  return kept;
+}
+
 export function buildDeptCalculationStageGroups(
   entity: Entity,
   records: readonly EntityRecord[],
   entities: readonly Entity[],
 ): DeptCalculationsStageGroup[] {
+  const uniqueRecords = dedupeRecordsBySoleStageDepartment(entity, records);
   const parentField = resolveEntityTableParentField(entity);
   if (!parentField) {
-    return [{ id: "", label: "Без группы", records: [...records] }];
+    return [{ id: "", label: "Без группы", records: uniqueRecords }];
   }
 
   const byStage = new Map<string, EntityRecord[]>();
-  for (const record of records) {
+  for (const record of uniqueRecords) {
     const ids = parseEntityTableParentGroupIds(
       parentField,
       record.values[parentField.id],
     );
-    const groupIds = ids.length > 0 ? ids : [""];
-    for (const id of groupIds) {
-      const list = byStage.get(id) ?? [];
-      list.push(record);
-      byStage.set(id, list);
-    }
+    // Fan-out rows belong to exactly one stage root — never re-list the same
+    // record under every stage of a legacy multi-root value.
+    const sole = (() => {
+      const groupsField = findDeptCalculationsGroupsField(entity);
+      return groupsField
+        ? deptCalculationSoleStagePair(record.values[groupsField.id])
+        : null;
+    })();
+    const groupIds =
+      sole != null
+        ? [sole.stageId]
+        : ids.length > 0
+          ? ids
+          : [""];
+    const stageId = groupIds[0] ?? "";
+    const list = byStage.get(stageId) ?? [];
+    list.push(record);
+    byStage.set(stageId, list);
   }
 
   const labels =

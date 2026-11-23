@@ -6,6 +6,7 @@ export {
   type TkpGipDepartmentUsersResult,
 } from "./tkp-gip/apply-gip-department-users";
 export {
+  dedupeDeptCalculationSiblingPairs,
   ensureDeptCalculationGipRows,
   persistDeptCalculationRelatedUpdate,
   syncDeptCalculationCatalogManagers,

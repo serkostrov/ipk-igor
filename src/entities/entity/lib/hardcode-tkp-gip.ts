@@ -1217,17 +1217,31 @@ export function encodeTkpStageDepartmentPair(
   ]);
 }
 
+/**
+ * Sole stage×department on a fan-out row, or null when the value is empty /
+ * multi-pair (legacy full tree).
+ */
+export function deptCalculationSoleStagePair(
+  groupsValue: string | undefined,
+): TkpStageDepartmentPair | null {
+  const pairs = collectTkpStageDepartmentPairs(groupsValue);
+  if (pairs.length !== 1) return null;
+  const sole = pairs[0]!;
+  if (!sole.stageId.trim() || !sole.departmentId.trim()) return null;
+  return sole;
+}
+
 /** True when a child row is exactly one stage + one nested department. */
 export function deptCalculationValuesMatchStagePair(
   groupsValue: string | undefined,
   pair: TkpStageDepartmentPair,
 ): boolean {
-  const roots = parseEntityRelationGroups(groupsValue);
-  if (roots.length !== 1) return false;
-  const root = roots[0]!;
-  if (root.id.trim() !== pair.stageId) return false;
-  if (root.children.length !== 1) return false;
-  return root.children[0]!.id.trim() === pair.departmentId;
+  const sole = deptCalculationSoleStagePair(groupsValue);
+  if (!sole) return false;
+  return (
+    sole.stageId === pair.stageId.trim() &&
+    sole.departmentId === pair.departmentId.trim()
+  );
 }
 
 /** Leaf department catalog entity for «Расчёты отделов» relationGroups. */

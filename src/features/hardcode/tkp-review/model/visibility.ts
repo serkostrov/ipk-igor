@@ -1,7 +1,7 @@
 import { isAdminRole, type Role } from "@/entities/access";
 
 export type TkpReviewCostVisibility = {
-  /** Full «Расчёт ГИПа» block (hidden for department heads). */
+  /** Full «Расчёт ГИПа» block — only ГИП (and sysadmin for support). */
   showGipCalculation: boolean;
   /**
    * Scope linked «Расчёты отделов» to the viewer’s departments
@@ -80,7 +80,7 @@ export function resolveTkpReviewCostVisibility(
 
   const canEditCommercialPricing = isTkpCommercialPricingEditorRole(role);
 
-  // «Цена ТКП» — всем, кроме руководителей отделов (выше).
+  // «Расчёт ГИПа» — только роль ГИП; «Цена ТКП» — остальным (кроме руков. отделов).
   if (isTkpGipRole(role)) {
     return {
       showGipCalculation: true,
@@ -92,7 +92,7 @@ export function resolveTkpReviewCostVisibility(
 
   if (canEditCommercialPricing) {
     return {
-      showGipCalculation: true,
+      showGipCalculation: false,
       showDepartmentRestrictedTotals: false,
       showCommercialPricing: true,
       canEditCommercialPricing: true,
@@ -100,7 +100,7 @@ export function resolveTkpReviewCostVisibility(
   }
 
   return {
-    showGipCalculation: true,
+    showGipCalculation: false,
     showDepartmentRestrictedTotals: false,
     showCommercialPricing: true,
     canEditCommercialPricing: false,
