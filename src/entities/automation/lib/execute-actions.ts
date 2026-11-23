@@ -301,10 +301,33 @@ async function findExistingLinkedChild(
   parentRecordId: string,
 ): Promise<{ id: string } | null> {
   if (!ctx.reuseExistingLinkedCreates) return null;
+  return findLinkedChildToParent(
+    ctx,
+    childEntityId,
+    parentEntityId,
+    parentRecordId,
+  );
+}
+
+/**
+ * Child already linked to a parent (e.g. protocol→lead from SQL) — always
+ * look up, not only on silent retry.
+ */
+async function findLinkedChildToParent(
+  ctx: AutomationExecutionContext,
+  childEntityId: string,
+  parentEntityId: string,
+  parentRecordId: string,
+): Promise<{ id: string } | null> {
+  const live = getEntityConfig().entities;
   const child =
-    ctx.entities.find((entity) => entity.id === childEntityId) ?? null;
+    live.find((entity) => entity.id === childEntityId) ??
+    ctx.entities.find((entity) => entity.id === childEntityId) ??
+    null;
   const host =
-    ctx.entities.find((entity) => entity.id === parentEntityId) ?? null;
+    live.find((entity) => entity.id === parentEntityId) ??
+    ctx.entities.find((entity) => entity.id === parentEntityId) ??
+    null;
   if (!child || !parentRecordId.trim()) return null;
   const existing = await collectRecordsLinkedToParent({
     childEntity: child,
@@ -314,6 +337,18 @@ async function findExistingLinkedChild(
   });
   const id = existing[0];
   return id ? { id } : null;
+}
+
+async function findLinkedChildToTrigger(
+  ctx: AutomationExecutionContext,
+  childEntityId: string,
+): Promise<{ id: string } | null> {
+  return findLinkedChildToParent(
+    ctx,
+    childEntityId,
+    ctx.triggerEntityId,
+    ctx.triggerRecordId,
+  );
 }
 
 /** True when mappings actually fill at least one target field. */
@@ -810,6 +845,7 @@ export async function executeAutomationActions(
               action.useEntityCreateForm === true ? [] : action.mappings;
             const relatedParentLinks: CreateParentLink[] = [];
             const seenRelatedParent = new Set<string>();
+            const relatedParentEntityIds = new Set<string>();
             let resolvedAny = false;
             for (const parentFrom of parentFromRelatedList) {
               const relatedParents = await resolveCreateParentFromRelated({
@@ -820,6 +856,7 @@ export async function executeAutomationActions(
                 triggerValues: ctx.values,
               });
               if (!relatedParents) continue;
+              relatedParentEntityIds.add(relatedParents.parentEntity.id);
               if (relatedParents.parentRecordIds.length > 0) {
                 resolvedAny = true;
               }
@@ -832,6 +869,24 @@ export async function executeAutomationActions(
                   parentRecordId,
                 });
               }
+            }
+            // Same-outcome createRecord parents are often missing from ctx
+            // snapshots — attach ids created earlier in this pipeline.
+            for (const createdId of createdRecordIds) {
+              const owner =
+                (await getEntityOwningRecord(
+                  getEntityConfig().entities,
+                  createdId,
+                )) ?? (await getEntityOwningRecord(ctx.entities, createdId));
+              if (!owner || !relatedParentEntityIds.has(owner.id)) continue;
+              const key = `${owner.id}:${createdId}`;
+              if (seenRelatedParent.has(key)) continue;
+              seenRelatedParent.add(key);
+              relatedParentLinks.push({
+                parentEntityId: owner.id,
+                parentRecordId: createdId,
+              });
+              resolvedAny = true;
             }
 
             if (action.alsoLinkTrigger) {
@@ -867,6 +922,43 @@ export async function executeAutomationActions(
                       fieldId,
                     ),
                 );
+                // Reuse child already linked to the trigger (e.g. protocol
+                // created by SQL / earlier step before the TKP existed).
+                const existingLinked = await findLinkedChildToTrigger(
+                  ctx,
+                  action.entityId,
+                );
+                if (existingLinked) {
+                  const mapped = await applyMappings(
+                    relatedMappings,
+                    ctx,
+                    createdRecordIds,
+                    undefined,
+                    createTarget,
+                  );
+                  const patch = withExplicitParentLinks(
+                    { ...mapped, ...multiAsk },
+                    createTarget,
+                    parentLinks,
+                    getEntityConfig().entities,
+                  );
+                  if (Object.keys(patch).length > 0) {
+                    await updateEntityRecord(
+                      action.entityId,
+                      existingLinked.id,
+                      patch,
+                    );
+                  }
+                  await writeBackChildToParents(
+                    action.entityId,
+                    existingLinked.id,
+                    parentLinks,
+                    getEntityConfig().entities,
+                  );
+                  createdRecordIds.push(existingLinked.id);
+                  multiIds.push(existingLinked.id);
+                  continue;
+                }
                 const child = await createMappedRecord(
                   action.entityId,
                   relatedMappings,

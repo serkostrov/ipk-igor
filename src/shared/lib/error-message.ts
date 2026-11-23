@@ -132,6 +132,12 @@ export function getAutomationErrorMessage(
   if (/record not found/i.test(raw)) {
     return "Запись не найдена";
   }
+  if (/AUTOMATION_GENERAL_DIRECTOR/i.test(raw)) {
+    return (
+      raw.replace(/^AUTOMATION_GENERAL_DIRECTOR:\s*/i, "").trim() ||
+      "Для согласования назначьте роль «Генеральный директор» одному пользователю"
+    );
+  }
   if (/could not find the function/i.test(raw) || /PGRST202/i.test(raw)) {
     return "На сервере нет функции завершения задачи. Примените миграции Supabase";
   }
@@ -140,5 +146,6 @@ export function getAutomationErrorMessage(
   }
   return raw
     .replace(/^AUTOMATION_ORDER:\s*/i, "")
-    .replace(/^AUTOMATION_BLOCKED:\s*/i, "");
+    .replace(/^AUTOMATION_BLOCKED:\s*/i, "")
+    .replace(/^AUTOMATION_GENERAL_DIRECTOR:\s*/i, "");
 }

@@ -397,10 +397,20 @@ async function ensureCommercialGroups(token) {
   const holders = people.filter(
     (person) => person.field_values?.[USER_ROLE] === ROLE_GD,
   );
-  if (holders.length === 0) {
-    const gd = people.find(
+  const pickGd = () =>
+    people.find(
       (person) => person.field_values?.[USER_EMAIL] === "gendir@centripk.ru",
-    );
+    ) ||
+    people.find(
+      (person) => person.field_values?.[USER_EMAIL] === "test@test.ru",
+    ) ||
+    people.find(
+      (person) => person.field_values?.[USER_ROLE] === "role-system-admin",
+    ) ||
+    people[0];
+
+  if (holders.length === 0) {
+    const gd = pickGd();
     if (gd) {
       await api(token, `entity_records?id=eq.${gd.id}`, {
         method: "PATCH",
@@ -411,8 +421,31 @@ async function ensureCommercialGroups(token) {
       });
       console.log("general director", gd.id);
     } else {
-      console.log("WARN: user gendir@centripk.ru was not found");
+      console.log("WARN: no users to assign role-general-director");
     }
+  } else if (holders.length > 1) {
+    const preferred =
+      holders.find(
+        (person) => person.field_values?.[USER_EMAIL] === "gendir@centripk.ru",
+      ) ||
+      holders.find(
+        (person) => person.field_values?.[USER_EMAIL] === "test@test.ru",
+      ) ||
+      holders[0];
+    for (const extra of holders) {
+      if (extra.id === preferred.id) continue;
+      await api(token, `entity_records?id=eq.${extra.id}`, {
+        method: "PATCH",
+        prefer: "return=minimal",
+        body: JSON.stringify({
+          field_values: {
+            ...extra.field_values,
+            [USER_ROLE]: "role-system-admin",
+          },
+        }),
+      });
+    }
+    console.log("general director kept", preferred.id, "demoted", holders.length - 1);
   }
   console.log("commercial groups ready");
 }
@@ -967,8 +1000,22 @@ async function main() {
               askFieldIds: [],
               multiple: false,
             },
-            // Протокол во вкладке «Разборы ТКП» + к текущему лиду
-            // (parentFromRelated + alsoLinkTrigger → protoTkp / protoLead).
+            // Если протокол уже есть (SQL / прошлый шаг) — прикрепить к разбору.
+            {
+              id: uid("aact"),
+              kind: "updateRecords",
+              entityId: PROTO,
+              linkMode: "backRelation",
+              linkFieldId: F.protoLead,
+              mappings: [
+                {
+                  targetFieldId: F.protoTkp,
+                  source: "{{created}}",
+                },
+              ],
+            },
+            // Иначе создать протокол во вкладке «Разборы ТКП» + к лиду
+            // (reuse, если протокол уже на лиде).
             {
               id: uid("aact"),
               kind: "createRecord",
@@ -1516,7 +1563,7 @@ async function main() {
     }),
   });
 
-  // TKP → лид (withParentLink). Протокол → вкладка «Разборы ТКП» + лид.
+  // TKP → лид. Затем протокол: update существующий / create во вкладке разбора.
   const step3 = leadTemplates.find((t) => t.id === "atpl-lead-chief-decision");
   step3.outcomes[0].actions = [
     {
@@ -1529,6 +1576,16 @@ async function main() {
       ],
       askFieldIds: [],
       multiple: false,
+    },
+    {
+      id: uid("aact"),
+      kind: "updateRecords",
+      entityId: PROTO,
+      linkMode: "backRelation",
+      linkFieldId: F.protoLead,
+      mappings: [
+        { targetFieldId: F.protoTkp, source: "{{created}}" },
+      ],
     },
     {
       id: uid("aact"),

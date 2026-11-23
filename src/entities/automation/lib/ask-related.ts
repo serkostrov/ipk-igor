@@ -1,5 +1,6 @@
 import {
   entityRelationIncludesId,
+  getEntityConfig,
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityParentLinkField,
@@ -13,6 +14,16 @@ import {
   type EntityField,
   type EntityTab,
 } from "@/entities/entity";
+
+/** Prefer live store entity — ctx snapshots miss just-created rows. */
+function liveEntity(
+  entityId: string,
+  fallback: Entity | null | undefined,
+): Entity | null {
+  const live =
+    getEntityConfig().entities.find((item) => item.id === entityId) ?? null;
+  return live ?? fallback ?? null;
+}
 import type { AutomationCreateParentFromRelated } from "../model/actions";
 import type { AutomationAskRelatedField } from "../model/types";
 
@@ -477,9 +488,9 @@ export async function resolveCreateParentFromRelated(options: {
     if (!tab || !isEntityTabWithLinkedEntity(tab) || !tab.linkedEntityId) {
       return null;
     }
-    const parentEntity = entities.find(
-      (item) => item.id === tab.linkedEntityId,
-    );
+    const schema =
+      entities.find((item) => item.id === tab.linkedEntityId) ?? null;
+    const parentEntity = liveEntity(tab.linkedEntityId, schema);
     if (!parentEntity) return null;
     const fromTab = await collectLinkedTabRecordIds({
       tab,
@@ -507,9 +518,10 @@ export async function resolveCreateParentFromRelated(options: {
     );
     if (!relationField) return null;
     const targetId = getEntityRelationTargetId(relationField);
-    const parentEntity = targetId
-      ? entities.find((item) => item.id === targetId)
-      : undefined;
+    const schema = targetId
+      ? (entities.find((item) => item.id === targetId) ?? null)
+      : null;
+    const parentEntity = targetId ? liveEntity(targetId, schema) : null;
     if (!parentEntity) return null;
     const forwardIds = parseEntityRelationIds(triggerValues[relationFieldId]);
     const linkedIds = await collectRecordsLinkedToParent({

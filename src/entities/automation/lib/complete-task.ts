@@ -1041,6 +1041,8 @@ async function runSilentCompletesForTasks(
     try {
       await completeAutomationTask(task.id, outcome.id, actorUserId ?? null);
     } catch (error: unknown) {
+      // Parallel Host/Dialog flushes race: the silent step may already be done.
+      if (isAutomationTaskAlreadyFinishedError(error)) continue;
       const message =
         error instanceof Error ? error.message : String(error ?? "ошибка");
       console.error("[automation] silent step complete failed", error);
@@ -1050,6 +1052,23 @@ async function runSilentCompletesForTasks(
   if (failures.length > 0) {
     throw new Error(`Автозаполнение не выполнено:\n${failures.join("\n")}`);
   }
+}
+
+/** RPC «task is not pending» / already completed — safe to ignore on silent flush. */
+function isAutomationTaskAlreadyFinishedError(error: unknown): boolean {
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : error && typeof error === "object" && "message" in error
+          ? String((error as { message?: unknown }).message ?? "")
+          : String(error ?? "");
+  return (
+    /task is not pending/i.test(raw) ||
+    /already (completed|cancelled|canceled|finished)/i.test(raw) ||
+    /задача уже завершена или отменена/i.test(raw)
+  );
 }
 
 /**

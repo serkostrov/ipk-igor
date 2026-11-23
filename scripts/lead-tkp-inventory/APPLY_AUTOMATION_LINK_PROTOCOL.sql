@@ -1,6 +1,41 @@
--- Apply on stand: «Берем в работу» creates Protocol under TKP tab-entity
--- + current Lead (visible in UI as bind targets, not {{created}} field).
--- Safe to re-run. Pair with APPLY_LINK_PROTOCOL_TO_TKP.sql for SQL safety net.
+-- Apply on stand: link Protocol ↔ TKP in «Берем в работу» (update existing + create under TKP tab).
+-- Safe to re-run. Also apply APPLY_LINK_PROTOCOL_TO_TKP.sql to backfill existing rows.
+
+-- Исход «Берем в работу»:
+--   1) createRecord «Разбор ТКП»
+--   2) updateRecords «Протокол запуска» (где Лид = этот лид):
+--        «Разбор ТКП» ← {{created}}
+--      — чинит случай «протокол уже был до разбора» (SQL / прошлый шаг)
+--   3) createRecord «Протокол запуска» во вкладке «Разборы ТКП» + к лиду
+--      (reuse, если протокол уже на лиде)
+--   4) setField стадии → ГИП
+-- SQL-триггеры из 20261123120000 — страховка.
+
+create or replace function public.automation_protocol_link_update_action()
+returns jsonb
+language plpgsql
+immutable
+as $$
+declare
+  proto_entity constant text := 'entity-7ecbb3e8-ec93-4e16-9539-7272ff979839';
+  proto_lead constant text := 'field-5da97a4c-d240-43f2-80d8-d35eddecb7c1';
+  proto_tkp constant text := 'field-42853a00-aadc-40eb-b6f6-98bb0dbe541a';
+begin
+  return jsonb_build_object(
+    'id', 'aact-link-protocol-to-tkp',
+    'kind', 'updateRecords',
+    'entityId', proto_entity,
+    'linkMode', 'backRelation',
+    'linkFieldId', proto_lead,
+    'mappings', jsonb_build_array(
+      jsonb_build_object(
+        'targetFieldId', proto_tkp,
+        'source', '{{created}}'
+      )
+    )
+  );
+end;
+$$;
 
 create or replace function public.automation_protocol_create_under_tkp_action()
 returns jsonb
@@ -102,13 +137,16 @@ as $$
 declare
   tkp_entity constant text := 'entity-33de9416-88f2-4360-9f96-9c71d0886fbc';
   proto_entity constant text := 'entity-7ecbb3e8-ec93-4e16-9539-7272ff979839';
+  proto_tkp constant text := 'field-42853a00-aadc-40eb-b6f6-98bb0dbe541a';
   before_tkp jsonb := '[]'::jsonb;
   after_tkp jsonb := '[]'::jsonb;
   other jsonb := '[]'::jsonb;
   tkp_action jsonb := null;
-  proto_action jsonb := null;
+  proto_create jsonb := null;
+  proto_update jsonb := null;
   action jsonb;
   seen_tkp boolean := false;
+  is_link_update boolean;
 begin
   if jsonb_typeof(actions) is distinct from 'array' then
     return coalesce(actions, '[]'::jsonb);
@@ -126,7 +164,22 @@ begin
 
     if action->>'kind' = 'createRecord'
        and action->>'entityId' = proto_entity then
-      proto_action := public.automation_normalize_protocol_create_action(action);
+      proto_create := public.automation_normalize_protocol_create_action(action);
+      continue;
+    end if;
+
+    is_link_update :=
+      action->>'kind' = 'updateRecords'
+      and action->>'entityId' = proto_entity
+      and coalesce(action->>'linkMode', '') = 'backRelation'
+      and exists (
+        select 1
+        from jsonb_array_elements(coalesce(action->'mappings', '[]'::jsonb)) m
+        where m->>'targetFieldId' = proto_tkp
+      );
+
+    if is_link_update then
+      proto_update := action;
       continue;
     end if;
 
@@ -137,14 +190,18 @@ begin
     end if;
   end loop;
 
-  if proto_action is null then
-    proto_action := public.automation_protocol_create_under_tkp_action();
+  if proto_update is null then
+    proto_update := public.automation_protocol_link_update_action();
+  end if;
+  if proto_create is null then
+    proto_create := public.automation_protocol_create_under_tkp_action();
   end if;
 
   if tkp_action is not null then
     return before_tkp
       || jsonb_build_array(tkp_action)
-      || jsonb_build_array(proto_action)
+      || jsonb_build_array(proto_update)
+      || jsonb_build_array(proto_create)
       || after_tkp;
   end if;
 
@@ -158,14 +215,18 @@ begin
   for action in select value from jsonb_array_elements(other)
   loop
     if not seen_tkp and action->>'kind' = 'setField' then
-      before_tkp := before_tkp || jsonb_build_array(proto_action);
+      before_tkp := before_tkp
+        || jsonb_build_array(proto_update)
+        || jsonb_build_array(proto_create);
       seen_tkp := true;
     end if;
     before_tkp := before_tkp || jsonb_build_array(action);
   end loop;
 
   if not seen_tkp then
-    before_tkp := before_tkp || jsonb_build_array(proto_action);
+    before_tkp := before_tkp
+      || jsonb_build_array(proto_update)
+      || jsonb_build_array(proto_create);
   end if;
 
   return before_tkp;
@@ -224,11 +285,12 @@ set config = jsonb_set(
 where task.template_id = 'atpl-lead-chief-decision'
   and task.status in ('open', 'in_progress', 'pending');
 
--- Verify bind targets
+-- Verify
 select
   o->>'label' as outcome,
   a->>'kind' as kind,
   a->>'entityId' as entity_id,
+  a->>'linkMode' as link_mode,
   a->'parentFromRelated' as parent_from_related,
   a->'alsoLinkTrigger' as also_link_trigger,
   a->'mappings' as mappings
