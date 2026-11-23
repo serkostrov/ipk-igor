@@ -15,6 +15,7 @@ export {
   type AppLocation,
   type AppLocationState,
   type EntityBrowsePathView,
+  type HistoryPathTab,
   type SettingsPathTab,
 } from "./paths";
 export {

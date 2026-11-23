@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { addCalendarDays, todayIsoDate } from "@/shared/lib/business-days";
+import type { HistoryPathTab } from "@/shared/lib/navigation";
 import {
   getRelationRecordOptions,
   getEntityDisplayName,
@@ -68,10 +69,16 @@ function FilterSelect({
 }
 
 type HistoryPageProps = {
+  tab?: HistoryPathTab;
+  onSelectTab?: (tab: HistoryPathTab) => void;
   onOpenRecord?: (entityId: string, recordId: string) => void;
 };
 
-export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
+export function HistoryPage({
+  tab,
+  onSelectTab,
+  onOpenRecord,
+}: HistoryPageProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const today = todayIsoDate();
@@ -79,7 +86,7 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
   const [to, setTo] = useState(today);
   const [userRecordId, setUserRecordId] = useState("");
   const [entityId, setEntityId] = useState("");
-  const [kind, setKind] = useState<"record" | "entity">("record");
+  const kind: HistoryPathTab = tab ?? "record";
   const [recordId, setRecordId] = useState("");
 
   const users = getSystemUsersEntity(entities);
@@ -102,7 +109,7 @@ export function HistoryPage({ onOpenRecord }: HistoryPageProps) {
       value={kind}
       onValueChange={(next) => {
         if (next === "entity" || next === "record") {
-          setKind(next);
+          onSelectTab?.(next);
           setRecordId("");
         }
       }}

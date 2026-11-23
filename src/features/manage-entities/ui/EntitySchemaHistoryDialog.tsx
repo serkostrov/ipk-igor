@@ -121,13 +121,18 @@ export function EntitySchemaHistoryDialog({
     return describeEntitySchemaChanges(
       previous.definition,
       selected.definition,
+      ctx.entities,
     );
-  }, [selected, previous]);
+  }, [selected, previous, ctx.entities]);
 
   const draftDiffItems = useMemo(() => {
     if (!published) return [];
-    return describeEntitySchemaChanges(published.definition, entity);
-  }, [published, entity]);
+    return describeEntitySchemaChanges(
+      published.definition,
+      entity,
+      ctx.entities,
+    );
+  }, [published, entity, ctx.entities]);
 
   const today = todayIsoDate();
   const groups = groupByDay(versionList);
