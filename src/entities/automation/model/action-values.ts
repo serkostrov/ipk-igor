@@ -5,6 +5,7 @@ import {
   getEntityOwningRecord,
   getEntityRecordById,
   getEntityRelationTargetId,
+  getEntityValueContext,
   getRelationGroupsLeafEntityId,
   getRelationGroupsLevelEntityId,
   isEntityNameField,
@@ -90,6 +91,19 @@ function mergeRelationGroupsTrees(
   return [...roots.values()];
 }
 
+/** Prefer primed/value-context index over raw `entity.records` (page-scoped). */
+function resolveActionRelationLabel(
+  target: Entity | null | undefined,
+  value: string | undefined,
+  entities: readonly Entity[] | undefined,
+): string {
+  if (!target || !value?.trim()) return "";
+  const source = entities ? getEntityValueContext(entities) : undefined;
+  return (
+    resolveRelationRecordLabel(target, value, entities, source)?.trim() ?? ""
+  );
+}
+
 /** Human label for a trigger record (name field), never a raw id. */
 function resolveTriggerRecordLabel(
   options: ResolveAutomationActionValueOptions,
@@ -99,7 +113,11 @@ function resolveTriggerRecordLabel(
     (item) => item.id === options.triggerEntityId,
   );
   if (!entity) return "";
-  const label = resolveRelationRecordLabel(entity, recordId)?.trim() ?? "";
+  const label = resolveActionRelationLabel(
+    entity,
+    recordId,
+    options.entities,
+  );
   if (!label || label === "Без названия" || label === recordId) return "";
   return label;
 }
@@ -130,7 +148,7 @@ function resolveCopiedFieldValue(
   const target = targetId
     ? (options.entities?.find((item) => item.id === targetId) ?? null)
     : null;
-  const label = resolveRelationRecordLabel(target, rawValue)?.trim() ?? "";
+  const label = resolveActionRelationLabel(target, rawValue, options.entities);
   if (!label || label === "Без названия") return "";
   return label;
 }
@@ -153,7 +171,11 @@ function resolveNestedFieldDisplayValue(
     const target = targetId
       ? (options.entities?.find((item) => item.id === targetId) ?? null)
       : null;
-    const label = resolveRelationRecordLabel(target, rawValue)?.trim() ?? "";
+    const label = resolveActionRelationLabel(
+      target,
+      rawValue,
+      options.entities,
+    );
     if (!label || label === "Без названия") return "";
     return label;
   }
@@ -172,6 +194,11 @@ export const AUTOMATION_VALUE_TIME_NOW = "__timeNow__";
 export const AUTOMATION_VALUE_CURRENT_USER = "__currentUser__";
 /** Trigger record of the running automation (link from createRecord mappings). */
 export const AUTOMATION_VALUE_CURRENT_RECORD = "__currentRecord__";
+/**
+ * Last record id from a prior `createRecord` in the same outcome pipeline
+ * (e.g. link «Протокол запуска» → только что созданный «Разбор ТКП»).
+ */
+export const AUTOMATION_VALUE_CREATED = "{{created}}";
 
 /**
  * Nested path segment meaning «the related record itself» (its id),
@@ -583,9 +610,18 @@ export async function resolveAutomationActionValue(
     }
     return resolveTriggerRecordLabel(options, recordId);
   }
-  if (raw === "{{created}}" || raw === "created") {
+  if (
+    raw === AUTOMATION_VALUE_CREATED ||
+    raw === "{{created}}" ||
+    raw === "created"
+  ) {
     const ids = options.createdRecordIds ?? [];
-    return ids[ids.length - 1] ?? "";
+    const id = ids[ids.length - 1] ?? "";
+    if (!id) return "";
+    if (wantsRelationIds(options.fieldType)) {
+      return serializeEntityRelationIds([id]);
+    }
+    return id;
   }
 
   const path = parseAutomationEntityPathRef(raw);
@@ -633,6 +669,13 @@ export function describeAutomationActionValue(
   if (raw === AUTOMATION_VALUE_TIME_NOW) return "Сейчас";
   if (raw === AUTOMATION_VALUE_CURRENT_USER) return "Текущий пользователь";
   if (raw === AUTOMATION_VALUE_CURRENT_RECORD) return "Текущая запись";
+  if (
+    raw === AUTOMATION_VALUE_CREATED ||
+    raw === "{{created}}" ||
+    raw === "created"
+  ) {
+    return "Созданная запись";
+  }
   if (raw === "true") return "Да";
   if (raw === "false") return "Нет";
 

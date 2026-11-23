@@ -1179,7 +1179,8 @@ export async function executeAutomationActions(
             });
             break;
           }
-          // Silent retry: do not insert another linked child when one exists.
+          // Silent retry / already-linked child: reuse, still apply mappings
+          // (e.g. «Протокол.Разбор ТКП» ← {{created}} after createRecord TKP).
           const reused =
             Object.keys(parentAsk).length === 0
               ? await findExistingLinkedChild(
@@ -1189,22 +1190,37 @@ export async function executeAutomationActions(
                   ctx.triggerRecordId,
                 )
               : null;
-          const record = reused
-            ? { id: reused.id }
-            : await createMappedRecord(
-                action.entityId,
-                singleMappings,
-                ctx,
-                createdRecordIds,
-                {
-                  askOverrides: parentAsk,
-                  parentLink: {
-                    parentEntityId: singleParentId,
-                    parentRecordId: ctx.triggerRecordId,
-                  },
-                  writeBackToParents: true,
+          let record: { id: string } | null = null;
+          if (reused) {
+            // Same order as createMappedRecord: mappings, then ask overrides win.
+            const mapped = await applyMappings(
+              singleMappings,
+              ctx,
+              createdRecordIds,
+              undefined,
+              createTarget,
+            );
+            const patch = { ...mapped, ...parentAsk };
+            if (Object.keys(patch).length > 0) {
+              await updateEntityRecord(action.entityId, reused.id, patch);
+            }
+            record = { id: reused.id };
+          } else {
+            record = await createMappedRecord(
+              action.entityId,
+              singleMappings,
+              ctx,
+              createdRecordIds,
+              {
+                askOverrides: parentAsk,
+                parentLink: {
+                  parentEntityId: singleParentId,
+                  parentRecordId: ctx.triggerRecordId,
                 },
-              );
+                writeBackToParents: true,
+              },
+            );
+          }
           if (!record) {
             logs.push({
               kind: "createRecord",

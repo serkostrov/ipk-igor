@@ -2,6 +2,7 @@ import * as React from "react";
 import { ChevronRight } from "lucide-react";
 import {
   AUTOMATION_PATH_RELATED_RECORD,
+  AUTOMATION_VALUE_CREATED,
   AUTOMATION_VALUE_CURRENT_RECORD,
   AUTOMATION_VALUE_CURRENT_USER,
   AUTOMATION_VALUE_NOW,
@@ -91,12 +92,22 @@ type ValueMode =
   | "false"
   | "currentUser"
   | "currentRecord"
+  | "created"
   | "fromField"
   | "fromEntity";
 
 function fieldRefId(value: string) {
   const match = value.trim().match(/^\{\{([^.}]+)\}\}$/);
   return match?.[1]?.trim() ?? "";
+}
+
+function isCreatedActionValue(value: string) {
+  const raw = value.trim();
+  return (
+    raw === AUTOMATION_VALUE_CREATED ||
+    raw === "{{created}}" ||
+    raw === "created"
+  );
 }
 
 function detectMode(value: string, field: EntityField | null): ValueMode {
@@ -109,6 +120,7 @@ function detectMode(value: string, field: EntityField | null): ValueMode {
   }
   if (raw === AUTOMATION_VALUE_CURRENT_USER) return "currentUser";
   if (raw === AUTOMATION_VALUE_CURRENT_RECORD) return "currentRecord";
+  if (isCreatedActionValue(raw)) return "created";
   if (isAutomationEntityPathRef(raw)) return "fromEntity";
   if (isAutomationFieldRef(raw)) return "fromField";
   if (field?.type === "boolean") {
@@ -130,6 +142,7 @@ const VALUE_MODE_GROUPS_DEFAULT: Array<{ label: string; values: string[] }> = [
       "false",
       "currentUser",
       "currentRecord",
+      "created",
     ],
   },
   { label: "Вручную", values: ["custom"] },
@@ -149,6 +162,7 @@ const VALUE_MODE_GROUPS_MAPPING: Array<{ label: string; values: string[] }> = [
       "false",
       "currentUser",
       "currentRecord",
+      "created",
       "fromField",
       "fromEntity",
     ],
@@ -1499,6 +1513,8 @@ function ActionValueEditorBody({
       Boolean(mapToOtherEntity) &&
       Boolean(sourceEntityId) &&
       targetId === sourceEntityId;
+    /** Prior createRecord in the same outcome — for «Протокол ↔ Разбор ТКП». */
+    const canLinkCreated = Boolean(mapToOtherEntity) || !mapping;
     const sourceEntity = canLinkCurrentRecord
       ? (entities.find((entity) => entity.id === sourceEntityId) ?? null)
       : null;
@@ -1508,6 +1524,7 @@ function ActionValueEditorBody({
     const relationMode =
       mode === "currentUser" ||
       mode === "currentRecord" ||
+      mode === "created" ||
       mode === "fromField" ||
       mode === "fromEntity" ||
       mode === "empty"
@@ -1519,6 +1536,9 @@ function ActionValueEditorBody({
     const currentRecordLabel = mapping
       ? `Текущая «${sourceEntityName}»`
       : customModeLabel(`Текущая «${sourceEntityName}»`, "Текущая");
+    const createdLabel = mapping
+      ? "Созданная запись"
+      : customModeLabel("Созданная запись", "Созданная");
     return (
       <div className={shellClass}>
         <ModeSelect
@@ -1533,6 +1553,9 @@ function ActionValueEditorBody({
             ...(canLinkCurrentRecord
               ? [{ value: "currentRecord", label: currentRecordLabel }]
               : []),
+            ...(canLinkCreated
+              ? [{ value: "created", label: createdLabel }]
+              : []),
             {
               value: "custom",
               label: customModeLabel("Выбрать запись", "Запись"),
@@ -1545,6 +1568,8 @@ function ActionValueEditorBody({
               applyMode("currentUser", AUTOMATION_VALUE_CURRENT_USER);
             } else if (next === "currentRecord") {
               applyMode("currentRecord", AUTOMATION_VALUE_CURRENT_RECORD);
+            } else if (next === "created") {
+              applyMode("created", AUTOMATION_VALUE_CREATED);
             } else if (next === "custom") {
               applyMode(
                 "custom",
@@ -1552,7 +1577,8 @@ function ActionValueEditorBody({
                   !isAutomationFieldRef(value) &&
                   !isAutomationEntityPathRef(value) &&
                   value !== AUTOMATION_VALUE_CURRENT_USER &&
-                  value !== AUTOMATION_VALUE_CURRENT_RECORD
+                  value !== AUTOMATION_VALUE_CURRENT_RECORD &&
+                  !isCreatedActionValue(value)
                   ? value
                   : "",
               );
@@ -1568,7 +1594,8 @@ function ActionValueEditorBody({
               isAutomationFieldRef(value) ||
               isAutomationEntityPathRef(value) ||
               value === AUTOMATION_VALUE_CURRENT_USER ||
-              value === AUTOMATION_VALUE_CURRENT_RECORD
+              value === AUTOMATION_VALUE_CURRENT_RECORD ||
+              isCreatedActionValue(value)
                 ? ""
                 : value
             }

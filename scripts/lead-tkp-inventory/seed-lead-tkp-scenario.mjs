@@ -63,6 +63,7 @@ const F = {
   tkpStatus: "field-ebd4459c-2cc4-463a-80f5-cbbc35a95a82",
   tkpLead: "field-9fe24291-44ca-4031-b47f-cb99898564bc",
   protoLead: "field-5da97a4c-d240-43f2-80d8-d35eddecb7c1",
+  protoName: "field-e9da05d5-93d2-4d3a-8cef-e97bc639f2df",
   protoLeadDept: "field-aeaa4a93-6c85-41e7-a1f1-b7305ea66ec6",
   protoDeptHeadLookup: "field-7e65b215-1dba-4206-b3fb-a3d5c3e4e63a",
   protoGipDesc: "field-114ed87b-6b59-48ed-a175-1220f2d55dc8",
@@ -966,6 +967,24 @@ async function main() {
               askFieldIds: [],
               multiple: false,
             },
+            // Протокол → лид (withParentLink) и → только что созданный разбор ТКП.
+            {
+              id: uid("aact"),
+              kind: "createRecord",
+              entityId: PROTO,
+              mappings: [
+                {
+                  targetFieldId: F.protoName,
+                  source: `{{${F.leadName}}}`,
+                },
+                {
+                  targetFieldId: F.protoTkp,
+                  source: "{{created}}",
+                },
+              ],
+              askFieldIds: [],
+              multiple: false,
+            },
             setField(F.leadStage, LEAD_STAGE.gipLeadDept),
           ],
           {
@@ -1498,7 +1517,8 @@ async function main() {
     }),
   });
 
-  // createRecord auto-links child→trigger via withParentLink (TKP.Лид / Расчёты.Разбор ТКП).
+  // createRecord auto-links child→trigger via withParentLink
+  // (TKP.Лид / Протокол.Лид). Протокол.Разбор ТКП ← {{created}} (разбор).
   const step3 = leadTemplates.find((t) => t.id === "atpl-lead-chief-decision");
   step3.outcomes[0].actions = [
     {
@@ -1508,6 +1528,17 @@ async function main() {
       mappings: [
         { targetFieldId: F.tkpStatus, source: TKP_STAGE.created },
         { targetFieldId: F.tkpName, source: `{{${F.leadName}}}` },
+      ],
+      askFieldIds: [],
+      multiple: false,
+    },
+    {
+      id: uid("aact"),
+      kind: "createRecord",
+      entityId: PROTO,
+      mappings: [
+        { targetFieldId: F.protoName, source: `{{${F.leadName}}}` },
+        { targetFieldId: F.protoTkp, source: "{{created}}" },
       ],
       askFieldIds: [],
       multiple: false,
