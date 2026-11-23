@@ -497,6 +497,18 @@ export type AutomationOutcome = {
   conditions: AutomationConditions;
   /** @deprecated Unused by UI/runtime; normalized for snapshot compat. */
   buttonMode: AutomationOutcomeButtonMode;
+  /**
+   * Marks the button as a return-to-previous-stage action.
+   * Enables return-reason («прич.»), the keep-filled-data toggle, and
+   * highlight banner / field wipe on the respawned task.
+   */
+  isReturn: boolean;
+  /**
+   * Only when `isReturn` and the button changes process stage:
+   * `true` (default) — keep record field values; the respawned task opens prefilled.
+   * `false` — clear destination templates’ ask fields so the new task opens empty.
+   */
+  keepFilledData: boolean;
 };
 
 export type AutomationSla = {
@@ -925,6 +937,16 @@ export function normalizeAutomationViewFieldsPlacement(
   return "afterSelect";
 }
 
+function normalizeOutcomeFlag(value: unknown, defaultValue: boolean): boolean {
+  if (value === true || value === "true" || value === 1 || value === "1") {
+    return true;
+  }
+  if (value === false || value === "false" || value === 0 || value === "0") {
+    return false;
+  }
+  return defaultValue;
+}
+
 function normalizeOutcome(
   raw: unknown,
   index: number,
@@ -940,16 +962,28 @@ function normalizeOutcome(
       ? item.label.trim()
       : "Результат";
   const colorRaw = typeof item.color === "string" ? item.color.trim() : "";
+  const fieldAccess = normalizeAutomationOutcomeFieldAccess(item.fieldAccess);
+  const explicitReturn = item.isReturn ?? item.is_return;
+  // Explicit flag wins; legacy configs with a reason field count as return.
+  const isReturn =
+    explicitReturn !== undefined && explicitReturn !== null
+      ? normalizeOutcomeFlag(explicitReturn, false)
+      : Boolean(fieldAccess.reasonFieldId || fieldAccess.relatedReasonId);
   return {
     id,
     label,
     color: colorRaw ? normalizeListColor(colorRaw) : null,
     actions: normalizeAutomationActions(item.actions),
-    fieldAccess: normalizeAutomationOutcomeFieldAccess(item.fieldAccess),
+    fieldAccess,
     conditions: normalizeAutomationConditions(item.conditions),
     buttonMode: normalizeAutomationOutcomeButtonMode(
       item.buttonMode ?? item.button_mode,
     ),
+    isReturn,
+    // keepFilledData only meaningful for return buttons; default keep values.
+    keepFilledData: isReturn
+      ? normalizeOutcomeFlag(item.keepFilledData ?? item.keep_filled_data, true)
+      : true,
   };
 }
 
@@ -970,6 +1004,8 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
       buttonMode: "auto",
+      isReturn: false,
+      keepFilledData: true,
     },
     {
       id: createAutomationOutcomeId(),
@@ -979,6 +1015,8 @@ export function defaultDecisionOutcomes(): AutomationOutcome[] {
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
       buttonMode: "auto",
+      isReturn: false,
+      keepFilledData: true,
     },
   ];
 }
@@ -997,6 +1035,8 @@ export function defaultAutofillOutcomes(): AutomationOutcome[] {
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
       buttonMode: "auto",
+      isReturn: false,
+      keepFilledData: true,
     },
   ];
 }
@@ -1012,6 +1052,8 @@ export function defaultActionsOutcomes(): AutomationOutcome[] {
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
       buttonMode: "auto",
+      isReturn: false,
+      keepFilledData: true,
     },
   ];
 }
@@ -1108,6 +1150,8 @@ export function normalizeAutomationTaskTemplate(
                     fieldAccess: emptyAutomationOutcomeFieldAccess(),
                     conditions: emptyAutomationConditions(),
                     buttonMode: "auto",
+                    isReturn: false,
+                    keepFilledData: true,
                   },
                 ]
               : defaultDecisionOutcomes(),

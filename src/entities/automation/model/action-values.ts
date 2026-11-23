@@ -113,11 +113,7 @@ function resolveTriggerRecordLabel(
     (item) => item.id === options.triggerEntityId,
   );
   if (!entity) return "";
-  const label = resolveActionRelationLabel(
-    entity,
-    recordId,
-    options.entities,
-  );
+  const label = resolveActionRelationLabel(entity, recordId, options.entities);
   if (!label || label === "Без названия" || label === recordId) return "";
   return label;
 }

@@ -55,6 +55,8 @@ function normalizeBranches(outcomes: AutomationOutcome[]): AutomationOutcome[] {
         fieldAccess: emptyAutomationOutcomeFieldAccess(),
         conditions: emptyAutomationConditions(),
         buttonMode: "auto",
+        isReturn: false,
+        keepFilledData: true,
       },
     ];
   }
@@ -122,6 +124,8 @@ export function OutcomeRouteBranchesEditor({
       fieldAccess: emptyAutomationOutcomeFieldAccess(),
       conditions: emptyAutomationConditions(),
       buttonMode: "auto",
+      isReturn: false,
+      keepFilledData: true,
     });
     commit(next);
   }

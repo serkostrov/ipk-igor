@@ -191,11 +191,7 @@ export function buildDeptCalculationStageGroups(
         : null;
     })();
     const groupIds =
-      sole != null
-        ? [sole.stageId]
-        : ids.length > 0
-          ? ids
-          : [""];
+      sole != null ? [sole.stageId] : ids.length > 0 ? ids : [""];
     const stageId = groupIds[0] ?? "";
     const list = byStage.get(stageId) ?? [];
     list.push(record);

@@ -350,6 +350,8 @@ function outcomesForKind(
             fieldAccess: emptyAutomationOutcomeFieldAccess(),
             conditions: emptyAutomationConditions(),
             buttonMode: "auto",
+            isReturn: false,
+            keepFilledData: true,
           },
         ];
   }
@@ -482,6 +484,7 @@ function OutcomeAskFieldsEditor({
   value,
   onChange,
   hasRecordsTab,
+  allowReturnReason = false,
   onRemove,
 }: {
   entity: Entity;
@@ -489,6 +492,8 @@ function OutcomeAskFieldsEditor({
   value: AutomationOutcomeFieldAccess;
   onChange: (next: AutomationOutcomeFieldAccess) => void;
   hasRecordsTab: boolean;
+  /** Show «прич.» only for outcomes marked as return buttons. */
+  allowReturnReason?: boolean;
   /** Remove the whole «Запрос полей» block. */
   onRemove?: () => void;
 }) {
@@ -1033,8 +1038,10 @@ function OutcomeAskFieldsEditor({
                 !computed && access.requiredFieldIds.includes(field.id);
               const toComments = access.commentFieldIds.includes(field.id);
               const toRecord = access.recordFieldIds.includes(field.id);
-              const canBeReason = isReturnReasonFieldType(field.type);
-              const isReason = access.reasonFieldId === field.id;
+              const canBeReason =
+                allowReturnReason && isReturnReasonFieldType(field.type);
+              const isReason =
+                allowReturnReason && access.reasonFieldId === field.id;
               const label = getEntityFieldDisplayName(field);
               const isDragging = draggingId === field.id;
               const dropEdge: "before" | "after" | null =
@@ -1268,9 +1275,11 @@ function OutcomeAskFieldsEditor({
                 const toComments = access.relatedCommentIds.includes(item.id);
                 const toRecord = access.relatedRecordIds.includes(item.id);
                 const canBeReason =
+                  allowReturnReason &&
                   row.targetField != null &&
                   isReturnReasonFieldType(row.targetField.type);
-                const isReason = access.relatedReasonId === item.id;
+                const isReason =
+                  allowReturnReason && access.relatedReasonId === item.id;
                 const isRelationGroups =
                   row.targetField?.type === "relationGroups";
                 const label = `${row.relationLabel} · ${row.fieldLabel}`;
@@ -1828,6 +1837,7 @@ function OutcomeActionsPanel({
           entities={entities}
           value={outcome.fieldAccess}
           hasRecordsTab={hasRecordsTab}
+          allowReturnReason={outcome.isReturn === true}
           onRemove={removeAskFields}
           onChange={(fieldAccess) => onPatchOutcome({ fieldAccess })}
         />
@@ -1956,6 +1966,8 @@ export function TemplateInspector({
           fieldAccess: emptyAutomationOutcomeFieldAccess(),
           conditions: emptyAutomationConditions(),
           buttonMode: "auto",
+          isReturn: false,
+          keepFilledData: true,
         },
       ],
     });
@@ -2246,6 +2258,8 @@ export function TemplateInspector({
                     fieldAccess: draft.fieldAccess,
                     conditions: emptyAutomationConditions(),
                     buttonMode: "auto",
+                    isReturn: false,
+                    keepFilledData: true,
                   }}
                   actions={draft.actions ?? []}
                   entity={entity}
@@ -2365,6 +2379,44 @@ export function TemplateInspector({
                         })
                       }
                     />
+                    <InspectorSwitchRow>
+                      <SettingSwitch
+                        id={`outcome-is-return-route-${outcome.id}`}
+                        title="Кнопка возврата"
+                        description="Возврат на предыдущее задание: причина возврата и очистка полей целевой стадии"
+                        checked={outcome.isReturn === true}
+                        onCheckedChange={(isReturn) =>
+                          patchOutcome(outcomeIndex, {
+                            isReturn,
+                            keepFilledData: isReturn
+                              ? outcome.keepFilledData !== false
+                              : true,
+                            ...(isReturn
+                              ? {}
+                              : {
+                                  fieldAccess: {
+                                    ...outcome.fieldAccess,
+                                    reasonFieldId: null,
+                                    relatedReasonId: null,
+                                  },
+                                }),
+                          })
+                        }
+                      />
+                    </InspectorSwitchRow>
+                    {outcome.isReturn ? (
+                      <InspectorSwitchRow>
+                        <SettingSwitch
+                          id={`outcome-keep-filled-route-${outcome.id}`}
+                          title="Оставить заполненные данные"
+                          description="Выкл. — задание на целевой стадии откроется без ранее введённых значений полей"
+                          checked={outcome.keepFilledData !== false}
+                          onCheckedChange={(keepFilledData) =>
+                            patchOutcome(outcomeIndex, { keepFilledData })
+                          }
+                        />
+                      </InspectorSwitchRow>
+                    ) : null}
                     <InspectorSection title="Действия">
                       <OutcomeActionsPanel
                         outcome={outcome}
@@ -2466,6 +2518,49 @@ export function TemplateInspector({
                               })
                             }
                           />
+
+                          <InspectorSwitchRow>
+                            <SettingSwitch
+                              id={`outcome-is-return-${selectedOutcome.id}`}
+                              title="Кнопка возврата"
+                              description="Возврат на предыдущее задание: причина возврата и очистка полей целевой стадии"
+                              checked={selectedOutcome.isReturn === true}
+                              onCheckedChange={(isReturn) =>
+                                patchOutcome(selectedOutcomeIndex, {
+                                  isReturn,
+                                  keepFilledData: isReturn
+                                    ? selectedOutcome.keepFilledData !== false
+                                    : true,
+                                  ...(isReturn
+                                    ? {}
+                                    : {
+                                        fieldAccess: {
+                                          ...selectedOutcome.fieldAccess,
+                                          reasonFieldId: null,
+                                          relatedReasonId: null,
+                                        },
+                                      }),
+                                })
+                              }
+                            />
+                          </InspectorSwitchRow>
+                          {selectedOutcome.isReturn ? (
+                            <InspectorSwitchRow>
+                              <SettingSwitch
+                                id={`outcome-keep-filled-${selectedOutcome.id}`}
+                                title="Оставить заполненные данные"
+                                description="Выкл. — задание на целевой стадии откроется без ранее введённых значений полей"
+                                checked={
+                                  selectedOutcome.keepFilledData !== false
+                                }
+                                onCheckedChange={(keepFilledData) =>
+                                  patchOutcome(selectedOutcomeIndex, {
+                                    keepFilledData,
+                                  })
+                                }
+                              />
+                            </InspectorSwitchRow>
+                          ) : null}
 
                           <OutcomeActionsPanel
                             outcome={selectedOutcome}

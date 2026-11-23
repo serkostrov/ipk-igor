@@ -117,7 +117,19 @@ const emptyAccess = () => ({
   relatedVisibleFields: [],
   relatedRequiredIds: [],
   requireAttachment: false,
+  reasonFieldId: null,
+  relatedReasonId: null,
 });
+
+/** Return-to-previous-stage: comment is required and becomes the highlight on the new task. */
+function returnReasonAccess(reasonFieldId) {
+  return {
+    ...emptyAccess(),
+    visibleFieldIds: [reasonFieldId],
+    requiredFieldIds: [reasonFieldId],
+    reasonFieldId,
+  };
+}
 
 function askAccess(items, extra = {}) {
   const relatedVisibleFields = items.map(({ required, ...field }) => field);
@@ -202,7 +214,13 @@ function baseField(partial) {
   };
 }
 
-function outcome(label, color, actions = [], fieldAccess = emptyAccess()) {
+function outcome(
+  label,
+  color,
+  actions = [],
+  fieldAccess = emptyAccess(),
+  { isReturn = false, keepFilledData = true } = {},
+) {
   return {
     id: uid("aout"),
     label,
@@ -211,7 +229,18 @@ function outcome(label, color, actions = [], fieldAccess = emptyAccess()) {
     fieldAccess,
     conditions: emptyCond,
     buttonMode: "auto",
+    isReturn: isReturn === true,
+    // Only meaningful for return buttons; default keep prior values.
+    keepFilledData: isReturn === true ? keepFilledData !== false : true,
   };
+}
+
+/** Return-to-previous-stage button with reason field and isReturn flag. */
+function returnOutcome(label, color, actions, reasonFieldId) {
+  return outcome(label, color, actions, returnReasonAccess(reasonFieldId), {
+    isReturn: true,
+    keepFilledData: true,
+  });
 }
 
 function setField(fieldId, value) {
@@ -445,7 +474,12 @@ async function ensureCommercialGroups(token) {
         }),
       });
     }
-    console.log("general director kept", preferred.id, "demoted", holders.length - 1);
+    console.log(
+      "general director kept",
+      preferred.id,
+      "demoted",
+      holders.length - 1,
+    );
   }
   console.log("commercial groups ready");
 }
@@ -1047,15 +1081,11 @@ async function main() {
             ],
           },
         ),
-        outcome(
+        returnOutcome(
           "Не берем в работу",
           "#ef4444",
           [setField(F.leadStage, LEAD_STAGE.draft)],
-          {
-            ...emptyAccess(),
-            visibleFieldIds: [NEW.leadRejectReason],
-            requiredFieldIds: [NEW.leadRejectReason],
-          },
+          NEW.leadRejectReason,
         ),
       ],
     }),
@@ -1350,16 +1380,12 @@ async function main() {
         outcome("Согласовано", "#22c55e", [
           setField(F.tkpStatus, TKP_STAGE.price),
         ]),
-        outcome(
+        returnOutcome(
           "Не согласовано",
           "#ef4444",
           [setField(F.tkpStatus, TKP_STAGE.gipFill)],
-          {
-            ...emptyAccess(),
-            visibleFieldIds: [],
-            requiredFieldIds: [],
-            // reason via highlight / ask comment field on host — use heads comment soft
-          },
+          // → «Проверить и утвердить итоговый расчет ТКП» у ГИПа лида
+          NEW.tkpHeadsComment,
         ),
       ],
     }),
@@ -1409,15 +1435,12 @@ async function main() {
         outcome("Согласовать", "#22c55e", [
           setField(F.tkpStatus, TKP_STAGE.approveRko),
         ]),
-        outcome(
+        returnOutcome(
           "Вернуть менеджеру",
           "#ef4444",
+          // → «Сформировать ТКП» у менеджера лида
           [setField(F.tkpStatus, TKP_STAGE.price)],
-          {
-            ...emptyAccess(),
-            visibleFieldIds: [NEW.tkpHeadsComment],
-            requiredFieldIds: [NEW.tkpHeadsComment],
-          },
+          NEW.tkpHeadsComment,
         ),
       ],
     }),
@@ -1443,15 +1466,11 @@ async function main() {
         outcome("Согласовать", "#22c55e", [
           setField(F.tkpStatus, TKP_STAGE.approveGd),
         ]),
-        outcome(
+        returnOutcome(
           "Вернуть менеджеру",
           "#ef4444",
           [setField(F.tkpStatus, TKP_STAGE.price)],
-          {
-            ...emptyAccess(),
-            visibleFieldIds: [NEW.tkpHeadsComment],
-            requiredFieldIds: [NEW.tkpHeadsComment],
-          },
+          NEW.tkpHeadsComment,
         ),
       ],
     }),
@@ -1472,15 +1491,11 @@ async function main() {
         outcome("Согласовать", "#22c55e", [
           setField(F.tkpStatus, TKP_STAGE.readySend),
         ]),
-        outcome(
+        returnOutcome(
           "Вернуть менеджеру",
           "#ef4444",
           [setField(F.tkpStatus, TKP_STAGE.price)],
-          {
-            ...emptyAccess(),
-            visibleFieldIds: [NEW.tkpHeadsComment],
-            requiredFieldIds: [NEW.tkpHeadsComment],
-          },
+          NEW.tkpHeadsComment,
         ),
       ],
     }),
@@ -1583,17 +1598,13 @@ async function main() {
       entityId: PROTO,
       linkMode: "backRelation",
       linkFieldId: F.protoLead,
-      mappings: [
-        { targetFieldId: F.protoTkp, source: "{{created}}" },
-      ],
+      mappings: [{ targetFieldId: F.protoTkp, source: "{{created}}" }],
     },
     {
       id: uid("aact"),
       kind: "createRecord",
       entityId: PROTO,
-      mappings: [
-        { targetFieldId: F.protoName, source: `{{${F.leadName}}}` },
-      ],
+      mappings: [{ targetFieldId: F.protoName, source: `{{${F.leadName}}}` }],
       parentFromRelated: [{ linkedTabId: F.leadTkpTab }],
       alsoLinkTrigger: true,
       askFieldIds: [],

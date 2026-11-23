@@ -340,6 +340,8 @@ export function getAutomationTemplateAskFields(
       } satisfies AutomationOutcomeFieldAccess),
     conditions: { version: 1, match: "all", rules: [] },
     buttonMode: "auto",
+    isReturn: false,
+    keepFilledData: true,
   });
 }
 

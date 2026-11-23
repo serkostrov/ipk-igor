@@ -344,6 +344,8 @@ function TaskWorkspaceBody({
       fieldAccess: task.config.fieldAccess,
       conditions: { version: 1 as const, match: "all" as const, rules: [] },
       buttonMode: "auto" as const,
+      isReturn: false as const,
+      keepFilledData: true as const,
     }),
     [task.config.actions, task.config.fieldAccess],
   );

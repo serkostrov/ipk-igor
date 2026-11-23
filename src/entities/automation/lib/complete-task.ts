@@ -40,6 +40,7 @@ import { resolveAutomationActionValue } from "../model/action-values";
 import { getAutomationConfig } from "../store/automation-store";
 import { resolveAskRelatedTarget } from "./ask-related";
 import { resolveAutomationGateError } from "./blocking-error";
+import { clearDestinationStageAskFields } from "./clear-destination-ask-fields";
 import { executeAutomationActions } from "./execute-actions";
 import {
   assigneeDefersProcessStage,
@@ -244,26 +245,44 @@ async function appendRelatedOutcomeFieldComments(
 /**
  * Reason may be configured on the outcome button or on template-level
  * «Действия задания». Outcome wins when both are set.
+ *
+ * Legacy return buttons often require a comment field without setting
+ * `reasonFieldId` — treat a single required host text field as the reason so
+ * the respawned task for the returnee gets the highlight banner.
  */
 function resolveReturnReasonFieldAccess(
   task: AutomationTask,
   outcomeAccess: AutomationOutcomeFieldAccess,
+  triggerEntity?: Entity,
 ): AutomationOutcomeFieldAccess {
   const outcome = normalizeAutomationOutcomeFieldAccess(outcomeAccess);
   const template = normalizeAutomationOutcomeFieldAccess(
     task.config.fieldAccess ?? emptyAutomationOutcomeFieldAccess(),
   );
   if (outcome.reasonFieldId || outcome.relatedReasonId) return outcome;
-  if (!template.reasonFieldId && !template.relatedReasonId) return outcome;
+  if (template.reasonFieldId || template.relatedReasonId) {
+    return {
+      ...outcome,
+      reasonFieldId: template.reasonFieldId,
+      relatedReasonId: template.relatedReasonId,
+      // Need related ask row metadata when reason is a related field.
+      relatedVisibleFields:
+        outcome.relatedVisibleFields.length > 0
+          ? outcome.relatedVisibleFields
+          : template.relatedVisibleFields,
+    };
+  }
+  if (!triggerEntity || outcome.requiredFieldIds.length === 0) return outcome;
+  const textReasonIds = outcome.requiredFieldIds.filter((fieldId) => {
+    const field = triggerEntity.fields.find((item) => item.id === fieldId);
+    if (!field) return false;
+    return field.type === "text" || field.type === "textarea";
+  });
+  if (textReasonIds.length !== 1) return outcome;
   return {
     ...outcome,
-    reasonFieldId: template.reasonFieldId,
-    relatedReasonId: template.relatedReasonId,
-    // Need related ask row metadata when reason is a related field.
-    relatedVisibleFields:
-      outcome.relatedVisibleFields.length > 0
-        ? outcome.relatedVisibleFields
-        : template.relatedVisibleFields,
+    reasonFieldId: textReasonIds[0]!,
+    relatedReasonId: null,
   };
 }
 
@@ -759,12 +778,13 @@ export async function completeAutomationTask(
     triggerFieldId,
     task.triggerOptionId,
   );
-  const reasonAccess = resolveReturnReasonFieldAccess(
-    task,
-    outcome.fieldAccess,
-  );
+  const reasonAccess = outcome.isReturn
+    ? resolveReturnReasonFieldAccess(task, outcome.fieldAccess, entity)
+    : normalizeAutomationOutcomeFieldAccess(outcome.fieldAccess);
   const returnReason =
-    stageChanges && (reasonAccess.reasonFieldId || reasonAccess.relatedReasonId)
+    outcome.isReturn &&
+    stageChanges &&
+    (reasonAccess.reasonFieldId || reasonAccess.relatedReasonId)
       ? await resolveReturnReasonSnapshot({
           triggerEntity: entity,
           entities,
@@ -790,6 +810,29 @@ export async function completeAutomationTask(
       recordId: task.recordId,
       values: valuesForForm,
       destinationStageId,
+    });
+  }
+
+  // Return without filled data: wipe destination ask fields before stage spawn.
+  if (
+    outcome.isReturn &&
+    stageChanges &&
+    destinationStageId &&
+    outcome.keepFilledData === false &&
+    entity
+  ) {
+    const preserveFieldIds = [
+      reasonAccess.reasonFieldId,
+      ...(reasonAccess.reasonFieldId ? [] : reasonAccess.requiredFieldIds),
+    ].filter((id): id is string => Boolean(id?.trim()));
+    await clearDestinationStageAskFields({
+      entity,
+      recordId: task.recordId,
+      scenarioId: task.scenarioId,
+      destinationStageId,
+      entities,
+      preserveFieldIds,
+      hostValues: valuesForForm,
     });
   }
 

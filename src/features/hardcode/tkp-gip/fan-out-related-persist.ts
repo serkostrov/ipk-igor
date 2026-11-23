@@ -509,7 +509,11 @@ function scoreDeptCalculationDuplicate(
     if (!raw) continue;
     if (name.includes("срок")) score += 5;
     if (name.includes("описан")) score += 5;
-    if (name.includes("час") || name.includes("итог") || name.includes("сумм")) {
+    if (
+      name.includes("час") ||
+      name.includes("итог") ||
+      name.includes("сумм")
+    ) {
       const n = Number(raw.replace(",", "."));
       if (Number.isFinite(n) && n !== 0) score += 20;
     }
@@ -579,9 +583,7 @@ export async function dedupeDeptCalculationSiblingPairs(options: {
 
   // Legacy multi-pair trees: drop when every pair already has a sole row.
   for (const record of multiPair) {
-    const pairs = collectTkpStageDepartmentPairs(
-      record.values[groupsField.id],
-    );
+    const pairs = collectTkpStageDepartmentPairs(record.values[groupsField.id]);
     const covered =
       pairs.length > 0 &&
       pairs.every((pair) => {
