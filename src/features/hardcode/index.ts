@@ -180,6 +180,16 @@ export {
   type ProjectGanttVisibility,
 } from "./project-gantt";
 export {
+  DealCardHardcodeSlot,
+  DealFinanceSummary,
+  getDealCardSection,
+  isDealsEntity,
+  resolveDealCardVisibility,
+  withDealCardHardcodeTabs,
+  type DealCardSection,
+  type DealCardVisibility,
+} from "./deal-card";
+export {
   findTkpApprovalListField,
   readTkpApprovalState,
   resolveTkpApprovalChainReady,
