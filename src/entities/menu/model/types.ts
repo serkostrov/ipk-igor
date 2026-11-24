@@ -199,6 +199,9 @@ export const OPIU_ITEM_ID = "opiu";
 /** Hardcoded page «Дашборды» (финансовый отдел). */
 export const FINANCE_DASHBOARDS_ITEM_ID = "finance-dashboards";
 
+/** Hardcoded page «Табель времени». */
+export const PROJECT_TIMESHEET_ITEM_ID = "project-timesheet";
+
 /** Default icon for a menu item (пункт). */
 export const DEFAULT_MENU_ITEM_ICON: MenuIconName = "circle-help";
 
@@ -350,6 +353,7 @@ export function isSystemMenuItem(id: string) {
     id === FEED_ITEM_ID ||
     id === OPIU_ITEM_ID ||
     id === FINANCE_DASHBOARDS_ITEM_ID ||
+    id === PROJECT_TIMESHEET_ITEM_ID ||
     id === SYSTEM_USERS_MENU_ITEM_ID
   );
 }

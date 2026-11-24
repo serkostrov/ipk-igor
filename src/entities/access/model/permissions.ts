@@ -5,6 +5,7 @@ import {
   HISTORY_ITEM_ID,
   OPIU_ITEM_ID,
   FINANCE_DASHBOARDS_ITEM_ID,
+  PROJECT_TIMESHEET_ITEM_ID,
   NOTIFICATIONS_ITEM_ID,
   SETTINGS_ITEM_ID,
 } from "@/entities/menu";
@@ -568,6 +569,10 @@ export function canMenuItem(
   if (menuItemId === FINANCE_DASHBOARDS_ITEM_ID) {
     const allowed = role.permissions.menuItemIds;
     return allowed === "*" || allowed.includes(FINANCE_DASHBOARDS_ITEM_ID);
+  }
+  if (menuItemId === PROJECT_TIMESHEET_ITEM_ID) {
+    const allowed = role.permissions.menuItemIds;
+    return allowed === "*" || allowed.includes(PROJECT_TIMESHEET_ITEM_ID);
   }
 
   const allowed = role.permissions.menuItemIds;

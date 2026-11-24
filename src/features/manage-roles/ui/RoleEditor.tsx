@@ -68,6 +68,7 @@ const SETTINGS_TAB_LABELS: Record<SettingsTabId, string> = {
   automations: "Автоматизации",
   notifications: "Уведомления",
   roles: "Роли",
+  timesheet: "Табель",
 };
 
 /** Automations are configured in the Entities table, not here. */
