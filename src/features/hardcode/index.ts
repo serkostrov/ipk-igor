@@ -188,6 +188,7 @@ export {
 export {
   DealCardHardcodeSlot,
   DealFinanceSummary,
+  DealLinkedTabExtras,
   getDealCardSection,
   isDealsEntity,
   resolveDealCardVisibility,
