@@ -3904,6 +3904,10 @@ export function EntityFieldsEditor({
         relationSpawnPerUser: isTabLink
           ? dialog.field.relationSpawnPerUser
           : data.relationSpawnPerUser,
+        relationCascadeDelete:
+          dialog.field.type === "relation" || dialog.field.type === "belonging"
+            ? data.relationCascadeDelete
+            : false,
         listSourceFieldId: isTabLink ? null : data.listSourceFieldId,
         listFixed: isTabLink
           ? dialog.field.listFixed
@@ -3946,6 +3950,7 @@ export function EntityFieldsEditor({
       relationEntityId: data.relationEntityId,
       relationMultiple: data.relationMultiple,
       relationSpawnPerUser: data.relationSpawnPerUser,
+      relationCascadeDelete: data.relationCascadeDelete,
       listSourceFieldId: data.listSourceFieldId,
       listFixed: data.type === "list" ? data.listMultiple : false,
       listMultiple: data.type === "list" ? data.listMultiple : false,

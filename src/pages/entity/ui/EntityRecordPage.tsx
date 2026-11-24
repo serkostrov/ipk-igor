@@ -60,6 +60,7 @@ import {
   isEntityHistoryTab,
   isEntityTimeSessionsTab,
   isEntityMirrorTab,
+  isRoleConfigurableTab,
   getEntityRecordTitle,
   isEntityNameField,
   isEntityRecordsTab,
@@ -1380,7 +1381,7 @@ function EntityRecordContent({
         ? withDeal.filter((tab) => isProjectGanttHardcodeTab(tab))
         : withDeal;
     return scoped.filter((tab) => {
-      if (!isEntityFilesTab(tab)) return true;
+      if (!isRoleConfigurableTab(tab)) return true;
       return canTab(role, entity.id, tab.id, "view");
     });
   }, [

@@ -1,6 +1,8 @@
 /**
  * Automation condition DSL — parity target with ipk-new automation_conditions.
  * TS evaluator and SQL `automation_conditions_match` must stay in sync.
+ * Lookup fields are resolved via `enrichAutomationValuesForLookups` /
+ * SQL `automation_enrich_lookup_values` before matching.
  */
 
 export const AUTOMATION_CONDITIONS_VERSION = 1 as const;

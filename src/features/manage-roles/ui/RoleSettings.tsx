@@ -12,6 +12,8 @@ import {
   useRoles,
   type Role,
 } from "@/entities/access";
+import { useEntityConfig } from "@/entities/entity";
+import { backfillRoleAccessMatrices } from "../lib/backfill-role-access";
 import { RoleEditor } from "./RoleEditor";
 
 type ViewState =
@@ -20,6 +22,7 @@ type ViewState =
 export function RoleSettings({ leading }: { leading?: ReactNode }) {
   const roles = useRoles();
   const status = useAccessStatus();
+  const { entities } = useEntityConfig();
   const [view, setView] = useState<ViewState>({ mode: "list" });
   const [pendingDelete, setPendingDelete] = useState<Role | null>(null);
 
@@ -37,7 +40,7 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
 
   const handleSave = () => {
     if (view.mode !== "edit") return;
-    upsertRole(normalizeRole(view.draft));
+    upsertRole(normalizeRole(backfillRoleAccessMatrices(view.draft, entities)));
     setView({ mode: "list" });
   };
 

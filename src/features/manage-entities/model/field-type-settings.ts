@@ -105,12 +105,22 @@ export function isEntityNumericSettingsType(
   return isEntityNumericFieldType(type);
 }
 
+const COMPUTED_DEFAULT_TYPES = new Set<EntityFieldType>([
+  "lookup",
+  "formula",
+  "rollup",
+  "numberSum",
+  "timeHours",
+]);
+
 /** Lists need saved options; relations need a target entity. */
 export function canHaveDefaultValue(
   type: EntityFieldType,
   {
     hasListOptions,
     hasRelationTarget,
+    allowManualInput = false,
+    valueType,
   }: {
     /** @deprecated kept for call-site compat; ignored. */
     relationToUsers?: boolean;
@@ -118,8 +128,26 @@ export function canHaveDefaultValue(
     hasRelationTarget?: boolean;
     /** @deprecated defaults live in RelationGroupsSettings levels. */
     hasRelationGroupsConfig?: boolean;
+    /** Computed fields: only with «Возможен ручной ввод». */
+    allowManualInput?: boolean;
+    /**
+     * Effective control type for computed defaults (lookup target / formula
+     * date → datetime). Defaults to `type`.
+     */
+    valueType?: EntityFieldType;
   },
 ) {
+  if (type === "file" || type === "dependencies") return false;
+  if (COMPUTED_DEFAULT_TYPES.has(type)) {
+    if (!allowManualInput) return false;
+    const effective = valueType ?? type;
+    if (effective === "relation" || effective === "belonging") {
+      return Boolean(hasRelationTarget);
+    }
+    if (effective === "list") return hasListOptions;
+    // number / text / datetime stand-ins always OK once manual is on
+    return true;
+  }
   if (!DEFAULT_VALUE_TYPES.has(type)) return false;
   if (type === "relation" || type === "belonging") {
     return Boolean(hasRelationTarget);

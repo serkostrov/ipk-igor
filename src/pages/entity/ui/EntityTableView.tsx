@@ -97,7 +97,7 @@ import {
   type EntityRecordSortDirection,
   type EntityTablePageSize,
 } from "@/entities/entity";
-import { useCanEntity, useCurrentRole } from "@/entities/access";
+import { canField, useCanEntity, useCurrentRole } from "@/entities/access";
 import { getSessionUser } from "@/entities/session";
 import {
   isDeptCalculationsEntity,
@@ -544,15 +544,16 @@ function EntityTableViewInner({
     isEntityTableRelationGroupsNestedSubgroup(parentField, subgroupField)
       ? 1
       : 0;
+  const role = useCurrentRole();
   const tableFields = useMemo(() => {
     const fields = getEntityTableFields(entity.fields, {
       preferArrayOrder: isEntityInternal(entity),
-    });
+    }).filter((field) => canField(role, entity.id, field.id, "view"));
     if (!parentField) return fields;
     return fields.filter(
       (field) => field.id !== parentField.id && field.id !== subgroupField?.id,
     );
-  }, [entity, parentField, subgroupField]);
+  }, [entity, parentField, role, subgroupField]);
   const tableColumns = useMemo(
     () => buildEntityTableDisplayColumns(tableFields),
     [tableFields],

@@ -36,6 +36,7 @@ import {
   isEntityHistoryTab,
   isEntityTimeSessionsTab,
   isEntityMirrorTab,
+  isRoleConfigurableTab,
   isEntityNameField,
   isEntityRecordsTab,
   isEntityTabWithLinkedEntity,
@@ -1090,7 +1091,7 @@ export function TaskViewTabsPreview({
       .map((id) => entity.tabs.find((tab) => tab.id === id))
       .filter((tab): tab is EntityTab => tab != null)
       .filter((tab) => {
-        if (!isEntityFilesTab(tab)) return true;
+        if (!isRoleConfigurableTab(tab)) return true;
         return canTab(role, entity.id, tab.id, "view");
       });
     return withProjectGanttHardcodeTab(

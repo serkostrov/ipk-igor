@@ -689,6 +689,7 @@ function createParentLinkField(params: {
     relationEntityId: params.parentEntityId,
     relationMultiple: false,
     relationSpawnPerUser: false,
+    relationCascadeDelete: false,
     unitSuffix: null,
     decimals: 2,
     sumFieldIds: [],

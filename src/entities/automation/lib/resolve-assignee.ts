@@ -348,14 +348,18 @@ export async function resolveAssigneeUserIds(
   resolver: AutomationAssigneeResolver,
   ctx: ResolveAssigneeContext,
 ): Promise<string[]> {
+  const conditionCtx: ResolveAssigneeContext = {
+    ...ctx,
+    entityId: ctx.entityId ?? ctx.triggerEntityId,
+  };
   if (resolver.type !== "conditional") {
-    return resolveLeaf(resolver, ctx);
+    return resolveLeaf(resolver, conditionCtx);
   }
 
   for (const branch of resolver.branches) {
-    if (matchAutomationConditions(branch.conditions, ctx)) {
-      return resolveLeaf(branch.resolver, ctx);
+    if (matchAutomationConditions(branch.conditions, conditionCtx)) {
+      return resolveLeaf(branch.resolver, conditionCtx);
     }
   }
-  return resolveLeaf(resolver.elseResolver, ctx);
+  return resolveLeaf(resolver.elseResolver, conditionCtx);
 }

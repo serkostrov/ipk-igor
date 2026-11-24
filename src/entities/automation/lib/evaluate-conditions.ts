@@ -4,13 +4,92 @@ import type {
   AutomationConditions,
 } from "../model/conditions";
 import { folderHasFiles, folderIsEmpty } from "./folder-files-condition";
+import {
+  collectRelationGroupsLeafIds,
+  createEntityDraftRecord,
+  getEntityValueContext,
+  getRecordFieldIds,
+  parseEntityRelationGroups,
+  serializeEntityRelationIds,
+  type Entity,
+} from "@/entities/entity";
 
 export type AutomationConditionEvalContext = {
   /** Current field values of the record under test. */
   values: Record<string, string | undefined>;
   /** Previous values (for fieldChanged / fieldTransition). */
   previousValues?: Record<string, string | undefined>;
+  /** When set with `entities`, lookup fields are resolved like in the UI. */
+  entityId?: string | null;
+  entities?: Entity[];
 };
+
+/**
+ * Lookup fields (e.g. «Отдел менеджера») are not stored under their own key —
+ * materialize resolved ids so equals/in conditions match the UI.
+ * `relationGroups` trees are flattened to leaf record ids (Отделы) for the
+ * same reason — comparison uses ids, not the nested JSON.
+ */
+export function enrichAutomationValuesForLookups(
+  values: Record<string, string | undefined>,
+  entity: Entity,
+  entities: Entity[],
+): Record<string, string | undefined> {
+  const lookups = entity.fields.filter((field) => field.type === "lookup");
+  const groupFields = entity.fields.filter(
+    (field) => field.type === "relationGroups",
+  );
+  if (lookups.length === 0 && groupFields.length === 0) return values;
+
+  const ctx = getEntityValueContext(entities);
+  const recordValues: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (value != null) recordValues[key] = value;
+  }
+  const record = createEntityDraftRecord(recordValues);
+  let next: Record<string, string | undefined> | null = null;
+
+  for (const field of lookups) {
+    const ids = getRecordFieldIds(ctx, entity, record, field);
+    if (ids.length === 0) continue;
+    const encoded =
+      ids.length === 1 ? ids[0]! : serializeEntityRelationIds(ids);
+    if ((values[field.id] ?? "") === encoded) continue;
+    if (!next) next = { ...values };
+    next[field.id] = encoded;
+  }
+
+  for (const field of groupFields) {
+    const raw = values[field.id] ?? "";
+    const ids = collectRelationGroupsLeafIds(parseEntityRelationGroups(raw));
+    if (ids.length === 0) continue;
+    const encoded =
+      ids.length === 1 ? ids[0]! : serializeEntityRelationIds(ids);
+    if (raw === encoded) continue;
+    if (!next) next = { ...values };
+    next[field.id] = encoded;
+  }
+
+  return next ?? values;
+}
+
+function withLookupValues(
+  ctx: AutomationConditionEvalContext,
+): AutomationConditionEvalContext {
+  const entityId = ctx.entityId?.trim();
+  const entities = ctx.entities;
+  if (!entityId || !entities?.length) return ctx;
+  const entity = entities.find((item) => item.id === entityId);
+  if (!entity) return ctx;
+  const values = enrichAutomationValuesForLookups(ctx.values, entity, entities);
+  const previousValues = ctx.previousValues
+    ? enrichAutomationValuesForLookups(ctx.previousValues, entity, entities)
+    : ctx.previousValues;
+  if (values === ctx.values && previousValues === ctx.previousValues) {
+    return ctx;
+  }
+  return { ...ctx, values, previousValues };
+}
 
 function parseIds(raw: string | undefined): string[] {
   if (!raw || !raw.trim()) return [];
@@ -148,7 +227,8 @@ export function matchAutomationConditions(
   ctx: AutomationConditionEvalContext,
 ): boolean {
   if (!conditions || conditions.rules.length === 0) return true;
+  const resolved = withLookupValues(ctx);
   return conditions.match === "any"
-    ? conditions.rules.some((node) => matchNode(node, ctx))
-    : conditions.rules.every((node) => matchNode(node, ctx));
+    ? conditions.rules.some((node) => matchNode(node, resolved))
+    : conditions.rules.every((node) => matchNode(node, resolved));
 }

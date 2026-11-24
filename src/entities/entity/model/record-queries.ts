@@ -13,7 +13,16 @@ export async function getEntityRecordById(
   recordId: string | null | undefined,
 ): Promise<EntityRecord | undefined> {
   if (recordId == null || !entity) return undefined;
-  return entity.records.find((record) => record.id === recordId);
+  const local = entity.records.find((record) => record.id === recordId);
+  if (local) return local;
+  // Page-scoped loading may not have the parent/related row yet — fetch by id
+  // and re-read from the live store (dynamic import avoids a store cycle).
+  const { ensureRecordsByIds, getEntityConfig } =
+    await import("../store/entity-store");
+  await ensureRecordsByIds([recordId]);
+  return getEntityConfig()
+    .entities.find((item) => item.id === entity.id)
+    ?.records.find((record) => record.id === recordId);
 }
 
 export async function getFirstEntityRecord(

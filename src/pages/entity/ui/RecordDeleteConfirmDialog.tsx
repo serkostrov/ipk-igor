@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   countAutomationTasksForRecords,
   deleteAutomationTasksForRecords,
 } from "@/entities/automation";
+import { countCascadeDependents, getEntityConfig } from "@/entities/entity";
 import {
   countNotificationsForRecords,
   deleteNotificationsForRecords,
@@ -79,7 +80,26 @@ export function RecordDeleteConfirmDialog({
   const isBulk = recordIds.length > 1;
   const scopeLabel = isBulk ? "По выбранным записям" : "По записи";
 
+  const cascadeDependentCount = useMemo(() => {
+    if (!open || recordIds.length === 0) return 0;
+    const entities = getEntityConfig().entities;
+    return recordIds.reduce(
+      (sum, id) => sum + countCascadeDependents(entities, id),
+      0,
+    );
+  }, [open, recordIds]);
+
   const relatedParts: string[] = [];
+  if (cascadeDependentCount > 0) {
+    relatedParts.push(
+      `${cascadeDependentCount} ${pluralRu(
+        cascadeDependentCount,
+        "связанная запись",
+        "связанные записи",
+        "связанных записей",
+      )} (каскадное удаление)`,
+    );
+  }
   if (taskCount > 0) {
     relatedParts.push(
       `${taskCount} ${pluralRu(taskCount, "задача", "задачи", "задач")} автоматизации`,

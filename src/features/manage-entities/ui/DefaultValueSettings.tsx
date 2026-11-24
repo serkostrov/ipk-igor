@@ -21,6 +21,10 @@ import {
 } from "@/shared/ui/setting-controls";
 
 type DefaultValueSettingsProps = {
+  /**
+   * Field type, or the effective value type for computed fields
+   * (lookup target / formula date → datetime).
+   */
   type: EntityFieldType;
   datetimeWithTime: boolean;
   listOptions: EntityListOption[];
@@ -34,12 +38,16 @@ type DefaultValueSettingsProps = {
   relationMultiple?: boolean;
   /** Target is Users — offer «Текущий пользователь». */
   relationToUsers?: boolean;
+  /** Override blurb (e.g. manual computed defaults). */
+  description?: string;
   value: EntityFieldDefaultValue | null;
   onChange: (value: EntityFieldDefaultValue | null) => void;
 };
 
 const TITLE = "По умолчанию";
 const DESCRIPTION = "Подставляется в новую запись — можно изменить";
+const MANUAL_COMPUTED_DESCRIPTION =
+  "Если автозначение пусто при создании — подставится (можно изменить)";
 
 /** Match display-field pickers in RelationGroupsSettings. */
 const SETTINGS_SELECT_CLASS =
@@ -53,6 +61,8 @@ function toConstant(value: string): EntityFieldDefaultValue | null {
   return value.trim().length > 0 ? { kind: "value", value } : null;
 }
 
+export { MANUAL_COMPUTED_DESCRIPTION };
+
 /** Default for new records, by field type. */
 export function DefaultValueSettings({
   type,
@@ -65,6 +75,7 @@ export function DefaultValueSettings({
   relationOptions = [],
   relationMultiple = false,
   relationToUsers = false,
+  description = DESCRIPTION,
   value,
   onChange,
 }: DefaultValueSettingsProps) {
@@ -73,7 +84,7 @@ export function DefaultValueSettings({
       <SettingSelect
         id="entity-field-default"
         title={TITLE}
-        description={DESCRIPTION}
+        description={description}
         value={
           value?.kind === "today" || value?.kind === "now" ? value.kind : null
         }
@@ -94,7 +105,7 @@ export function DefaultValueSettings({
       <SettingSelect
         id="entity-field-default"
         title={TITLE}
-        description={DESCRIPTION}
+        description={description}
         value={value?.kind === "now" ? "now" : null}
         options={[{ value: "now", label: "Сейчас" }]}
         emptyLabel="Не заполнять"
@@ -109,7 +120,7 @@ export function DefaultValueSettings({
         <SettingLabel
           htmlFor="entity-field-default"
           title={TITLE}
-          description={DESCRIPTION}
+          description={description}
         />
         <DateRangePicker
           id="entity-field-default"
@@ -128,16 +139,16 @@ export function DefaultValueSettings({
     const raw = isCurrentUser ? "" : constantOf(value);
     const multiple = type === "belonging" ? false : relationMultiple;
     const selectedCount = parseEntityRelationIds(raw).length;
-    const description = multiple
+    const relationDescription = multiple
       ? "Предзаполняются в новой записи"
-      : DESCRIPTION;
+      : description;
 
     return (
       <div className="flex flex-col gap-1.5">
         <SettingLabel
           htmlFor="entity-field-default"
           title={TITLE}
-          description={description}
+          description={relationDescription}
         />
         {type === "relation" && relationToUsers ? (
           <SettingSwitch
@@ -176,7 +187,7 @@ export function DefaultValueSettings({
       <SettingSwitch
         id="entity-field-default"
         title="Включено по умолчанию"
-        description="Значение «Да» в новой записи"
+        description={description}
         checked={constantOf(value) === "true"}
         onCheckedChange={(checked) =>
           onChange(toConstant(checked ? "true" : ""))
@@ -194,7 +205,7 @@ export function DefaultValueSettings({
           htmlFor="entity-field-default"
           title={TITLE}
           description={
-            listMultiple ? "Предзаполняются в новой записи" : DESCRIPTION
+            listMultiple ? "Предзаполняются в новой записи" : description
           }
         />
         <ListSelect
@@ -224,7 +235,7 @@ export function DefaultValueSettings({
       <SettingLabel
         htmlFor="entity-field-default"
         title={TITLE}
-        description={DESCRIPTION}
+        description={description}
       />
       <Input
         id="entity-field-default"

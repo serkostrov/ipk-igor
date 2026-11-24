@@ -385,6 +385,12 @@ export type EntityField = {
    */
   relationSpawnPerUser: boolean;
   /**
+   * Relation / belonging: when the linked (parent) record is deleted, also
+   * delete records of this entity that reference it via this field.
+   * Example: Tasks→Project with this on → deleting a project removes its tasks.
+   */
+  relationCascadeDelete: boolean;
+  /**
    * Optional unit suffix for `number` fields (e.g. «м/с», «м/с»).
    * Shown after the formatted number in display and input.
    */
@@ -496,6 +502,7 @@ export function createEntityNameField(id: string): EntityField {
     relationEntityId: null,
     relationMultiple: false,
     relationSpawnPerUser: false,
+    relationCascadeDelete: false,
     unitSuffix: null,
     decimals: 2,
     sumFieldIds: [],
@@ -983,6 +990,28 @@ export function isEntityContentTab(tab: Pick<EntityTab, "kind">) {
     isEntityHistoryTab(tab) ||
     isEntityTimeSessionsTab(tab)
   );
+}
+
+/**
+ * Tabs that roles can allow/deny in the ACL matrix.
+ * `fields` (main form) is always available when the entity itself is readable.
+ */
+export function isRoleConfigurableTab(tab: Pick<EntityTab, "kind">) {
+  return (
+    isEntityFilesTab(tab) ||
+    isEntityRecordsTab(tab) ||
+    isEntityHistoryTab(tab) ||
+    isEntityTimeSessionsTab(tab) ||
+    tab.kind === "entity" ||
+    isEntityMirrorTab(tab)
+  );
+}
+
+/** Role-configurable tabs of an entity (stable order as in schema). */
+export function getRoleConfigurableTabs<T extends Pick<EntityTab, "kind">>(
+  tabs: readonly T[],
+): T[] {
+  return tabs.filter(isRoleConfigurableTab);
 }
 
 function parseEntityTabRecordAttachment(

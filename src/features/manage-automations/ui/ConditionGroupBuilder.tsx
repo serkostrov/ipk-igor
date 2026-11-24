@@ -27,6 +27,7 @@ import {
   getEntityFieldValueKind,
   getEntityRelationTargetId,
   getEntityTabFilesValueKey,
+  getRelationGroupsLeafEntityId,
   getRelationRecordOptions,
   isEntityFilesTab,
   isEntityRelationLikeFieldType,
@@ -68,12 +69,7 @@ function isRule(
 function buildSources(entity: Entity | null): ConditionSource[] {
   if (!entity) return [];
   const fields = entity.fields
-    .filter(
-      (field) =>
-        field.type !== "dependencies" &&
-        field.type !== "relationGroups" &&
-        field.type !== "period",
-    )
+    .filter((field) => field.type !== "dependencies" && field.type !== "period")
     .map((field): ConditionSource => ({ kind: "field", field }));
   const filesTabs = entity.tabs
     .filter((tab) => isEntityFilesTab(tab))
@@ -89,9 +85,30 @@ function sourceId(source: ConditionSource) {
   return source.kind === "field" ? source.field.id : source.valueKey;
 }
 
-function sourceLabel(source: ConditionSource) {
+function relationGroupsLeafEntity(
+  field: EntityField,
+  entities: Entity[],
+): Entity | null {
+  if (field.type !== "relationGroups") return null;
+  const resolve = (entityId: string, fieldId: string) => {
+    const host = entities.find((item) => item.id === entityId);
+    const link = host?.fields.find((item) => item.id === fieldId);
+    return link ? getEntityRelationTargetId(link) : null;
+  };
+  const leafId = getRelationGroupsLeafEntityId(field.relationGroups, resolve);
+  if (!leafId) return null;
+  return entities.find((item) => item.id === leafId) ?? null;
+}
+
+function sourceLabel(source: ConditionSource, entities: Entity[] = []) {
   if (source.kind === "field") {
-    return getEntityFieldDisplayName(source.field);
+    const name = getEntityFieldDisplayName(source.field);
+    if (source.field.type === "relationGroups") {
+      const leaf = relationGroupsLeafEntity(source.field, entities);
+      const leafName = leaf?.name.trim() || leaf?.namePlural.trim();
+      if (leafName) return `${name} · ${leafName}`;
+    }
+    return name;
   }
   return `Файлы · ${source.tab.name}`;
 }
@@ -159,7 +176,12 @@ function operatorsForSource(
     if (kind === "number") {
       return NUMBER_OPERATORS;
     }
-  } else if (type === "relation" || type === "belonging" || type === "list") {
+  } else if (
+    type === "relation" ||
+    type === "belonging" ||
+    type === "relationGroups" ||
+    type === "list"
+  ) {
     return RELATION_LIST_OPERATORS;
   } else if (type === "boolean") {
     return BOOLEAN_OPERATORS;
@@ -506,9 +528,34 @@ function ConditionValueControl({
         ? (resolveEntityFieldSource(entity, source.field, entities)?.field ??
           null)
         : isEntityRelationLikeFieldType(source.field.type) ||
-            source.field.type === "list"
+            source.field.type === "list" ||
+            source.field.type === "relationGroups"
           ? source.field
           : null;
+
+    // Nested sets («Стадия/отделы») → pick leaf records (Отделы).
+    if (resolvedField?.type === "relationGroups") {
+      const target = relationGroupsLeafEntity(resolvedField, entities);
+      const valueIds = single ? selectedIds.slice(0, 1) : selectedIds;
+      return (
+        <RelationSelect
+          multiple={!single}
+          options={getRelationRecordOptions(target)}
+          value={serializeEntityRelationIds(valueIds)}
+          placeholder={
+            single
+              ? `Выберите ${target?.name.trim() || "запись"}`
+              : `Выберите ${target?.namePlural.trim() || "записи"}`
+          }
+          aria-label="Значение условия"
+          className="h-8"
+          onChange={(next) => {
+            const ids = parseEntityRelationIds(next);
+            onChange(withSelectedIds(rule, single ? ids.slice(0, 1) : ids));
+          }}
+        />
+      );
+    }
 
     if (resolvedField && isEntityRelationLikeFieldType(resolvedField.type)) {
       const targetId = getEntityRelationTargetId(resolvedField);
@@ -656,7 +703,9 @@ function RuleRow({
                       aria-hidden
                     />
                   ) : null}
-                  <span className="truncate">{sourceLabel(source)}</span>
+                  <span className="truncate">
+                    {sourceLabel(source, entities)}
+                  </span>
                 </span>
               ) : (
                 "Поле"
@@ -670,7 +719,7 @@ function RuleRow({
                   {item.kind === "filesTab" ? (
                     <Folder className="size-3.5 text-muted-foreground" />
                   ) : null}
-                  {sourceLabel(item)}
+                  {sourceLabel(item, entities)}
                 </span>
               </SelectItem>
             ))}

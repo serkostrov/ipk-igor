@@ -975,6 +975,9 @@ export function getEntityFieldValueKind(
     case "relation":
     case "belonging":
       return "relation";
+    case "relationGroups":
+      // Conditions / filters treat nested sets as relation ids (leaf level).
+      return "relation";
     case "boolean":
       return "boolean";
     case "number":
@@ -1199,6 +1202,11 @@ export function getRecordFieldIds(
   }
   if (field.type === "relation" || field.type === "belonging") {
     return parseEntityRelationIds(record.values[field.id]);
+  }
+  if (field.type === "relationGroups") {
+    return collectRelationGroupsLeafIds(
+      parseEntityRelationGroups(record.values[field.id]),
+    );
   }
   if (field.type === "lookup") {
     const fromCells = [
@@ -3058,22 +3066,48 @@ export function sanitizeEntityRelationDependencies(
 export function resolveEntityFieldDefaultValue(
   field: Pick<
     EntityField,
-    "type" | "defaultValue" | "relationEntityId" | "relationGroups"
+    | "type"
+    | "defaultValue"
+    | "relationEntityId"
+    | "relationGroups"
+    | "allowManualInput"
+    | "formula"
   >,
   currentUserRecordId: string | null,
 ): string | null {
   const config = field.defaultValue;
   if (!config) return null;
+  if (
+    isEntityComputedFieldType(field.type) &&
+    field.allowManualInput !== true
+  ) {
+    return null;
+  }
+  const formulaIsDate =
+    field.type === "formula" && getEntityFormulaResultType(field) === "date";
   switch (config.kind) {
     case "today":
-      return field.type === "datetime" ? todayIsoDate() : null;
+      if (
+        field.type === "datetime" ||
+        formulaIsDate ||
+        field.type === "lookup"
+      ) {
+        return todayIsoDate();
+      }
+      return null;
     case "now":
       if (field.type === "time") return nowTimeHHmm();
-      return field.type === "datetime"
-        ? `${todayIsoDate()}T${nowTimeHHmm()}`
-        : null;
+      if (
+        field.type === "datetime" ||
+        formulaIsDate ||
+        field.type === "lookup"
+      ) {
+        return `${todayIsoDate()}T${nowTimeHHmm()}`;
+      }
+      return null;
     case "currentUser":
-      return field.type === "relation" && currentUserRecordId
+      return (field.type === "relation" || field.type === "lookup") &&
+        currentUserRecordId
         ? serializeEntityRelationIds([currentUserRecordId])
         : null;
     case "value":
@@ -3116,6 +3150,12 @@ export function applyEntityFieldDefaults(
   let next = values;
   for (const field of entity.fields) {
     if (!field.defaultValue || values[field.id] !== undefined) continue;
+    if (
+      isEntityComputedFieldType(field.type) &&
+      field.allowManualInput !== true
+    ) {
+      continue;
+    }
     const value = resolveEntityFieldDefaultValue(field, currentUserRecordId);
     if (value == null) continue;
     if (next === values) next = { ...values };

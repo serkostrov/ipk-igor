@@ -20,6 +20,7 @@ import {
   recordMatchesDepartmentScope,
   recordMatchesLegalEntityScope,
   recordMatchesOwnScope,
+  recordMatchesParentVisibility,
   type Entity,
   type EntityCondition,
   type EntityRecord,
@@ -125,19 +126,22 @@ export async function canViewRecordForLegalEntities(
   );
 }
 
-/** Whether a record is visible under entity data scope (all / own / department / filter). */
-export async function canViewRecordForDataScope(
-  role: Role | null | undefined,
+type RecordDataScopeOptions = {
+  entities: readonly Entity[];
+  authUserId: string | null;
+  currentUserRecordId: string | null;
+  valueContext?: EntityValueContext;
+  /** Shared cycle guard for parent→child view inheritance. */
+  parentVisit?: Set<string>;
+};
+
+/** Direct entity scope only (no parent inheritance). */
+async function matchesEntityDataScopeDirect(
+  role: Role,
   entity: Entity,
   record: EntityRecord,
-  options: {
-    entities: readonly Entity[];
-    authUserId: string | null;
-    currentUserRecordId: string | null;
-    valueContext?: EntityValueContext;
-  },
+  options: RecordDataScopeOptions,
 ): Promise<boolean> {
-  if (!role || isAdminRole(role)) return true;
   const scope = entityScope(role, entity.id);
   if (scope === "all") return true;
 
@@ -182,6 +186,36 @@ export async function canViewRecordForDataScope(
   return true;
 }
 
+/**
+ * Whether a record is visible under entity data scope (all / own / department /
+ * filter), or via a visible parent (project → task → subtask).
+ */
+export async function canViewRecordForDataScope(
+  role: Role | null | undefined,
+  entity: Entity,
+  record: EntityRecord,
+  options: RecordDataScopeOptions,
+): Promise<boolean> {
+  if (!role || isAdminRole(role)) return true;
+  if (await matchesEntityDataScopeDirect(role, entity, record, options)) {
+    return true;
+  }
+
+  const visiting = options.parentVisit ?? new Set<string>();
+  return recordMatchesParentVisibility(
+    entity,
+    record,
+    options.entities,
+    (parentEntity, parentRecord) =>
+      canViewRecordForDataScope(role, parentEntity, parentRecord, {
+        ...options,
+        parentVisit: visiting,
+      }),
+    0,
+    visiting,
+  );
+}
+
 export function canField(
   role: Role | null | undefined,
   entityId: string,
@@ -198,9 +232,13 @@ export function canField(
   if (mode === "view" && !access.read) return false;
   if (access.fields === "*") return true;
   const peers = Object.values(access.fields);
+  const field = access.fields[fieldId];
+  if (field) {
+    return mode === "edit" ? field.edit : field.view;
+  }
   // Create is on but the field matrix grants edit nowhere (stale «сбросить»
-  // or only view flags) — treat like «Все поля» for writable checks so
-  // create dialogs (e.g. этапы в договоре) are not empty.
+  // or only view flags) — treat like «Все поля» for writable checks on
+  // missing ids so create dialogs are not empty. Explicit denials above win.
   if (
     mode === "edit" &&
     access.create &&
@@ -209,16 +247,9 @@ export function canField(
   ) {
     return true;
   }
-  const field = access.fields[fieldId];
-  if (!field) {
-    // Field id absent from an explicit map (entity grew after the role was
-    // saved). Inherit from peers: any allowed field ⇒ unknowns allowed;
-    // full-deny snapshot (every entry false) keeps denying unknowns for view.
-    // Explicit denials must set `{ view: false, edit: false }` for that id.
-    if (peers.length === 0) return true;
-    return peers.some((item) => item.view || item.edit);
-  }
-  return mode === "edit" ? field.edit : field.view;
+  // Explicit matrix: missing id = deny (same as RoleEditor defaults).
+  // New fields are backfilled on save as `{ view: true, edit: true }`.
+  return false;
 }
 
 /**
@@ -240,7 +271,9 @@ export function canTab(
   const tabs = access.tabs;
   if (tabs == null || tabs === "*") return true;
   const tab = tabs[tabId];
-  if (!tab) return false;
+  // Legacy roles only listed files tabs; missing ids stay allowed until
+  // the role matrix is re-saved with the full configurable set.
+  if (!tab) return true;
   return mode === "edit" ? tab.edit : tab.view;
 }
 

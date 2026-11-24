@@ -34,6 +34,7 @@ import {
   resolveEntityFieldSource,
 } from "../model/field-value";
 import { fieldTargetsUsers } from "../model/own-scope";
+import { getRelationGroupsLeafEntityId } from "../model/relation-groups";
 import {
   getSystemUsersEntity,
   SYSTEM_USERS_FIELD_ROLE_ID,
@@ -123,7 +124,6 @@ function getConditionFields(entity: Entity) {
     (field) =>
       field.type !== "file" &&
       field.type !== "dependencies" &&
-      field.type !== "relationGroups" &&
       field.type !== "period",
   );
 }
@@ -291,6 +291,31 @@ function ConditionValueEditor({
           options={getRelationRecordOptions(target)}
           value={serializeEntityRelationIds(condition.values ?? [])}
           placeholder="Выберите записи"
+          aria-label="Записи"
+          className="h-8"
+          onChange={(next) =>
+            onChange({ values: parseEntityRelationIds(next) })
+          }
+        />
+      );
+    }
+    if (source?.field.type === "relationGroups") {
+      const resolve = (entityId: string, fieldId: string) => {
+        const host = entities.find((item) => item.id === entityId);
+        const link = host?.fields.find((item) => item.id === fieldId);
+        return link ? getEntityRelationTargetId(link) : null;
+      };
+      const leafId = getRelationGroupsLeafEntityId(
+        source.field.relationGroups,
+        resolve,
+      );
+      const target = entities.find((item) => item.id === leafId) ?? null;
+      return (
+        <RelationSelect
+          multiple
+          options={getRelationRecordOptions(target)}
+          value={serializeEntityRelationIds(condition.values ?? [])}
+          placeholder={`Выберите ${target?.namePlural.trim() || "записи"}`}
           aria-label="Записи"
           className="h-8"
           onChange={(next) =>

@@ -40,7 +40,8 @@ export const DATA_SCOPE_LABELS: Record<DataScope, string> = {
 export const DATA_SCOPE_DESCRIPTIONS: Record<DataScope, string> = {
   all: "Все записи сущности",
   own: "Записи, где вы создатель или указаны в карточке (исполнитель, наблюдатель и т.п.)",
-  department: "Записи своего отдела: по полю «Отдел», коллегам отдела и своим",
+  department:
+    "Записи своего отдела по привязке к отделу; без отдела на карточке — скрыты",
   filter: "Только записи, у которых поля совпадают с условиями",
 };
 
@@ -209,9 +210,9 @@ export function createFullEntityAccess(entityId: string): EntityAccess {
  * Entity CRUD without a field map used to leave `fields: {}`, which made
  * `canField` deny every field — empty create/edit forms (often on «ГИП»).
  * Empty map + any CRUD means «all fields», same as `"*"`.
- * Field ids missing from a non-empty map (new fields after the role was
- * saved) inherit from peers in `canField` — explicit denials must list
- * each field as `{ view: false, edit: false }`.
+ * Non-empty map: missing field id = deny in `canField`. Backfill new field
+ * ids as `{ view: true, edit: true }` on role edit/save without overwriting
+ * explicit denials.
  * No read ⇒ no create/update/delete (visibility is the master switch).
  */
 export function normalizeEntityAccess(access: EntityAccess): EntityAccess {

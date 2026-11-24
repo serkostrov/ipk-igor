@@ -212,6 +212,7 @@ export {
   type AutomationViewFieldsPlacement,
 } from "./model/types";
 export {
+  enrichAutomationValuesForLookups,
   matchAutomationConditions,
   type AutomationConditionEvalContext,
 } from "./lib/evaluate-conditions";

@@ -36,9 +36,14 @@ import {
 import {
   ConditionBuilder,
   findLegalEntitiesEntity,
+  findParentVisibilityLinks,
   getEntityFieldDisplayName,
+  getEntityTabKindLabel,
   getRelationRecordOptions,
-  isEntityFilesTab,
+  getRoleConfigurableTabs,
+  isEntitySubEntity,
+  isRoleConfigurableTab,
+  isSystemEntity,
   parseEntityRelationIds,
   RelationSelect,
   serializeEntityRelationIds,
@@ -422,8 +427,20 @@ function getEntityAccessList(role: Role, entities: Entity[]): EntityAccess[] {
 
 /** Same grouping as EntityMenuSelect: menu tree + leftovers «Вне меню». */
 type EntityAccessTableRow =
-  | { type: "group"; id: string; title: string; depth: number }
+  | {
+      type: "group";
+      id: string;
+      title: string;
+      depth: number;
+      description?: string;
+    }
   | { type: "entity"; entity: Entity; depth: number };
+
+function leftoverEntitySortRank(entity: Entity): number {
+  if (isSystemEntity(entity)) return 2;
+  if (isEntitySubEntity(entity)) return 1;
+  return 0;
+}
 
 function resolveMenuEntityRows(
   nodes: MenuEntityTreeNode[],
@@ -469,12 +486,24 @@ function buildEntityAccessTableRows(
     seen,
     0,
   );
-  const leftovers = entities.filter((entity) => !seen.has(entity.id));
+  const leftovers = entities
+    .filter((entity) => !seen.has(entity.id))
+    .slice()
+    .sort((left, right) => {
+      const rank = leftoverEntitySortRank(left) - leftoverEntitySortRank(right);
+      if (rank !== 0) return rank;
+      return (left.name.trim() || left.id).localeCompare(
+        right.name.trim() || right.id,
+        "ru",
+      );
+    });
   if (leftovers.length > 0) {
     rows.push({
       type: "group",
       id: "outside-menu",
       title: "Вне меню",
+      description:
+        "Сущности без пункта в боковом меню: вкладки других сущностей, системные и служебные. Права на них всё равно настраиваются.",
       depth: 0,
     });
     for (const entity of leftovers) {
@@ -651,7 +680,13 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
         ]),
       );
     } else {
+      // Backfill ids added after the role was saved — keep explicit denials.
       fields = { ...current.fields };
+      for (const field of entity?.fields ?? []) {
+        if (!fields[field.id]) {
+          fields[field.id] = { view: true, edit: true };
+        }
+      }
     }
     fields[fieldId] = {
       view: fields[fieldId]?.view ?? false,
@@ -670,14 +705,18 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
       entityAccessList.find((item) => item.entityId === entityId) ??
       createEmptyEntityAccess(entityId);
     const entity = entities.find((item) => item.id === entityId);
-    const filesTabs = (entity?.tabs ?? []).filter(isEntityFilesTab);
+    const configurable = getRoleConfigurableTabs(entity?.tabs ?? []);
     let tabs: Record<string, FieldAccess>;
     if (current.tabs == null || current.tabs === "*") {
       tabs = Object.fromEntries(
-        filesTabs.map((tab) => [tab.id, { view: true, edit: true }]),
+        configurable.map((tab) => [tab.id, { view: true, edit: true }]),
       );
     } else {
+      // Backfill legacy maps that only listed files tabs.
       tabs = { ...current.tabs };
+      for (const tab of configurable) {
+        if (!tabs[tab.id]) tabs[tab.id] = { view: true, edit: true };
+      }
     }
     tabs[tabId] = {
       view: tabs[tabId]?.view ?? false,
@@ -704,12 +743,10 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
         ]),
       ),
       tabs: Object.fromEntries(
-        entity.tabs
-          .filter(isEntityFilesTab)
-          .map((tab) => [
-            tab.id,
-            { view: false, edit: false } satisfies FieldAccess,
-          ]),
+        getRoleConfigurableTabs(entity.tabs).map((tab) => [
+          tab.id,
+          { view: false, edit: false } satisfies FieldAccess,
+        ]),
       ),
     });
   };
@@ -1021,11 +1058,15 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                           colSpan={6}
                           className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground"
                         >
-                          <span
-                            className="block truncate"
-                            style={rowIndent(row.depth)}
-                          >
-                            {row.title}
+                          <span className="block" style={rowIndent(row.depth)}>
+                            <span className="block truncate uppercase">
+                              {row.title}
+                            </span>
+                            {row.description ? (
+                              <span className="mt-0.5 block text-[10px] font-normal normal-case tracking-normal leading-snug text-muted-foreground/90">
+                                {row.description}
+                              </span>
+                            ) : null}
                           </span>
                         </td>
                       </tr>
@@ -1035,16 +1076,47 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                   const access = accessByEntityId.get(row.entity.id);
                   if (!access) return null;
                   const filterOpen = access.scope === "filter";
+                  const parent = row.entity.parentEntityId
+                    ? entities.find(
+                        (item) => item.id === row.entity.parentEntityId,
+                      )
+                    : null;
+                  const inheritsParentView =
+                    findParentVisibilityLinks(row.entity, entities).length > 0;
 
                   return (
                     <Fragment key={row.entity.id}>
                       <tr className="border-b border-border">
                         <td className="px-3 py-2 font-medium">
                           <span
-                            className="block truncate"
+                            className="flex flex-col gap-0.5"
                             style={rowIndent(row.depth)}
                           >
-                            {row.entity.name.trim() || "Без названия"}
+                            <span className="truncate">
+                              {row.entity.name.trim() || "Без названия"}
+                            </span>
+                            {isSystemEntity(row.entity) ||
+                            parent ||
+                            inheritsParentView ? (
+                              <span className="flex flex-wrap gap-1 text-[10px] font-normal text-muted-foreground">
+                                {isSystemEntity(row.entity) ? (
+                                  <span className="rounded border border-border/80 px-1 py-px">
+                                    Системная
+                                  </span>
+                                ) : null}
+                                {parent ? (
+                                  <span className="rounded border border-border/80 px-1 py-px">
+                                    Вкладка: {parent.name.trim() || "родитель"}
+                                  </span>
+                                ) : null}
+                                {inheritsParentView ? (
+                                  <span className="rounded border border-border/80 px-1 py-px">
+                                    Видимость наследует родителя, если запись
+                                    связана
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : null}
                           </span>
                         </td>
                         {(["read", "create", "update", "delete"] as const).map(
@@ -1467,7 +1539,14 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                           className="border-b border-border last:border-0"
                         >
                           <td className="px-3 py-2 font-medium">
-                            {getEntityFieldDisplayName(field)}
+                            <span className="inline-flex flex-wrap items-center gap-1.5">
+                              {getEntityFieldDisplayName(field)}
+                              {field.id.startsWith("field-system-") ? (
+                                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                  Системное
+                                </span>
+                              ) : null}
+                            </span>
                           </td>
                           <td className="px-3 py-2">
                             <Switch
@@ -1495,9 +1574,10 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                       );
                     })}
                     {(() => {
-                      const filesTabs =
-                        fieldsEntity.tabs.filter(isEntityFilesTab);
-                      if (filesTabs.length === 0) return null;
+                      const configurableTabs = getRoleConfigurableTabs(
+                        fieldsEntity.tabs,
+                      );
+                      if (configurableTabs.length === 0) return null;
                       const allTabs =
                         fieldsAccess.tabs == null || fieldsAccess.tabs === "*";
                       const tabMap =
@@ -1511,27 +1591,32 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                               colSpan={3}
                               className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
                             >
-                              Вкладки с файлами
+                              Вкладки
                             </td>
                           </tr>
-                          {filesTabs.map((tab) => {
+                          {configurableTabs.map((tab) => {
                             const access = allTabs
                               ? { view: true, edit: true }
                               : (tabMap?.[tab.id] ?? {
-                                  view: false,
-                                  edit: false,
+                                  // Legacy maps omitted non-files tabs → allowed.
+                                  view: true,
+                                  edit: true,
                                 });
+                            const kindLabel = getEntityTabKindLabel(tab.kind);
+                            const title =
+                              tab.name.trim() ||
+                              (isRoleConfigurableTab(tab)
+                                ? kindLabel
+                                : "Вкладка");
                             return (
                               <tr
                                 key={tab.id}
                                 className="border-b border-border last:border-0"
                               >
                                 <td className="px-3 py-2">
-                                  <span className="font-medium">
-                                    {tab.name.trim() || "Файлы"}
-                                  </span>
+                                  <span className="font-medium">{title}</span>
                                   <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                                    Папки и документы записи
+                                    {kindLabel}
                                   </span>
                                 </td>
                                 <td className="px-3 py-2">

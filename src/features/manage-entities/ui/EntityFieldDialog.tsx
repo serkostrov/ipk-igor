@@ -46,9 +46,11 @@ import {
   isEntityUnitFieldType,
   isSystemEntityField,
   normalizeEntitySumFieldIds,
+  getEntityRelationTargetId,
   getRelationRecordOptions,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
+  resolveEntityLookupTarget,
   SYSTEM_ENTITY_KEY_USERS,
   SYSTEM_USERS_ENTITY_ID,
   getEntityTimeTracking,
@@ -80,7 +82,10 @@ import {
 } from "@/shared/ui/setting-controls";
 import { TemplateFieldInput } from "@/features/manage-automations/ui/TemplateFieldInput";
 import { DeadlineSettings } from "./DeadlineSettings";
-import { DefaultValueSettings } from "./DefaultValueSettings";
+import {
+  DefaultValueSettings,
+  MANUAL_COMPUTED_DESCRIPTION,
+} from "./DefaultValueSettings";
 import { FormulaSettings } from "./FormulaSettings";
 import { LookupSettings } from "./LookupSettings";
 import { RelationFilterSettings } from "./RelationFilterSettings";
@@ -113,6 +118,8 @@ export type EntityFieldFormData = {
    * person on save.
    */
   relationSpawnPerUser: boolean;
+  /** Delete these records when the linked parent record is deleted. */
+  relationCascadeDelete: boolean;
   /** Linked list field id when type is list; null = own «Новый» list. */
   listSourceFieldId: string | null;
   /** List: allow several option ids (implies fixed catalog). */
@@ -662,6 +669,39 @@ function RelationSpawnPerUserControl({
   );
 }
 
+function RelationCascadeDeleteControl({
+  enabled,
+  onEnabledChange,
+  belonging = false,
+}: {
+  enabled: boolean;
+  onEnabledChange: (enabled: boolean) => void;
+  belonging?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <Label
+          htmlFor="entity-field-relation-cascade-delete"
+          className="text-xs font-medium text-muted-foreground"
+        >
+          Удалять вместе с родительской
+        </Label>
+        <span className="text-[11px] leading-tight text-muted-foreground">
+          {belonging
+            ? "При удалении родительской записи этой сущности удаляются и дочерние"
+            : "При удалении связанной записи удаляются и записи этой сущности, которые на неё ссылаются"}
+        </span>
+      </div>
+      <Switch
+        id="entity-field-relation-cascade-delete"
+        checked={enabled}
+        onCheckedChange={onEnabledChange}
+      />
+    </div>
+  );
+}
+
 function isUsersRelationTarget(
   relationEntityId: string,
   entities: readonly Entity[],
@@ -1136,6 +1176,7 @@ function buildEntityFieldFormData({
   relationEntityId,
   relationMultiple,
   relationSpawnPerUser,
+  relationCascadeDelete,
   listSourceFieldId,
   listMultiple,
   unitSuffix,
@@ -1170,6 +1211,7 @@ function buildEntityFieldFormData({
   relationEntityId: string;
   relationMultiple: boolean;
   relationSpawnPerUser: boolean;
+  relationCascadeDelete: boolean;
   listSourceFieldId: string;
   listMultiple: boolean;
   unitSuffix: string;
@@ -1208,6 +1250,7 @@ function buildEntityFieldFormData({
       relationEntityId: null,
       relationMultiple: false,
       relationSpawnPerUser: false,
+      relationCascadeDelete: false,
       listSourceFieldId: null,
       listMultiple: false,
       unitSuffix: null,
@@ -1279,6 +1322,10 @@ function buildEntityFieldFormData({
         ? relationBindingLocked
           ? Boolean(field?.relationSpawnPerUser)
           : Boolean(relationSpawnPerUser)
+        : false,
+    relationCascadeDelete:
+      resolvedType === "relation" || resolvedType === "belonging"
+        ? Boolean(relationCascadeDelete)
         : false,
     listSourceFieldId:
       resolvedType === "list" ? listSourceFieldId.trim() || null : null,
@@ -1479,6 +1526,9 @@ function EntityFieldForm({
   const [relationSpawnPerUser, setRelationSpawnPerUser] = useState(
     Boolean(field?.relationSpawnPerUser),
   );
+  const [relationCascadeDelete, setRelationCascadeDelete] = useState(
+    Boolean(field?.relationCascadeDelete),
+  );
   const [listSourceFieldId, setListSourceFieldId] = useState(
     field?.listSourceFieldId ?? "",
   );
@@ -1541,13 +1591,76 @@ function EntityFieldForm({
     () => (relationTarget ? getRelationRecordOptions(relationTarget) : []),
     [relationTarget],
   );
+  const formulaIsDate =
+    effectiveType === "formula" && typeSettings.formulaResultType === "date";
+  const lookupDefaultTarget = useMemo(() => {
+    if (effectiveType !== "lookup" || !currentEntity || !typeSettings.lookup) {
+      return null;
+    }
+    return resolveEntityLookupTarget(
+      currentEntity,
+      { type: "lookup", lookup: typeSettings.lookup },
+      entities,
+    );
+  }, [currentEntity, effectiveType, entities, typeSettings.lookup]);
+  const defaultValueControlType: EntityFieldType = (() => {
+    if (effectiveType === "lookup" && lookupDefaultTarget) {
+      return lookupDefaultTarget.field.type;
+    }
+    if (formulaIsDate) return "datetime";
+    if (
+      effectiveType === "formula" ||
+      effectiveType === "rollup" ||
+      effectiveType === "numberSum" ||
+      effectiveType === "timeHours"
+    ) {
+      return "number";
+    }
+    return effectiveType;
+  })();
+  const computedDefaultListOptions =
+    effectiveType === "lookup" && lookupDefaultTarget?.field.type === "list"
+      ? resolveEntityListFieldOptions(lookupDefaultTarget.field, entities)
+      : listDefaultOptions;
+  const computedDefaultListPresentation =
+    effectiveType === "lookup" && lookupDefaultTarget?.field.type === "list"
+      ? resolveEntityListFieldPresentation(lookupDefaultTarget.field, entities)
+      : listPresentation;
+  const computedDefaultRelationTarget =
+    effectiveType === "lookup" &&
+    (lookupDefaultTarget?.field.type === "relation" ||
+      lookupDefaultTarget?.field.type === "belonging")
+      ? (() => {
+          const targetId =
+            getEntityRelationTargetId(lookupDefaultTarget.field) ??
+            (lookupDefaultTarget.field.type === "belonging"
+              ? lookupDefaultTarget.entity.id
+              : null);
+          return (
+            entities.find((item) => item.id === targetId) ??
+            lookupDefaultTarget.entity
+          );
+        })()
+      : relationTarget;
+  const computedDefaultRelationOptions = useMemo(
+    () =>
+      computedDefaultRelationTarget
+        ? getRelationRecordOptions(computedDefaultRelationTarget)
+        : [],
+    [computedDefaultRelationTarget],
+  );
+  const computedDefaultRelationToUsers =
+    computedDefaultRelationTarget?.systemKey === SYSTEM_ENTITY_KEY_USERS ||
+    computedDefaultRelationTarget?.id === SYSTEM_USERS_ENTITY_ID;
   const showDefaultValue =
     !systemBindingLocked &&
     !relationBindingLocked &&
     canHaveDefaultValue(effectiveType, {
-      relationToUsers,
-      hasListOptions: listDefaultOptions.length > 0,
-      hasRelationTarget: Boolean(relationTarget),
+      relationToUsers: computedDefaultRelationToUsers,
+      hasListOptions: computedDefaultListOptions.length > 0,
+      hasRelationTarget: Boolean(computedDefaultRelationTarget),
+      allowManualInput: typeSettings.allowManualInput,
+      valueType: defaultValueControlType,
     });
   const dependencyScopeOptions = (currentEntity?.fields ?? [])
     .filter(
@@ -1559,8 +1672,6 @@ function EntityFieldForm({
       value: item.id,
       label: getEntityFieldDisplayName(item),
     }));
-  const formulaIsDate =
-    effectiveType === "formula" && typeSettings.formulaResultType === "date";
   const showNumericFormulaSettings = isEntityNumericSettingsType(
     effectiveType,
     typeSettings.formulaResultType,
@@ -1648,6 +1759,7 @@ function EntityFieldForm({
       relationEntityId,
       relationMultiple,
       relationSpawnPerUser,
+      relationCascadeDelete,
       listSourceFieldId,
       listMultiple,
       unitSuffix,
@@ -1730,6 +1842,9 @@ function EntityFieldForm({
       } else if (!relationEntityId && entityOptions.length === 1) {
         setRelationEntityId(entityOptions[0]!.id);
       }
+    }
+    if (resolved !== "relation" && resolved !== "belonging") {
+      setRelationCascadeDelete(false);
     }
 
     if (resolved === "lookup" && isTabLinkRelation && field) {
@@ -1945,6 +2060,13 @@ function EntityFieldForm({
                     onEnabledChange={setRelationSpawnPerUser}
                   />
                 ) : null}
+                {type === "relation" || type === "belonging" ? (
+                  <RelationCascadeDeleteControl
+                    enabled={relationCascadeDelete}
+                    belonging={type === "belonging"}
+                    onEnabledChange={setRelationCascadeDelete}
+                  />
+                ) : null}
                 {type === "relation" &&
                 relationTarget &&
                 !relationBindingLocked ? (
@@ -1978,6 +2100,7 @@ function EntityFieldForm({
                       }
                       patchTypeSettings({
                         formulaResultType,
+                        defaultValue: null,
                         ...(formulaResultType === "date"
                           ? { progress: false, signColor: null }
                           : {}),
@@ -2073,7 +2196,19 @@ function EntityFieldForm({
                     entity={currentEntity}
                     entities={entities}
                     value={typeSettings.lookup}
-                    onChange={(lookup) => patchTypeSettings({ lookup })}
+                    onChange={(lookup) => {
+                      const prev = typeSettings.lookup;
+                      const targetChanged =
+                        prev?.relationFieldId !== lookup.relationFieldId ||
+                        prev?.targetFieldId !== lookup.targetFieldId ||
+                        prev?.relationGroupsDepth !==
+                          lookup.relationGroupsDepth ||
+                        prev?.viaFieldId !== lookup.viaFieldId;
+                      patchTypeSettings({
+                        lookup,
+                        ...(targetChanged ? { defaultValue: null } : {}),
+                      });
+                    }}
                     tabLinkBridge={
                       isTabLinkRelation && field && tabLinkTargetEntityId
                         ? {
@@ -2233,7 +2368,59 @@ function EntityFieldForm({
                     }
                     checked={typeSettings.allowManualInput}
                     onCheckedChange={(allowManualInput) =>
-                      patchTypeSettings({ allowManualInput })
+                      patchTypeSettings({
+                        allowManualInput,
+                        ...(allowManualInput ? {} : { defaultValue: null }),
+                      })
+                    }
+                  />
+                ) : null}
+                {showDefaultValue &&
+                isEntityComputedFieldType(effectiveType) ? (
+                  <DefaultValueSettings
+                    type={defaultValueControlType}
+                    datetimeWithTime={
+                      defaultValueControlType === "datetime"
+                        ? false
+                        : datetimeWithTime
+                    }
+                    listOptions={computedDefaultListOptions}
+                    listMultiple={
+                      defaultValueControlType === "list"
+                        ? Boolean(lookupDefaultTarget?.field.listMultiple)
+                        : false
+                    }
+                    listAllowOther={
+                      defaultValueControlType === "list"
+                        ? Boolean(lookupDefaultTarget?.field.listAllowOther)
+                        : false
+                    }
+                    listUseColors={
+                      computedDefaultListPresentation?.listUseColors ?? false
+                    }
+                    decimals={
+                      lookupDefaultTarget?.field.type === "number" ||
+                      lookupDefaultTarget?.field.type === "numberSum"
+                        ? normalizeEntityNumberDecimals(
+                            lookupDefaultTarget.field.decimals,
+                          )
+                        : decimals
+                    }
+                    relationOptions={computedDefaultRelationOptions}
+                    relationMultiple={
+                      defaultValueControlType === "belonging"
+                        ? false
+                        : Boolean(lookupDefaultTarget?.field.relationMultiple)
+                    }
+                    relationToUsers={
+                      defaultValueControlType === "belonging"
+                        ? false
+                        : computedDefaultRelationToUsers
+                    }
+                    description={MANUAL_COMPUTED_DESCRIPTION}
+                    value={typeSettings.defaultValue}
+                    onChange={(defaultValue) =>
+                      patchTypeSettings({ defaultValue })
                     }
                   />
                 ) : null}
@@ -2259,7 +2446,8 @@ function EntityFieldForm({
                     onCheckedChange={setBooleanInline}
                   />
                 ) : null}
-                {showDefaultValue ? (
+                {showDefaultValue &&
+                !isEntityComputedFieldType(effectiveType) ? (
                   <DefaultValueSettings
                     type={effectiveType}
                     datetimeWithTime={datetimeWithTime}

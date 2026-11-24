@@ -110,7 +110,12 @@ import {
   collectRecordsLinkedToParent,
   resolveLinkedTabParentLinkFieldId,
 } from "@/entities/automation";
-import { canEntity, useCurrentRole } from "@/entities/access";
+import {
+  canEntity,
+  canField,
+  useCurrentRole,
+  type Role,
+} from "@/entities/access";
 import { getSessionUser } from "@/entities/session";
 import {
   isDeptCalculationsEntity,
@@ -170,6 +175,7 @@ function getLinkedTableColumns(
   parentLinkFieldId: string | null,
   /** When grouping by a field, hide those columns (value is already the group). */
   hierarchyFieldIds: ReadonlySet<string> | string | null = null,
+  role: Role | null = null,
 ): EntityTableDisplayColumn[] {
   const hideIds =
     hierarchyFieldIds == null
@@ -182,14 +188,18 @@ function getLinkedTableColumns(
   }).filter(
     (field) =>
       !isEntityParentLinkField(field, parentLinkFieldId) &&
-      !hideIds?.has(field.id),
+      !hideIds?.has(field.id) &&
+      canField(role, entity.id, field.id, "view"),
   );
   if (tableFields.length > 0) {
     return buildEntityTableDisplayColumns(tableFields);
   }
   const nameField = entity.fields.find((field) => isEntityNameField(field));
   const fallback = getRecordCardFields(entity, parentLinkFieldId)
-    .filter((field) => !hideIds?.has(field.id))
+    .filter(
+      (field) =>
+        !hideIds?.has(field.id) && canField(role, entity.id, field.id, "view"),
+    )
     .slice(0, 4);
   const fields = nameField ? [nameField, ...fallback] : fallback;
   return buildEntityTableDisplayColumns(fields);
@@ -205,6 +215,7 @@ function getNestedRowDisplayFields(
   parentLinkFieldId: string | null,
   valueContext: EntityValueContext,
   record: EntityRecord,
+  role: Role | null = null,
 ) {
   return getEntityTableFields(nestedEntity.fields, {
     preferArrayOrder: isEntityInternal(nestedEntity),
@@ -212,6 +223,7 @@ function getNestedRowDisplayFields(
     (field) =>
       !isEntityNameField(field) &&
       !isEntityParentLinkField(field, parentLinkFieldId) &&
+      canField(role, nestedEntity.id, field.id, "view") &&
       isEntityFieldVisibleByConditions(
         valueContext,
         nestedEntity,
@@ -462,6 +474,7 @@ function RecordsTable({
   const canMutate = onEdit != null || onDelete != null;
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
+  const role = useCurrentRole();
   const nestedTarget = flat
     ? null
     : resolveEntityTableNestedTarget(entity, entities);
@@ -607,6 +620,7 @@ function RecordsTable({
           ),
         )
       : null,
+    role,
   );
   const columnMinWidths = columns.map((column, index) => {
     const primary = column.fields[0];
@@ -1032,6 +1046,7 @@ function RecordsTable({
                 nestedTarget!.parentLinkFieldId,
                 valueContext,
                 row.record,
+                role,
               );
               const isLastChild = meta?.isGroupEnd === true;
               const showAddAfter =

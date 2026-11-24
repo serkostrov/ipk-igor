@@ -139,6 +139,7 @@ function fieldShell(
     relationEntityId: patch.relationEntityId ?? null,
     relationMultiple: false,
     relationSpawnPerUser: false,
+    relationCascadeDelete: false,
     unitSuffix: patch.unitSuffix ?? null,
     decimals: patch.decimals ?? 2,
     sumFieldIds: [],

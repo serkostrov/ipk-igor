@@ -24,8 +24,18 @@ const DEPARTMENT_ENTITY_NAMES = [
 const DEPARTMENT_FIELD_KEYS = [
   "отдел",
   "отделы",
+  "отдел менеджера",
   "department",
   "departments",
+  "manager department",
+] as const;
+
+/** Intermediate catalogs that often hop to departments (e.g. leads). */
+const DEPARTMENT_HOP_ENTITY_KEYS = [
+  "коммерческая группа",
+  "коммерческие группы",
+  "commercial group",
+  "commercial groups",
 ] as const;
 
 function normalizeName(value: string): string {
@@ -197,10 +207,14 @@ function entityCanLinkToDepartments(
     const targetId = getEntityRelationTargetId(field);
     if (!targetId || targetId === departmentsEntityId) continue;
     if (field.type !== "belonging" && field.type !== "relation") continue;
-    if (field.type === "relation" && field.relationMultiple) continue;
     const target = entityById(entities, targetId);
     if (!target) continue;
+    const hopNamed = entityNameMatches(target, DEPARTMENT_HOP_ENTITY_KEYS);
+    if (field.type === "relation" && field.relationMultiple && !hopNamed) {
+      continue;
+    }
     if (
+      hopNamed ||
       entityCanLinkToDepartments(
         target,
         departmentsEntityId,
@@ -276,10 +290,15 @@ export async function collectRecordDepartmentIds(
     if (!targetId || targetId === departmentsEntity.id) continue;
     if (targetId === SYSTEM_USERS_ENTITY_ID) continue;
     if (field.type !== "belonging" && field.type !== "relation") continue;
-    if (field.type === "relation" && field.relationMultiple) continue;
     const target = entityById(entities, targetId);
     if (!target) continue;
+    const hopNamed = entityNameMatches(target, DEPARTMENT_HOP_ENTITY_KEYS);
+    // Skip wide multi-relations unless they are a known dept hop (comm. group).
+    if (field.type === "relation" && field.relationMultiple && !hopNamed) {
+      continue;
+    }
     if (
+      !hopNamed &&
       !entityCanLinkToDepartments(
         target,
         departmentsEntity.id,
@@ -309,31 +328,14 @@ export async function collectRecordDepartmentIds(
   return [...found];
 }
 
-async function recordCreatedBySameDepartment(
-  record: EntityRecord,
-  viewerDepartmentIds: ReadonlySet<string>,
-  departmentsEntity: Entity,
-  entities: readonly Entity[],
-): Promise<boolean> {
-  const usersEntity = getSystemUsersEntity(entities);
-  if (!usersEntity || !record.createdBy) return false;
-  const creator =
-    (await getEntityRecordById(usersEntity, record.createdBy)) ??
-    findSystemUserByAuthId(entities, record.createdBy);
-  if (!creator) return false;
-  return collectUserDepartmentIds(
-    creator,
-    usersEntity,
-    departmentsEntity,
-    entities,
-  ).some((id) => viewerDepartmentIds.has(id));
-}
-
 /**
- * «Своего отдела»: record is visible when it shares a department with the
- * viewer, was created by a colleague from that department, or the viewer is
- * involved on the card (same rules as «только свои»). Empty viewer
- * departments → only involved / own records.
+ * «Своего отдела»:
+ * - Entity linked to departments: visible only when record department ids
+ *   intersect the viewer’s. Empty dept on a department-capable entity → hide
+ *   (no «own» escape for orphan admin leads that merely list the viewer).
+ * - Entity not linked to departments: fall back to «только свои».
+ * - No departments catalog / empty viewer depts on a capable entity → hide
+ *   unless the entity is not department-capable (then own).
  */
 export async function recordMatchesDepartmentScope(
   entity: Entity,
@@ -346,17 +348,22 @@ export async function recordMatchesDepartmentScope(
     currentUserRecordId: string | null;
   },
 ): Promise<boolean> {
-  if (
-    recordMatchesOwnScope(entity, record, {
-      authUserId: options.authUserId,
-      currentUserRecordId: options.currentUserRecordId,
-      entities,
-    })
-  ) {
-    return true;
-  }
+  const ownMatch = recordMatchesOwnScope(entity, record, {
+    authUserId: options.authUserId,
+    currentUserRecordId: options.currentUserRecordId,
+    entities,
+  });
 
-  if (!departmentsEntity || viewerDepartmentIds.length === 0) return false;
+  if (!departmentsEntity) return ownMatch;
+
+  const capable = entityCanLinkToDepartments(
+    entity,
+    departmentsEntity.id,
+    entities,
+  );
+  if (!capable) return ownMatch;
+
+  if (viewerDepartmentIds.length === 0) return false;
 
   const allowed = new Set(viewerDepartmentIds);
   const linked = await collectRecordDepartmentIds(
@@ -365,12 +372,16 @@ export async function recordMatchesDepartmentScope(
     departmentsEntity,
     entities,
   );
-  if (linked.some((id) => allowed.has(id))) return true;
 
-  return recordCreatedBySameDepartment(
-    record,
-    allowed,
-    departmentsEntity,
-    entities,
-  );
+  // Orphan / unbound record on a department-capable entity — not visible
+  // under department scope even if the viewer is listed on the card.
+  if (linked.length === 0) return false;
+
+  if (linked.some((id) => allowed.has(id))) {
+    // In the viewer’s department: allow, including own involvement there.
+    return true;
+  }
+
+  // Tagged with other departments only — do not leak via own / creator hop.
+  return false;
 }

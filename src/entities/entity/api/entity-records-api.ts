@@ -504,6 +504,78 @@ export async function deleteEntityRecord(recordId: string): Promise<void> {
   if (error) throw error;
 }
 
+export type EntityRecordCascadeDeleteRow = {
+  id: string;
+  entityId: string;
+};
+
+function isMissingCascadeDeleteRpc(error: unknown): boolean {
+  if (typeof error !== "object" || error == null) return false;
+  const row = error as { code?: string; message?: string; details?: string };
+  const haystack = `${row.code ?? ""} ${row.message ?? ""} ${row.details ?? ""}`;
+  return (
+    row.code === "PGRST202" ||
+    /delete_entity_record_cascade/i.test(haystack) ||
+    /could not find the function/i.test(haystack) ||
+    /function .* does not exist/i.test(haystack)
+  );
+}
+
+/**
+ * Deletes a record and any dependents linked via `relationCascadeDelete`
+ * fields (server-side, recursive). Returns every deleted id + entity.
+ * Falls back to a single-row delete when the RPC is not deployed yet.
+ */
+export async function deleteEntityRecordCascade(
+  recordId: string,
+  entityId: string,
+): Promise<EntityRecordCascadeDeleteRow[]> {
+  if (!isSupabaseConfigured || !supabase) {
+    return [{ id: recordId, entityId }];
+  }
+
+  const { data, error } = await supabase.rpc("delete_entity_record_cascade", {
+    p_record_id: recordId,
+  });
+  if (error) {
+    if (isMissingCascadeDeleteRpc(error)) {
+      await deleteEntityRecord(recordId);
+      return [{ id: recordId, entityId }];
+    }
+    throw error;
+  }
+
+  if (!Array.isArray(data)) {
+    await deleteEntityRecord(recordId);
+    return [{ id: recordId, entityId }];
+  }
+
+  const rows: EntityRecordCascadeDeleteRow[] = [];
+  for (const item of data) {
+    if (typeof item !== "object" || item == null) continue;
+    const row = item as Record<string, unknown>;
+    const id =
+      typeof row.id === "string"
+        ? row.id.trim()
+        : typeof row.record_id === "string"
+          ? row.record_id.trim()
+          : "";
+    const rowEntityId =
+      typeof row.entityId === "string"
+        ? row.entityId.trim()
+        : typeof row.entity_id === "string"
+          ? row.entity_id.trim()
+          : "";
+    if (!id) continue;
+    rows.push({ id, entityId: rowEntityId || entityId });
+  }
+  if (rows.length === 0) {
+    // Record already gone — treat as successful no-op for the root.
+    return [{ id: recordId, entityId }];
+  }
+  return rows;
+}
+
 export async function deleteEntityRecordsByEntityId(
   entityId: string,
 ): Promise<void> {

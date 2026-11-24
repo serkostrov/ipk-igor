@@ -148,6 +148,8 @@ export {
   isEntityHistoryTab,
   isEntityTimeSessionsTab,
   isEntityMirrorTab,
+  isRoleConfigurableTab,
+  getRoleConfigurableTabs,
   isEntityTabWithMirrorSource,
   resolveEntityMirrorTab,
   normalizeEntityTabKind,
@@ -417,6 +419,11 @@ export {
 } from "./model/departments";
 export { fieldTargetsUsers, recordMatchesOwnScope } from "./model/own-scope";
 export {
+  findParentVisibilityLinks,
+  recordMatchesParentVisibility,
+  type ParentVisibilityLink,
+} from "./model/parent-visibility";
+export {
   canMutateEntityRecord,
   setEntityRecordMutationGuard,
   type EntityRecordMutationAction,
@@ -602,6 +609,13 @@ export {
 } from "./lib/record-mentions";
 export { notifyRecordMentions } from "./lib/notify-record-mentions";
 export { softFillRelationsFromParentRecord } from "./lib/soft-fill-from-parent";
+export {
+  collectEntityRecordCascadeDeletes,
+  countCascadeDependents,
+  groupCascadeHitsByEntity,
+  omitCascadedEntityRecords,
+  type EntityRecordCascadeHit,
+} from "./lib/relation-cascade-delete";
 export {
   createEntityRecordsWithUserSpawn,
   expandUserSpawnRecordValues,

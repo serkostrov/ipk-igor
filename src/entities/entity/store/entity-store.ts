@@ -17,7 +17,7 @@ import {
   subscribeEntityStructureChanges,
 } from "../api/entity-config-api";
 import {
-  deleteEntityRecord,
+  deleteEntityRecordCascade,
   deleteEntityRecordsByEntityId,
   fetchEntityRecordsForEntity,
   fetchRecordsByEntityId,
@@ -29,6 +29,10 @@ import {
 import { claimRecordIdsToFetch } from "../model/record-prime-store";
 import { buildClonedEntityPlan } from "../lib/clone-entity";
 import { applyTkpAnalysisCreateDefaults } from "../lib/hardcode-tkp-gip";
+import {
+  collectEntityRecordCascadeDeletes,
+  groupCascadeHitsByEntity,
+} from "../lib/relation-cascade-delete";
 import {
   cloneDefaultEntityConfig,
   normalizeEntity,
@@ -1345,6 +1349,10 @@ export function addEntityField(
       (data?.relationEntityId?.trim() || null) === SYSTEM_USERS_ENTITY_ID
         ? Boolean(data?.relationSpawnPerUser)
         : false,
+    relationCascadeDelete:
+      type === "relation" || type === "belonging"
+        ? Boolean(data?.relationCascadeDelete)
+        : false,
     unitSuffix: data?.unitSuffix?.trim() || null,
     decimals:
       type === "number" || type === "numberSum" || type === "timeHours"
@@ -1475,6 +1483,14 @@ export function updateEntityField(
         // (e.g. show «Лид» / «Сделка» only when «Тип связи» matches).
         if (isTabLinkField && patch.visibilityConditions !== undefined) {
           layoutOnly.visibilityConditions = patch.visibilityConditions;
+        }
+        // Cascade-delete is safe to edit on tab-link / belonging parent links.
+        if (
+          isTabLinkField &&
+          patch.relationCascadeDelete !== undefined &&
+          (field.type === "relation" || field.type === "belonging")
+        ) {
+          layoutOnly.relationCascadeDelete = patch.relationCascadeDelete;
         }
         // System «Роль» (list): allow presentation toggles — otherwise switches
         // in list settings appear stuck (patch was silently dropped).
@@ -1670,6 +1686,7 @@ export async function convertTabLinkRelationFieldToLookup(
     relationEntityId,
     relationMultiple: Boolean(field.relationMultiple),
     relationSpawnPerUser: false,
+    relationCascadeDelete: false,
     lookup: undefined,
     formula: undefined,
     rollup: undefined,
@@ -1703,6 +1720,7 @@ export async function convertTabLinkRelationFieldToLookup(
     relationEntityId: null,
     relationMultiple: false,
     relationSpawnPerUser: false,
+    relationCascadeDelete: false,
     lookup: {
       relationFieldId: bridgeFieldId,
       targetFieldId,
@@ -2189,6 +2207,8 @@ export function addEntityTabWithLinkedEntity(
     relationEntityId: parentEntityId,
     relationMultiple: false,
     relationSpawnPerUser: false,
+    // Owned tab children belong to the parent record — cascade by default.
+    relationCascadeDelete: true,
     unitSuffix: null,
     decimals: 2,
     sumFieldIds: [],
@@ -2324,6 +2344,7 @@ export function addEntityTabWithExistingEntity(
       relationEntityId: parentEntityId,
       relationMultiple: false,
       relationSpawnPerUser: false,
+      relationCascadeDelete: false,
       unitSuffix: null,
       decimals: 2,
       sumFieldIds: [],
@@ -3986,40 +4007,59 @@ export async function removeEntityRecord(
     return;
   }
 
-  // DB-first: confirm the remote delete before dropping anything locally.
+  const localCascade = collectEntityRecordCascadeDeletes(
+    config.entities,
+    recordId,
+  );
+  let deletedIds = new Set(
+    localCascade.map((hit) => hit.recordId).filter(Boolean),
+  );
+  if (deletedIds.size === 0) deletedIds = new Set([recordId]);
+
+  // DB-first: cascade on the server so unloaded related records are removed too.
   if (isSupabaseConfigured) {
-    markLocalRecordWrite(recordId);
+    for (const id of deletedIds) markLocalRecordWrite(id);
     try {
-      await deleteEntityRecord(recordId);
+      const remote = await deleteEntityRecordCascade(recordId, entityId);
+      deletedIds = new Set(remote.map((row) => row.id));
+      for (const [purgeEntityId, ids] of groupCascadeHitsByEntity(
+        remote.map((row) => ({
+          recordId: row.id,
+          entityId: row.entityId,
+        })),
+      )) {
+        void deleteNotificationsForRecords(purgeEntityId, ids).catch(
+          (error: unknown) => {
+            console.error(
+              "[entity] purge notifications on record delete",
+              error,
+            );
+          },
+        );
+      }
     } catch (error: unknown) {
       handlePersistError(error, "Не удалось удалить запись");
       throw error;
     }
-    void deleteNotificationsForRecords(entityId, [recordId]).catch(
-      (error: unknown) => {
-        console.error("[entity] purge notifications on record delete", error);
-      },
-    );
   }
 
   let structureChanged = false;
   const entities = config.entities.map((entity) => {
-    const nextRecords =
-      entity.id === entityId
-        ? entity.records.filter((record) => record.id !== recordId)
-        : entity.records;
+    const nextRecords = entity.records.filter(
+      (record) => !deletedIds.has(record.id),
+    );
 
     const nextFields = entity.fields.map((field) => {
       if (field.type !== "list") return field;
       const listOptions = field.listOptions.filter(
-        (option) => option.parentOptionId !== recordId,
+        (option) => !deletedIds.has(option.parentOptionId ?? ""),
       );
       if (listOptions.length === field.listOptions.length) return field;
       structureChanged = true;
       return normalizeEntityField({ ...field, listOptions });
     });
 
-    const recordsChanged = nextRecords !== entity.records;
+    const recordsChanged = nextRecords.length !== entity.records.length;
     const fieldsChanged = nextFields.some(
       (field, index) => field !== entity.fields[index],
     );

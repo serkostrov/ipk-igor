@@ -236,21 +236,33 @@ function normalizeDefaultValue(
   value: unknown,
   type: EntityFieldType,
 ): EntityFieldDefaultValue | undefined {
-  if (!isRecord(value) || isEntityComputedFieldType(type)) return undefined;
+  if (!isRecord(value)) return undefined;
+  // Computed fields may store a manual create-default when allowManualInput
+  // is on (cleared in normalizeEntityField when the toggle is off).
   if (value.kind === "today") {
-    return type === "datetime" ? { kind: "today" } : undefined;
+    return type === "datetime" || type === "formula" || type === "lookup"
+      ? { kind: "today" }
+      : undefined;
   }
   if (value.kind === "now") {
-    return type === "datetime" || type === "time" ? { kind: "now" } : undefined;
+    return type === "datetime" ||
+      type === "time" ||
+      type === "formula" ||
+      type === "lookup"
+      ? { kind: "now" }
+      : undefined;
   }
   if (value.kind === "currentUser") {
-    return type === "relation" ? { kind: "currentUser" } : undefined;
+    return type === "relation" || type === "lookup"
+      ? { kind: "currentUser" }
+      : undefined;
   }
   if (
     value.kind === "value" &&
     typeof value.value === "string" &&
     value.value.length > 0
   ) {
+    if (type === "file" || type === "dependencies") return undefined;
     if (type === "relationGroups") {
       // Keep only if it parses to at least one group.
       try {
@@ -417,6 +429,12 @@ export function normalizeEntityField(field: EntityField): EntityField {
     relationEntityId === SYSTEM_USERS_ENTITY_ID
       ? Boolean(field.relationSpawnPerUser)
       : false;
+  const relationCascadeDelete =
+    (type === "relation" || type === "belonging") &&
+    Boolean(
+      field.relationCascadeDelete ??
+      (field as { relation_cascade_delete?: unknown }).relation_cascade_delete,
+    );
   const unitSuffix = isEntityUnitFieldType(type)
     ? normalizeEntityUnitSuffix(field.unitSuffix)
     : null;
@@ -490,6 +508,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     relationEntityId,
     relationMultiple,
     relationSpawnPerUser,
+    relationCascadeDelete,
     unitSuffix,
     decimals,
     sumFieldIds,
@@ -517,7 +536,10 @@ export function normalizeEntityField(field: EntityField): EntityField {
       type === "relationGroups"
         ? normalizeRelationGroupsConfig(field.relationGroups)
         : undefined,
-    defaultValue: normalizeDefaultValue(field.defaultValue, type),
+    defaultValue:
+      isEntityComputedFieldType(type) && field.allowManualInput !== true
+        ? undefined
+        : normalizeDefaultValue(field.defaultValue, type),
     relationFilter:
       type === "relation"
         ? normalizeRelationFilter(field.relationFilter)
@@ -558,6 +580,7 @@ export function normalizeEntityField(field: EntityField): EntityField {
     relationEntityId: null,
     relationMultiple: false,
     relationSpawnPerUser: false,
+    relationCascadeDelete: false,
     unitSuffix: null,
     decimals: 2,
     sumFieldIds: [],
@@ -680,6 +703,9 @@ function parseField(value: unknown): EntityField | null {
         : null,
     relationMultiple: Boolean(value.relationMultiple),
     relationSpawnPerUser: Boolean(value.relationSpawnPerUser),
+    relationCascadeDelete: Boolean(
+      value.relationCascadeDelete ?? value.relation_cascade_delete,
+    ),
     unitSuffix,
     decimals: normalizeEntityNumberDecimals(value.decimals),
     sumFieldIds: normalizeEntitySumFieldIds(value.sumFieldIds),

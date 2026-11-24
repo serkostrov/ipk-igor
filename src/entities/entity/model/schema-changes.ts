@@ -315,6 +315,14 @@ function compareField(
     before.relationSpawnPerUser,
     after.relationSpawnPerUser,
   );
+  pushChange(
+    resolve,
+    items,
+    `field:${after.id}:relationCascadeDelete`,
+    `${label} · связь · удалять вместе с родительской`,
+    before.relationCascadeDelete,
+    after.relationCascadeDelete,
+  );
   pushCoarseChange(
     items,
     `field:${after.id}:relationFilter`,
