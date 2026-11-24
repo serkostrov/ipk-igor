@@ -98,6 +98,7 @@ import { useSessionUser } from "@/entities/session";
 import {
   DealCardHardcodeSlot,
   DealFinanceSummary,
+  DealLinkedTabExtras,
   getDealCardSection,
   isDealsEntity,
   isProjectGanttHardcodeTab,
@@ -1394,6 +1395,7 @@ function EntityRecordContent({
     const withDeal = withDealCardHardcodeTabs(
       withGantt,
       entity,
+      entities,
       dealCardVisibility.showFinance,
     );
     // «Только график» — только на сущности «Проекты». На «Разбор ТКП» иначе
@@ -1553,11 +1555,7 @@ function EntityRecordContent({
           ) : null}
 
           {isDealRecord ? (
-            <DealFinanceSummary
-              entity={entity}
-              record={record}
-              onOpenRelation={onOpenRelation}
-            />
+            <DealFinanceSummary entity={entity} record={record} />
           ) : null}
 
           <Tabs
@@ -1645,6 +1643,14 @@ function EntityRecordContent({
                   null;
                 return (
                   <TabsContent key={tab.id} value={tab.id} className="mt-0">
+                    {isDealRecord ? (
+                      <DealLinkedTabExtras
+                        entity={entity}
+                        record={record}
+                        tab={tab}
+                        onOpenRelation={onOpenRelation}
+                      />
+                    ) : null}
                     {linkedEntity ? (
                       <RecordEntityTabPanel
                         tab={tab}

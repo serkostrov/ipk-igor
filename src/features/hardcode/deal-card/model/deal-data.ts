@@ -15,23 +15,24 @@ import {
   resolveRequestAmountWithoutVat,
   sumPresent,
   type DealExpenseCategory,
+  type DealManualInputs,
+  type DealOverrides,
   type MoneyTriple,
 } from "./calculations";
+import { readDealManualInputs } from "./manual-fields";
+import { DEAL_OVERRIDES_KEY, parseDealOverrides } from "./overrides";
 import type { DealScheduleStageInput } from "./payment-schedule";
 
 export type DealCardRow = { id: string; title: string };
 
 export type DealCardDeal = MoneyTriple & {
   vatRate: number | null;
-  plannedCost: number | null;
-  actualCost: number | null;
   plannedHours: number | null;
   actualHours: number | null;
-  managerId: string | null;
-  gipId: string | null;
-  counterpartyId: string | null;
-  leadId: string | null;
-  legalEntityId: string | null;
+  /** Deal number fields feeding the calculation (see `manual-fields.ts`). */
+  manual: DealManualInputs;
+  /** Hand-entered values of any calculation cell. */
+  overrides: DealOverrides;
 };
 
 export type DealCardContract = DealCardRow &
@@ -40,12 +41,9 @@ export type DealCardContract = DealCardRow &
 export type DealCardStage = DealCardRow &
   DealScheduleStageInput & { contractId: string | null };
 
-export type DealCardAct = DealCardRow & {
-  number: string;
-  date: string | null;
-  status: string;
+export type DealCardAct = {
+  id: string;
   rejected: boolean;
-  stageId: string | null;
   amountWithoutVat: number | null;
   amountWithVat: number | null;
 };
@@ -72,7 +70,6 @@ export type DealCardData = {
   acts: DealCardAct[];
   requests: DealCardRequest[];
   receipts: DealCardReceipt[];
-  projects: DealCardRow[];
   /** Sum of all linked contracts (stage rollups); `null` without contracts. */
   contractTotals: MoneyTriple | null;
 };
@@ -126,33 +123,23 @@ function linkedTo(
   );
 }
 
-function namedRelation(entity: Entity, names: readonly string[]) {
-  return findNamedField(entity, names, ["relation", "belonging"]);
-}
-
 function readDeal(
   ctx: EntityValueContext,
-  entity: Entity,
+  sources: DealCardSources,
   record: EntityRecord,
 ): DealCardDeal {
+  const entity = sources.deal;
   const number = (names: readonly string[]) =>
     readNumber(ctx, entity, record, findNamedField(entity, names));
-  const relation = (names: readonly string[]) =>
-    firstRelationId(record, namedRelation(entity, names));
   return {
     withoutVat: number(["Сумма (без НДС)", "Сумма без НДС"]),
     withVat: number(["Сумма (с НДС)", "Сумма с НДС"]),
     vat: number(["Сумма НДС", "НДС"]),
     vatRate: number(["Ставка НДС"]),
-    plannedCost: number(["Плановая себестоимость"]),
-    actualCost: number(["Фактическая себестоимость"]),
     plannedHours: number(["Плановые часы"]),
     actualHours: number(["Фактические часы"]),
-    managerId: relation(["Менеджер"]),
-    gipId: relation(["ГИП"]),
-    counterpartyId: relation(["Контрагент"]),
-    leadId: relation(["Лид"]),
-    legalEntityId: relation(["Юрлицо"]),
+    manual: readDealManualInputs(sources.liveDeal, record.values),
+    overrides: parseDealOverrides(record.values[DEAL_OVERRIDES_KEY]),
   };
 }
 
@@ -229,19 +216,25 @@ function readStages(
     });
 }
 
+type DealLinks = {
+  deal: ReadonlySet<string>;
+  contracts: ReadonlySet<string>;
+  stages: ReadonlySet<string>;
+  projects: ReadonlySet<string>;
+};
+
+/** Acts linked to the deal directly («Сделка») or via its contract / stage. */
 function readActs(
   ctx: EntityValueContext,
   sources: DealCardSources,
-  contractIds: ReadonlySet<string>,
-  stageIds: ReadonlySet<string>,
+  links: DealLinks,
 ): DealCardAct[] {
   const entity = sources.act;
   if (!entity) return [];
+  const dealLink = findRelationTo(entity, sources.deal, ["Сделка"]);
   const contractLink = findRelationTo(entity, sources.contract, ["Договор"]);
   const stageLink = findRelationTo(entity, sources.stage, ["Этап"]);
   const field = (names: readonly string[]) => findNamedField(entity, names);
-  const number = field(["Номер"]);
-  const date = field(["Дата", "Дата акта"]);
   const status = field(["Стадия", "Статус"]);
   const withoutVat = field(["Сумма по этапу (без НДС)", "Сумма без НДС"]);
   const withVat = field(["Сумма по этапу (с НДС)", "Сумма с НДС"]);
@@ -250,23 +243,18 @@ function readActs(
     .getRecords(entity.id)
     .filter(
       (record) =>
-        linkedTo(record, contractLink, contractIds) ||
-        linkedTo(record, stageLink, stageIds),
+        linkedTo(record, dealLink, links.deal) ||
+        linkedTo(record, contractLink, links.contracts) ||
+        linkedTo(record, stageLink, links.stages),
     )
-    .map((record) => {
-      const statusText = readText(ctx, entity, record, status);
-      return {
-        id: record.id,
-        title: getEntityRecordTitle(ctx, entity, record),
-        number: readRaw(record, number),
-        date: readRaw(record, date) || null,
-        status: statusText,
-        rejected: statusText.toLocaleLowerCase("ru").includes("отклон"),
-        stageId: firstRelationId(record, stageLink),
-        amountWithoutVat: readNumber(ctx, entity, record, withoutVat),
-        amountWithVat: readNumber(ctx, entity, record, withVat),
-      };
-    });
+    .map((record) => ({
+      id: record.id,
+      rejected: readText(ctx, entity, record, status)
+        .toLocaleLowerCase("ru")
+        .includes("отклон"),
+      amountWithoutVat: readNumber(ctx, entity, record, withoutVat),
+      amountWithVat: readNumber(ctx, entity, record, withVat),
+    }));
 }
 
 function readArticle(
@@ -289,17 +277,15 @@ function readArticle(
   };
 }
 
+/** Requests linked to the deal directly or via its contract / stage / project. */
 function readRequests(
   ctx: EntityValueContext,
   sources: DealCardSources,
-  links: {
-    contracts: ReadonlySet<string>;
-    stages: ReadonlySet<string>;
-    projects: ReadonlySet<string>;
-  },
+  links: DealLinks,
 ): DealCardRequest[] {
   const entity = sources.request;
   if (!entity) return [];
+  const dealLink = findRelationTo(entity, sources.deal, ["Сделка"]);
   const contractLink = findRelationTo(entity, sources.contract, ["Договор"]);
   const stageLink = findRelationTo(entity, sources.stage, ["Этап по договору"]);
   const projectLink = findRelationTo(entity, sources.project, ["Проект"]);
@@ -322,17 +308,18 @@ function readRequests(
     .getRecords(entity.id)
     .filter(
       (record) =>
+        linkedTo(record, dealLink, links.deal) ||
         linkedTo(record, contractLink, links.contracts) ||
         linkedTo(record, stageLink, links.stages) ||
         linkedTo(record, projectLink, links.projects),
     )
     .map((record) => {
-      const statusText = readText(ctx, entity, record, status);
       const article = readArticle(
         ctx,
         sources,
         firstRelationId(record, articleLink),
       );
+      const statusText = readText(ctx, entity, record, status);
       const amountWithVat = readNumber(ctx, entity, record, withVat);
       return {
         id: record.id,
@@ -393,28 +380,27 @@ function readReceipts(
     }));
 }
 
-function readProjects(
+function readProjectIds(
   ctx: EntityValueContext,
   sources: DealCardSources,
   dealId: string,
   contractIds: ReadonlySet<string>,
-): DealCardRow[] {
+): Set<string> {
   const entity = sources.project;
-  if (!entity) return [];
+  if (!entity) return new Set();
   const dealLink = findRelationTo(entity, sources.deal, ["Сделка"]);
   const contractLink = findRelationTo(entity, sources.contract, ["Договор"]);
   const ids = new Set([dealId]);
-  return ctx
-    .getRecords(entity.id)
-    .filter(
-      (record) =>
-        linkedTo(record, dealLink, ids) ||
-        linkedTo(record, contractLink, contractIds),
-    )
-    .map((record) => ({
-      id: record.id,
-      title: getEntityRecordTitle(ctx, entity, record),
-    }));
+  return new Set(
+    ctx
+      .getRecords(entity.id)
+      .filter(
+        (record) =>
+          linkedTo(record, dealLink, ids) ||
+          linkedTo(record, contractLink, contractIds),
+      )
+      .map((record) => record.id),
+  );
 }
 
 /**
@@ -429,9 +415,12 @@ export function collectDealCardData(
   const contracts = readContracts(ctx, sources, dealRecord.id);
   const contractIds = new Set(contracts.map((item) => item.id));
   const stages = readStages(ctx, sources, contractIds);
-  const stageIds = new Set(stages.map((item) => item.id));
-  const projects = readProjects(ctx, sources, dealRecord.id, contractIds);
-  const projectIds = new Set(projects.map((item) => item.id));
+  const links: DealLinks = {
+    deal: new Set([dealRecord.id]),
+    contracts: contractIds,
+    stages: new Set(stages.map((item) => item.id)),
+    projects: readProjectIds(ctx, sources, dealRecord.id, contractIds),
+  };
 
   const contractTotals: MoneyTriple | null =
     contracts.length === 0
@@ -443,17 +432,12 @@ export function collectDealCardData(
         };
 
   return {
-    deal: readDeal(ctx, sources.deal, dealRecord),
+    deal: readDeal(ctx, sources, dealRecord),
     contracts,
     stages,
-    acts: readActs(ctx, sources, contractIds, stageIds),
-    requests: readRequests(ctx, sources, {
-      contracts: contractIds,
-      stages: stageIds,
-      projects: projectIds,
-    }),
+    acts: readActs(ctx, sources, links),
+    requests: readRequests(ctx, sources, links),
     receipts: readReceipts(ctx, sources, dealRecord.id),
-    projects,
     contractTotals,
   };
 }

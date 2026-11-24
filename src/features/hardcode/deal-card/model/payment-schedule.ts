@@ -3,7 +3,12 @@ import {
   addCalendarDays,
   extractIsoDate,
 } from "@/shared/lib/business-days";
-import { allocateReceipts, roundMoney, sumPresent } from "./calculations";
+import {
+  allocateReceipts,
+  roundMoney,
+  sumPresent,
+  type ReceiptAllocation,
+} from "./calculations";
 
 export type DealScheduleStageInput = {
   id: string;
@@ -31,6 +36,8 @@ export type DealSchedulePart = {
   dueDate: string | null;
   amountWithVat: number;
   paid: number;
+  /** ДДС operations that cover this part (FIFO by date). */
+  payments: ReceiptAllocation[];
   remaining: number;
   status: DealSchedulePartStatus;
 };
@@ -56,14 +63,17 @@ function resolveMainDueDate(stage: DealScheduleStageInput): string | null {
     : addCalendarDays(end, days);
 }
 
+type PlannedPart = Omit<
+  DealSchedulePart,
+  "paid" | "payments" | "remaining" | "status"
+>;
+
 /**
  * Planned payment parts derived from contract stages («Порядок оплаты»):
  * «Аванс» — whole stage at start; «Постоплата» — whole stage after the end
  * plus deferral; «Частичный аванс+постоплата» — advance + the rest.
  */
-function buildStageParts(
-  stage: DealScheduleStageInput,
-): Array<Omit<DealSchedulePart, "paid" | "remaining" | "status">> {
+function buildStageParts(stage: DealScheduleStageInput): PlannedPart[] {
   const total = stage.amountWithoutVat;
   if (total == null || total <= 0) return [];
   const order = stage.paymentOrder.toLocaleLowerCase("ru");
@@ -78,8 +88,7 @@ function buildStageParts(
   const advanceDue =
     extractIsoDate(stage.advanceDate) ?? extractIsoDate(stage.startDate);
 
-  const parts: Array<Omit<DealSchedulePart, "paid" | "remaining" | "status">> =
-    [];
+  const parts: PlannedPart[] = [];
   if (advanceWithoutVat > 0) {
     parts.push({
       key: `${stage.id}:advance`,
@@ -112,24 +121,36 @@ function compareDue(a: string | null, b: string | null): number {
 
 /**
  * Plan from stages vs fact from incoming ДДС of the deal. Receipts are
- * spread over parts by due date (FIFO) — the CRM has no explicit allocation.
+ * spread over parts by date (FIFO) — the CRM has no explicit allocation.
  */
 export function buildDealPaymentSchedule(input: {
   stages: readonly DealScheduleStageInput[];
-  receiptsWithVat: ReadonlyArray<number | null>;
+  receipts: ReadonlyArray<{
+    id: string;
+    date: string | null;
+    amountWithVat: number | null;
+  }>;
   today: string;
 }): DealPaymentSchedule {
   const planned = input.stages
     .flatMap(buildStageParts)
     .sort((a, b) => compareDue(a.dueDate, b.dueDate));
-  const receivedTotal = sumPresent(input.receiptsWithVat);
-  const { paid, unallocated } = allocateReceipts(
+  const receipts = [...input.receipts]
+    .map((receipt) => ({ ...receipt, date: extractIsoDate(receipt.date) }))
+    .sort((a, b) => compareDue(a.date, b.date));
+  const { allocations, unallocated } = allocateReceipts(
     planned.map((part) => part.amountWithVat),
-    receivedTotal ?? 0,
+    receipts.map((receipt) => ({
+      id: receipt.id,
+      amount: receipt.amountWithVat,
+    })),
   );
 
   const parts = planned.map((part, index): DealSchedulePart => {
-    const partPaid = paid[index] ?? 0;
+    const payments = allocations[index] ?? [];
+    const partPaid = roundMoney(
+      payments.reduce((sum, payment) => sum + payment.amount, 0),
+    );
     const remaining = roundMoney(Math.max(0, part.amountWithVat - partPaid));
     const status: DealSchedulePartStatus =
       remaining === 0
@@ -139,13 +160,13 @@ export function buildDealPaymentSchedule(input: {
           : partPaid > 0
             ? "partial"
             : "planned";
-    return { ...part, paid: partPaid, remaining, status };
+    return { ...part, paid: partPaid, payments, remaining, status };
   });
 
   return {
     parts,
     plannedTotal: sumPresent(parts.map((part) => part.amountWithVat)),
-    receivedTotal,
+    receivedTotal: sumPresent(receipts.map((receipt) => receipt.amountWithVat)),
     remainingTotal: sumPresent(parts.map((part) => part.remaining)),
     unallocated,
   };

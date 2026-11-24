@@ -46,7 +46,10 @@ export function isDealsEntity(
 }
 
 export type DealCardSources = {
+  /** Deal entity with the record's pinned schema (formulas as of creation). */
   deal: Entity;
+  /** Live deal entity — fields added after the record was created. */
+  liveDeal: Entity;
   contract: Entity | null;
   stage: Entity | null;
   act: Entity | null;
@@ -65,6 +68,7 @@ export function resolveDealCardSources(
     entities.find((entity) => entityMatches(entity, keys)) ?? null;
   return {
     deal,
+    liveDeal: entities.find((entity) => entity.id === deal.id) ?? deal,
     contract: byKeys(CONTRACT_KEYS),
     stage: byKeys(STAGE_KEYS),
     act: byKeys(ACT_KEYS),

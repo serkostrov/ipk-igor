@@ -17,7 +17,25 @@ import {
   resolveVatAmount,
   sumExpensesByCategory,
   sumPresent,
+  NO_DEAL_OVERRIDES,
+  type DealManualInputs,
 } from "../../src/features/hardcode/deal-card/model/calculations.ts";
+
+import {
+  parseDealOverrides,
+  serializeDealOverrides,
+} from "../../src/features/hardcode/deal-card/model/overrides.ts";
+
+const NO_MANUAL: DealManualInputs = {
+  plannedLabor: null,
+  actualLabor: null,
+  supportManager: null,
+  retro: null,
+  employeeBonus: null,
+  tkpContractors: null,
+  tkpExpenses: null,
+  tkpTrips: null,
+};
 
 const cases: Array<[string, () => void]> = [
   [
@@ -180,10 +198,9 @@ const cases: Array<[string, () => void]> = [
         plannedRevenue: 1_000_000,
         actualRevenue: 500_000,
         contractWithoutVat: 1_000_000,
-        plannedLabor: 400_000,
-        actualLabor: 200_000,
-        plannedTkp: { contractors: 0, expenses: 0, trips: 0 },
         actualExpenses: expenses,
+        manual: { ...NO_MANUAL, plannedLabor: 400_000, actualLabor: 200_000 },
+        overrides: NO_DEAL_OVERRIDES,
         rules: DEAL_CALCULATION_RULES_HARDCODE,
       });
       assert.equal(plan.baseCost, 400_000);
@@ -207,11 +224,10 @@ const cases: Array<[string, () => void]> = [
         plannedRevenue: null,
         actualRevenue: 100_000,
         contractWithoutVat: null,
-        plannedLabor: null,
-        actualLabor: 10_000,
-        plannedTkp: { contractors: 0, expenses: 0, trips: 0 },
         actualExpenses: sumExpensesByCategory([]),
-        rules: { ...DEAL_CALCULATION_RULES_HARDCODE, employeeBonus: 1_000 },
+        manual: { ...NO_MANUAL, actualLabor: 10_000, employeeBonus: 1_000 },
+        overrides: NO_DEAL_OVERRIDES,
+        rules: DEAL_CALCULATION_RULES_HARDCODE,
       });
       assert.equal(plan.tax, null);
       assert.equal(plan.profitabilityPercent, null);
@@ -221,14 +237,111 @@ const cases: Array<[string, () => void]> = [
     },
   ],
   [
-    "receipts are spread over planned parts in order",
+    "hand-entered values override automatic rules",
     () => {
-      assert.deepEqual(allocateReceipts([100, 200, null], 250), {
-        paid: [100, 150, 0],
-        unallocated: 0,
+      const { plan, fact } = calculateDealProfitability({
+        plannedRevenue: 2_000_000,
+        actualRevenue: null,
+        contractWithoutVat: 2_000_000,
+        actualExpenses: sumExpensesByCategory([]),
+        manual: {
+          ...NO_MANUAL,
+          supportManager: 10_000,
+          retro: 7_000,
+          tkpContractors: 100_000,
+          tkpExpenses: 20_000,
+          tkpTrips: 5_000,
+        },
+        overrides: NO_DEAL_OVERRIDES,
+        rules: {
+          hasSupportManager: true,
+          retro: { type: "fixed_percent", percent: 10 },
+          employeeBonus: 0,
+        },
       });
-      assert.deepEqual(allocateReceipts([100], 130), {
-        paid: [100],
+      assert.equal(plan.supportManager, 10_000);
+      assert.equal(fact.supportManager, 10_000);
+      assert.equal(plan.retro, 7_000);
+      assert.equal(plan.baseCost, 135_000);
+      assert.equal(fact.tkpContractors, 0);
+    },
+  ],
+  [
+    "any cell can be typed by hand and later rows follow it",
+    () => {
+      const base = {
+        plannedRevenue: 1_000_000,
+        actualRevenue: 500_000,
+        contractWithoutVat: 1_000_000,
+        actualExpenses: sumExpensesByCategory([]),
+        manual: { ...NO_MANUAL, plannedLabor: 400_000 },
+        rules: DEAL_CALCULATION_RULES_HARDCODE,
+      };
+      const auto = calculateDealProfitability({
+        ...base,
+        overrides: NO_DEAL_OVERRIDES,
+      });
+      assert.equal(auto.plan.finalCost, 580_000);
+
+      const typed = calculateDealProfitability({
+        ...base,
+        overrides: {
+          plan: { revenue: 2_000_000, fix: 0, finalProfit: 999 },
+          fact: { baseCost: 100_000 },
+        },
+      });
+      assert.equal(typed.plan.revenue, 2_000_000);
+      assert.equal(typed.plan.fix, 0);
+      assert.equal(typed.plan.tax, 120_000);
+      assert.equal(typed.plan.costBeforeBonus, 520_000);
+      assert.equal(typed.plan.finalProfit, 999);
+      assert.equal(typed.plan.profitabilityPercent, 0.05);
+      assert.equal(typed.fact.fix, 30_000);
+      assert.equal(typed.fact.tax, 30_000);
+    },
+  ],
+  [
+    "hand-entered values are stored as JSON and validated",
+    () => {
+      const overrides = {
+        plan: { revenue: 10.5 },
+        fact: { tax: 0 },
+      };
+      const raw = serializeDealOverrides(overrides);
+      assert.deepEqual(parseDealOverrides(raw), overrides);
+      assert.equal(serializeDealOverrides(NO_DEAL_OVERRIDES), "");
+      assert.deepEqual(parseDealOverrides("not json"), NO_DEAL_OVERRIDES);
+      assert.deepEqual(
+        parseDealOverrides('{"plan":{"revenue":"1","evil":5,"fix":2}}'),
+        { plan: { fix: 2 }, fact: {} },
+      );
+    },
+  ],
+  [
+    "receipts are spread over planned parts in order with sources",
+    () => {
+      assert.deepEqual(
+        allocateReceipts(
+          [100, 200, null],
+          [
+            { id: "a", amount: 150 },
+            { id: "b", amount: 100 },
+          ],
+        ),
+        {
+          allocations: [
+            [{ receiptId: "a", amount: 100 }],
+            [
+              { receiptId: "a", amount: 50 },
+              { receiptId: "b", amount: 100 },
+            ],
+            [],
+          ],
+          unallocated: 0,
+        },
+      );
+      assert.deepEqual(allocateReceipts([100], [{ id: "a", amount: 130 }]), {
+        allocations: [[{ receiptId: "a", amount: 100 }]],
         unallocated: 30,
       });
     },

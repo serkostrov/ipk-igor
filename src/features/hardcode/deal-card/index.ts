@@ -8,5 +8,8 @@ export {
   resolveDealCardVisibility,
   type DealCardVisibility,
 } from "./model/visibility";
-export { DealCardHardcodeSlot } from "./ui/DealCardHardcodeSlot";
+export {
+  DealCardHardcodeSlot,
+  DealLinkedTabExtras,
+} from "./ui/DealCardHardcodeSlot";
 export { DealFinanceSummary } from "./ui/DealFinanceSummary";

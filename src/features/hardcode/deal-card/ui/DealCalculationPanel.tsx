@@ -1,4 +1,7 @@
+import { Check, Pencil, X } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
 import {
   Table,
   TableBody,
@@ -8,121 +11,128 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import {
-  DEAL_CALCULATION_RULES_HARDCODE,
-  DEAL_EXPENSE_CATEGORY_LABELS,
-  type DealProfitabilityColumn,
-  type DealRevenueSource,
-} from "../model/calculations";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip";
+import type { EntityRecord } from "@/entities/entity";
+import { useDealManualEdit } from "../lib/use-deal-manual-edit";
+import type { DealCardSources } from "../match";
+import {
+  DEAL_CALCULATION_ROWS,
+  type DealCalculationContext,
+  type DealCalculationRow,
+  type DealCalculationSide,
+} from "../model/calculation-rows";
+import { DEAL_EXPENSE_CATEGORY_LABELS } from "../model/calculations";
+import type { DealCardData } from "../model/deal-data";
 import type { DealCardView } from "../model/deal-card-view";
 import { moneyOrDash, percentOrDash } from "../model/format";
 import { DealPanel } from "./shared";
 
-type CalculationRow = {
-  label: string;
-  hint?: string;
-  value: (column: DealProfitabilityColumn) => number | null;
-  percent?: boolean;
-  strong?: boolean;
-  nested?: boolean;
-};
+const SIDES: DealCalculationSide[] = ["plan", "fact"];
 
-const ROWS: CalculationRow[] = [
-  {
-    label: "Выручка без НДС",
-    hint: "План — этапы договора (или сумма сделки), факт — акты",
-    value: (column) => column.revenue,
-    strong: true,
-  },
-  {
-    label: "Трудозатраты",
-    hint: "Поля сделки «Плановая / Фактическая себестоимость»",
-    value: (column) => column.labor,
-    nested: true,
-  },
-  {
-    label: "Менеджер сопровождения",
-    value: (column) => column.supportManager,
-    nested: true,
-  },
-  {
-    label: "Подрядчики из ТКП",
-    value: (column) => column.tkpContractors,
-    nested: true,
-  },
-  {
-    label: "Расходы проекта",
-    value: (column) => column.projectExpenses,
-    nested: true,
-  },
-  { label: "Командировки", value: (column) => column.trips, nested: true },
-  {
-    label: "Базовая себестоимость",
-    value: (column) => column.baseCost,
-    strong: true,
-  },
-  { label: "Фикса 30%", value: (column) => column.fix },
-  {
-    label: "Внешние подрядчики",
-    hint: "Только факт: оплаченные заявки подрядчиков",
-    value: (column) => column.externalContractors,
-  },
-  { label: "Ретро", value: (column) => column.retro },
-  {
-    label: "Непредвиденные расходы",
-    hint: "Только факт",
-    value: (column) => column.contingency,
-  },
-  { label: "Налог 6%", value: (column) => column.tax },
-  {
-    label: "Себестоимость до бонуса",
-    value: (column) => column.costBeforeBonus,
-    strong: true,
-  },
-  {
-    label: "Прибыль до бонуса",
-    value: (column) => column.profitBeforeBonus,
-  },
-  {
-    label: "Бонус сотрудникам",
-    hint: "В плане всегда 0",
-    value: (column) => column.bonus,
-  },
-  {
-    label: "Итоговая себестоимость",
-    value: (column) => column.finalCost,
-    strong: true,
-  },
-  {
-    label: "Итоговая прибыль",
-    value: (column) => column.finalProfit,
-    strong: true,
-  },
-  {
-    label: "Рентабельность",
-    hint: "Итоговая прибыль / выручка без НДС",
-    value: (column) => column.profitabilityPercent,
-    percent: true,
-    strong: true,
-  },
-];
+export function DealCalculationPanel({
+  sources,
+  record,
+  data,
+  view,
+}: {
+  sources: DealCardSources;
+  record: EntityRecord;
+  data: DealCardData;
+  view: DealCardView;
+}) {
+  const edit = useDealManualEdit(sources, record, data.deal.overrides);
+  const context: DealCalculationContext = {
+    revenueSource: view.plannedRevenue.source,
+    manual: data.deal.manual,
+    overrides: data.deal.overrides,
+  };
 
-const REVENUE_SOURCE_LABELS: Record<DealRevenueSource, string> = {
-  "contract-stages": "Этапы договора",
-  "deal-without-vat": "Сумма сделки без НДС",
-  "deal-with-vat-fallback": "Сумма сделки с НДС (fallback)",
-  none: "Не заполнена",
-};
-
-export function DealCalculationPanel({ view }: { view: DealCardView }) {
-  const { plan, fact } = view.profitability;
-  const rules = DEAL_CALCULATION_RULES_HARDCODE;
-
-  return (
-    <div className="flex flex-col gap-4">
-      <DealPanel
-        title="Расчёт рентабельности"
-        description={`Плановая выручка: ${REVENUE_SOURCE_LABELS[view.plannedRevenue.source]}. Фактическая выручка — сумма неотклонённых актов.`}
+  const actions = !edit.canEdit ? null : edit.editing ? (
+    <div className="flex items-center gap-1.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={edit.saving}
+        onClick={edit.cancel}
       >
+        <X />
+        Отмена
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        disabled={edit.saving}
+        onClick={() => void edit.save()}
+      >
+        <Check />
+        {edit.saving ? "Сохранение…" : "Сохранить"}
+      </Button>
+    </div>
+  ) : (
+    <Button type="button" variant="outline" size="sm" onClick={edit.start}>
+      <Pencil />
+      Редактировать
+    </Button>
+  );
+
+  function renderCell(row: DealCalculationRow, side: DealCalculationSide) {
+    const format = row.percent ? percentOrDash : moneyOrDash;
+    const column = view.profitability[side];
+    const automatic = row.value(view.automatic[side]);
+
+    if (edit.editing && edit.draft) {
+      return (
+        <Input
+          value={edit.draft[side][row.key] ?? ""}
+          onChange={(event) => edit.change(side, row.key, event.target.value)}
+          placeholder={automatic == null ? "авто" : format(automatic)}
+          inputMode="decimal"
+          disabled={edit.saving}
+          aria-label={`${row.label}: ${side === "plan" ? "план" : "факт"}`}
+          className="ml-auto h-8 w-40 text-right tabular-nums"
+        />
+      );
+    }
+
+    const overridden = context.overrides[side][row.key] != null;
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={<span />}
+          className={cn(
+            "cursor-help underline decoration-muted-foreground/40 decoration-dotted underline-offset-4",
+            overridden && "text-primary",
+          )}
+        >
+          {format(row.value(column))}
+        </TooltipTrigger>
+        <TooltipContent className="text-left">
+          {overridden ? (
+            <>
+              <p>Введено вручную</p>
+              <p>Автоматически: {format(automatic)}</p>
+            </>
+          ) : (
+            row
+              .explain(side, column, context)
+              .map((line) => <p key={line}>{line}</p>)
+          )}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  return (
+    <DealPanel
+      title="Расчёт рентабельности"
+      description="Наведите на число, чтобы увидеть, как оно получено. В режиме редактирования любое значение можно ввести вручную: остальные строки пересчитаются от него, пустая ячейка — автоматический расчёт."
+      actions={actions}
+    >
+      <TooltipProvider delay={200}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -132,62 +142,40 @@ export function DealCalculationPanel({ view }: { view: DealCardView }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {ROWS.map((row) => {
-              const format = row.percent ? percentOrDash : moneyOrDash;
-              return (
-                <TableRow key={row.label}>
+            {DEAL_CALCULATION_ROWS.map((row) => (
+              <TableRow key={row.key}>
+                <TableCell
+                  className={cn(
+                    "whitespace-normal",
+                    row.nested && "pl-7 text-muted-foreground",
+                    row.strong && "font-semibold",
+                  )}
+                >
+                  {row.label}
+                </TableCell>
+                {SIDES.map((side) => (
                   <TableCell
-                    className={cn(
-                      "whitespace-normal",
-                      row.nested && "pl-7 text-muted-foreground",
-                      row.strong && "font-semibold",
-                    )}
-                  >
-                    {row.label}
-                    {row.hint ? (
-                      <span className="block text-[11px] font-normal text-muted-foreground">
-                        {row.hint}
-                      </span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell
+                    key={side}
                     className={cn(
                       "text-right tabular-nums",
                       row.strong && "font-semibold",
                     )}
                   >
-                    {format(row.value(plan))}
+                    {renderCell(row, side)}
                   </TableCell>
-                  <TableCell
-                    className={cn(
-                      "text-right tabular-nums",
-                      row.strong && "font-semibold",
-                    )}
-                  >
-                    {format(row.value(fact))}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                ))}
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
-        {view.paidExpenses.other > 0 ? (
-          <p className="text-xs text-muted-foreground">
-            {DEAL_EXPENSE_CATEGORY_LABELS.other} оплаченные заявки (
-            {moneyOrDash(view.paidExpenses.other)}) в расчёт не входят — их
-            статья не относится к расходам проекта, командировкам или
-            подрядчикам.
-          </p>
-        ) : null}
-      </DealPanel>
-
-      <p className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-        Временные правила: менеджер сопровождения{" "}
-        {rules.hasSupportManager ? "включён" : "выключен"}, ретро{" "}
-        {rules.retro.type === "none" ? "не начисляется" : "начисляется"}, бонус
-        сотрудникам {moneyOrDash(rules.employeeBonus)}, плановые блоки ТКП не
-        подтягиваются. В CRM пока нет полей для этих данных.
-      </p>
-    </div>
+      </TooltipProvider>
+      {view.paidExpenses.other > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {DEAL_EXPENSE_CATEGORY_LABELS.other} оплаченные заявки (
+          {moneyOrDash(view.paidExpenses.other)}) в расчёт не входят — их статья
+          не относится к расходам проекта, командировкам или подрядчикам.
+        </p>
+      ) : null}
+    </DealPanel>
   );
 }

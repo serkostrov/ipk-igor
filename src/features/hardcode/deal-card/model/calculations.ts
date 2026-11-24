@@ -23,13 +23,25 @@ export type DealCalculationRules = {
 
 /**
  * Temporary hardcode: the CRM has no fields for counterparty retro /
- * support-manager rules or the deal employee bonus yet. Once they appear,
- * read them in `deal-data.ts` instead of this constant.
+ * support-manager rules yet. Hand-entered deal values (`DealManualInputs`)
+ * override these defaults.
  */
 export const DEAL_CALCULATION_RULES_HARDCODE: DealCalculationRules = {
   hasSupportManager: false,
   retro: { type: "none" },
   employeeBonus: 0,
+};
+
+/** Values typed on the deal; `null` — not filled, use the automatic rule. */
+export type DealManualInputs = {
+  plannedLabor: number | null;
+  actualLabor: number | null;
+  supportManager: number | null;
+  retro: number | null;
+  employeeBonus: number | null;
+  tkpContractors: number | null;
+  tkpExpenses: number | null;
+  tkpTrips: number | null;
 };
 
 export function roundMoney(value: number): number {
@@ -254,78 +266,103 @@ export type DealProfitabilityColumn = {
   profitabilityPercent: number | null;
 };
 
+/** Hand-entered values by calculation row (column key). */
+export type DealColumnOverrides = Partial<
+  Record<keyof DealProfitabilityColumn, number>
+>;
+
+export type DealOverrides = {
+  plan: DealColumnOverrides;
+  fact: DealColumnOverrides;
+};
+
+export const NO_DEAL_OVERRIDES: DealOverrides = { plan: {}, fact: {} };
+
 export type DealProfitabilityInput = {
   plannedRevenue: number | null;
   actualRevenue: number | null;
   /** Contract stages without VAT — base for support manager / retro. */
   contractWithoutVat: number | null;
-  plannedLabor: number | null;
-  actualLabor: number | null;
-  /** TKP plan blocks (contractors / department expenses / trips). */
-  plannedTkp: { contractors: number; expenses: number; trips: number };
   /** Completed («Оплачено») requests of the deal. */
   actualExpenses: DealExpenseTotals;
+  manual: DealManualInputs;
+  /** Hand-entered values of any calculation row, per column. */
+  overrides: DealOverrides;
   rules: DealCalculationRules;
 };
 
-function buildColumn(input: {
-  revenue: number | null;
-  labor: number;
-  supportManager: number;
-  tkpContractors: number;
-  projectExpenses: number;
-  trips: number;
-  externalContractors: number;
-  retro: number;
-  contingency: number;
-  bonus: number;
-}): DealProfitabilityColumn {
-  const baseCost = roundMoney(
-    input.labor +
-      input.supportManager +
-      input.tkpContractors +
-      input.projectExpenses +
-      input.trips,
-  );
-  const fix = roundMoney(baseCost * DEAL_FIX_RATE);
+function buildColumn(
+  input: {
+    revenue: number | null;
+    labor: number;
+    supportManager: number;
+    tkpContractors: number;
+    projectExpenses: number;
+    trips: number;
+    externalContractors: number;
+    retro: number;
+    contingency: number;
+    bonus: number;
+  },
+  override: DealColumnOverrides,
+): DealProfitabilityColumn {
+  // Each row takes a hand-entered value when present, and later rows are
+  // calculated from the effective (possibly overridden) values.
+  const revenue = override.revenue ?? input.revenue;
+  const labor = override.labor ?? input.labor;
+  const supportManager = override.supportManager ?? input.supportManager;
+  const tkpContractors = override.tkpContractors ?? input.tkpContractors;
+  const projectExpenses = override.projectExpenses ?? input.projectExpenses;
+  const trips = override.trips ?? input.trips;
+  const externalContractors =
+    override.externalContractors ?? input.externalContractors;
+  const retro = override.retro ?? input.retro;
+  const contingency = override.contingency ?? input.contingency;
+  const bonus = override.bonus ?? input.bonus;
+
+  const baseCost =
+    override.baseCost ??
+    roundMoney(
+      labor + supportManager + tkpContractors + projectExpenses + trips,
+    );
+  const fix = override.fix ?? roundMoney(baseCost * DEAL_FIX_RATE);
   const tax =
-    input.revenue == null
-      ? null
-      : roundMoney(input.revenue * DEAL_PROFIT_TAX_RATE);
-  const costBeforeBonus = roundMoney(
-    baseCost +
-      fix +
-      input.externalContractors +
-      input.retro +
-      input.contingency +
-      (tax ?? 0),
-  );
+    override.tax ??
+    (revenue == null ? null : roundMoney(revenue * DEAL_PROFIT_TAX_RATE));
+  const costBeforeBonus =
+    override.costBeforeBonus ??
+    roundMoney(
+      baseCost + fix + externalContractors + retro + contingency + (tax ?? 0),
+    );
   const profitBeforeBonus =
-    input.revenue == null ? null : roundMoney(input.revenue - costBeforeBonus);
-  const finalCost = roundMoney(costBeforeBonus + input.bonus);
+    override.profitBeforeBonus ??
+    (revenue == null ? null : roundMoney(revenue - costBeforeBonus));
+  const finalCost = override.finalCost ?? roundMoney(costBeforeBonus + bonus);
   const finalProfit =
-    input.revenue == null ? null : roundMoney(input.revenue - finalCost);
+    override.finalProfit ??
+    (revenue == null ? null : roundMoney(revenue - finalCost));
   const profitabilityPercent =
-    input.revenue == null || input.revenue === 0 || finalProfit == null
+    override.profitabilityPercent ??
+    (revenue == null || revenue === 0 || finalProfit == null
       ? null
-      : roundMoney((finalProfit / input.revenue) * 100);
+      : roundMoney((finalProfit / revenue) * 100));
 
   return {
-    revenue: input.revenue,
-    labor: input.labor,
-    supportManager: input.supportManager,
-    tkpContractors: input.tkpContractors,
-    projectExpenses: input.projectExpenses,
-    trips: input.trips,
+    revenue,
+    labor,
+    supportManager,
+    tkpContractors,
+    projectExpenses,
+    trips,
     baseCost,
     fix,
-    externalContractors: input.externalContractors,
-    retro: input.retro,
-    contingency: input.contingency,
+    externalContractors,
+    retro,
+    contingency,
     tax,
     costBeforeBonus,
     profitBeforeBonus,
-    bonus: input.bonus,
+    bonus,
     finalCost,
     finalProfit,
     profitabilityPercent,
@@ -334,63 +371,93 @@ function buildColumn(input: {
 
 /**
  * Plan vs fact profitability. Fact external contractors and contingency are
- * separate rows (not in the base); planned bonus is always 0.
+ * separate rows (not in the base); planned bonus is always 0. Values typed on
+ * the deal fields (`manual`) win over automatic rules, and per-row
+ * `overrides` win over everything.
  */
 export function calculateDealProfitability(input: DealProfitabilityInput): {
   plan: DealProfitabilityColumn;
   fact: DealProfitabilityColumn;
 } {
-  const supportManager = resolveSupportManagerAmount(
-    input.rules.hasSupportManager,
-    input.contractWithoutVat,
-  );
-  const retro = resolveRetroAmount(
-    input.rules.retro,
-    input.contractWithoutVat ?? input.plannedRevenue,
-  );
+  const { manual, rules } = input;
+  const supportManager =
+    manual.supportManager ??
+    resolveSupportManagerAmount(
+      rules.hasSupportManager,
+      input.contractWithoutVat,
+    );
+  const retro =
+    manual.retro ??
+    resolveRetroAmount(
+      rules.retro,
+      input.contractWithoutVat ?? input.plannedRevenue,
+    );
 
   return {
-    plan: buildColumn({
-      revenue: input.plannedRevenue,
-      labor: input.plannedLabor ?? 0,
-      supportManager,
-      tkpContractors: input.plannedTkp.contractors,
-      projectExpenses: input.plannedTkp.expenses,
-      trips: input.plannedTkp.trips,
-      externalContractors: 0,
-      retro,
-      contingency: 0,
-      bonus: 0,
-    }),
-    fact: buildColumn({
-      revenue: input.actualRevenue,
-      labor: input.actualLabor ?? 0,
-      supportManager,
-      tkpContractors: 0,
-      projectExpenses: input.actualExpenses.project,
-      trips: input.actualExpenses.trips,
-      externalContractors: input.actualExpenses.contractors,
-      retro,
-      contingency: input.actualExpenses.contingency,
-      bonus: input.rules.employeeBonus,
-    }),
+    plan: buildColumn(
+      {
+        revenue: input.plannedRevenue,
+        labor: manual.plannedLabor ?? 0,
+        supportManager,
+        tkpContractors: manual.tkpContractors ?? 0,
+        projectExpenses: manual.tkpExpenses ?? 0,
+        trips: manual.tkpTrips ?? 0,
+        externalContractors: 0,
+        retro,
+        contingency: 0,
+        bonus: 0,
+      },
+      input.overrides.plan,
+    ),
+    fact: buildColumn(
+      {
+        revenue: input.actualRevenue,
+        labor: manual.actualLabor ?? 0,
+        supportManager,
+        tkpContractors: 0,
+        projectExpenses: input.actualExpenses.project,
+        trips: input.actualExpenses.trips,
+        externalContractors: input.actualExpenses.contractors,
+        retro,
+        contingency: input.actualExpenses.contingency,
+        bonus: manual.employeeBonus ?? rules.employeeBonus,
+      },
+      input.overrides.fact,
+    ),
   };
 }
 
+export type ReceiptAllocation = { receiptId: string; amount: number };
+
 /**
- * Spreads incoming payments over planned parts in order (FIFO).
- * Returns paid per part and what is left unallocated.
+ * Spreads incoming payments (in the given order) over planned parts in order
+ * (FIFO). Returns which receipts paid each part and what is left over.
  */
 export function allocateReceipts(
   plannedAmounts: ReadonlyArray<number | null>,
-  receivedTotal: number,
-): { paid: number[]; unallocated: number } {
-  let left = Math.max(0, roundMoney(receivedTotal));
-  const paid = plannedAmounts.map((planned) => {
-    const target = Math.max(0, planned ?? 0);
-    const part = roundMoney(Math.min(left, target));
-    left = roundMoney(left - part);
-    return part;
+  receipts: ReadonlyArray<{ id: string; amount: number | null }>,
+): { allocations: ReceiptAllocation[][]; unallocated: number } {
+  const pool = receipts
+    .filter((receipt) => receipt.amount != null && receipt.amount > 0)
+    .map((receipt) => ({ id: receipt.id, left: roundMoney(receipt.amount!) }));
+  let cursor = 0;
+
+  const allocations = plannedAmounts.map((planned) => {
+    let need = Math.max(0, roundMoney(planned ?? 0));
+    const parts: ReceiptAllocation[] = [];
+    while (need > 0 && cursor < pool.length) {
+      const receipt = pool[cursor]!;
+      const amount = roundMoney(Math.min(need, receipt.left));
+      parts.push({ receiptId: receipt.id, amount });
+      need = roundMoney(need - amount);
+      receipt.left = roundMoney(receipt.left - amount);
+      if (receipt.left === 0) cursor += 1;
+    }
+    return parts;
   });
-  return { paid, unallocated: left };
+
+  const unallocated = roundMoney(
+    pool.slice(cursor).reduce((sum, receipt) => sum + receipt.left, 0),
+  );
+  return { allocations, unallocated };
 }

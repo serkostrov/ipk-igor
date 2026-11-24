@@ -1,6 +1,7 @@
 import {
   calculateDealProfitability,
   DEAL_CALCULATION_RULES_HARDCODE,
+  NO_DEAL_OVERRIDES,
   resolveActualRevenue,
   resolveDealFinancials,
   resolvePlannedRevenue,
@@ -20,10 +21,11 @@ export type DealCardView = {
   financials: DealFinancials;
   plannedRevenue: { amount: number | null; source: DealRevenueSource };
   actualRevenue: number | null;
-  actsWithoutVat: number | null;
   actsWithVat: number | null;
   paidExpenses: DealExpenseTotals;
   profitability: ReturnType<typeof calculateDealProfitability>;
+  /** The same calculation without hand-entered cell values. */
+  automatic: ReturnType<typeof calculateDealProfitability>;
   schedule: DealPaymentSchedule;
 };
 
@@ -44,28 +46,30 @@ export function buildDealCardView(
   const paidExpenses = sumExpensesByCategory(
     data.requests.filter((request) => request.paid),
   );
+  const profitabilityInput = {
+    plannedRevenue: plannedRevenue.amount,
+    actualRevenue,
+    contractWithoutVat: data.contractTotals?.withoutVat ?? null,
+    actualExpenses: paidExpenses,
+    manual: data.deal.manual,
+    overrides: data.deal.overrides,
+    rules: DEAL_CALCULATION_RULES_HARDCODE,
+  };
 
   return {
     financials: resolveDealFinancials(data.deal, data.contractTotals),
     plannedRevenue,
     actualRevenue,
-    actsWithoutVat: sumPresent(signedActs.map((act) => act.amountWithoutVat)),
     actsWithVat: sumPresent(signedActs.map((act) => act.amountWithVat)),
     paidExpenses,
-    profitability: calculateDealProfitability({
-      plannedRevenue: plannedRevenue.amount,
-      actualRevenue,
-      contractWithoutVat: data.contractTotals?.withoutVat ?? null,
-      plannedLabor: data.deal.plannedCost,
-      actualLabor: data.deal.actualCost,
-      // TKP plan blocks are not linked to the deal calculation yet (hardcode).
-      plannedTkp: { contractors: 0, expenses: 0, trips: 0 },
-      actualExpenses: paidExpenses,
-      rules: DEAL_CALCULATION_RULES_HARDCODE,
+    profitability: calculateDealProfitability(profitabilityInput),
+    automatic: calculateDealProfitability({
+      ...profitabilityInput,
+      overrides: NO_DEAL_OVERRIDES,
     }),
     schedule: buildDealPaymentSchedule({
       stages: data.stages,
-      receiptsWithVat: data.receipts.map((receipt) => receipt.amountWithVat),
+      receipts: data.receipts,
       today,
     }),
   };
