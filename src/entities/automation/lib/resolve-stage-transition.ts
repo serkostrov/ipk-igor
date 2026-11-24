@@ -8,7 +8,11 @@ export type StageTransitionResolution =
       optionId: string;
       transition: AutomationStageTransition;
     }
-  | { kind: "block"; transition: AutomationStageTransition; message: string };
+  | {
+      kind: "block";
+      transition?: AutomationStageTransition;
+      message: string;
+    };
 
 /**
  * Resolve a requested stage move against configured edge gateways.
@@ -31,6 +35,13 @@ export function resolveStageTransition(input: {
     (item) => item.fromOptionId === from && item.toOptionId === to,
   );
   if (!transition) {
+    // Configured graph: unknown edges are blocked (no multi-hop skips).
+    if (input.transitions.length > 0) {
+      return {
+        kind: "block",
+        message: "Переход на эту стадию недоступен",
+      };
+    }
     return { kind: "allow", optionId: to };
   }
 

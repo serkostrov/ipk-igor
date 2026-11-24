@@ -222,6 +222,16 @@ export {
   setAutomationRequireTimeTracking,
 } from "./lib/require-time-tracking";
 export {
+  AUTOMATION_TIMER_REQUIRED_MESSAGE,
+  AUTOMATION_TIMER_RUNNING_MESSAGE,
+  assertAutomationTimeTrackingReady,
+} from "./lib/assert-time-tracking-ready";
+export {
+  filterSelectableListOptions,
+  getSelectableStageOptionIds,
+  isStageOptionSelectable,
+} from "./lib/selectable-stage-options";
+export {
   AUTOMATION_UPLOAD_TARGET_PREFIX,
   getAutomationUploadTarget,
   resolveEffectiveUploadTarget,

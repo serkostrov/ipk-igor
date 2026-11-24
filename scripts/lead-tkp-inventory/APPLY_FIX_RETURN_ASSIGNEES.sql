@@ -1,6 +1,7 @@
 -- Fix return-for-revision targeting on stand:
 -- 1) GD template → role-general-director (not role-system-admin)
--- 2) RKO template → lead → commercial group → group head
+-- 2) RKO template → lead → manager → department → department head
+--    (do not overwrite if assignee is already conditional / custom)
 -- 3) Return outcomes → reasonFieldId so respawned tasks for the returnee
 --    get the «Причина возврата» highlight
 --
@@ -12,8 +13,9 @@ do $$
 declare
   heads_comment constant text := 'field-tkp-heads-comment-seed';
   lead_reject constant text := 'field-lead-reject-reason-seed';
-  lead_commercial_group constant text := 'field-lead-commercial-group';
-  group_head constant text := 'field-commercial-group-head';
+  lead_manager constant text := 'field-d8ec5a44-6c39-4a73-8a38-103b271f3e17';
+  user_dept constant text := 'field-868917ac-2d79-4e8a-b28d-165f7b126ce7';
+  dept_head constant text := 'field-640540ba-4b47-4e22-8270-b4bfbff081fd';
   tkp_lead constant text := 'field-9fe24291-44ca-4031-b47f-cb99898564bc';
   role_gd constant text := 'role-general-director';
   tmpl record;
@@ -23,6 +25,7 @@ declare
   access jsonb;
   label text;
   i int;
+  rko_type text;
 begin
   -- GD assignee
   update public.automation_task_templates
@@ -35,17 +38,26 @@ begin
     updated_at = now()
   where id = 'atpl-tkp-approve-gd';
 
-  -- RKO assignee: ТКП → лид → коммерческая группа → руководитель группы
-  update public.automation_task_templates
-  set
-    assignee = jsonb_build_object(
-      'type', 'relatedField',
-      'relationFieldId', tkp_lead,
-      'via', jsonb_build_array(lead_commercial_group),
-      'fieldId', group_head
-    ),
-    updated_at = now()
+  -- RKO assignee: ТКП → лид → менеджер → отдел → руководитель
+  -- Skip when stand already uses a custom conditional assignee.
+  select coalesce(assignee->>'type', '')
+    into rko_type
+  from public.automation_task_templates
   where id = 'atpl-tkp-approve-rko';
+
+  if rko_type is distinct from 'conditional' then
+    update public.automation_task_templates
+    set
+      assignee = jsonb_build_object(
+        'type', 'relatedField',
+        'relationFieldId', tkp_lead,
+        'via', jsonb_build_array(lead_manager, user_dept),
+        'fieldId', dept_head
+      ),
+      name = 'Согласовать ТКП — Руководитель отдела менеджера',
+      updated_at = now()
+    where id = 'atpl-tkp-approve-rko';
+  end if;
 
   -- Wire reasonFieldId on return / reject outcomes
   for tmpl in

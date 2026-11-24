@@ -5,6 +5,7 @@ import {
   fetchAutomationTasks,
   getAutomationConfig,
   isAutomationSilentTaskKind,
+  isStageOptionSelectable,
   matchAutomationConditions,
   resolveStageTransition,
   type AutomationScenario,
@@ -496,7 +497,33 @@ export async function applyRecordListChange(
         record.values,
         previousValues,
       );
-      if (scenario && scenario.stageTransitions.length > 0) {
+      if (!scenario || scenario.stageTransitions.length === 0) {
+        let pendingForSelect: AutomationTask[] = [];
+        if (isSupabaseConfigured) {
+          try {
+            pendingForSelect = await fetchPendingTasksForRecord(record.id);
+          } catch {
+            pendingForSelect = [];
+          }
+        }
+        if (
+          !isStageOptionSelectable({
+            entityId: entity.id,
+            field,
+            currentOptionId: fromOptionId,
+            toOptionId,
+            values: record.values,
+            pendingTasks: pendingForSelect,
+          })
+        ) {
+          toast.warning("Переход недоступен", {
+            description:
+              "Можно перейти только на следующую стадию процесса или завершить текущие задания.",
+            duration: 7_000,
+          });
+          return false;
+        }
+      } else if (scenario && scenario.stageTransitions.length > 0) {
         const resolution = resolveStageTransition({
           transitions: scenario.stageTransitions,
           fromOptionId,

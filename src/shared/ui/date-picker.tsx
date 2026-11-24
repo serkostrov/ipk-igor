@@ -104,6 +104,8 @@ type DatePickerProps = {
   "aria-label"?: string;
   className?: string;
   disabled?: boolean;
+  /** Inclusive max `YYYY-MM-DD` — later days are not selectable. */
+  max?: string;
 };
 
 export function DatePicker({
@@ -114,6 +116,7 @@ export function DatePicker({
   "aria-label": ariaLabel,
   className,
   disabled = false,
+  max,
 }: DatePickerProps) {
   const selected = parseISODate(value);
   const [open, setOpen] = useState(false);
@@ -255,19 +258,27 @@ export function DatePicker({
             const inMonth = day.getMonth() === visibleMonth.getMonth();
             const isSelected = selected ? isSameDay(day, selected) : false;
             const isToday = isSameDay(day, today);
+            const iso = toISODate(day);
+            const afterMax = Boolean(max && iso > max);
 
             return (
               <button
                 key={day.toISOString()}
                 type="button"
+                disabled={afterMax}
                 onClick={() => {
-                  onChange(toISODate(day));
+                  if (afterMax) return;
+                  onChange(iso);
                   setOpen(false);
                 }}
                 className={cn(
                   "flex size-8 items-center justify-center rounded-[min(var(--radius-md),10px)] text-sm transition-colors",
                   !inMonth && "text-muted-foreground/40",
-                  inMonth && !isSelected && "text-foreground hover:bg-muted",
+                  inMonth &&
+                    !isSelected &&
+                    !afterMax &&
+                    "text-foreground hover:bg-muted",
+                  afterMax && "cursor-not-allowed text-muted-foreground/35",
                   isToday && !isSelected && "ring-1 ring-primary/35 ring-inset",
                   isSelected &&
                     "bg-primary font-medium text-primary-foreground hover:bg-primary/90",

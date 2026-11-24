@@ -994,23 +994,29 @@ export function isEntityContentTab(tab: Pick<EntityTab, "kind">) {
 
 /**
  * Tabs that roles can allow/deny in the ACL matrix.
- * `fields` (main form) is always available when the entity itself is readable.
+ * Overview (`fields` + locked) stays always available when the entity is readable;
+ * extra field-layout tabs (e.g. tariff / salary on Users) are configurable.
  */
-export function isRoleConfigurableTab(tab: Pick<EntityTab, "kind">) {
-  return (
+export function isRoleConfigurableTab(
+  tab: Pick<EntityTab, "kind" | "id" | "locked" | "linkedEntityId">,
+) {
+  if (
     isEntityFilesTab(tab) ||
     isEntityRecordsTab(tab) ||
     isEntityHistoryTab(tab) ||
     isEntityTimeSessionsTab(tab) ||
     tab.kind === "entity" ||
     isEntityMirrorTab(tab)
-  );
+  ) {
+    return true;
+  }
+  return isEntityFieldsHostTab(tab) && !isEntityOverviewTab(tab);
 }
 
 /** Role-configurable tabs of an entity (stable order as in schema). */
-export function getRoleConfigurableTabs<T extends Pick<EntityTab, "kind">>(
-  tabs: readonly T[],
-): T[] {
+export function getRoleConfigurableTabs<
+  T extends Pick<EntityTab, "kind" | "id" | "locked" | "linkedEntityId">,
+>(tabs: readonly T[]): T[] {
   return tabs.filter(isRoleConfigurableTab);
 }
 

@@ -98,6 +98,10 @@ import {
   type EntityTablePageSize,
 } from "@/entities/entity";
 import { canField, useCanEntity, useCurrentRole } from "@/entities/access";
+import {
+  filterSelectableListOptions,
+  getSelectableStageOptionIds,
+} from "@/entities/automation";
 import { getSessionUser } from "@/entities/session";
 import {
   isDeptCalculationsEntity,
@@ -1733,6 +1737,16 @@ function EntityTableViewInner({
                                             parentField,
                                             entities,
                                           );
+                                        const selectableOptions =
+                                          filterSelectableListOptions(
+                                            visibleOptions,
+                                            getSelectableStageOptionIds({
+                                              entityId: entity.id,
+                                              field,
+                                              currentOptionId: raw ?? "",
+                                              values: record.values,
+                                            }),
+                                          );
                                         const listDisabled =
                                           parentField != null &&
                                           parseEntityListValueIds(parentValue)
@@ -1741,7 +1755,7 @@ function EntityTableViewInner({
                                           <ListSelect
                                             size="sm"
                                             variant="plain"
-                                            options={visibleOptions}
+                                            options={selectableOptions}
                                             value={raw ?? ""}
                                             allowEmpty={!field.required}
                                             allowOther={

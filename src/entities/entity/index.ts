@@ -579,6 +579,7 @@ export {
 } from "./lib/upload-to-files-tab";
 export {
   downloadEntityFileFromUrl,
+  buildOfficeOnlineEmbedUrl,
   getEntityFilePreviewKind,
   isEntityFilePreviewable,
   resolveEntityFileUrl,

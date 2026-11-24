@@ -15,6 +15,7 @@ export {
   maybeEnsureDeptCalculationGipAfterStageChange,
   maybeEnsureDeptCalculationGipForParent,
   maybeEnsureDeptCalculationGipForTask,
+  tkpStageDepartmentRootsMissing,
 } from "./tkp-gip/gip-filling-phase";
 export {
   isTkpGipFillingStageName,
@@ -146,6 +147,11 @@ export {
 export { TkpGipExecutionDurationAsk } from "./tkp-review/ui/TkpGipExecutionDurationAsk";
 export { isTkpGipFillAutomationTask } from "./tkp-review/lib/assert-gip-execution-duration";
 export {
+  findTkpCalcDeadlineField,
+  resolveTkpCalcDeadlineMaxIso,
+  TKP_CALC_DEADLINE_FIELD_ID,
+} from "./tkp-review/lib/assert-tkp-calc-deadline";
+export {
   readTkpGipExecutionDurationDays,
   writeTkpGipExecutionDurationPatch,
 } from "./tkp-review/model/match-related";
@@ -251,5 +257,6 @@ export { registerTkpNoVolumeAfterCompleteHook } from "./tkp-volumes/lib/register
 // Side-effect: register after-complete hardcode handlers.
 import "./tkp-gip/gip-filling-phase";
 import "./dept-calculations/lib/assert-dept-calc-lines";
+import "./tkp-review/lib/assert-tkp-calc-deadline";
 import { registerTkpNoVolumeAfterCompleteHook as __registerTkpNoVolume } from "./tkp-volumes/lib/register-no-volume-hook";
 __registerTkpNoVolume();

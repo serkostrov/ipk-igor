@@ -503,7 +503,7 @@ function buildEntityAccessTableRows(
       id: "outside-menu",
       title: "Вне меню",
       description:
-        "Сущности без пункта в боковом меню: вкладки других сущностей, системные и служебные. Права на них всё равно настраиваются.",
+        "Не пункты бокового меню и не сессии входа: системные сущности, служебные и подсущности вкладок. Права на них всё равно настраиваются.",
       depth: 0,
     });
     for (const entity of leftovers) {
@@ -1459,10 +1459,17 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
             Поля и файлы
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Видимость и редактирование полей и вкладок с файлами выбранной
-            сущности
+            Видимость и редактирование полей и вкладок выбранной сущности
+            (включая доп. вкладки с полями)
           </p>
         </div>
+        {entitiesAll ? (
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            Включён режим «Все сущности (полный доступ)» — матрица полей и
+            вкладок не ограничивает видимость, пока режим не выключен. Первое
+            изменение ниже автоматически переведёт роль на права по сущностям.
+          </p>
+        ) : null}
         {entities.length === 0 ? (
           <p className="text-sm text-muted-foreground">Нет сущностей</p>
         ) : (

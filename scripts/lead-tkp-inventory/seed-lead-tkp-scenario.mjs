@@ -71,8 +71,6 @@ const F = {
   protoStages: "field-8411906a-c6a2-49cb-a357-eacced6eb371",
   protoTkp: "field-42853a00-aadc-40eb-b6f6-98bb0dbe541a",
   deptHead: "field-640540ba-4b47-4e22-8270-b4bfbff081fd",
-  leadCommercialGroup: "field-lead-commercial-group",
-  tkpCommercialGroup: "field-tkp-commercial-group",
   leadTkpTab: "tab-4b478146-7a94-4679-b2fa-ea49af4ec263",
   leadProtoTab: "tab-2f1f0176-8a95-4622-acb7-c5cc4683e16c",
   tkpProtoTab: "tab-67ed91d6-9641-4d1f-8707-dd50c0ccdaaa",
@@ -84,6 +82,11 @@ const NEW = {
   leadGipComment: "field-lead-gip-comment-seed",
   leadRejectReason: "field-lead-reject-reason-seed",
   leadGipAssignDate: "field-lead-gip-assign-date-seed",
+  funnelEntity: "entity-funnels-seed",
+  funnelName: "field-funnel-name-seed",
+  funnelChief: "field-funnel-chief-seed",
+  deptSphere: "field-dept-sphere-seed",
+  deptSphereProduction: "list-dept-sphere-production",
   tkpGroups: "field-tkp-stage-departments-seed",
   tkpCalcDeadline: "field-tkp-calc-deadline-seed",
   tkpHeadsComment: "field-tkp-heads-comment-seed",
@@ -96,18 +99,10 @@ const NEW = {
   tkpDeptTab: "tab-tkp-dept-calculations-seed",
 };
 
-const GROUPS = "entity-commercial-groups";
-const GROUP_NAME = "field-commercial-group-name";
-const GROUP_HEAD = "field-commercial-group-head";
-const GROUP_MAIN = "record-commercial-group-main";
-const GROUP_LINK = "record-commercial-group-link";
 const ROLE_GD = "role-general-director";
 const USER_DEPT = "field-868917ac-2d79-4e8a-b28d-165f7b126ce7";
-const DEPT_NAME = "field-3c5803f4-9bbe-4749-868c-ed0e13497252";
 const USER_ROLE = "field-system-users-role";
 const USER_EMAIL = "field-system-users-email";
-const LINK_HEAD = "record-965624bd-7ab2-403e-92f6-36ebc8e4653c";
-const MAIN_HEAD = "record-c2de36ce-e44e-47d9-8c53-2194b413aca2";
 
 const emptyCond = { version: 1, match: "all", rules: [] };
 const emptyAccess = () => ({
@@ -287,88 +282,7 @@ async function api(token, path, opts = {}) {
   return data;
 }
 
-async function ensureCommercialGroups(token) {
-  const def = {
-    id: GROUPS,
-    name: "Коммерческая группа",
-    namePlural: "Коммерческие группы",
-    icon: "briefcase",
-    fields: [
-      baseField({
-        id: GROUP_NAME,
-        name: "Название",
-        type: "text",
-        required: true,
-        locked: true,
-        tableOrder: 1,
-        colSpan: 4,
-      }),
-      baseField({
-        id: GROUP_HEAD,
-        name: "Руководитель",
-        type: "relation",
-        relationEntityId: USERS,
-        required: true,
-        tableOrder: 2,
-      }),
-    ],
-    tabs: [
-      {
-        id: "overview",
-        kind: "fields",
-        name: "Обзор",
-        locked: true,
-        sourceTabId: null,
-        singleRecord: false,
-        defaultFolders: [],
-        linkedEntityId: null,
-        parentLinkFieldId: null,
-        sourceRelationFieldId: null,
-      },
-    ],
-    fieldGroups: [],
-    kanban: null,
-    table: { pageSize: 50 },
-  };
-  const existing = await api(token, `entities?id=eq.${GROUPS}&select=id`);
-  if (existing?.length) {
-    await api(token, `entities?id=eq.${GROUPS}`, {
-      method: "PATCH",
-      prefer: "return=minimal",
-      body: JSON.stringify({ definition: def }),
-    });
-  } else {
-    await api(token, "entities", {
-      method: "POST",
-      prefer: "return=minimal",
-      body: JSON.stringify({ id: GROUPS, definition: def }),
-    });
-  }
-  const rows = [
-    { id: GROUP_MAIN, name: "Основная", head: MAIN_HEAD },
-    { id: GROUP_LINK, name: "ЛИНК", head: LINK_HEAD },
-  ];
-  for (const row of rows) {
-    const found = await api(token, `entity_records?id=eq.${row.id}&select=id`);
-    const payload = {
-      entity_id: GROUPS,
-      field_values: { [GROUP_NAME]: row.name, [GROUP_HEAD]: row.head },
-    };
-    if (found?.length) {
-      await api(token, `entity_records?id=eq.${row.id}`, {
-        method: "PATCH",
-        prefer: "return=minimal",
-        body: JSON.stringify(payload),
-      });
-    } else {
-      await api(token, "entity_records", {
-        method: "POST",
-        prefer: "return=minimal",
-        body: JSON.stringify({ id: row.id, ...payload }),
-      });
-    }
-  }
-
+async function ensureGeneralDirectorRole(token) {
   const usersEnt = await api(
     token,
     `entities?id=eq.${USERS}&select=definition`,
@@ -481,43 +395,6 @@ async function ensureCommercialGroups(token) {
       holders.length - 1,
     );
   }
-  console.log("commercial groups ready");
-}
-
-async function backfillCommercialGroups(token) {
-  const leads = await api(
-    token,
-    `entity_records?entity_id=eq.${LEAD}&select=id,field_values`,
-  );
-  const users = await api(
-    token,
-    `entity_records?entity_id=eq.${USERS}&select=id,field_values`,
-  );
-  const depts = await api(
-    token,
-    `entity_records?entity_id=eq.${DEPT}&select=id,field_values`,
-  );
-  const userById = Object.fromEntries(users.map((row) => [row.id, row]));
-  const deptById = Object.fromEntries(depts.map((row) => [row.id, row]));
-  let filled = 0;
-  for (const lead of leads) {
-    if (lead.field_values?.[F.leadCommercialGroup]) continue;
-    const managerId = lead.field_values?.[F.leadManager] || "";
-    const deptId = userById[managerId]?.field_values?.[USER_DEPT] || "";
-    const deptName = String(deptById[deptId]?.field_values?.[DEPT_NAME] || "")
-      .toLowerCase()
-      .replaceAll("ё", "е");
-    const group = deptName.includes("линк") ? GROUP_LINK : GROUP_MAIN;
-    await api(token, `entity_records?id=eq.${lead.id}`, {
-      method: "PATCH",
-      prefer: "return=minimal",
-      body: JSON.stringify({
-        field_values: { ...lead.field_values, [F.leadCommercialGroup]: group },
-      }),
-    });
-    filled += 1;
-  }
-  console.log("commercial group filled on leads", filled);
 }
 
 async function main() {
@@ -533,7 +410,7 @@ async function main() {
   const token = auth.access_token;
   if (!token) throw new Error(`auth failed: ${JSON.stringify(auth)}`);
 
-  await ensureCommercialGroups(token);
+  await ensureGeneralDirectorRole(token);
 
   const ents = await api(token, "entities?select=id,definition");
   const byId = Object.fromEntries(ents.map((e) => [e.id, e]));
@@ -542,6 +419,7 @@ async function main() {
   const leadDef = structuredClone(byId[LEAD].definition);
   const tkpDef = structuredClone(byId[TKP].definition);
   const protoDef = structuredClone(byId[PROTO].definition);
+  const deptDef = structuredClone(byId[DEPT].definition);
   const protoStages = protoDef.fields.find((f) => f.id === F.protoStages);
 
   function ensureField(def, field) {
@@ -559,6 +437,26 @@ async function main() {
       relationEntityId: USERS,
       tableOrder: 6,
       required: true,
+    }),
+  );
+
+  // «Воронка» was a fixed list — convert to relation catalog so choosing a
+  // funnel can autofill «Главный инженер» via {{leadFunnel.funnelChief}}.
+  const leadFunnelField = leadDef.fields.find((f) => f.id === F.leadFunnel);
+  const funnelListOptions = structuredClone(leadFunnelField?.listOptions || []);
+  ensureField(
+    leadDef,
+    baseField({
+      id: F.leadFunnel,
+      name: "Воронка",
+      type: "relation",
+      relationEntityId: NEW.funnelEntity,
+      required: true,
+      tableOrder: leadFunnelField?.tableOrder ?? 5,
+      listOptions: [],
+      listFixed: false,
+      showOnCreate: leadFunnelField?.showOnCreate ?? true,
+      showOnRecord: leadFunnelField?.showOnRecord ?? true,
     }),
   );
   ensureField(
@@ -590,6 +488,42 @@ async function main() {
     }),
   );
 
+  // Department sphere → filter «Ведущий отдел» to production only.
+  ensureField(
+    deptDef,
+    baseField({
+      id: NEW.deptSphere,
+      name: "Сфера",
+      type: "list",
+      tableOrder: 3,
+      listFixed: true,
+      listOptions: [
+        {
+          id: NEW.deptSphereProduction,
+          name: "Производство",
+          color: "#22c55e",
+          parentOptionId: null,
+        },
+      ],
+    }),
+  );
+  const protoLeadDeptField = protoDef.fields.find(
+    (f) => f.id === F.protoLeadDept,
+  );
+  if (protoLeadDeptField) {
+    protoLeadDeptField.relationFilter = {
+      matches: [],
+      conditions: [
+        {
+          id: "condition-proto-lead-dept-production",
+          fieldId: NEW.deptSphere,
+          operator: "in",
+          values: [NEW.deptSphereProduction],
+        },
+      ],
+    };
+  }
+
   // New leads stay in «Черновик». Steps 2–3 spawn only after a manual
   // move into «Принятие решения» (reject from step 3 returns to draft).
   const leadStageField = leadDef.fields.find((f) => f.id === F.leadStage);
@@ -599,29 +533,6 @@ async function main() {
       value: LEAD_STAGE.draft,
     };
   }
-
-  ensureField(
-    leadDef,
-    baseField({
-      id: F.leadCommercialGroup,
-      name: "Коммерческая группа",
-      type: "relation",
-      relationEntityId: GROUPS,
-      showOnCreate: false,
-      tableOrder: 23,
-    }),
-  );
-  ensureField(
-    tkpDef,
-    baseField({
-      id: F.tkpCommercialGroup,
-      name: "Коммерческая группа",
-      type: "relation",
-      relationEntityId: GROUPS,
-      showOnCreate: false,
-      tableOrder: 13,
-    }),
-  );
 
   // Level 0 of relationGroups must be kind:"entity" (settings + runtime).
   // Catalog «Стадии проекта» uses the same ids as protocol list options.
@@ -834,6 +745,60 @@ async function main() {
   });
   console.log("updated Lead fields");
 
+  await api(token, `entities?id=eq.${DEPT}`, {
+    method: "PATCH",
+    prefer: "return=minimal",
+    body: JSON.stringify({ definition: deptDef }),
+  });
+  await api(token, `entities?id=eq.${PROTO}`, {
+    method: "PATCH",
+    prefer: "return=minimal",
+    body: JSON.stringify({ definition: protoDef }),
+  });
+  console.log("updated Отдел sphere + Протокол lead-dept filter");
+
+  const DEPT_NAME = "field-3c5803f4-9bbe-4749-868c-ed0e13497252";
+  const NON_PRODUCTION = new Set([
+    "Администрация ЦИПК",
+    "Финансовый отдел",
+    "Юридический отдел",
+    "Служба безопасности",
+    "Отдел директора",
+    "Отдел бухгалтера",
+    "Отдел КДП",
+    "Коммерческий отдел",
+    "Отдел ЛИНК",
+    "Отдел по работе с подрядчиками",
+    "Отдел оптимизации",
+  ]);
+  const deptRows = await api(
+    token,
+    `entity_records?entity_id=eq.${DEPT}&select=id,field_values`,
+  );
+  for (const row of deptRows || []) {
+    const name = String(row.field_values?.[DEPT_NAME] || "").trim();
+    const nextValues = { ...(row.field_values || {}) };
+    if (NON_PRODUCTION.has(name)) {
+      if (nextValues[NEW.deptSphere]) {
+        delete nextValues[NEW.deptSphere];
+        await api(token, `entity_records?id=eq.${encodeURIComponent(row.id)}`, {
+          method: "PATCH",
+          prefer: "return=minimal",
+          body: JSON.stringify({ field_values: nextValues }),
+        });
+      }
+      continue;
+    }
+    if (nextValues[NEW.deptSphere] === NEW.deptSphereProduction) continue;
+    nextValues[NEW.deptSphere] = NEW.deptSphereProduction;
+    await api(token, `entity_records?id=eq.${encodeURIComponent(row.id)}`, {
+      method: "PATCH",
+      prefer: "return=minimal",
+      body: JSON.stringify({ field_values: nextValues }),
+    });
+  }
+  console.log("marked production departments");
+
   // Upsert stages catalog (ids = protocol list option ids)
   const stagesDef = {
     id: STAGES_ENTITY,
@@ -910,6 +875,100 @@ async function main() {
   }
   console.log("upserted Стадии проекта catalog");
 
+  // Upsert «Воронка» catalog (ids = former list option ids) + chief link
+  const funnelDef = {
+    id: NEW.funnelEntity,
+    name: "Воронка",
+    namePlural: "Воронки",
+    icon: "git-branch",
+    fields: [
+      baseField({
+        id: NEW.funnelName,
+        name: "Название",
+        type: "text",
+        required: true,
+        locked: true,
+        tableOrder: 1,
+        colSpan: 4,
+      }),
+      baseField({
+        id: NEW.funnelChief,
+        name: "Главный инженер",
+        type: "relation",
+        relationEntityId: USERS,
+        required: true,
+        tableOrder: 2,
+      }),
+    ],
+    tabs: [
+      {
+        id: "overview",
+        kind: "fields",
+        name: "Обзор",
+        locked: true,
+        sourceTabId: null,
+        singleRecord: false,
+        defaultFolders: [],
+        linkedEntityId: null,
+        parentLinkFieldId: null,
+        sourceRelationFieldId: null,
+      },
+    ],
+    fieldGroups: [],
+    kanban: null,
+    table: { pageSize: 50 },
+  };
+  if (ents.find((e) => e.id === NEW.funnelEntity)) {
+    await api(token, `entities?id=eq.${NEW.funnelEntity}`, {
+      method: "PATCH",
+      prefer: "return=minimal",
+      body: JSON.stringify({ definition: funnelDef }),
+    });
+  } else {
+    await api(token, "entities", {
+      method: "POST",
+      body: JSON.stringify({ id: NEW.funnelEntity, definition: funnelDef }),
+    });
+  }
+  const userRows = await api(
+    token,
+    `entity_records?entity_id=eq.${USERS}&select=id,field_values`,
+  );
+  const defaultChiefId = (userRows || [])[0]?.id || "";
+  for (const opt of funnelListOptions) {
+    const existing = await api(
+      token,
+      `entity_records?id=eq.${encodeURIComponent(opt.id)}&select=id,field_values`,
+    );
+    const prev = existing?.[0]?.field_values || {};
+    const chief = String(prev[NEW.funnelChief] || "").trim() || defaultChiefId;
+    const payload = {
+      id: opt.id,
+      entity_id: NEW.funnelEntity,
+      field_values: {
+        [NEW.funnelName]: String(opt.name || "").trim() || opt.id,
+        ...(chief ? { [NEW.funnelChief]: chief } : {}),
+      },
+    };
+    if (existing?.length) {
+      await api(token, `entity_records?id=eq.${encodeURIComponent(opt.id)}`, {
+        method: "PATCH",
+        prefer: "return=minimal",
+        body: JSON.stringify({
+          entity_id: NEW.funnelEntity,
+          field_values: payload.field_values,
+        }),
+      });
+    } else {
+      await api(token, "entity_records", {
+        method: "POST",
+        prefer: "return=minimal",
+        body: JSON.stringify(payload),
+      });
+    }
+  }
+  console.log("upserted Воронка catalog", funnelListOptions.length);
+
   // Upsert dept calc entity
   const existingDept = ents.find((e) => e.id === NEW.deptCalcEntity);
   if (existingDept) {
@@ -967,6 +1026,9 @@ async function main() {
       step_order: 0,
       kind: "single",
       assignee: { type: "field", fieldId: F.leadManager },
+      actions: [
+        setField(NEW.leadChief, `{{${F.leadFunnel}.${NEW.funnelChief}}}`),
+      ],
       outcomes: [
         outcome("Готово", "#22c55e", [], {
           ...emptyAccess(),
@@ -1446,21 +1508,21 @@ async function main() {
     }),
   );
 
-  // 12.2 — руководитель коммерческой группы лида (Основная или ЛИНК).
+  // 12.2 — руководитель отдела менеджера лида (ТКП → лид → менеджер → отдел → рук.).
   tkpTemplates.push(
     template({
       id: "atpl-tkp-approve-rko",
       scenario_id: TKP_SCEN,
-      name: "Согласовать ТКП — Руководитель коммерческой группы",
-      name_template: `{{${F.tkpName}}}_Согласовать ТКП — Руководитель коммерческой группы`,
+      name: "Согласовать ТКП — Руководитель отдела менеджера",
+      name_template: `{{${F.tkpName}}}_Согласовать ТКП — Руководитель отдела менеджера`,
       trigger_option_id: TKP_STAGE.approveRko,
       step_order: 0,
       kind: "decision",
       assignee: {
         type: "relatedField",
         relationFieldId: F.tkpLead,
-        via: [F.leadCommercialGroup],
-        fieldId: GROUP_HEAD,
+        via: [F.leadManager, USER_DEPT],
+        fieldId: F.deptHead,
       },
       outcomes: [
         outcome("Согласовать", "#22c55e", [
@@ -1546,8 +1608,43 @@ async function main() {
       stage_transitions: [
         {
           id: uid("astr"),
+          fromOptionId: LEAD_STAGE.draft,
+          toOptionId: LEAD_STAGE.decision,
+          elseOptionId: "",
+          conditions: emptyCond,
+        },
+        {
+          id: uid("astr"),
           fromOptionId: LEAD_STAGE.decision,
           toOptionId: LEAD_STAGE.gipLeadDept,
+          elseOptionId: "",
+          conditions: emptyCond,
+        },
+        {
+          id: uid("astr"),
+          fromOptionId: LEAD_STAGE.gipLeadDept,
+          toOptionId: LEAD_STAGE.gipFilling,
+          elseOptionId: "",
+          conditions: emptyCond,
+        },
+        {
+          id: uid("astr"),
+          fromOptionId: LEAD_STAGE.gipFilling,
+          toOptionId: LEAD_STAGE.tkpCalc,
+          elseOptionId: "",
+          conditions: emptyCond,
+        },
+        {
+          id: uid("astr"),
+          fromOptionId: LEAD_STAGE.tkpCalc,
+          toOptionId: LEAD_STAGE.customer,
+          elseOptionId: "",
+          conditions: emptyCond,
+        },
+        {
+          id: uid("astr"),
+          fromOptionId: LEAD_STAGE.customer,
+          toOptionId: LEAD_STAGE.recalc,
           elseOptionId: "",
           conditions: emptyCond,
         },
@@ -1556,6 +1653,19 @@ async function main() {
     }),
   });
 
+  const tkpLinear = [
+    TKP_STAGE.created,
+    TKP_STAGE.selectDepts,
+    TKP_STAGE.depts,
+    TKP_STAGE.gipFill,
+    TKP_STAGE.chiefApprove,
+    TKP_STAGE.price,
+    TKP_STAGE.approveGip,
+    TKP_STAGE.approveRko,
+    TKP_STAGE.approveGd,
+    TKP_STAGE.readySend,
+    TKP_STAGE.sent,
+  ];
   await api(token, `automation_scenarios?id=eq.${TKP_SCEN}`, {
     method: "PATCH",
     prefer: "return=minimal",
@@ -1573,7 +1683,13 @@ async function main() {
         [TKP_STAGE.approveGd]: "sequential",
         [TKP_STAGE.readySend]: "sequential",
       },
-      stage_transitions: [],
+      stage_transitions: tkpLinear.slice(0, -1).map((from, index) => ({
+        id: uid("astr"),
+        fromOptionId: from,
+        toOptionId: tkpLinear[index + 1],
+        elseOptionId: "",
+        conditions: emptyCond,
+      })),
       updated_at: new Date().toISOString(),
     }),
   });
@@ -1646,8 +1762,6 @@ async function main() {
       body: JSON.stringify(rule),
     });
   }
-
-  await backfillCommercialGroups(token);
 
   const check = await api(
     token,

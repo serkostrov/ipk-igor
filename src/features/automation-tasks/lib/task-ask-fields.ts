@@ -146,7 +146,17 @@ function mergeFieldAskOptions(
       opts.relationGroupsMode &&
       prev.relationGroupsMode !== opts.relationGroupsMode
     ) {
-      into[fieldId] = { ...prev, relationGroupsMode: "full" };
+      // Prefer the more restrictive ask mode (nested/items) over widening to
+      // full — template outcome options must win over generic merges.
+      const prefer =
+        opts.relationGroupsMode === "nested" ||
+        opts.relationGroupsMode === "items"
+          ? opts.relationGroupsMode
+          : prev.relationGroupsMode === "nested" ||
+              prev.relationGroupsMode === "items"
+            ? prev.relationGroupsMode
+            : "full";
+      into[fieldId] = { ...prev, ...opts, relationGroupsMode: prefer };
     } else {
       into[fieldId] = { ...prev, ...opts };
     }

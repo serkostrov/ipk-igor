@@ -10,12 +10,16 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import {
+  assertAutomationTimeTrackingReady,
   automationOutcomeButtonStyle,
+  automationRequiresTimeTracking,
   automationUploadTargetBlocksComplete,
   completeAutomationTask,
   completePendingSilentAutomationTasks,
   completePendingSilentAutomationTasksForRecord,
   fetchAutomationTask,
+  filterSelectableListOptions,
+  getSelectableStageOptionIds,
   resolveEffectiveUploadTarget,
   isAutomationSilentTaskKind,
   resolveAutomationGateError,
@@ -69,7 +73,7 @@ import {
 } from "@/features/automation-tasks";
 import {
   applyAutomationSetFieldAutofill,
-  getOutcomeSetFieldActions,
+  getTaskSetFieldAutofillActions,
   mergeAutofillIntoFormValues,
 } from "@/features/automation-tasks/lib/apply-outcome-autofill";
 import { isTaskAskFieldFilled } from "@/features/automation-tasks/lib/task-field-filled";
@@ -95,14 +99,17 @@ import {
   flushRelatedAskPersists,
 } from "@/features/automation-tasks/lib/apply-related-ask-field-change";
 import { TaskRelatedAskFields } from "@/features/automation-tasks/ui/TaskRelatedAskFields";
+import { TaskTimeSessionsPanel } from "@/features/automation-tasks/ui/TaskTimeSessionsPanel";
 import { TaskViewContextFields } from "@/features/automation-tasks/ui/TaskViewContextFields";
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
 import { TaskUploadPanel } from "@/features/automation-tasks/ui/TaskUploadPanel";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
 import { useCurrentRole } from "@/entities/access";
 import {
+  findTkpCalcDeadlineField,
   isTkpDepartmentHeadRole,
   maybeEnsureDeptCalculationGipForTask,
+  resolveTkpCalcDeadlineMaxIso,
 } from "@/features/hardcode";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 
@@ -225,7 +232,10 @@ function TaskFillFieldsDialogBody({
             next.config.outcomes.find((item) => item.id === defaultOutcomeId) ??
             next.config.outcomes[0] ??
             null;
-          const actions = getOutcomeSetFieldActions(outcome);
+          const actions = getTaskSetFieldAutofillActions(
+            next.config.actions,
+            outcome,
+          );
           if (actions.length > 0) {
             const filled = await applyAutomationSetFieldAutofill({
               entity,
@@ -302,8 +312,8 @@ function TaskFillFieldsDialogBody({
     const outcome =
       task?.config.outcomes.find((item) => item.id === autofillOutcomeId) ??
       null;
-    return getOutcomeSetFieldActions(outcome);
-  }, [autofillOutcomeId, task?.config.outcomes]);
+    return getTaskSetFieldAutofillActions(task?.config.actions, outcome);
+  }, [autofillOutcomeId, task?.config.actions, task?.config.outcomes]);
   const ask: AutomationAskFields | null = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
@@ -354,6 +364,20 @@ function TaskFillFieldsDialogBody({
     : formVisibleFieldIds
         .map((fieldId) => entity.fields.find((field) => field.id === fieldId))
         .filter((field): field is EntityField => field != null);
+  const calcDeadlineMaxValue = useAsyncValue(
+    () =>
+      entity && findTkpCalcDeadlineField(entity)
+        ? resolveTkpCalcDeadlineMaxIso({
+            entity,
+            values: { ...(record?.values ?? {}), ...values },
+            entities,
+          })
+        : Promise.resolve(null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entity?.id, record?.id, entities, values],
+  );
+  const calcDeadlineMax =
+    calcDeadlineMaxValue.status === "ready" ? calcDeadlineMaxValue.value : null;
   const formViewFieldIds = (() => {
     const ids = [...(templateAsk?.viewFieldIds ?? [])];
     if ((selectedOutcome || formUpfront || showViewBefore) && ask) {
@@ -761,10 +785,15 @@ function TaskFillFieldsDialogBody({
     setBusy(true);
     setError(null);
     try {
+      const completed = task!;
+      await assertAutomationTimeTrackingReady({
+        taskId: completed.id,
+        userId: sessionUser?.id ?? null,
+        materials: completed.config.materials,
+      });
       await autosave.flush();
       await persistValues(outcomeId);
       await flushRelatedAskPersists();
-      const completed = task!;
       await completeAutomationTask(
         completed.id,
         outcomeId,
@@ -822,8 +851,11 @@ function TaskFillFieldsDialogBody({
       return;
     }
     setSelectedOutcomeId(outcome.id);
-    if (!entity || !record) return;
-    const actions = getOutcomeSetFieldActions(outcome);
+    if (!entity || !record || !task) return;
+    const actions = getTaskSetFieldAutofillActions(
+      task.config.actions,
+      outcome,
+    );
     const relatedFields =
       getAutomationOutcomeAskFields(outcome).relatedVisibleFields;
     if (actions.length === 0 && relatedFields.length === 0) return;
@@ -980,11 +1012,22 @@ function TaskFillFieldsDialogBody({
                             : undefined;
                           const listOptions =
                             field.type === "list"
-                              ? getVisibleListOptions(
-                                  field,
-                                  parentValue,
-                                  parentField,
-                                  entities,
+                              ? filterSelectableListOptions(
+                                  getVisibleListOptions(
+                                    field,
+                                    parentValue,
+                                    parentField,
+                                    entities,
+                                  ),
+                                  getSelectableStageOptionIds({
+                                    entityId: entity.id,
+                                    field,
+                                    currentOptionId:
+                                      values[field.id] ??
+                                      record.values[field.id] ??
+                                      "",
+                                    values: { ...record.values, ...values },
+                                  }),
                                 )
                               : field.listOptions;
                           const listPresentation =
@@ -1017,6 +1060,12 @@ function TaskFillFieldsDialogBody({
                                 entities={entities}
                                 recordId={record.id}
                                 required={required}
+                                maxDate={
+                                  findTkpCalcDeadlineField(entity)?.id ===
+                                  field.id
+                                    ? (calcDeadlineMax ?? undefined)
+                                    : undefined
+                                }
                                 relationGroupsMode={
                                   ask?.fieldAskOptions[field.id]
                                     ?.relationGroupsMode ?? "full"
@@ -1078,6 +1127,16 @@ function TaskFillFieldsDialogBody({
                   </div>
                 ) : undefined
               }
+            />
+          ) : null}
+
+          {task && automationRequiresTimeTracking(task.config.materials) ? (
+            <TaskTimeSessionsPanel
+              taskId={task.id}
+              userId={sessionUser?.id}
+              required
+              disabled={busy}
+              onError={(message) => setError(message)}
             />
           ) : null}
 

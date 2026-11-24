@@ -3,15 +3,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
 import {
+  assertAutomationTimeTrackingReady,
   automationOutcomeButtonStyle,
   automationRequiresTimeTracking,
   automationUploadTargetBlocksComplete,
-  fetchAutomationTaskTimeSessions,
-  fetchOpenAutomationTaskTimeSession,
+  filterSelectableListOptions,
+  getSelectableStageOptionIds,
   resolveEffectiveUploadTarget,
   resolveAutomationGateError,
   resolveViewEntityFieldsLayout,
-  stopAutomationTaskTimeSession,
   type AutomationTask,
 } from "@/entities/automation";
 import { cn } from "@/shared/lib/cn";
@@ -54,7 +54,7 @@ import { useSessionUser } from "@/entities/session";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 import {
   applyAutomationSetFieldAutofill,
-  getOutcomeSetFieldActions,
+  getTaskSetFieldAutofillActions,
   mergeAutofillIntoFormValues,
 } from "../lib/apply-outcome-autofill";
 import {
@@ -98,14 +98,18 @@ import {
 import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
 import { useCurrentRole } from "@/entities/access";
 import {
+  findTkpCalcDeadlineField,
   isTkpDepartmentHeadRole,
   isTkpGipFillAutomationTask,
   isTkpGipRole,
   maybeEnsureDeptCalculationGipForTask,
   readTkpGipExecutionDurationDays,
+  resolveTkpCalcDeadlineMaxIso,
   TkpGipExecutionDurationAsk,
   TkpReviewHardcodeSlot,
+  tkpStageDepartmentRootsMissing,
 } from "@/features/hardcode";
+import { maybeHealTkpStageDepartmentRoots } from "@/features/hardcode/tkp-gip/heal-tkp-stage-roots";
 import { TaskCreateRecordAsk } from "./TaskCreateRecordAsk";
 import { TaskRelatedAskFields } from "./TaskRelatedAskFields";
 import { TaskViewContextFields } from "./TaskViewContextFields";
@@ -148,7 +152,7 @@ async function buildTaskFormValues(
   record: EntityRecord,
   visibleFieldIds: string[],
   entities: Entity[],
-  setFieldActions: ReturnType<typeof getOutcomeSetFieldActions> = [],
+  setFieldActions: ReturnType<typeof getTaskSetFieldAutofillActions> = [],
   actorUserId: string | null = null,
   relatedFields: ReturnType<
     typeof getAutomationTaskAskFields
@@ -272,31 +276,6 @@ function TaskWorkspaceBody({
   const showPinnedGipDuration =
     isGipFillTask || (Boolean(entity) && isTkpGipRole(role));
 
-  // Deferred ГИП: create stage×ГИП rows when this assignment is «На заполнении ГИПа».
-  useEffect(() => {
-    if (!entity || !record) return;
-    const triggerOptionId = (task.triggerOptionId ?? "").trim();
-    if (!triggerOptionId) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        await maybeEnsureDeptCalculationGipForTask({
-          hostEntity: entity,
-          hostRecord: record,
-          triggerOptionId,
-          entities,
-        });
-      } catch (error: unknown) {
-        if (!cancelled) {
-          console.error("[tkp-gip] ensure on task open failed", error);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [entity, entities, record, task.id, task.triggerOptionId]);
-
   const taskAsk = getAutomationTaskAskFields(task);
   const templateAsk = getAutomationTemplateAskFields(task);
   const formUpfront = automationTaskShowsFormUpfront(task);
@@ -319,8 +298,8 @@ function TaskWorkspaceBody({
     const outcome =
       task.config.outcomes.find((item) => item.id === autofillOutcomeId) ??
       null;
-    return getOutcomeSetFieldActions(outcome);
-  }, [autofillOutcomeId, task.config.outcomes]);
+    return getTaskSetFieldAutofillActions(task.config.actions, outcome);
+  }, [autofillOutcomeId, task.config.actions, task.config.outcomes]);
   const ask = selectedOutcome
     ? getAutomationOutcomeAskFields(selectedOutcome)
     : null;
@@ -400,7 +379,7 @@ function TaskWorkspaceBody({
       record,
       taskAsk.visibleFieldIds,
       entities,
-      getOutcomeSetFieldActions(outcome),
+      getTaskSetFieldAutofillActions(task.config.actions, outcome),
       getCurrentUserRecordId(),
       taskAsk.relatedVisibleFields,
     ).then((seed) => {
@@ -411,6 +390,43 @@ function TaskWorkspaceBody({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Heal empty «Стадия/отделы» roots from protocol, then ensure ГИП rows.
+  useEffect(() => {
+    if (!entity || !record) return;
+    const triggerOptionId = (task.triggerOptionId ?? "").trim();
+    if (!triggerOptionId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const healed = await maybeHealTkpStageDepartmentRoots({
+          hostEntity: entity,
+          hostRecord: record,
+          entities,
+        });
+        if (cancelled) return;
+        if (healed?.healed) {
+          setValues((current) => ({ ...current, ...healed.values }));
+        }
+        await maybeEnsureDeptCalculationGipForTask({
+          hostEntity: entity,
+          hostRecord: healed?.values
+            ? { ...record, values: healed.values }
+            : record,
+          triggerOptionId,
+          entities,
+        });
+      } catch (error: unknown) {
+        if (!cancelled) {
+          console.error("[tkp-gip] ensure on task open failed", error);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entity, entities, record, task.id, task.triggerOptionId]);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requireTime = automationRequiresTimeTracking(task.config.materials);
@@ -533,7 +549,10 @@ function TaskWorkspaceBody({
     if (!entity || !record) return;
     const outcome =
       task.config.outcomes.find((item) => item.id === outcomeId) ?? null;
-    const actions = getOutcomeSetFieldActions(outcome);
+    const actions = getTaskSetFieldAutofillActions(
+      task.config.actions,
+      outcome,
+    );
     const relatedFields =
       outcome != null
         ? getAutomationOutcomeAskFields(outcome).relatedVisibleFields
@@ -566,6 +585,21 @@ function TaskWorkspaceBody({
     }
     setValues(next);
   }
+
+  const calcDeadlineMaxValue = useAsyncValue(
+    () =>
+      entity && findTkpCalcDeadlineField(entity)
+        ? resolveTkpCalcDeadlineMaxIso({
+            entity,
+            values: { ...(record?.values ?? {}), ...values },
+            entities,
+          })
+        : Promise.resolve(null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entity?.id, record?.id, entities, values],
+  );
+  const calcDeadlineMax =
+    calcDeadlineMaxValue.status === "ready" ? calcDeadlineMaxValue.value : null;
 
   const mergedValues = useMemo(
     () => ({ ...(record?.values ?? {}), ...values }),
@@ -925,34 +959,11 @@ function TaskWorkspaceBody({
     setBusy(true);
     setError(null);
     try {
-      // Close a running timer so its duration is saved before complete.
-      const timerUserId = sessionUser?.id ?? null;
-      if (timerUserId) {
-        const openSessionId = await fetchOpenAutomationTaskTimeSession(
-          task.id,
-          timerUserId,
-        );
-        if (openSessionId) {
-          await stopAutomationTaskTimeSession(openSessionId);
-        }
-      }
-      if (requireTime) {
-        const sessions = await fetchAutomationTaskTimeSessions(task.id);
-        const totalSeconds = sessions.reduce((sum, session) => {
-          if (session.seconds > 0) return sum + session.seconds;
-          if (!session.endedAt) return sum;
-          const start = new Date(session.startedAt).getTime();
-          const end = new Date(session.endedAt).getTime();
-          if (!Number.isFinite(start) || !Number.isFinite(end)) return sum;
-          return sum + Math.max(0, Math.floor((end - start) / 1000));
-        }, 0);
-        if (totalSeconds <= 0) {
-          setError(
-            "Чтобы завершить задание, добавьте время вручную или запустите и остановите таймер.",
-          );
-          return;
-        }
-      }
+      await assertAutomationTimeTrackingReady({
+        taskId: task.id,
+        userId: sessionUser?.id ?? null,
+        materials: task.config.materials,
+      });
       await autosave.flush();
       await persistValues(outcomeId);
       await onComplete(outcomeId, values);
@@ -1186,6 +1197,16 @@ function TaskWorkspaceBody({
                         Заполнить
                       </p>
                     ) : null}
+                    {entity &&
+                    tkpStageDepartmentRootsMissing(entity, {
+                      ...record?.values,
+                      ...values,
+                    }) ? (
+                      <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                        Нет стадий из протокола запуска — сначала заполните
+                        стадии на шаге выбора ведущего отдела.
+                      </p>
+                    ) : null}
                     {fields.map((field) => {
                       const parentField = getEntityListParentField(
                         entity,
@@ -1197,11 +1218,22 @@ function TaskWorkspaceBody({
                         : undefined;
                       const listOptions =
                         field.type === "list"
-                          ? getVisibleListOptions(
-                              field,
-                              parentValue,
-                              parentField,
-                              entities,
+                          ? filterSelectableListOptions(
+                              getVisibleListOptions(
+                                field,
+                                parentValue,
+                                parentField,
+                                entities,
+                              ),
+                              getSelectableStageOptionIds({
+                                entityId: entity.id,
+                                field,
+                                currentOptionId:
+                                  values[field.id] ??
+                                  record.values[field.id] ??
+                                  "",
+                                values: mergedValues,
+                              }),
                             )
                           : field.listOptions;
                       const listPresentation =
@@ -1234,6 +1266,11 @@ function TaskWorkspaceBody({
                             entities={entities}
                             recordId={record.id}
                             required={required}
+                            maxDate={
+                              findTkpCalcDeadlineField(entity)?.id === field.id
+                                ? (calcDeadlineMax ?? undefined)
+                                : undefined
+                            }
                             relationGroupsMode={
                               ask?.fieldAskOptions[field.id]
                                 ?.relationGroupsMode ??

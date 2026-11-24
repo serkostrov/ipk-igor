@@ -9,15 +9,40 @@ import {
 } from "@/entities/automation";
 import { applyEntityFieldValue, type Entity } from "@/entities/entity";
 
+type SetFieldAction = Extract<AutomationAction, { kind: "setField" }>;
+
+function isSetFieldAction(action: AutomationAction): action is SetFieldAction {
+  return action.kind === "setField" && action.fieldId.trim().length > 0;
+}
+
 /** setField actions that write a concrete field. */
 export function getOutcomeSetFieldActions(
   outcome: AutomationOutcome | null | undefined,
-): Extract<AutomationAction, { kind: "setField" }>[] {
+): SetFieldAction[] {
   if (!outcome) return [];
-  return outcome.actions.filter(
-    (action): action is Extract<AutomationAction, { kind: "setField" }> =>
-      action.kind === "setField" && action.fieldId.trim().length > 0,
-  );
+  return outcome.actions.filter(isSetFieldAction);
+}
+
+/** Template-level setField actions (run while filling the form, not only on complete). */
+export function getTemplateSetFieldActions(
+  actions: readonly AutomationAction[] | null | undefined,
+): SetFieldAction[] {
+  if (!actions?.length) return [];
+  return actions.filter(isSetFieldAction);
+}
+
+/**
+ * Autofill mappings for the open task form: template actions first, then the
+ * selected outcome (outcome may override the same target field on full apply).
+ */
+export function getTaskSetFieldAutofillActions(
+  templateActions: readonly AutomationAction[] | null | undefined,
+  outcome: AutomationOutcome | null | undefined,
+): SetFieldAction[] {
+  return [
+    ...getTemplateSetFieldActions(templateActions),
+    ...getOutcomeSetFieldActions(outcome),
+  ];
 }
 
 /** Whether a stored action value reads `fieldId` from the current record. */

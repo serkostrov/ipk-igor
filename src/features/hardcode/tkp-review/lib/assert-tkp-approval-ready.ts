@@ -4,7 +4,6 @@
 
 import {
   findTkpLeadRelationField,
-  getEntityFieldDisplayName,
   getEntityRecordById,
   getEntityRelationTargetId,
   parseEntityRelationIds,
@@ -17,40 +16,6 @@ import {
   isTkpApprovalInProgress,
   resolveTkpApprovalPendingOptionId,
 } from "./tkp-approval";
-
-function normalizeName(value: string): string {
-  return value.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
-}
-
-function findCommercialGroupField(entity: Entity): string | null {
-  const field = entity.fields.find((item) => {
-    const name = normalizeName(getEntityFieldDisplayName(item));
-    return (
-      name === "коммерческая группа" ||
-      name === "коммерческая группа лида" ||
-      (name.includes("коммерческ") && name.includes("групп"))
-    );
-  });
-  return field?.id ?? null;
-}
-
-async function resolveLeadRecord(options: {
-  entity: Entity;
-  record: EntityRecord;
-  entities: readonly Entity[];
-}): Promise<{ leadEntity: Entity; leadRecord: EntityRecord } | null> {
-  const leadField = findTkpLeadRelationField(options.entity, options.entities);
-  if (!leadField) return null;
-  const leadEntityId = getEntityRelationTargetId(leadField);
-  if (!leadEntityId) return null;
-  const leadEntity = options.entities.find((item) => item.id === leadEntityId);
-  if (!leadEntity) return null;
-  const leadId = parseEntityRelationIds(options.record.values[leadField.id])[0];
-  if (!leadId) return null;
-  const leadRecord = await getEntityRecordById(leadEntity, leadId);
-  if (!leadRecord) return null;
-  return { leadEntity, leadRecord };
-}
 
 export async function assertTkpDocumentApprovalReady(options: {
   entity: Entity;
@@ -87,24 +52,21 @@ export async function assertTkpDocumentApprovalReady(options: {
     );
   }
 
-  const hostGroupFieldId = findCommercialGroupField(entity);
-  const lead = await resolveLeadRecord({ entity, record, entities });
-  const leadGroupFieldId = lead
-    ? findCommercialGroupField(lead.leadEntity)
+  // Lead link is required for approval routing (manager / department head).
+  const leadField = findTkpLeadRelationField(entity, entities);
+  const leadEntityId = leadField ? getEntityRelationTargetId(leadField) : null;
+  const leadId = leadField
+    ? parseEntityRelationIds(record.values[leadField.id])[0]
     : null;
-
-  const hostGroup = hostGroupFieldId
-    ? parseEntityRelationIds(record.values[hostGroupFieldId])[0]
-    : null;
-  const leadGroup =
-    lead && leadGroupFieldId
-      ? parseEntityRelationIds(lead.leadRecord.values[leadGroupFieldId])[0]
-      : null;
-
-  if (hostGroup && leadGroup && hostGroup !== leadGroup) {
-    throw new Error("Коммерческая группа ТКП не настроена");
+  if (!leadField || !leadEntityId || !leadId) {
+    throw new Error("У ТКП не указан связанный лид");
   }
-  if (!hostGroup && !leadGroup) {
-    throw new Error("Коммерческая группа ТКП не настроена");
+  const leadEntity = entities.find((item) => item.id === leadEntityId);
+  if (!leadEntity) {
+    throw new Error("Сущность лида не найдена");
+  }
+  const leadRecord = await getEntityRecordById(leadEntity, leadId);
+  if (!leadRecord) {
+    throw new Error("Связанный лид не найден");
   }
 }

@@ -196,7 +196,8 @@ export async function canViewRecordForDataScope(
   record: EntityRecord,
   options: RecordDataScopeOptions,
 ): Promise<boolean> {
-  if (!role || isAdminRole(role)) return true;
+  if (!role) return false;
+  if (isAdminRole(role)) return true;
   if (await matchesEntityDataScopeDirect(role, entity, record, options)) {
     return true;
   }

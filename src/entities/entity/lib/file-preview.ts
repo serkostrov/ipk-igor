@@ -11,14 +11,20 @@ export type EntityFileViewerItem = {
 };
 
 export type EntityFilePreviewKind =
-  "image" | "pdf" | "video" | "audio" | "text" | "unknown";
+  "image" | "pdf" | "video" | "audio" | "text" | "office" | "unknown";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)$/i;
 const PDF_EXT = /\.pdf$/i;
 const VIDEO_EXT = /\.(mp4|webm|ogg|mov|m4v)$/i;
 const AUDIO_EXT = /\.(mp3|wav|ogg|m4a|aac|flac)$/i;
+const OFFICE_EXT = /\.docx?$/i;
 const TEXT_EXT =
   /\.(txt|md|csv|json|xml|log|tsv|yml|yaml|ini|env|ts|tsx|js|jsx|css|html|svg)$/i;
+
+const OFFICE_MIME = new Set([
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 /** Soft cap for in-viewer text fetch (bytes). */
 export const ENTITY_FILE_TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
@@ -40,6 +46,7 @@ export function getEntityFilePreviewKind(file: {
   }
   if (mime.startsWith("video/") || VIDEO_EXT.test(name)) return "video";
   if (mime.startsWith("audio/") || AUDIO_EXT.test(name)) return "audio";
+  if (OFFICE_MIME.has(mime) || OFFICE_EXT.test(name)) return "office";
   if (
     mime.startsWith("text/") ||
     mime === "application/json" ||
@@ -49,6 +56,11 @@ export function getEntityFilePreviewKind(file: {
     return "text";
   }
   return "unknown";
+}
+
+/** Microsoft Office Online embed URL for a publicly reachable file URL. */
+export function buildOfficeOnlineEmbedUrl(fileUrl: string): string {
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
 }
 
 export function isEntityFilePreviewable(file: {

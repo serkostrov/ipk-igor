@@ -33,6 +33,10 @@ import {
   useCurrentRole,
 } from "@/entities/access";
 import {
+  filterSelectableListOptions,
+  getSelectableStageOptionIds,
+} from "@/entities/automation";
+import {
   addEntityRecord,
   ENTITY_FIELD_GROUP_COLUMNS,
   ENTITY_OVERVIEW_TAB_ID,
@@ -559,11 +563,20 @@ function RecordHeaderField({
   const accessibleName = getEntityFieldDisplayName(field);
   const parentField = getEntityListParentField(entity, field);
   const parentValue = parentField ? values[parentField.id] : undefined;
-  const listOptions = getVisibleListOptions(
+  const visibleListOptions = getVisibleListOptions(
     field,
     parentValue,
     parentField,
     entities,
+  );
+  const listOptions = filterSelectableListOptions(
+    visibleListOptions,
+    getSelectableStageOptionIds({
+      entityId: entity.id,
+      field,
+      currentOptionId: value ?? "",
+      values,
+    }),
   );
   const listPresentation = resolveEntityListFieldPresentation(field, entities);
   const listDisabled =
@@ -1316,6 +1329,14 @@ function EntityRecordContent({
     if (headerField) ids.add(headerField.id);
     return ids;
   }, [headerField]);
+  const deniedFieldTabIds = useMemo(() => {
+    const denied = new Set<string>();
+    for (const tab of entity.tabs) {
+      if (!isRoleConfigurableTab(tab)) continue;
+      if (!canTab(role, entity.id, tab.id, "view")) denied.add(tab.id);
+    }
+    return denied;
+  }, [entity.id, entity.tabs, role]);
   const allLayoutFields = useMemo(
     () =>
       entity.fields.filter(
@@ -1324,9 +1345,10 @@ function EntityRecordContent({
           !pinnedFieldIds.has(field.id) &&
           isEntityFieldVisibleOnRecord(field) &&
           canField(role, entity.id, field.id, "view") &&
+          !deniedFieldTabIds.has(getEntityFieldTabId(field)) &&
           isEntityFieldVisibleByConditions(valueContext, entity, record, field),
       ),
-    [entity, pinnedFieldIds, role, valueContext, record],
+    [deniedFieldTabIds, entity, pinnedFieldIds, role, valueContext, record],
   );
   const isUsersEntity = entity.systemKey === SYSTEM_ENTITY_KEY_USERS;
   const primaryGroups = useMemo(

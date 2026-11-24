@@ -27,6 +27,7 @@ import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { cn } from "@/shared/lib/cn";
 import { formatEntityFileSize } from "../model/types";
 import {
+  buildOfficeOnlineEmbedUrl,
   downloadEntityFileFromUrl,
   ENTITY_FILE_TEXT_PREVIEW_MAX_BYTES,
   getEntityFilePreviewKind,
@@ -59,6 +60,8 @@ function kindLabel(kind: EntityFilePreviewKind) {
       return "Аудио";
     case "text":
       return "Текст";
+    case "office":
+      return "Документ Word";
     default:
       return "Файл";
   }
@@ -509,6 +512,30 @@ export function EntityFileViewer({
           </pre>
         );
       }
+    } else if (kind === "office") {
+      // Office Online needs a publicly reachable URL; signed/local URLs may
+      // fail — keep download as fallback in the header and below.
+      stage = (
+        <div className="relative flex size-full flex-col">
+          <iframe
+            title={file.name}
+            src={buildOfficeOnlineEmbedUrl(url)}
+            className="size-full rounded-lg bg-white shadow-2xl"
+          />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-black/70 to-transparent px-3 pt-10 pb-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="pointer-events-auto gap-1.5"
+              onClick={handleDownload}
+            >
+              <Download className="size-3.5" />
+              Скачать
+            </Button>
+          </div>
+        </div>
+      );
     } else {
       stage = (
         <PreviewFallback

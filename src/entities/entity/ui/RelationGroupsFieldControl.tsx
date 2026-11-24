@@ -655,7 +655,10 @@ export function RelationGroupsFieldControl({
   if (!showDeeper) {
     if (!canEditRoot) {
       return groups.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Пока ничего не выбрано</p>
+        <p className="text-xs text-muted-foreground">
+          Стадии ещё не перенесены из протокола запуска — сначала заполните
+          стадии на шаге выбора ведущего отдела.
+        </p>
       ) : (
         <div className="flex min-w-0 flex-wrap items-center gap-1">
           {groups.map((node) => {
@@ -767,7 +770,10 @@ export function RelationGroupsFieldControl({
           Выберите строки выше — для каждой откроются вложенные поля
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground">Пока ничего не выбрано</p>
+        <p className="text-xs text-muted-foreground">
+          Нет стадий из протокола запуска — сначала заполните стадии на шаге
+          выбора ведущего отдела, затем снова откройте задание.
+        </p>
       )}
     </div>
   );

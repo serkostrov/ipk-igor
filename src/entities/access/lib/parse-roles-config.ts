@@ -21,7 +21,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseDataScope(value: unknown): DataScope {
-  return typeof value === "string" && isDataScope(value) ? value : "all";
+  return typeof value === "string" && isDataScope(value) ? value : "own";
 }
 
 function parseFieldAccess(value: unknown): FieldAccess | null {

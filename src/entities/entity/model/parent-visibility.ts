@@ -1,6 +1,7 @@
 import { getEntityRecordById } from "./record-queries";
 import { getEntityRelationTargetId, parseEntityRelationIds } from "./field";
-import type { Entity, EntityRecord } from "./types";
+import { getEntityTableNestedTargets } from "./table-hierarchy";
+import type { Entity, EntityRecord, EntityTab } from "./types";
 
 export type ParentVisibilityLink = {
   parentEntity: Entity;
@@ -8,9 +9,38 @@ export type ParentVisibilityLink = {
   childLinkFieldId: string;
 };
 
+/** Same rule as `resolveLinkedTabParentLinkFieldId` (keep in entity layer — no automation import). */
+function resolveParentLinkFieldId(
+  tab: Pick<EntityTab, "parentLinkFieldId">,
+  linkedEntity: Entity,
+  parentEntityId: string,
+): string | null {
+  const configured = tab.parentLinkFieldId?.trim() || null;
+  if (configured) return configured;
+  const inferred = linkedEntity.fields.find(
+    (field) =>
+      (field.type === "relation" || field.type === "belonging") &&
+      getEntityRelationTargetId(field) === parentEntityId,
+  );
+  return inferred?.id ?? null;
+}
+
+function inferChildLinkToParent(
+  childEntity: Entity,
+  parentEntityId: string,
+): string | null {
+  const field = childEntity.fields.find(
+    (item) =>
+      (item.type === "relation" || item.type === "belonging") &&
+      getEntityRelationTargetId(item) === parentEntityId,
+  );
+  return field?.id ?? null;
+}
+
 /**
  * How a child entity attaches to parents for view-inheritance:
- * - parent tabs `kind: "entity"` with `parentLinkFieldId`
+ * - parent tabs `kind: "entity"` with configured or inferred `parentLinkFieldId`
+ * - nested table targets (`tableNestedEntityId` / linked nested tabs)
  * - `parentEntityId` + belonging/relation on the child to that parent
  */
 export function findParentVisibilityLinks(
@@ -26,6 +56,7 @@ export function findParentVisibilityLinks(
     );
     if (!field) return;
     if (field.type !== "relation" && field.type !== "belonging") return;
+    if (getEntityRelationTargetId(field) !== parentEntity.id) return;
     const key = `${parentEntity.id}:${childLinkFieldId}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -36,9 +67,20 @@ export function findParentVisibilityLinks(
     for (const tab of parent.tabs) {
       if (tab.kind !== "entity") continue;
       if (tab.linkedEntityId !== childEntity.id) continue;
-      const fieldId = tab.parentLinkFieldId?.trim();
+      const fieldId = resolveParentLinkFieldId(tab, childEntity, parent.id);
       if (!fieldId) continue;
       add(parent, fieldId);
+    }
+
+    for (const nested of getEntityTableNestedTargets(parent, entities)) {
+      if (nested.entityId !== childEntity.id) continue;
+      add(parent, nested.parentLinkFieldId);
+    }
+
+    const nestedId = parent.tableNestedEntityId?.trim();
+    if (nestedId === childEntity.id) {
+      const fieldId = inferChildLinkToParent(childEntity, parent.id);
+      if (fieldId) add(parent, fieldId);
     }
   }
 

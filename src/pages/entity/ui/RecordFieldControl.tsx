@@ -247,6 +247,7 @@ export function RecordFieldControl({
   softFillParent = null,
   emptyNumberPlaceholder = false,
   onOpenRelation,
+  maxDate,
 }: {
   /** Preview context: computed values follow the unsaved `values`. */
   ctx: EntityValueContext;
@@ -277,6 +278,8 @@ export function RecordFieldControl({
   emptyNumberPlaceholder?: boolean;
   /** Open a related / belonging record from the chip label. */
   onOpenRelation?: (entityId: string, recordId: string) => void;
+  /** Inclusive max `YYYY-MM-DD` for datetime date pickers. */
+  maxDate?: string;
 }) {
   const id = `record-${field.id}`;
   const label = getEntityFieldDisplayName(field);
@@ -679,8 +682,12 @@ export function RecordFieldControl({
             <DatePicker
               id={`${id}-date`}
               value={date}
+              max={maxDate}
               aria-label={`${label}: дата`}
-              onChange={(next) => onChange(joinDatetime(next, time))}
+              onChange={(next) => {
+                if (maxDate && next && next > maxDate) return;
+                onChange(joinDatetime(next, time));
+              }}
             />
             <TimePicker
               id={`${id}-time`}
@@ -693,8 +700,12 @@ export function RecordFieldControl({
           <DatePicker
             id={`${id}-date`}
             value={date}
+            max={maxDate}
             aria-label={label}
-            onChange={(next) => onChange(next)}
+            onChange={(next) => {
+              if (maxDate && next && next > maxDate) return;
+              onChange(next);
+            }}
           />
         )}
       </div>

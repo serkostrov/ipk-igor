@@ -213,8 +213,15 @@ function entityCanLinkToDepartments(
     if (field.type === "relation" && field.relationMultiple && !hopNamed) {
       continue;
     }
+    if (hopNamed) {
+      // Commercial group etc. counts only with a direct «Отдел» link —
+      // not via the group head Users (would make every lead match the head).
+      if (getDepartmentLinkFields(target, departmentsEntityId).length > 0) {
+        return true;
+      }
+      continue;
+    }
     if (
-      hopNamed ||
       entityCanLinkToDepartments(
         target,
         departmentsEntityId,
@@ -258,6 +265,16 @@ export async function collectRecordDepartmentIds(
       entities,
     )) {
       found.add(id);
+    }
+    return [...found];
+  }
+
+  // Commercial group / similar hops: only direct «Отдел», never head Users.
+  if (entityNameMatches(entity, DEPARTMENT_HOP_ENTITY_KEYS)) {
+    for (const field of getDepartmentLinkFields(entity, departmentsEntity.id)) {
+      for (const id of parseEntityRelationIds(record.values[field.id])) {
+        if (id) found.add(id);
+      }
     }
     return [...found];
   }

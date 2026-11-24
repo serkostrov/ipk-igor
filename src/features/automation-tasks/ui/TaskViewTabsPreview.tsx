@@ -23,7 +23,7 @@ import {
   getEntityFieldGroupArea,
   getEntityFieldGroupName,
   getEntityFieldTabId,
-  getEntityFileDownloadUrl,
+  EntityFileViewer,
   getEntityConfig,
   getEntityTabFilesValueKey,
   getSystemUserNameByAuthId,
@@ -289,7 +289,7 @@ function FilesPreview({
   selectedFolderIds?: string[];
   allowMove?: boolean;
 }) {
-  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [destinationId, setDestinationId] = useState<string>("");
@@ -383,27 +383,25 @@ function FilesPreview({
     setSelectedIds(fileIds);
   }
 
-  async function openFile(entry: EntityTabFileEntry) {
+  const viewerFiles = useMemo(
+    () =>
+      filtered
+        .filter((entry) => entry.kind === "file")
+        .map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          mimeType: entry.mimeType,
+          size: entry.size,
+          storagePath: entry.storagePath,
+          dataUrl: entry.dataUrl,
+        })),
+    [filtered],
+  );
+
+  function openFile(entry: EntityTabFileEntry) {
     if (entry.kind !== "file") return;
     setActionError(null);
-    setOpeningId(entry.id);
-    try {
-      if (entry.dataUrl) {
-        window.open(entry.dataUrl, "_blank", "noopener,noreferrer");
-        return;
-      }
-      if (!entry.storagePath) {
-        throw new Error("Файл недоступен");
-      }
-      const url = await getEntityFileDownloadUrl(entry.storagePath);
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Не удалось открыть файл",
-      );
-    } finally {
-      setOpeningId(null);
-    }
+    setViewerId(entry.id);
   }
 
   async function moveSelected() {
@@ -619,8 +617,8 @@ function FilesPreview({
                   ) : null}
                   <button
                     type="button"
-                    disabled={!canOpen || openingId === entry.id}
-                    onClick={() => void openFile(entry)}
+                    disabled={!canOpen}
+                    onClick={() => openFile(entry)}
                     className={cn(
                       "flex min-w-0 flex-1 items-start gap-2.5 text-left text-sm transition-colors",
                       canOpen ? "hover:text-primary" : "opacity-70",
@@ -700,6 +698,16 @@ function FilesPreview({
           Выбрать все файлы
         </button>
       ) : null}
+
+      <EntityFileViewer
+        open={viewerId != null}
+        onOpenChange={(open) => {
+          if (!open) setViewerId(null);
+        }}
+        files={viewerFiles}
+        activeId={viewerId}
+        onActiveIdChange={setViewerId}
+      />
     </div>
   );
 }

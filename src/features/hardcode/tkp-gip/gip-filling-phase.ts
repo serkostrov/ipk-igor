@@ -21,6 +21,7 @@ import {
   type EntityRecord,
 } from "@/entities/entity";
 import { ensureDeptCalculationGipRows } from "./fan-out-related-persist";
+import { maybeHealTkpStageDepartmentRoots } from "./heal-tkp-stage-roots";
 
 function findDeptCalculationsEntity(
   entities: readonly Entity[],
@@ -112,15 +113,26 @@ export async function maybeEnsureDeptCalculationGipForTask(options: {
     taskName = null,
     entities = getEntityConfig().entities,
   } = options;
+  const healed = await maybeHealTkpStageDepartmentRoots({
+    hostEntity,
+    hostRecord,
+    entities,
+  });
+  const parentRecord =
+    healed?.healed && healed.values
+      ? { ...hostRecord, values: healed.values }
+      : hostRecord;
   return maybeEnsureDeptCalculationGipForParent({
     parentEntity: hostEntity,
-    parentRecord: hostRecord,
+    parentRecord,
     entities,
     triggerOptionId,
     triggerFieldId,
     taskName,
   });
 }
+
+export { tkpStageDepartmentRootsMissing } from "./heal-tkp-stage-roots";
 
 function isDeptCalcStageName(name: string): boolean {
   const normalized = name.trim().toLocaleLowerCase("ru").replaceAll("ё", "е");
