@@ -91,13 +91,19 @@ import {
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
 import {
+  DealCardHardcodeSlot,
+  DealFinanceSummary,
+  getDealCardSection,
+  isDealsEntity,
   isProjectGanttHardcodeTab,
   isProjectsEntity,
   isTkpPriceHardcodeTab,
   ProjectGanttHardcodeSlot,
+  resolveDealCardVisibility,
   resolveProjectGanttVisibility,
   resolveTkpReviewCostVisibility,
   TkpReviewHardcodeSlot,
+  withDealCardHardcodeTabs,
   withProjectGanttHardcodeTab,
   withTkpPriceHardcodeTab,
 } from "@/features/hardcode";
@@ -1347,6 +1353,11 @@ function EntityRecordContent({
     () => resolveProjectGanttVisibility(role),
     [role],
   );
+  const dealCardVisibility = useMemo(
+    () => resolveDealCardVisibility(role),
+    [role],
+  );
+  const isDealRecord = isDealsEntity(entity);
   const entityTabs = useMemo(() => {
     const withTkp = withTkpPriceHardcodeTab(
       entity.tabs,
@@ -1357,17 +1368,23 @@ function EntityRecordContent({
     const withGantt = projectGanttVisibility.showGanttTab
       ? withProjectGanttHardcodeTab(withTkp, entity)
       : withTkp;
+    const withDeal = withDealCardHardcodeTabs(
+      withGantt,
+      entity,
+      dealCardVisibility.showFinance,
+    );
     // «Только график» — только на сущности «Проекты». На «Разбор ТКП» иначе
     // схлопываются все вкладки (в т.ч. «Расчёты отделов») у рук. отделов.
     const scoped =
       projectGanttVisibility.ganttReviewOnly && isProjectsEntity(entity)
-        ? withGantt.filter((tab) => isProjectGanttHardcodeTab(tab))
-        : withGantt;
+        ? withDeal.filter((tab) => isProjectGanttHardcodeTab(tab))
+        : withDeal;
     return scoped.filter((tab) => {
       if (!isEntityFilesTab(tab)) return true;
       return canTab(role, entity.id, tab.id, "view");
     });
   }, [
+    dealCardVisibility.showFinance,
     entities,
     entity,
     projectGanttVisibility.ganttReviewOnly,
@@ -1512,6 +1529,14 @@ function EntityRecordContent({
             />
           ) : null}
 
+          {isDealRecord ? (
+            <DealFinanceSummary
+              entity={entity}
+              record={record}
+              onOpenRelation={onOpenRelation}
+            />
+          ) : null}
+
           <Tabs
             value={resolvedActiveTabId}
             onValueChange={(tabId) => {
@@ -1538,6 +1563,20 @@ function EntityRecordContent({
             ) : null}
 
             {entityTabs.map((tab) => {
+              const dealSection = getDealCardSection(tab);
+              if (dealSection) {
+                return (
+                  <TabsContent key={tab.id} value={tab.id} className="mt-0">
+                    <DealCardHardcodeSlot
+                      entity={entity}
+                      record={record}
+                      section={dealSection}
+                      onOpenRelation={onOpenRelation}
+                    />
+                  </TabsContent>
+                );
+              }
+
               if (isTkpPriceHardcodeTab(tab)) {
                 return (
                   <TabsContent key={tab.id} value={tab.id} className="mt-0">
