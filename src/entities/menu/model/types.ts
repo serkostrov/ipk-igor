@@ -202,6 +202,9 @@ export const FINANCE_DASHBOARDS_ITEM_ID = "finance-dashboards";
 /** Hardcoded page «Табель времени». */
 export const PROJECT_TIMESHEET_ITEM_ID = "project-timesheet";
 
+/** Hardcoded page «Платёжный календарь». */
+export const PAYMENT_CALENDAR_ITEM_ID = "payment-calendar";
+
 /** Default icon for a menu item (пункт). */
 export const DEFAULT_MENU_ITEM_ICON: MenuIconName = "circle-help";
 
@@ -354,6 +357,7 @@ export function isSystemMenuItem(id: string) {
     id === OPIU_ITEM_ID ||
     id === FINANCE_DASHBOARDS_ITEM_ID ||
     id === PROJECT_TIMESHEET_ITEM_ID ||
+    id === PAYMENT_CALENDAR_ITEM_ID ||
     id === SYSTEM_USERS_MENU_ITEM_ID
   );
 }

@@ -11,6 +11,7 @@ const CHATS_ID = "chats";
 const OPIU_ID = "opiu";
 const FINANCE_DASHBOARDS_ID = "finance-dashboards";
 const PROJECT_TIMESHEET_ID = "project-timesheet";
+const PAYMENT_CALENDAR_ID = "payment-calendar";
 const ENTITY_PREFIX = "entity-";
 
 /** Settings page tabs (kept here so shared routing does not import access). */
@@ -59,6 +60,7 @@ export type AppLocation =
   | { type: "opiu" }
   | { type: "finance-dashboards" }
   | { type: "project-timesheet" }
+  | { type: "payment-calendar" }
   | { type: "entity"; entityId: string; view?: EntityBrowsePathView }
   | { type: "record"; entityId: string; recordId: string; tabId?: string };
 
@@ -100,6 +102,8 @@ export function toPath(location: AppLocation): string {
       return "/finance-dashboards";
     case "project-timesheet":
       return "/project-timesheet";
+    case "payment-calendar":
+      return "/payment-calendar";
     case "entity": {
       const base = `/e/${encodeURIComponent(location.entityId)}`;
       return location.view
@@ -138,6 +142,7 @@ export function parsePath(pathname: string): AppLocation | null {
   if (path === "/opiu") return { type: "opiu" };
   if (path === "/finance-dashboards") return { type: "finance-dashboards" };
   if (path === "/project-timesheet") return { type: "project-timesheet" };
+  if (path === "/payment-calendar") return { type: "payment-calendar" };
 
   const taskPath = /^\/tasks\/([^/]+)$/.exec(path);
   if (taskPath) {
@@ -232,6 +237,8 @@ export function locationToMenuId(location: AppLocation): string {
       return FINANCE_DASHBOARDS_ID;
     case "project-timesheet":
       return PROJECT_TIMESHEET_ID;
+    case "payment-calendar":
+      return PAYMENT_CALENDAR_ID;
     case "entity":
     case "record":
       return location.entityId;
@@ -249,6 +256,7 @@ export function menuIdToLocation(menuId: string): AppLocation {
   if (menuId === OPIU_ID) return { type: "opiu" };
   if (menuId === FINANCE_DASHBOARDS_ID) return { type: "finance-dashboards" };
   if (menuId === PROJECT_TIMESHEET_ID) return { type: "project-timesheet" };
+  if (menuId === PAYMENT_CALENDAR_ID) return { type: "payment-calendar" };
   if (menuId.startsWith(ENTITY_PREFIX)) {
     return { type: "entity", entityId: menuId };
   }
@@ -325,6 +333,7 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     case "opiu":
     case "finance-dashboards":
     case "project-timesheet":
+    case "payment-calendar":
       return true;
     case "task": {
       const other = b as typeof a;

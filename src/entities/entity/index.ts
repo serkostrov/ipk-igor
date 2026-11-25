@@ -799,6 +799,7 @@ export {
   primeEntityRecordsByIds,
 } from "./model/record-queries";
 export { resolveEntityRecordClosure } from "./model/record-closure";
+export { getRecordPrimeVersion } from "./model/record-prime-store";
 export {
   useTkpGipExtrasResolver,
   useTkpGipLeadContext,
