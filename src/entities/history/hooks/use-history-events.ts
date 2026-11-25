@@ -3,9 +3,13 @@ import { fetchEntityRecordEvents, fetchEntityEvents } from "../api/history-api";
 import type {
   EntityEventsQuery,
   EntityRecordEventsQuery,
+  HistoryLabels,
 } from "../model/types";
 
 const PAGE_SIZE = 50;
+
+/** Stable empty-map reference so consumers' deps don't churn while loading. */
+const EMPTY_LABELS: HistoryLabels = {};
 
 export type EntityRecordEventsStatus = "loading" | "ready" | "error";
 
@@ -14,6 +18,8 @@ type EventsState<T> = {
   reloadToken: unknown;
   events: T[];
   hasMore: boolean;
+  /** Server-resolved `id → label` map (empty for sources without labels). */
+  labels: HistoryLabels;
   status: EntityRecordEventsStatus;
   error: string | null;
 };
@@ -32,7 +38,7 @@ function usePagedEvents<T>(
   fetchPage: (
     query: EntityRecordEventsQuery,
     page: { offset: number; limit: number },
-  ) => Promise<{ events: T[]; hasMore: boolean }>,
+  ) => Promise<{ events: T[]; hasMore: boolean; labels?: HistoryLabels }>,
   reloadToken: unknown = null,
 ) {
   const query = useMemo(
@@ -55,6 +61,7 @@ function usePagedEvents<T>(
             query,
             reloadToken,
             ...page,
+            labels: page.labels ?? {},
             status: "ready",
             error: null,
           });
@@ -66,6 +73,7 @@ function usePagedEvents<T>(
             reloadToken,
             events: [],
             hasMore: false,
+            labels: {},
             status: "error",
             error: errorText(error),
           });
@@ -89,6 +97,7 @@ function usePagedEvents<T>(
               ...current,
               events: [...current.events, ...page.events],
               hasMore: page.hasMore,
+              labels: { ...current.labels, ...(page.labels ?? {}) },
               status: "ready",
               error: null,
             }
@@ -108,6 +117,7 @@ function usePagedEvents<T>(
   return {
     events: current?.events ?? [],
     hasMore: current?.hasMore ?? false,
+    labels: current?.labels ?? EMPTY_LABELS,
     status: current?.status ?? "loading",
     error: current?.error ?? null,
     loadingMore: current !== null && loadingPage === current,

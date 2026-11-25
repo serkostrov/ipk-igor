@@ -67,36 +67,38 @@ function localDayStartIso(date: string, offsetDays = 0) {
   );
 }
 
+type RecordEventsRpcResponse = {
+  events: EventRow[];
+  hasMore: boolean;
+  labels: Record<string, string>;
+};
+
 export async function fetchEntityRecordEvents(
   query: EntityRecordEventsQuery,
   page: { offset: number; limit: number },
 ): Promise<EntityRecordEventsPage> {
   if (!isSupabaseConfigured || !supabase) {
-    return { events: [], hasMore: false };
+    return { events: [], hasMore: false, labels: {} };
   }
 
-  let request = supabase
-    .from("entity_record_events")
-    .select("id, entity_id, record_id, action, changes, actor_id, created_at")
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .range(page.offset, page.offset + page.limit);
-
-  if (query.recordId) request = request.eq("record_id", query.recordId);
-  if (query.entityId) request = request.eq("entity_id", query.entityId);
-  if (query.actorId) request = request.eq("actor_id", query.actorId);
-  if (query.from)
-    request = request.gte("created_at", localDayStartIso(query.from));
-  if (query.to)
-    request = request.lt("created_at", localDayStartIso(query.to, 1));
-
-  const { data, error } = await request;
+  const { data, error } = await supabase.rpc("entity_record_events_page", {
+    p_filter: {
+      recordId: query.recordId ?? null,
+      entityId: query.entityId ?? null,
+      actorId: query.actorId ?? null,
+      from: query.from ?? null,
+      to: query.to ?? null,
+    },
+    p_offset: page.offset,
+    p_limit: page.limit,
+  });
   if (error) throw error;
 
-  const rows = (data ?? []) as EventRow[];
+  const result = (data ?? null) as RecordEventsRpcResponse | null;
   return {
-    events: rows.slice(0, page.limit).map(rowToEvent),
-    hasMore: rows.length > page.limit,
+    events: (result?.events ?? []).map(rowToEvent),
+    hasMore: result?.hasMore ?? false,
+    labels: result?.labels ?? {},
   };
 }
 

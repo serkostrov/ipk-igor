@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import {
   describeEntityRecordChanges,
-  getSystemUserNameByAuthId,
   RecordChangeList,
   useEntityValueContext,
   type Entity,
@@ -13,6 +12,7 @@ import {
 import {
   useEntityRecordEvents,
   type EntityRecordEvent,
+  type HistoryLabels,
 } from "@/entities/history";
 import { addCalendarDays, todayIsoDate } from "@/shared/lib/business-days";
 import {
@@ -40,13 +40,15 @@ function HistoryEventItem({
   ctx,
   entity,
   event,
+  labels,
 }: {
   ctx: EntityValueContext;
   entity: Entity;
   event: EntityRecordEvent;
+  labels: HistoryLabels;
 }) {
   const name =
-    getSystemUserNameByAuthId(ctx.entities, event.actorId) ??
+    (event.actorId ? labels[event.actorId] : undefined) ??
     (event.actorId ? "Пользователь" : "Система");
   const time = getLocalTimestampParts(event.createdAt)?.time ?? "";
 
@@ -75,7 +77,12 @@ function HistoryEventItem({
           ) : null}
         </p>
         {event.action === "update" ? (
-          <RecordChangeList ctx={ctx} entity={entity} changes={event.changes} />
+          <RecordChangeList
+            ctx={ctx}
+            entity={entity}
+            changes={event.changes}
+            labels={labels}
+          />
         ) : null}
       </div>
     </li>
@@ -99,7 +106,7 @@ export function RecordHistoryTabPanel({
     return () => window.clearTimeout(timer);
   }, [record.values, reloadToken]);
 
-  const { events, hasMore, status, error, loadingMore, loadMore } =
+  const { events, hasMore, status, error, loadingMore, loadMore, labels } =
     useEntityRecordEvents({ recordId: record.id }, reloadToken);
 
   const groups = useMemo(() => {
@@ -158,6 +165,7 @@ export function RecordHistoryTabPanel({
                       ctx={valueContext}
                       entity={entity}
                       event={event}
+                      labels={labels}
                     />
                   ))}
                 </ul>

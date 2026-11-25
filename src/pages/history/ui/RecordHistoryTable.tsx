@@ -13,35 +13,28 @@ import {
 } from "./HistoryTableControls";
 import {
   getEntityDisplayName,
-  getSystemUserNameByAuthId,
   isEntityNameField,
   RecordChangeList,
-  resolveRelationRecordLabel,
-  useEnsureRecordsByIds,
   useEntityConfig,
   useEntityValueContext,
   type Entity,
-  type EntityValueContext,
 } from "@/entities/entity";
 import {
   useEntityRecordEvents,
   type EntityRecordEvent,
   type EntityRecordEventsQuery,
+  type HistoryLabels,
 } from "@/entities/history";
 
-/** Current title, or the stored name for deleted records. */
+/** Server-resolved title (present → record exists), else the stored name of a
+ * deleted record from the diff. */
 function recordTitle(
-  ctx: EntityValueContext,
   entity: Entity | undefined,
   event: EntityRecordEvent,
+  labels: HistoryLabels,
   exists: boolean,
 ) {
-  if (entity && exists) {
-    return (
-      resolveRelationRecordLabel(entity, event.recordId, undefined, ctx) ??
-      "Без названия"
-    );
-  }
+  if (exists) return labels[event.recordId] ?? "Без названия";
   const nameField = entity?.fields.find((field) => isEntityNameField(field));
   const change = nameField ? event.changes[nameField.id] : undefined;
   return change?.old?.trim() || change?.new?.trim() || "Удалённая запись";
@@ -56,10 +49,8 @@ export function RecordHistoryTable({
 }) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
-  const { events, hasMore, status, error, loadingMore, loadMore } =
+  const { events, hasMore, status, error, loadingMore, loadMore, labels } =
     useEntityRecordEvents(query);
-  // By-id load for records referenced by the visible events (any entity).
-  useEnsureRecordsByIds(events.map((event) => event.recordId));
   return (
     <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs">
       <Table className="table-fixed text-[13px]">
@@ -87,24 +78,16 @@ export function RecordHistoryTable({
               const eventEntity = entities.find(
                 (item) => item.id === event.entityId,
               );
-              const exists = eventEntity
-                ? Boolean(
-                    valueContext.getRecord(eventEntity.id, event.recordId),
-                  )
-                : false;
-              const title = recordTitle(
-                valueContext,
-                eventEntity,
-                event,
-                exists,
-              );
+              const exists =
+                Boolean(eventEntity) && event.recordId in labels;
+              const title = recordTitle(eventEntity, event, labels, exists);
               return (
                 <TableRow key={event.id} className="border-border/60 align-top">
                   <TableCell className="px-3 py-2 text-muted-foreground tabular-nums">
                     {formatTimestampDisplay(event.createdAt)}
                   </TableCell>
                   <TableCell className="truncate px-3 py-2">
-                    {getSystemUserNameByAuthId(entities, event.actorId) ??
+                    {(event.actorId ? labels[event.actorId] : undefined) ??
                       (event.actorId ? "Пользователь" : "Система")}
                   </TableCell>
                   <TableCell className="truncate px-3 py-2 text-muted-foreground">
@@ -137,6 +120,7 @@ export function RecordHistoryTable({
                         ctx={valueContext}
                         entity={eventEntity}
                         changes={event.changes}
+                        labels={labels}
                       />
                     ) : (
                       <span className="text-muted-foreground">

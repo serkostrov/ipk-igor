@@ -13,6 +13,7 @@ import {
   type EntityRecordValueChange,
 } from "../model/record-changes";
 import {
+  parseEntityRelationIds,
   resolveEntityListFieldOptions,
   resolveEntityListFieldPresentation,
   type Entity,
@@ -20,20 +21,46 @@ import {
 } from "../model/types";
 import { ListValueDisplay } from "./ListSelect";
 
+/** Field types whose stored value is a list of record ids (resolved via the
+ * server-provided labels map, not the in-browser record store). */
+function isRecordRefField(field: EntityField) {
+  return field.type === "relation" || field.type === "belonging";
+}
+
 function ChangeValue({
   ctx,
   entity,
   field,
   value,
+  labels,
   previous = false,
 }: {
   ctx: EntityValueContext;
   entity: Entity;
   field: EntityField;
   value: string;
+  labels?: Record<string, string>;
   previous?: boolean;
 }) {
   if (!value) return <span className="text-muted-foreground/70">—</span>;
+
+  if (labels && isRecordRefField(field)) {
+    const text =
+      parseEntityRelationIds(value)
+        .map((id) => labels[id] ?? "Без названия")
+        .join(", ") || "—";
+    return (
+      <span
+        className={cn(
+          "max-w-[18rem] truncate",
+          previous ? "text-muted-foreground" : "font-medium text-foreground",
+        )}
+        title={text}
+      >
+        {text}
+      </span>
+    );
+  }
 
   if (field.type === "list") {
     const presentation = resolveEntityListFieldPresentation(
@@ -94,11 +121,14 @@ export function RecordChangeList({
   ctx,
   entity,
   changes,
+  labels,
   className,
 }: {
   ctx: EntityValueContext;
   entity: Entity;
   changes: Record<string, EntityRecordValueChange>;
+  /** Server-resolved record/actor labels; relation values render from this. */
+  labels?: Record<string, string>;
   className?: string;
 }) {
   const items = describeEntityRecordChanges(entity, changes);
@@ -121,6 +151,7 @@ export function RecordChangeList({
                 entity={entity}
                 field={item.field}
                 value={item.before}
+                labels={labels}
                 previous
               />
               <ArrowRight
@@ -132,6 +163,7 @@ export function RecordChangeList({
                 entity={entity}
                 field={item.field}
                 value={item.after}
+                labels={labels}
               />
             </>
           ) : (
