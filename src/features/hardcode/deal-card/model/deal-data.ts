@@ -74,7 +74,7 @@ export type DealCardData = {
   contractTotals: MoneyTriple | null;
 };
 
-function readNumber(
+export function readNumber(
   ctx: EntityValueContext,
   entity: Entity,
   record: EntityRecord,
@@ -88,7 +88,7 @@ function readNumber(
   return getRecordFieldNumber(ctx, entity, record, field);
 }
 
-function readText(
+export function readText(
   ctx: EntityValueContext,
   entity: Entity,
   record: EntityRecord,
@@ -99,11 +99,14 @@ function readText(
   return value === "—" ? "" : value;
 }
 
-function readRaw(record: EntityRecord, field: EntityField | null): string {
+export function readRaw(
+  record: EntityRecord,
+  field: EntityField | null,
+): string {
   return field ? (record.values[field.id] ?? "").trim() : "";
 }
 
-function firstRelationId(
+export function firstRelationId(
   record: EntityRecord,
   field: EntityField | null,
 ): string | null {

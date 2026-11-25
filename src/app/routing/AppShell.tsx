@@ -59,6 +59,7 @@ import { MessengerPage } from "@/pages/messenger";
 import { OpiuPage } from "@/pages/opiu";
 import { FinanceDashboardsPage } from "@/pages/finance-dashboards";
 import { ProjectTimesheetPage } from "@/pages/project-timesheet";
+import { PaymentCalendarPage } from "@/pages/payment-calendar";
 import { SettingsPage } from "@/pages/settings";
 import { NotificationsHost } from "@/widgets/notifications";
 import { MessengerHost } from "@/widgets/messenger";
@@ -101,6 +102,9 @@ function isLocationAllowed(
   }
   if (location.type === "project-timesheet") {
     return canMenuItem(role, "project-timesheet");
+  }
+  if (location.type === "payment-calendar") {
+    return canMenuItem(role, "payment-calendar");
   }
   if (location.type === "entity" || location.type === "record") {
     return (
@@ -383,6 +387,8 @@ export function AppShell() {
           <FinanceDashboardsPage />
         ) : accessResolved.type === "project-timesheet" ? (
           <ProjectTimesheetPage />
+        ) : accessResolved.type === "payment-calendar" ? (
+          <PaymentCalendarPage onOpenRecord={handleOpenRecord} />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-auto p-8">
             <h1 className="text-2xl font-semibold tracking-tight">Раздел</h1>
