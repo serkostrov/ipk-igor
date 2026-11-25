@@ -1,17 +1,1 @@
 bitrix_id,name,reason,detail,responsible
-2785,Иванов Иван Иванович ( ТЕСТ ),unresolved_responsible,Феофанова Анастасия,Феофанова Анастасия
-1605,CAE-Services,unresolved_responsible,Шуракова Ксения,Шуракова Ксения
-1575,ООО РКМ,unresolved_responsible,Шуракова Ксения,Шуракова Ксения
-1424,Рвсн,unresolved_responsible,Шуракова Ксения,Шуракова Ксения
-1366,Компания #1366,unresolved_responsible,Шуракова Ксения,Шуракова Ксения
-1324,ННГАСУ,unresolved_responsible,Шуракова Ксения,Шуракова Ксения
-1104,Компания #1104,unresolved_responsible,Шуракова Ксения,Шуракова Ксения
-2989,"ООО ""ЛУКОЙЛ-КНТ""",duplicate_name,winner_bitrix=2671,Александрова Татьяна
-2639,"АО ""НПО ""АКОНИТ""",duplicate_name,winner_bitrix=2605,Отдел Продаж
-2561,ООО «Тульский завод газового оборудования»,duplicate_name,winner_bitrix=2593,Отдел Коммерческий
-3015,"АО ""Автоваз""",duplicate_name,winner_bitrix=2001,Старостин Роман
-1779,ООО «ОСК»,duplicate_name,winner_bitrix=2921,Пашпорина Яна
-1765,"ООО ""Завод синтанолов""",duplicate_name,winner_bitrix=2777,Харитонов Андрей
-1090,ООО «НОРКЕМ-ПЭ»,duplicate_name,winner_bitrix=2783,Отдел Коммерческий
-768,"АО ""Каустик""",duplicate_name,winner_bitrix=2527,Отдел Коммерческий
-228,ГУП РК «Черноморнефтегаз»,duplicate_name,winner_bitrix=116,Отдел Коммерческий

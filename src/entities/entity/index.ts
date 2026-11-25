@@ -454,6 +454,7 @@ export {
 export {
   inviteSystemUser,
   isUsersEntityId,
+  setSystemUserPassword,
   type InviteUserInput,
 } from "./api/invite-user-api";
 export { ensureCurrentUserProfile } from "./api/ensure-user-profile-api";

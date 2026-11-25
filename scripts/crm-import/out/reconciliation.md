@@ -1,10 +1,10 @@
 # CRM import reconciliation (apply)
 
-- CP inserted/updated: 1458/0
-- CT inserted/updated: 3059/0
-- DB counts now: CP=1460 CT=3060
-- CP quarantine: 16
-- CT quarantine: 682
+- CP inserted/updated: 0/0
+- CT inserted/updated: 3/3058
+- DB counts now: CP=1458 CT=3063
+- CP quarantine: 0
+- CT quarantine: 32
 - Errors: 0
 
 No write errors.

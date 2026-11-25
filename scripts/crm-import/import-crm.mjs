@@ -4,12 +4,19 @@
  * Usage:
  *   node scripts/crm-import/import-crm.mjs --dry-run
  *   node scripts/crm-import/import-crm.mjs --apply
+ *   node scripts/crm-import/import-crm.mjs --contacts-only --apply
+ *
+ * Env (optional overrides; else root .env):
+ *   VITE_SUPABASE_URL / SUPABASE_URL
+ *   VITE_SUPABASE_ANON_KEY / SUPABASE_ANON_KEY
+ *   SUPABASE_SERVICE_ROLE_KEY  — preferred for apply (no throwaway signup)
+ *   DOTENV_FILE — alternate env file path
  *
  * Source JSON: scripts/crm-import/source/{counterparties,contacts}.json
  * Responsible map: scripts/crm-import/responsible-map.json
  * Output: scripts/crm-import/out/
  */
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { sanitizeImportedComment } from "./sanitize-comment.mjs";
@@ -18,11 +25,38 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
 const outDir = join(__dirname, "out");
 
-const envText = readFileSync(join(root, ".env"), "utf8");
-const URL = envText.match(/VITE_SUPABASE_URL=(.+)/)?.[1]?.trim();
-const KEY = envText.match(/VITE_SUPABASE_ANON_KEY=(.+)/)?.[1]?.trim();
-if (!URL || !KEY)
-  throw new Error("Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY in .env");
+function readEnvFile(path) {
+  if (!existsSync(path)) return "";
+  return readFileSync(path, "utf8");
+}
+
+function envGet(name, fileText) {
+  const fromProcess = process.env[name]?.trim();
+  if (fromProcess) return fromProcess;
+  const m = fileText.match(new RegExp(`^${name}=(.*)$`, "m"));
+  return m?.[1]?.trim().replace(/^"|"$/g, "") || "";
+}
+
+const dotenvPath =
+  process.env.DOTENV_FILE?.trim() ||
+  (existsSync(join(outDir, "ipk-prod-import.env"))
+    ? join(outDir, "ipk-prod-import.env")
+    : join(root, ".env"));
+const envText = readEnvFile(dotenvPath);
+const URL =
+  envGet("VITE_SUPABASE_URL", envText) || envGet("SUPABASE_URL", envText);
+const KEY =
+  envGet("VITE_SUPABASE_ANON_KEY", envText) ||
+  envGet("SUPABASE_ANON_KEY", envText) ||
+  envGet("ANON_KEY", envText);
+const SERVICE_ROLE_KEY =
+  envGet("SUPABASE_SERVICE_ROLE_KEY", envText) ||
+  envGet("SERVICE_ROLE_KEY", envText);
+if (!URL || !(KEY || SERVICE_ROLE_KEY)) {
+  throw new Error(
+    `Missing Supabase URL/key (dotenv=${dotenvPath}). Need VITE_SUPABASE_URL and anon or service role key.`,
+  );
+}
 
 const ENTITY_CP = "entity-02300c84-41e0-4f71-9f37-19edef1d56e6";
 const ENTITY_CT = "entity-faad307b-dafb-486d-a05e-4500100c6d1a";
@@ -83,7 +117,7 @@ const SPHERE = {
 };
 
 const apply = process.argv.includes("--apply");
-const dryRun = !apply || process.argv.includes("--dry-run");
+const contactsOnly = process.argv.includes("--contacts-only");
 const mode = apply && !process.argv.includes("--dry-run") ? "apply" : "dry-run";
 
 function text(v) {
@@ -191,10 +225,11 @@ function writeCsv(path, rows, columns) {
 }
 
 async function api(token, path, opts = {}) {
+  const apikey = SERVICE_ROLE_KEY || KEY;
   const r = await fetch(`${URL}/rest/v1/${path}`, {
     ...opts,
     headers: {
-      apikey: KEY,
+      apikey,
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Prefer: opts.prefer || "return=representation",
@@ -213,18 +248,23 @@ async function api(token, path, opts = {}) {
 }
 
 async function auth() {
+  // Prefer service role — no throwaway Auth users on production.
+  if (SERVICE_ROLE_KEY) {
+    console.log(`auth=service_role url=${URL}`);
+    return SERVICE_ROLE_KEY;
+  }
+  const apikey = KEY;
   const email = `crm-import-${Date.now()}@centripk.ru`;
   const signup = await fetch(`${URL}/auth/v1/signup`, {
     method: "POST",
-    headers: { apikey: KEY, "Content-Type": "application/json" },
+    headers: { apikey, "Content-Type": "application/json" },
     body: JSON.stringify({ email, password: "CrmImport1!" }),
   });
   const authJson = await signup.json();
   if (!authJson.access_token) {
-    // try login in case user exists
     const login = await fetch(`${URL}/auth/v1/token?grant_type=password`, {
       method: "POST",
-      headers: { apikey: KEY, "Content-Type": "application/json" },
+      headers: { apikey, "Content-Type": "application/json" },
       body: JSON.stringify({ email, password: "CrmImport1!" }),
     });
     const loginJson = await login.json();
@@ -585,11 +625,13 @@ function prepareContacts(rows, responsibleMap, usersByName, cpIndex) {
 
 async function main() {
   mkdirSync(outDir, { recursive: true });
-  console.log(`mode=${mode}`);
+  console.log(`mode=${mode} contactsOnly=${contactsOnly} dotenv=${dotenvPath}`);
 
-  const cpSource = JSON.parse(
-    readFileSync(join(__dirname, "source/counterparties.json"), "utf8"),
-  );
+  const cpSource = contactsOnly
+    ? []
+    : JSON.parse(
+        readFileSync(join(__dirname, "source/counterparties.json"), "utf8"),
+      );
   const ctSource = JSON.parse(
     readFileSync(join(__dirname, "source/contacts.json"), "utf8"),
   );
@@ -780,8 +822,11 @@ async function main() {
     return;
   }
 
-  // APPLY counterparties
+  // APPLY counterparties (skipped in --contacts-only)
   let i = 0;
+  if (contactsOnly && cpToUpsert.length) {
+    throw new Error("contacts-only mode must not upsert counterparties");
+  }
   for (const c of cpToUpsert) {
     i += 1;
     try {
