@@ -76,11 +76,17 @@ export type PaymentCalendar = {
   unallocated: UnallocatedReceipt[];
 };
 
+/** `"unallocated"` — отдельный раздел: поступления без планового платежа. */
+export type PaymentCalendarSection = PaymentStatus | "unallocated";
+
 export type PaymentCalendarFilters = {
-  period: { start: string; end: string } | null;
+  search: string;
+  /** Границы периода (`YYYY-MM-DD`), пустая строка — не задано. */
+  dateFrom: string;
+  dateTo: string;
   legalId: string | null;
   counterpartyId: string | null;
-  status: PaymentStatus | null;
+  section: PaymentCalendarSection | null;
 };
 
 export type PaymentCalendarSummary = {

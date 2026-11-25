@@ -8,35 +8,87 @@ import type {
 } from "./types";
 
 export const EMPTY_PAYMENT_FILTERS: PaymentCalendarFilters = {
-  period: null,
+  search: "",
+  dateFrom: "",
+  dateTo: "",
   legalId: null,
   counterpartyId: null,
-  status: null,
+  section: null,
 };
 
-/** Фильтры, кроме статуса (счётчики статусов не зависят от выбранного статуса). */
+function inPeriod(date: string | null, filters: PaymentCalendarFilters) {
+  if (!filters.dateFrom && !filters.dateTo) return true;
+  if (!date) return false;
+  if (filters.dateFrom && date < filters.dateFrom) return false;
+  if (filters.dateTo && date > filters.dateTo) return false;
+  return true;
+}
+
+function matchesSearch(
+  texts: ReadonlyArray<string | undefined>,
+  query: string,
+) {
+  const needle = query.trim().toLocaleLowerCase("ru");
+  if (!needle) return true;
+  return texts.some((text) => text?.toLocaleLowerCase("ru").includes(needle));
+}
+
+/** Фильтры, кроме раздела (счётчики разделов не зависят от выбранного). */
 function matchesBase(row: PaymentRow, filters: PaymentCalendarFilters) {
-  const { period, legalId, counterpartyId } = filters;
-  if (period) {
-    if (!row.dueDate) return false;
-    if (row.dueDate < period.start || row.dueDate > period.end) return false;
-  }
-  if (legalId && row.stage.legal?.id !== legalId) return false;
-  if (counterpartyId && row.stage.counterparty?.id !== counterpartyId) {
+  const { stage } = row;
+  if (!inPeriod(row.dueDate, filters)) return false;
+  if (filters.legalId && stage.legal?.id !== filters.legalId) return false;
+  if (
+    filters.counterpartyId &&
+    stage.counterparty?.id !== filters.counterpartyId
+  ) {
     return false;
   }
-  return true;
+  return matchesSearch(
+    [
+      stage.contract?.name,
+      stage.name,
+      stage.legal?.name,
+      stage.counterparty?.name,
+    ],
+    filters.search,
+  );
+}
+
+function matchesUnallocated(
+  item: UnallocatedReceipt,
+  filters: PaymentCalendarFilters,
+) {
+  const { receipt } = item;
+  if (!inPeriod(receipt.date, filters)) return false;
+  if (filters.legalId && receipt.legalId !== filters.legalId) return false;
+  if (
+    filters.counterpartyId &&
+    receipt.counterpartyId !== filters.counterpartyId
+  ) {
+    return false;
+  }
+  return matchesSearch([receipt.title], filters.search);
 }
 
 export function filterPaymentRows(
   rows: readonly PaymentRow[],
   filters: PaymentCalendarFilters,
 ): PaymentRow[] {
+  const status =
+    filters.section && filters.section !== "unallocated"
+      ? filters.section
+      : null;
   return rows.filter(
-    (row) =>
-      matchesBase(row, filters) &&
-      (!filters.status || row.status === filters.status),
+    (row) => matchesBase(row, filters) && (!status || row.status === status),
   );
+}
+
+export function filterUnallocated(
+  items: readonly UnallocatedReceipt[],
+  filters: PaymentCalendarFilters,
+): UnallocatedReceipt[] {
+  return items.filter((item) => matchesUnallocated(item, filters));
 }
 
 export function countByStatus(
