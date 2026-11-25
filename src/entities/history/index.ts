@@ -6,6 +6,7 @@ export type {
   EntityRecordEventChange,
   EntityRecordEventsPage,
   EntityRecordEventsQuery,
+  HistoryLabels,
 } from "./model/types";
 export {
   fetchEntityRecordEvents,

@@ -28,9 +28,15 @@ export type EntityRecordEventsQuery = {
   to?: string;
 };
 
+/** Flat `id → display label` map resolved server-side (see RPC). Keys are actor
+ * auth uuids and record ids; the client reads labels from here instead of the
+ * in-browser record store. */
+export type HistoryLabels = Record<string, string>;
+
 export type EntityRecordEventsPage = {
   events: EntityRecordEvent[];
   hasMore: boolean;
+  labels: HistoryLabels;
 };
 
 export type EntityEventsQuery = Omit<EntityRecordEventsQuery, "recordId">;
