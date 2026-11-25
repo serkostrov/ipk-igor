@@ -15,8 +15,10 @@ function listOptionId(value: string | undefined) {
  * Option ids the user may pick for a process trigger list field.
  * Always includes the current stage. With pending blocking tasks on the
  * current stage — only the current stage. Otherwise: configured transitions
- * from the current stage (ТОГДА only when its conditions match; ИНАЧЕ always),
- * or the next sequential option when no graph.
+ * from the current stage (ТОГДА only when its conditions match; ИНАЧЕ always).
+ * When the graph has no edge leaving the current stage, the next sequential
+ * option stays available — a graph that covers other stages must not trap
+ * the record on the current one.
  */
 export function getSelectableStageOptionIds(input: {
   entityId: string;
@@ -48,9 +50,11 @@ export function getSelectableStageOptionIds(input: {
   if (blocking.length > 0) return allowed;
 
   const transitions = gate.scenario.stageTransitions;
+  let coversCurrent = false;
   if (transitions.length > 0) {
     for (const edge of transitions) {
       if (listOptionId(edge.fromOptionId) !== current) continue;
+      coversCurrent = true;
       const to = listOptionId(edge.toOptionId);
       const elseId = listOptionId(edge.elseOptionId);
       const conditionsOk =
@@ -60,11 +64,12 @@ export function getSelectableStageOptionIds(input: {
       if (elseId) allowed.add(elseId);
       // When ТОГДА fails and there is no ИНАЧЕ — keep only current.
     }
-    return allowed;
   }
 
-  const next = nextProcessStageOptionId(input.field.listOptions, current);
-  if (next) allowed.add(next);
+  if (!coversCurrent) {
+    const next = nextProcessStageOptionId(input.field.listOptions, current);
+    if (next) allowed.add(next);
+  }
   return allowed;
 }
 

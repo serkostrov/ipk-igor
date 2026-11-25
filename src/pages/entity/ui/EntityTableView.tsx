@@ -99,8 +99,10 @@ import {
 } from "@/entities/entity";
 import { canField, useCanEntity, useCurrentRole } from "@/entities/access";
 import {
+  fetchAutomationTasks,
   filterSelectableListOptions,
   getSelectableStageOptionIds,
+  type AutomationTask,
 } from "@/entities/automation";
 import { getSessionUser } from "@/entities/session";
 import {
@@ -536,6 +538,25 @@ function EntityTableViewInner({
     () => resolveEntityTableNestedTarget(entity, entities),
     [entity, entities],
   );
+  const recordIdsKey = records.map((item) => item.id).join("\0");
+  const pendingTasksResult = useAsyncValue(() => {
+    const ids = recordIdsKey ? recordIdsKey.split("\0") : [];
+    if (ids.length === 0) return Promise.resolve([] as AutomationTask[]);
+    return fetchAutomationTasks({
+      recordIds: ids,
+      status: ["pending", "returned"],
+    }).catch(() => [] as AutomationTask[]);
+  }, [recordIdsKey]);
+  const pendingTasksByRecord = useMemo(() => {
+    const map = new Map<string, AutomationTask[]>();
+    if (pendingTasksResult.status !== "ready") return map;
+    for (const task of pendingTasksResult.value) {
+      const list = map.get(task.recordId);
+      if (list) list.push(task);
+      else map.set(task.recordId, [task]);
+    }
+    return map;
+  }, [pendingTasksResult]);
   const nestedChildCountByHostValue = useAsyncValue(
     () => countNestedChildrenByHost(nestedTarget),
     [nestedTarget],
@@ -1745,6 +1766,10 @@ function EntityTableViewInner({
                                               field,
                                               currentOptionId: raw ?? "",
                                               values: record.values,
+                                              pendingTasks:
+                                                pendingTasksByRecord.get(
+                                                  record.id,
+                                                ) ?? [],
                                             }),
                                           );
                                         const listDisabled =

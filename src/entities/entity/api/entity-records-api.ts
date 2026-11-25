@@ -227,6 +227,63 @@ export async function fetchRecordsByIds(
   return out;
 }
 
+function escapeIlike(value: string) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * Records of one entity whose jsonb field text contains `needle`.
+ * Used to find children by a parent link without loading the whole entity.
+ */
+export async function fetchEntityRecordsByFieldContains(
+  entityId: string,
+  fieldId: string,
+  needle: string,
+): Promise<EntityRecord[]> {
+  if (!isSupabaseConfigured || !supabase) return [];
+  const trimmedNeedle = needle.trim();
+  const trimmedField = fieldId.trim();
+  const trimmedEntity = entityId.trim();
+  if (!trimmedEntity || !trimmedField || !trimmedNeedle) return [];
+
+  const client = supabase;
+  for (;;) {
+    const select = entityRecordsSelect();
+    const { data, error } = await withTimeout(
+      client
+        .from("entity_records")
+        .select(select)
+        .eq("entity_id", trimmedEntity)
+        .filter(
+          `field_values->>"${trimmedField}"`,
+          "ilike",
+          `%${escapeIlike(trimmedNeedle)}%`,
+        )
+        .limit(200) as unknown as Promise<{
+        data: unknown;
+        error: FetchPageError | null;
+      }>,
+      15_000,
+      "entity_records by field",
+    );
+    if (!error) {
+      return ((data ?? []) as EntityRecordRow[]).map(rowToRecord);
+    }
+    if (
+      entityRecordsSupportsSchemaVersion() &&
+      isMissingSchemaVersionColumn(error)
+    ) {
+      markEntityRecordsSchemaVersionUnsupported();
+      continue;
+    }
+    if (entityRecordsSupportsCreatedBy() && isMissingCreatedByColumn(error)) {
+      markEntityRecordsCreatedByUnsupported();
+      continue;
+    }
+    throw error;
+  }
+}
+
 /** Fetch all records of a single entity (page-scoped working-set load). */
 export async function fetchEntityRecordsForEntity(
   entityId: string,

@@ -1,11 +1,10 @@
 import {
-  entityRelationIncludesId,
   getEntityConfig,
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityParentLinkField,
   getEntityRecordById,
-  getEntityRecords,
+  getEntityRecordsLinkedByField,
   getEntityRelationTargetId,
   isEntityTabWithLinkedEntity,
   parseEntityRelationIds,
@@ -131,21 +130,23 @@ export async function collectLinkedTabRecordIds(options: {
     parentRecord?.values[parentLinkFieldId],
   );
 
-  return (await getEntityRecords(linkedEntity))
-    .filter((record) => {
-      if (record.id === parentRecordId) return false;
-      if (
-        entityRelationIncludesId(
-          record.values[parentLinkFieldId],
-          parentRecordId,
-        )
-      ) {
-        return true;
-      }
-      if (isSelfRef && outgoingIds.includes(record.id)) return true;
-      return false;
-    })
+  const linked = await getEntityRecordsLinkedByField(
+    linkedEntity,
+    parentLinkFieldId,
+    parentRecordId,
+  );
+  const ids = linked
+    .filter((record) => record.id !== parentRecordId)
     .map((record) => record.id);
+  if (!isSelfRef || outgoingIds.length === 0) return ids;
+
+  const seen = new Set(ids);
+  for (const id of outgoingIds) {
+    if (!id || id === parentRecordId || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
 }
 
 /**
@@ -202,12 +203,11 @@ export async function collectRecordsLinkedToParent(options: {
     ) ??
     null;
   if (linkField) {
-    for (const record of await getEntityRecords(childEntity)) {
-      if (
-        !entityRelationIncludesId(record.values[linkField.id], parentRecordId)
-      ) {
-        continue;
-      }
+    for (const record of await getEntityRecordsLinkedByField(
+      childEntity,
+      linkField.id,
+      parentRecordId,
+    )) {
       push(record.id);
     }
   }
