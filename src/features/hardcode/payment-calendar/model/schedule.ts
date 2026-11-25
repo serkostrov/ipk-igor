@@ -65,6 +65,17 @@ function candidateParts(
   };
 }
 
+export function lastReceiptDate(
+  row: PaymentRow,
+  receiptsById: ReadonlyMap<string, CalendarReceipt>,
+): string | null {
+  const dates = row.receipts
+    .map((share) => receiptsById.get(share.receiptId)?.date)
+    .filter((date): date is string => Boolean(date))
+    .sort();
+  return dates[dates.length - 1] ?? null;
+}
+
 function resolveStatus(
   part: PlannedPart,
   paid: number,

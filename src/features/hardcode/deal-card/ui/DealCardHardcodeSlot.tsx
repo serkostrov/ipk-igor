@@ -11,7 +11,7 @@ import { isDealsEntity, resolveDealCardSources } from "../match";
 import { getDealLinkedTabSection, type DealCardSection } from "../model/tabs";
 import { DealCalculationPanel } from "./DealCalculationPanel";
 import { DealExpenseCategoriesPanel } from "./DealExpenseCategoriesPanel";
-import { DealPaymentPlanPanel } from "./DealPaymentPlanPanel";
+import { DealPaymentCalendarPanel } from "./DealPaymentCalendarPanel";
 import { DealRequestsPanel } from "./DealRequestsPanel";
 
 type SlotProps = {
@@ -33,10 +33,8 @@ export function DealCardHardcodeSlot({
   switch (section) {
     case "payments":
       return (
-        <DealPaymentPlanPanel
-          sources={state.sources}
-          data={state.data}
-          view={state.view}
+        <DealPaymentCalendarPanel
+          record={record}
           onOpenRelation={onOpenRelation}
         />
       );
