@@ -88,6 +88,8 @@ type EntityRecordDialogProps = {
   submitLabel?: string;
   /** When creating a Users account — require password and pass it in meta. */
   requireAccountPassword?: boolean;
+  /** When editing a Users account — optional password reset field. */
+  allowAccountPasswordReset?: boolean;
   onOpenRelation?: (entityId: string, recordId: string) => void;
   onSubmit?: (
     values: Record<string, string>,
@@ -212,6 +214,7 @@ function EntityRecordForm({
   titleOverride,
   submitLabel,
   requireAccountPassword = false,
+  allowAccountPasswordReset = false,
   onOpenRelation,
   onCancel,
   onSubmit,
@@ -225,6 +228,7 @@ function EntityRecordForm({
   titleOverride?: string;
   submitLabel?: string;
   requireAccountPassword?: boolean;
+  allowAccountPasswordReset?: boolean;
   onOpenRelation?: (entityId: string, recordId: string) => void;
   onCancel: () => void;
   onSubmit: (
@@ -398,6 +402,8 @@ function EntityRecordForm({
     [layoutVisibleFields, valueContext, entity, draftRecord],
   );
   const needsPassword = requireAccountPassword && !isEdit;
+  const showPasswordField =
+    needsPassword || (allowAccountPasswordReset && isEdit);
   const canSubmit =
     canSubmitRecord(
       entity,
@@ -406,7 +412,11 @@ function EntityRecordForm({
       valueContext,
       draftRecordId,
     ) &&
-    (!needsPassword || password.length >= 6);
+    (!needsPassword || password.length >= 6) &&
+    (!showPasswordField ||
+      !isEdit ||
+      password.length === 0 ||
+      password.length >= 6);
   const nameField = useMemo(
     () => visibleFields.find((field) => isEntityNameField(field)) ?? null,
     [visibleFields],
@@ -585,16 +595,22 @@ function EntityRecordForm({
           </div>
         ) : null}
 
-        {needsPassword ? (
+        {showPasswordField ? (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="entity-record-password">Пароль для входа</Label>
+            <Label htmlFor="entity-record-password">
+              {isEdit ? "Новый пароль для входа" : "Пароль для входа"}
+            </Label>
             <Input
               id="entity-record-password"
               type="password"
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Не менее 6 символов"
+              placeholder={
+                isEdit
+                  ? "Оставьте пустым, чтобы не менять"
+                  : "Не менее 6 символов"
+              }
             />
           </div>
         ) : null}
@@ -693,7 +709,9 @@ function EntityRecordForm({
               }
             }
             const meta: EntityRecordSubmitMeta = {
-              ...(needsPassword ? { password } : {}),
+              ...(showPasswordField && password.trim()
+                ? { password: password.trim() }
+                : {}),
               ...(!isEdit ? { recordId: draftRecordId } : {}),
             };
             setPending(true);
@@ -731,6 +749,7 @@ export function EntityRecordDialog({
   titleOverride,
   submitLabel,
   requireAccountPassword = false,
+  allowAccountPasswordReset = false,
   onOpenRelation,
   onSubmit,
 }: EntityRecordDialogProps) {
@@ -754,6 +773,7 @@ export function EntityRecordDialog({
             titleOverride={titleOverride}
             submitLabel={submitLabel}
             requireAccountPassword={requireAccountPassword}
+            allowAccountPasswordReset={allowAccountPasswordReset}
             onOpenRelation={onOpenRelation}
             onCancel={() => onOpenChange(false)}
             onSubmit={async (values, meta) => {
