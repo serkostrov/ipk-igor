@@ -53,7 +53,10 @@ import {
   resolveEntityLookupTarget,
   SYSTEM_ENTITY_KEY_USERS,
   SYSTEM_USERS_ENTITY_ID,
+  getEntityRelatedTimeHoursRelationOptions,
+  getEntityRelatedTimeHoursTabOptions,
   getEntityTimeTracking,
+  type EntityRelatedTimeHoursConfig,
   type Entity,
   type EntityCondition,
   type EntityField,
@@ -1341,7 +1344,8 @@ function buildEntityFieldFormData({
     decimals:
       resolvedType === "number" ||
       resolvedType === "numberSum" ||
-      resolvedType === "timeHours"
+      resolvedType === "timeHours" ||
+      resolvedType === "relatedTimeHours"
         ? decimals
         : 2,
     sumFieldIds: resolvedType === "numberSum" ? sumFieldIds : [],
@@ -1381,6 +1385,111 @@ function TimeHoursFieldSettings({
           ? `Складывает поле «Часы» в «${journalName}» по записям, привязанным к этой карточке. Текущий таймер без записанных часов не входит.`
           : "Добавьте вкладку «Учёт времени» и настройте журнал — иначе поле сохранить нельзя."}
       </p>
+    </div>
+  );
+}
+
+function RelatedTimeHoursFieldSettings({
+  entity,
+  entities,
+  value,
+  onChange,
+}: {
+  entity: Entity | null | undefined;
+  entities: readonly Entity[];
+  value: EntityRelatedTimeHoursConfig | null;
+  onChange: (next: EntityRelatedTimeHoursConfig | null) => void;
+}) {
+  const source = value?.source ?? "relation";
+  const relationOptions = getEntityRelatedTimeHoursRelationOptions(
+    entity,
+    entities,
+  );
+  const tabOptions = getEntityRelatedTimeHoursTabOptions(entity, entities);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2.5">
+        <p className="text-xs font-medium text-foreground">
+          Сумма часов связанных записей
+        </p>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          {source === "tab"
+            ? "Складывает «Учёт времени» по записям на выбранной вкладке сущности."
+            : "Складывает «Учёт времени» по всем записям из выбранного поля-связи."}{" "}
+          Текущий таймер без записанных часов не входит.
+        </p>
+      </div>
+      <SettingSelect
+        id="entity-field-related-time-hours-source"
+        title="Источник"
+        description="Откуда брать связанные записи"
+        value={source}
+        options={[
+          { value: "relation", label: "Поле связи" },
+          { value: "tab", label: "Вкладка сущности" },
+        ]}
+        onChange={(next) => {
+          if (next === "tab") {
+            onChange(
+              value?.source === "tab"
+                ? value
+                : tabOptions[0]
+                  ? { source: "tab", tabId: tabOptions[0].tabId }
+                  : null,
+            );
+            return;
+          }
+          onChange(
+            value?.source === "relation"
+              ? value
+              : relationOptions[0]
+                ? {
+                    source: "relation",
+                    relationFieldId: relationOptions[0].fieldId,
+                  }
+                : null,
+          );
+        }}
+      />
+      {source === "tab" ? (
+        <SettingSelect
+          id="entity-field-related-time-hours-tab"
+          title="Вкладка"
+          description="Вкладка сущности с учётом времени"
+          value={value?.source === "tab" ? value.tabId : null}
+          options={tabOptions.map((option) => ({
+            value: option.tabId,
+            label: option.label,
+          }))}
+          noOptionsLabel="Нет вкладок сущности с учётом времени"
+          onChange={(next) => {
+            if (!next) {
+              onChange(null);
+              return;
+            }
+            onChange({ source: "tab", tabId: next });
+          }}
+        />
+      ) : (
+        <SettingSelect
+          id="entity-field-related-time-hours-relation"
+          title="Связь"
+          description="Поле связи с сущностью, у которой есть учёт времени"
+          value={value?.source === "relation" ? value.relationFieldId : null}
+          options={relationOptions.map((option) => ({
+            value: option.fieldId,
+            label: option.label,
+          }))}
+          noOptionsLabel="Нет связей с сущностью, у которой настроен «Учёт времени»"
+          onChange={(next) => {
+            if (!next) {
+              onChange(null);
+              return;
+            }
+            onChange({ source: "relation", relationFieldId: next });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1612,7 +1721,8 @@ function EntityFieldForm({
       effectiveType === "formula" ||
       effectiveType === "rollup" ||
       effectiveType === "numberSum" ||
-      effectiveType === "timeHours"
+      effectiveType === "timeHours" ||
+      effectiveType === "relatedTimeHours"
     ) {
       return "number";
     }
@@ -1806,7 +1916,7 @@ function EntityFieldForm({
       setSumFieldIds([]);
     }
     if (!isEntityNumericFieldType(resolved)) setIncludeInTotal(false);
-    if (resolved === "timeHours") {
+    if (resolved === "timeHours" || resolved === "relatedTimeHours") {
       setUseUnit(true);
       setUnitSuffix((current) => current.trim() || "ч");
     } else if (!isEntityUnitFieldType(resolved)) {
@@ -2186,6 +2296,24 @@ function EntityFieldForm({
                 {type === "timeHours" ? (
                   <DecimalsSelect
                     id="entity-field-time-hours-decimals"
+                    value={decimals}
+                    max={ENTITY_NUMBER_DECIMALS_MAX}
+                    onChange={setDecimals}
+                  />
+                ) : null}
+                {type === "relatedTimeHours" ? (
+                  <RelatedTimeHoursFieldSettings
+                    entity={currentEntity}
+                    entities={entities}
+                    value={typeSettings.relatedTimeHours}
+                    onChange={(relatedTimeHours) =>
+                      patchTypeSettings({ relatedTimeHours })
+                    }
+                  />
+                ) : null}
+                {type === "relatedTimeHours" ? (
+                  <DecimalsSelect
+                    id="entity-field-related-time-hours-decimals"
                     value={decimals}
                     max={ENTITY_NUMBER_DECIMALS_MAX}
                     onChange={setDecimals}

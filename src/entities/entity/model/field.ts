@@ -28,11 +28,16 @@ export type EntityFieldType =
   | "rollup"
   | "lookup"
   /** Sum of hours from the entity’s «Учёт времени» journal. */
-  | "timeHours";
+  | "timeHours"
+  /**
+   * Sum of «Учёт времени» hours across records linked via a relation /
+   * belonging field on this entity (forward link, unlike rollup).
+   */
+  | "relatedTimeHours";
 
 /**
- * Fraction digits for number / numberSum / formula / rollup / timeHours.
- * Integer in `0…ENTITY_NUMBER_DECIMALS_MAX` (default 2).
+ * Fraction digits for number / numberSum / formula / rollup / timeHours /
+ * relatedTimeHours. Integer in `0…ENTITY_NUMBER_DECIMALS_MAX` (default 2).
  */
 export type EntityNumberDecimals = number;
 
@@ -63,6 +68,10 @@ export const ENTITY_FIELD_TYPE_OPTIONS: Array<{
   { value: "rollup", label: "Сводка по связанным" },
   { value: "lookup", label: "Значение из связи" },
   { value: "timeHours", label: "Сумма учёта времени" },
+  {
+    value: "relatedTimeHours",
+    label: "Сумма учёта времени связанных",
+  },
 ];
 
 /** Type picker sections in field settings. */
@@ -92,7 +101,7 @@ export const ENTITY_FIELD_TYPE_GROUPS: Array<{
   },
   {
     label: "Вычисляемые",
-    types: ["formula", "rollup", "lookup", "timeHours"],
+    types: ["formula", "rollup", "lookup", "timeHours", "relatedTimeHours"],
   },
 ];
 
@@ -121,7 +130,8 @@ export function isEntityComputedFieldType(type: EntityFieldType) {
     type === "formula" ||
     type === "rollup" ||
     type === "lookup" ||
-    type === "timeHours"
+    type === "timeHours" ||
+    type === "relatedTimeHours"
   );
 }
 
@@ -152,7 +162,8 @@ export function canEntityFieldToggleShowOnCreate(type: EntityFieldType) {
     type === "formula" ||
     type === "rollup" ||
     type === "numberSum" ||
-    type === "timeHours"
+    type === "timeHours" ||
+    type === "relatedTimeHours"
   ) {
     return false;
   }
@@ -165,7 +176,8 @@ export function isEntityUnitFieldType(type: EntityFieldType) {
     type === "number" ||
     type === "formula" ||
     type === "rollup" ||
-    type === "timeHours"
+    type === "timeHours" ||
+    type === "relatedTimeHours"
   );
 }
 
@@ -711,7 +723,8 @@ export function getEntityFieldFractionDigits(field: {
   if (
     field.type === "number" ||
     field.type === "numberSum" ||
-    field.type === "timeHours"
+    field.type === "timeHours" ||
+    field.type === "relatedTimeHours"
   ) {
     return normalizeEntityNumberDecimals(field.decimals);
   }

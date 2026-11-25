@@ -236,6 +236,15 @@ export type EntityRollupConfig = {
   decimals: EntityNumberDecimals;
 };
 
+/**
+ * `relatedTimeHours` field: sum «Учёт времени» hours of related records.
+ * - `relation` — forward link on this entity (ids stored here)
+ * - `tab` — entity tab (`kind: "entity"`), children via `parentLinkFieldId`
+ */
+export type EntityRelatedTimeHoursConfig =
+  | { source: "relation"; relationFieldId: string }
+  | { source: "tab"; tabId: string };
+
 /** `lookup` field: value of a field on the related record. */
 export type EntityLookupConfig = {
   /**
@@ -438,12 +447,13 @@ export type EntityField = {
   formula?: EntityFormulaConfig;
   rollup?: EntityRollupConfig;
   lookup?: EntityLookupConfig;
+  relatedTimeHours?: EntityRelatedTimeHoursConfig;
   dependencies?: EntityDependenciesConfig;
   relationGroups?: EntityRelationGroupsConfig;
   /**
-   * Computed fields (lookup / formula / rollup / numberSum / timeHours):
-   * when the auto value is empty, allow storing a manual value in
-   * `record.values`.
+   * Computed fields (lookup / formula / rollup / numberSum / timeHours /
+   * relatedTimeHours): when the auto value is empty, allow storing a manual
+   * value in `record.values`.
    */
   allowManualInput?: boolean;
   /** Value prefilled for new records. */
@@ -604,11 +614,12 @@ export function isEntityFieldVisibleOnCreate(
   if (field.type === "formula") {
     return field.required || field.formula?.showOnCreate === true;
   }
-  // Rollup / numberSum / timeHours stay hidden on create (need related data).
+  // Rollup / numberSum / timeHours / relatedTimeHours stay hidden on create.
   if (
     field.type === "rollup" ||
     field.type === "numberSum" ||
-    field.type === "timeHours"
+    field.type === "timeHours" ||
+    field.type === "relatedTimeHours"
   ) {
     return false;
   }

@@ -77,7 +77,14 @@ const ENTRY_FIELD_ROWS: Array<{
     key: "hours",
     label: "Часы",
     hint: "если нет «Начало/Окончание»",
-    types: ["number"],
+    types: [
+      "number",
+      "numberSum",
+      "formula",
+      "rollup",
+      "timeHours",
+      "relatedTimeHours",
+    ],
   },
   { key: "comment", label: "Комментарий", types: ["text", "textarea"] },
 ];
@@ -92,10 +99,25 @@ const HOST_FIELD_ROWS: Array<{
   types: EntityFieldType[];
 }> = [
   { key: "project", label: "Проект", types: ["relation"] },
-  { key: "parentTask", label: "Родительская задача", types: ["relation", "belonging"] },
+  {
+    key: "parentTask",
+    label: "Родительская задача",
+    types: ["relation", "belonging"],
+  },
   { key: "stage", label: "Этап", types: ["relation"] },
   { key: "assignee", label: "Исполнитель", types: ["relation"] },
-  { key: "planned", label: "План (часы)", types: ["number"] },
+  {
+    key: "planned",
+    label: "План (часы)",
+    types: [
+      "number",
+      "numberSum",
+      "formula",
+      "rollup",
+      "timeHours",
+      "relatedTimeHours",
+    ],
+  },
   { key: "startDate", label: "Дата постановки", types: ["datetime"] },
   { key: "due", label: "Срок", types: ["datetime"] },
   { key: "status", label: "Статус", types: ["list"] },
@@ -158,7 +180,10 @@ function resolveLeafField(
 }
 
 /** The name field id of an entity (what the RPC shows as its title). */
-function nameFieldId(entities: readonly Entity[], id: string | null): string | null {
+function nameFieldId(
+  entities: readonly Entity[],
+  id: string | null,
+): string | null {
   if (!id) return null;
   const entity = entities.find((e) => e.id === id);
   return entity?.fields.find((f) => isEntityNameField(f))?.id ?? null;
@@ -209,7 +234,11 @@ function deriveTimesheetShared(
     pick: (s: TimesheetSourceConfig) => TimesheetRef | null,
   ): string | null => {
     for (const s of sources) {
-      const target = relationTargetOfPath(entities, s.hostEntityId, pick(s)?.path);
+      const target = relationTargetOfPath(
+        entities,
+        s.hostEntityId,
+        pick(s)?.path,
+      );
       if (target) return target;
     }
     return null;
@@ -228,7 +257,11 @@ function deriveTimesheetShared(
       usersEntityId = emp;
       break;
     }
-    const asg = relationTargetOfPath(entities, s.hostEntityId, s.host.assignee?.path);
+    const asg = relationTargetOfPath(
+      entities,
+      s.hostEntityId,
+      s.host.assignee?.path,
+    );
     if (asg) {
       usersEntityId = asg;
       break;
@@ -242,9 +275,12 @@ function deriveTimesheetShared(
     relationTargetOfField(entities, usersEntityId, userDeptField) ??
     prev.deptEntityId ??
     null;
-  const projectEntityId = firstPathTarget((s) => s.host.project) ?? prev.projectEntityId ?? null;
-  const taskEntityId = firstPathTarget((s) => s.host.parentTask) ?? prev.taskEntityId ?? null;
-  const stageEntityId = firstPathTarget((s) => s.host.stage) ?? prev.stageEntityId ?? null;
+  const projectEntityId =
+    firstPathTarget((s) => s.host.project) ?? prev.projectEntityId ?? null;
+  const taskEntityId =
+    firstPathTarget((s) => s.host.parentTask) ?? prev.taskEntityId ?? null;
+  const stageEntityId =
+    firstPathTarget((s) => s.host.stage) ?? prev.stageEntityId ?? null;
 
   return {
     usersEntityId,
@@ -367,7 +403,9 @@ export function TimesheetSettings({ leading }: { leading?: ReactNode }) {
         // Older stored configs predate `columns` — default it so the editor and
         // the save round-trip always have an array to work with.
         setDraft(
-          stored ? { ...stored, columns: stored.columns ?? [] } : blankSettings(),
+          stored
+            ? { ...stored, columns: stored.columns ?? [] }
+            : blankSettings(),
         );
         setIssues(found);
       } catch (error) {
@@ -679,7 +717,9 @@ function entityPickerLabel(
         .filter((name): name is string => !!name && name !== entity.name),
     ),
   );
-  return targets.length ? `${entity.name} · ${targets.join(", ")}` : entity.name;
+  return targets.length
+    ? `${entity.name} · ${targets.join(", ")}`
+    : entity.name;
 }
 
 /**
@@ -808,7 +848,9 @@ function FieldPathPicker({
             types={isLeaf ? types : RELATION_TYPES}
             disabled={disabled}
             onChange={(id) =>
-              onChange(id ? [...path.slice(0, index), id] : path.slice(0, index))
+              onChange(
+                id ? [...path.slice(0, index), id] : path.slice(0, index),
+              )
             }
           />
         );
@@ -855,7 +897,15 @@ function Row({
 }
 
 /** A labelled group header inside a source card. */
-function StepHeader({ step, title, hint }: { step: string; title: string; hint?: string }) {
+function StepHeader({
+  step,
+  title,
+  hint,
+}: {
+  step: string;
+  title: string;
+  hint?: string;
+}) {
   return (
     <div className="mb-2 flex items-baseline gap-2">
       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
@@ -863,7 +913,9 @@ function StepHeader({ step, title, hint }: { step: string; title: string; hint?:
       </span>
       <div className="min-w-0">
         <div className="text-xs font-medium text-foreground">{title}</div>
-        {hint && <div className="text-[11px] text-muted-foreground">{hint}</div>}
+        {hint && (
+          <div className="text-[11px] text-muted-foreground">{hint}</div>
+        )}
       </div>
     </div>
   );
@@ -1025,7 +1077,9 @@ function SourceCard({
     }
     // The picker tells us WHICH entity the field came from (ids can collide
     // across cloned entities), so pin it explicitly instead of a first-match.
-    const owner = entityId ? entityById(entityId) : ownerEntityOfField(entities, fieldId);
+    const owner = entityId
+      ? entityById(entityId)
+      : ownerEntityOfField(entities, fieldId);
     const ownerId = owner?.id ?? entityId ?? "";
     const switching =
       !!ownerId && !!source.entryEntityId && ownerId !== source.entryEntityId;
@@ -1379,7 +1433,9 @@ function SourceCard({
 
 function newColumnKey(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
-  return uuid ? `col-${uuid}` : `col-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return uuid
+    ? `col-${uuid}`
+    : `col-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 const ROOT_LABELS: Record<TimesheetColumnRoot, string> = {
@@ -1415,9 +1471,9 @@ function ColumnsSection({
         <div>
           <h3 className="text-sm font-semibold">Колонки таблицы</h3>
           <p className="text-xs text-muted-foreground">
-            Столбцы-шаблоны над «полями для колонок» источников. Вставляйте имена
-            полей как <span className="font-mono">{"{{имя}}"}</span> — для каждой
-            строки подставится значение её источника.
+            Столбцы-шаблоны над «полями для колонок» источников. Вставляйте
+            имена полей как <span className="font-mono">{"{{имя}}"}</span> — для
+            каждой строки подставится значение её источника.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={addColumn}>

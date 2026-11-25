@@ -1,9 +1,9 @@
 import type { EntityField, EntityListOption } from "@/entities/entity";
 import { parseEntityListValueIds } from "@/entities/entity";
-import { getAutomationConfig } from "../store/automation-store";
-import type { AutomationScenario, AutomationTask } from "../model/types";
+import type { AutomationTask } from "../model/types";
 import { nextProcessStageOptionId } from "./outcome-stage-action";
 import { matchAutomationConditions } from "./evaluate-conditions";
+import { resolveProcessScenarioForStageGate } from "./resolve-process-scenario";
 
 function listOptionId(value: string | undefined) {
   const ids = parseEntityListValueIds(value ?? "");
@@ -11,26 +11,12 @@ function listOptionId(value: string | undefined) {
   return (value ?? "").trim();
 }
 
-function pickScenario(
-  processId: string,
-  values: Record<string, string | undefined>,
-): AutomationScenario | null {
-  const { scenarios } = getAutomationConfig();
-  const forProcess = scenarios.filter((item) => item.processId === processId);
-  const matched = forProcess
-    .filter((item) => !item.isDefault && item.entryConditions.rules.length > 0)
-    .filter((item) =>
-      matchAutomationConditions(item.entryConditions, { values }),
-    )
-    .sort((a, b) => b.priority - a.priority)[0];
-  return matched ?? forProcess.find((item) => item.isDefault) ?? null;
-}
-
 /**
  * Option ids the user may pick for a process trigger list field.
  * Always includes the current stage. With pending blocking tasks on the
  * current stage — only the current stage. Otherwise: configured transitions
- * from the current stage, or the next sequential option when no graph.
+ * from the current stage (ТОГДА only when its conditions match; ИНАЧЕ always),
+ * or the next sequential option when no graph.
  */
 export function getSelectableStageOptionIds(input: {
   entityId: string;
@@ -41,14 +27,12 @@ export function getSelectableStageOptionIds(input: {
 }): Set<string> | null {
   if (input.field.type !== "list") return null;
 
-  const { processes } = getAutomationConfig();
-  const process = processes.find(
-    (item) =>
-      item.enabled &&
-      item.entityId === input.entityId &&
-      item.triggerFieldId === input.field.id,
-  );
-  if (!process) return null;
+  const gate = resolveProcessScenarioForStageGate({
+    entityId: input.entityId,
+    triggerFieldId: input.field.id,
+    values: input.values,
+  });
+  if (!gate) return null;
 
   const current = listOptionId(input.currentOptionId);
   const allowed = new Set<string>();
@@ -63,15 +47,18 @@ export function getSelectableStageOptionIds(input: {
   );
   if (blocking.length > 0) return allowed;
 
-  const scenario = pickScenario(process.id, input.values);
-  const transitions = scenario?.stageTransitions ?? [];
+  const transitions = gate.scenario.stageTransitions;
   if (transitions.length > 0) {
     for (const edge of transitions) {
       if (listOptionId(edge.fromOptionId) !== current) continue;
       const to = listOptionId(edge.toOptionId);
-      if (to) allowed.add(to);
       const elseId = listOptionId(edge.elseOptionId);
+      const conditionsOk =
+        edge.conditions.rules.length === 0 ||
+        matchAutomationConditions(edge.conditions, { values: input.values });
+      if (to && conditionsOk) allowed.add(to);
       if (elseId) allowed.add(elseId);
+      // When ТОГДА fails and there is no ИНАЧЕ — keep only current.
     }
     return allowed;
   }

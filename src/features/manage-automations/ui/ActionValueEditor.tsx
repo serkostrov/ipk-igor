@@ -451,6 +451,7 @@ function isTypeCompatibleSource(
       item.type === "formula" ||
       item.type === "rollup" ||
       item.type === "timeHours" ||
+      item.type === "relatedTimeHours" ||
       item.type === "numberSum" ||
       item.type === "lookup"
     );
@@ -482,6 +483,7 @@ function isTypeCompatibleSource(
       item.type === "formula" ||
       item.type === "rollup" ||
       item.type === "timeHours" ||
+      item.type === "relatedTimeHours" ||
       item.type === "numberSum"
     );
   }

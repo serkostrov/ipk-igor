@@ -1355,12 +1355,16 @@ export function addEntityField(
         : false,
     unitSuffix: data?.unitSuffix?.trim() || null,
     decimals:
-      type === "number" || type === "numberSum" || type === "timeHours"
+      type === "number" ||
+      type === "numberSum" ||
+      type === "timeHours" ||
+      type === "relatedTimeHours"
         ? normalizeEntityNumberDecimals(data?.decimals)
         : 2,
     formula: data?.formula,
     rollup: data?.rollup,
     lookup: data?.lookup,
+    relatedTimeHours: data?.relatedTimeHours,
     allowManualInput: data?.allowManualInput,
     dependencies: data?.dependencies,
     relationGroups: data?.relationGroups,

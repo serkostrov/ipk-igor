@@ -22,6 +22,7 @@ import {
   isEntityFieldManualInputEnabled,
   isEntityFormulaDateField,
   isEntityListOtherValue,
+  isEntityRelationLikeFieldType,
   normalizeEntityNumberDecimals,
   normalizeEntitySumFieldIds,
   parseEntityDecimal,
@@ -63,7 +64,8 @@ import {
   resolveEntityScheduleFields,
 } from "./schedule-fields";
 import { SYSTEM_USERS_FIELD_ROLE_ID } from "./system-entities";
-import { sumRecordTimeHours } from "./time-tracking";
+import { resolveEntityTabParentLinkFieldId } from "./parent-visibility";
+import { getEntityTimeTracking, sumRecordTimeHours } from "./time-tracking";
 import {
   buildEntityTabDefaultFileEntries,
   getEntityTabFilesValueKey,
@@ -75,6 +77,7 @@ import {
   type EntityNumberDecimals,
   type EntityRecord,
   type EntityRelationFilter,
+  type EntityTab,
   type RelationRecordOption,
 } from "./types";
 import {
@@ -670,6 +673,8 @@ export function isEntityComputedAutoValueEmpty(
       return getRollupResult(ctx, record, field) == null;
     case "timeHours":
       return sumRecordTimeHours(entity, record.id, ctx.entities) == null;
+    case "relatedTimeHours":
+      return getRelatedTimeHoursResult(ctx, entity, record, field) == null;
     case "numberSum": {
       const ids = normalizeEntitySumFieldIds(field.sumFieldIds);
       return !ids.some((id) => (record.values[id] ?? "").trim().length > 0);
@@ -878,7 +883,8 @@ export function resolveEntityComputedManualEditField(
     field.type === "formula" ||
     field.type === "rollup" ||
     field.type === "numberSum" ||
-    field.type === "timeHours"
+    field.type === "timeHours" ||
+    field.type === "relatedTimeHours"
   ) {
     const isScheduleDateFormula =
       field.type === "formula" &&
@@ -984,6 +990,7 @@ export function getEntityFieldValueKind(
     case "numberSum":
     case "rollup":
     case "timeHours":
+    case "relatedTimeHours":
       return "number";
     case "formula":
       return getEntityFormulaResultType(field) === "date" ? "date" : "number";
@@ -1174,6 +1181,11 @@ export function getRecordFieldNumber(
       if (hours != null) return hours;
       return readManualNumberFallback(field, record);
     }
+    case "relatedTimeHours": {
+      const hours = getRelatedTimeHoursResult(ctx, entity, record, field);
+      if (hours != null) return hours;
+      return readManualNumberFallback(field, record);
+    }
     case "lookup": {
       const fromCells = sumOrNull(
         resolveRecordFieldCells(ctx, entity, record, field).map((cell) =>
@@ -1328,6 +1340,7 @@ export function getRecordFieldFormulaValue(
     case "numberSum":
     case "rollup":
     case "timeHours":
+    case "relatedTimeHours":
       return getRecordFieldNumber(ctx, entity, record, field);
     case "formula":
       return resolveFormulaOperandValue(ctx, entity, record, field);
@@ -1526,6 +1539,134 @@ function getRollupResult(
       ) as number;
     },
   );
+}
+
+function sumTimeHoursForRelatedIds(
+  target: Entity,
+  relatedIds: string[],
+  entities: readonly Entity[],
+): number | null {
+  if (relatedIds.length === 0) return 0;
+  let sum = 0;
+  let sawTracking = false;
+  for (const relatedId of relatedIds) {
+    const hours = sumRecordTimeHours(target, relatedId, entities);
+    if (hours == null) continue;
+    sawTracking = true;
+    sum += hours;
+  }
+  if (!sawTracking) return null;
+  return Math.round(sum * 100) / 100;
+}
+
+/**
+ * Sum of «Учёт времени» hours for related records:
+ * - relation — forward link ids on this record
+ * - tab — children from an entity tab (`parentLinkFieldId`)
+ * Empty set → `0`; target has no time tracking → `null`.
+ */
+function getRelatedTimeHoursResult(
+  ctx: EntityValueContext,
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField,
+): number | null {
+  return withCycleGuard(
+    ctx,
+    ctx.rollupCache,
+    `relatedTimeHours:${record.id}:${field.id}`,
+    null,
+    () => {
+      const config = field.relatedTimeHours;
+      if (!config) return null;
+
+      if (config.source === "tab") {
+        const tab = entity.tabs.find((item) => item.id === config.tabId);
+        if (!tab || tab.kind !== "entity") return null;
+        const linkedEntityId = tab.linkedEntityId?.trim() || null;
+        const target = linkedEntityId
+          ? ctx.entityById.get(linkedEntityId)
+          : null;
+        if (!target) return null;
+        const linkFieldId = resolveEntityTabParentLinkFieldId(
+          tab,
+          target,
+          entity.id,
+        );
+        if (!linkFieldId) return null;
+        const children = getEntityLinkedRecords(
+          ctx,
+          target.id,
+          linkFieldId,
+          record.id,
+        );
+        return sumTimeHoursForRelatedIds(
+          target,
+          children.map((child) => child.id),
+          ctx.entities,
+        );
+      }
+
+      const relationField = findField(entity, config.relationFieldId);
+      if (
+        !relationField ||
+        !isEntityRelationLikeFieldType(relationField.type)
+      ) {
+        return null;
+      }
+      const targetId = getEntityRelationTargetId(relationField);
+      const target = targetId ? ctx.entityById.get(targetId) : null;
+      if (!target) return null;
+      return sumTimeHoursForRelatedIds(
+        target,
+        parseEntityRelationIds(record.values[relationField.id]),
+        ctx.entities,
+      );
+    },
+  );
+}
+
+/** Relation / belonging fields whose target has «Учёт времени» configured. */
+export function getEntityRelatedTimeHoursRelationOptions(
+  entity: Pick<Entity, "fields"> | null | undefined,
+  entities: readonly Entity[],
+): Array<{ fieldId: string; label: string }> {
+  if (!entity) return [];
+  return entity.fields
+    .filter((field) => {
+      if (!isEntityRelationLikeFieldType(field.type)) return false;
+      const targetId = getEntityRelationTargetId(field);
+      const target = targetId
+        ? entities.find((item) => item.id === targetId)
+        : null;
+      if (!target) return false;
+      return getEntityTimeTracking(target, entities) != null;
+    })
+    .map((field) => ({
+      fieldId: field.id,
+      label: getEntityFieldDisplayName(field),
+    }));
+}
+
+/** Entity tabs (`kind: "entity"`) whose linked entity has «Учёт времени». */
+export function getEntityRelatedTimeHoursTabOptions(
+  entity: Pick<Entity, "id" | "tabs"> | null | undefined,
+  entities: readonly Entity[],
+): Array<{ tabId: string; label: string }> {
+  if (!entity) return [];
+  return entity.tabs
+    .filter((tab): tab is EntityTab & { linkedEntityId: string } => {
+      if (tab.kind !== "entity") return false;
+      const linkedEntityId = tab.linkedEntityId?.trim() || null;
+      if (!linkedEntityId) return false;
+      const target = entities.find((item) => item.id === linkedEntityId);
+      if (!target || !getEntityTimeTracking(target, entities)) return false;
+      return resolveEntityTabParentLinkFieldId(tab, target, entity.id) != null;
+    })
+    .map((tab) => ({
+      tabId: tab.id,
+      label: tab.name.trim() || "Без названия",
+    }));
 }
 
 export function formatEntityComputedNumber(
@@ -1805,6 +1946,17 @@ export function formatRecordFieldValue(
     }
     case "timeHours": {
       const hours = sumRecordTimeHours(entity, record.id, ctx.entities);
+      if (hours != null) {
+        return formatEntityComputedNumber(
+          hours,
+          normalizeEntityNumberDecimals(field.decimals),
+          field.unitSuffix,
+        );
+      }
+      return formatManualNumberDisplay(field, record, field.decimals);
+    }
+    case "relatedTimeHours": {
+      const hours = getRelatedTimeHoursResult(ctx, entity, record, field);
       if (hours != null) {
         return formatEntityComputedNumber(
           hours,
@@ -3134,6 +3286,7 @@ export function isRecordValueDecorated(field: EntityField) {
     field.type === "formula" ||
     field.type === "rollup" ||
     field.type === "timeHours" ||
+    field.type === "relatedTimeHours" ||
     field.type === "lookup" ||
     field.type === "dependencies" ||
     field.type === "relationGroups" ||

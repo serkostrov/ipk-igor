@@ -2386,6 +2386,7 @@ function fieldsCompatibleForAutoMap(
       source.type === "formula" ||
       source.type === "rollup" ||
       source.type === "timeHours" ||
+      source.type === "relatedTimeHours" ||
       source.type === "numberSum")
   ) {
     return true;
@@ -2401,6 +2402,7 @@ function fieldsCompatibleForAutoMap(
     (source.type === "formula" ||
       source.type === "rollup" ||
       source.type === "timeHours" ||
+      source.type === "relatedTimeHours" ||
       source.type === "numberSum" ||
       source.type === "lookup" ||
       source.type === "text")

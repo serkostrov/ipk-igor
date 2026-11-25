@@ -232,6 +232,10 @@ export {
   isStageOptionSelectable,
 } from "./lib/selectable-stage-options";
 export {
+  pickScenarioForProcess,
+  resolveProcessScenarioForStageGate,
+} from "./lib/resolve-process-scenario";
+export {
   AUTOMATION_UPLOAD_TARGET_PREFIX,
   getAutomationUploadTarget,
   resolveEffectiveUploadTarget,

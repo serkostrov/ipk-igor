@@ -78,8 +78,7 @@ export function RecordHistoryTable({
               const eventEntity = entities.find(
                 (item) => item.id === event.entityId,
               );
-              const exists =
-                Boolean(eventEntity) && event.recordId in labels;
+              const exists = Boolean(eventEntity) && event.recordId in labels;
               const title = recordTitle(eventEntity, event, labels, exists);
               return (
                 <TableRow key={event.id} className="border-border/60 align-top">

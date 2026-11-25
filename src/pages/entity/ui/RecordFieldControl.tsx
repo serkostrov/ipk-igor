@@ -102,6 +102,22 @@ function getComputedSourceCaption(
     }
     case "timeHours":
       return "сумма часов из «Учёт времени»";
+    case "relatedTimeHours": {
+      const config = field.relatedTimeHours;
+      if (config?.source === "tab") {
+        const tab = entity.tabs.find((item) => item.id === config.tabId);
+        return tab
+          ? `сумма часов по вкладке «${tab.name.trim() || "Без названия"}»`
+          : "сумма часов по вкладке";
+      }
+      const relation =
+        config?.source === "relation"
+          ? entity.fields.find((item) => item.id === config.relationFieldId)
+          : null;
+      return relation
+        ? `сумма часов по «${getEntityFieldDisplayName(relation)}»`
+        : "сумма часов связанных записей";
+    }
     case "numberSum": {
       const names = field.sumFieldIds
         .map((id) => entity.fields.find((item) => item.id === id))
@@ -335,6 +351,7 @@ export function RecordFieldControl({
         field.type === "rollup" ||
         field.type === "numberSum" ||
         field.type === "timeHours" ||
+        field.type === "relatedTimeHours" ||
         autoEmpty ||
         value.trim().length > 0);
     const manualEditField = preferManualEdit
@@ -363,7 +380,8 @@ export function RecordFieldControl({
         (field.type === "formula" ||
           field.type === "rollup" ||
           field.type === "numberSum" ||
-          field.type === "timeHours");
+          field.type === "timeHours" ||
+          field.type === "relatedTimeHours");
       return (
         <RecordFieldControl
           ctx={ctx}

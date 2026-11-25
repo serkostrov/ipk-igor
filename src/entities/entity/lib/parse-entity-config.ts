@@ -21,6 +21,7 @@ import type {
   EntityNumberDecimals,
   EntityNumberSignColor,
   EntityRecord,
+  EntityRelatedTimeHoursConfig,
   EntityRelationFilter,
   EntityRelationGroupsConfig,
   EntityRollupConfig,
@@ -407,8 +408,24 @@ function isNumberLikeType(type: EntityFieldType) {
     type === "formula" ||
     type === "rollup" ||
     type === "timeHours" ||
+    type === "relatedTimeHours" ||
     type === "lookup"
   );
+}
+
+function normalizeRelatedTimeHoursConfig(
+  value: unknown,
+): EntityRelatedTimeHoursConfig | undefined {
+  if (!isRecord(value)) return undefined;
+  const source = value.source === "tab" ? "tab" : "relation";
+  if (source === "tab") {
+    const tabId = normalizeId(value.tabId);
+    if (!tabId) return undefined;
+    return { source: "tab", tabId };
+  }
+  const relationFieldId = normalizeId(value.relationFieldId);
+  if (!relationFieldId) return undefined;
+  return { source: "relation", relationFieldId };
 }
 
 export function normalizeEntityField(field: EntityField): EntityField {
@@ -439,7 +456,10 @@ export function normalizeEntityField(field: EntityField): EntityField {
     ? normalizeEntityUnitSuffix(field.unitSuffix)
     : null;
   const decimals =
-    type === "number" || type === "numberSum" || type === "timeHours"
+    type === "number" ||
+    type === "numberSum" ||
+    type === "timeHours" ||
+    type === "relatedTimeHours"
       ? normalizeEntityNumberDecimals(field.decimals)
       : 2;
   const sumFieldIds =
@@ -502,7 +522,8 @@ export function normalizeEntityField(field: EntityField): EntityField {
         type === "numberSum" ||
         type === "formula" ||
         type === "rollup" ||
-        type === "timeHours") &&
+        type === "timeHours" ||
+        type === "relatedTimeHours") &&
       Boolean(field.includeInTotal),
     tableOrder: clampSpan(field.tableOrder, 0, 9999, 0),
     relationEntityId,
@@ -524,6 +545,10 @@ export function normalizeEntityField(field: EntityField): EntityField {
       type === "formula" ? normalizeFormulaConfig(field.formula) : undefined,
     rollup: type === "rollup" ? normalizeRollupConfig(field.rollup) : undefined,
     lookup: type === "lookup" ? normalizeLookupConfig(field.lookup) : undefined,
+    relatedTimeHours:
+      type === "relatedTimeHours"
+        ? normalizeRelatedTimeHoursConfig(field.relatedTimeHours)
+        : undefined,
     allowManualInput:
       isEntityComputedFieldType(type) && field.allowManualInput === true
         ? true
@@ -726,6 +751,7 @@ function parseField(value: unknown): EntityField | null {
     formula: normalizeFormulaConfig(value.formula),
     rollup: normalizeRollupConfig(value.rollup),
     lookup: normalizeLookupConfig(value.lookup),
+    relatedTimeHours: normalizeRelatedTimeHoursConfig(value.relatedTimeHours),
     allowManualInput: value.allowManualInput === true ? true : undefined,
     dependencies: normalizeDependenciesConfig(value.dependencies),
     relationGroups: normalizeRelationGroupsConfig(value.relationGroups),
