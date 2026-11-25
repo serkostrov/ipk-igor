@@ -84,8 +84,27 @@ export async function fetchAutomationTasks(options?: {
   assigneeUserId?: string | null;
   status?: AutomationTaskStatus | AutomationTaskStatus[];
   recordId?: string;
+  recordIds?: readonly string[];
 }): Promise<AutomationTask[]> {
   if (!isSupabaseConfigured || !supabase) return [];
+  const recordIds = [
+    ...new Set(
+      (options?.recordIds ?? []).map((id) => id.trim()).filter(Boolean),
+    ),
+  ];
+  if (options?.recordIds && recordIds.length === 0) return [];
+  if (recordIds.length > 100) {
+    const out: AutomationTask[] = [];
+    for (let index = 0; index < recordIds.length; index += 100) {
+      out.push(
+        ...(await fetchAutomationTasks({
+          ...options,
+          recordIds: recordIds.slice(index, index + 100),
+        })),
+      );
+    }
+    return out;
+  }
   let query = supabase
     .from("automation_tasks")
     .select("*")
@@ -95,7 +114,9 @@ export async function fetchAutomationTasks(options?: {
   if (options?.assigneeUserId) {
     query = query.eq("assignee_user_id", options.assigneeUserId);
   }
-  if (options?.recordId) {
+  if (recordIds.length > 0) {
+    query = query.in("record_id", recordIds);
+  } else if (options?.recordId) {
     query = query.eq("record_id", options.recordId);
   }
   if (options?.status) {

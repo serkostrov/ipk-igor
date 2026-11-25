@@ -1,4 +1,5 @@
 import { AsyncValue } from "@/shared/ui/async-value";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useMemo, useState, type ReactNode } from "react";
 import {
   recordLocation,
@@ -33,8 +34,10 @@ import {
   useCurrentRole,
 } from "@/entities/access";
 import {
+  fetchAutomationTasks,
   filterSelectableListOptions,
   getSelectableStageOptionIds,
+  type AutomationTask,
 } from "@/entities/automation";
 import {
   addEntityRecord,
@@ -547,6 +550,7 @@ function RecordHeaderField({
   values = {},
   entity,
   entities = [],
+  pendingTasks = [],
   onListChange,
   onOpenRelation,
 }: {
@@ -557,6 +561,7 @@ function RecordHeaderField({
   values?: Record<string, string | undefined>;
   entity: Entity;
   entities?: Entity[];
+  pendingTasks?: readonly AutomationTask[];
   onListChange?: (fieldId: string, optionId: string) => void;
   onOpenRelation?: (entityId: string, recordId: string) => void;
 }) {
@@ -577,6 +582,7 @@ function RecordHeaderField({
       field,
       currentOptionId: value ?? "",
       values,
+      pendingTasks,
     }),
   );
   const listPresentation = resolveEntityListFieldPresentation(field, entities);
@@ -1297,6 +1303,16 @@ function EntityRecordContent({
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
+  const pendingTasksResult = useAsyncValue(
+    () =>
+      fetchAutomationTasks({
+        recordId: record.id,
+        status: ["pending", "returned"],
+      }).catch(() => [] as AutomationTask[]),
+    [record.id],
+  );
+  const pendingTasks =
+    pendingTasksResult.status === "ready" ? pendingTasksResult.value : [];
   const timers = useRecordTimers(entity);
   const hasTimeSessionsTab = entity.tabs.some((tab) =>
     isEntityTimeSessionsTab(tab),
@@ -1504,6 +1520,7 @@ function EntityRecordContent({
               values={record.values}
               entity={entity}
               entities={entities}
+              pendingTasks={pendingTasks}
               onListChange={
                 canUpdate && canField(role, entity.id, headerField.id, "edit")
                   ? handleListChange

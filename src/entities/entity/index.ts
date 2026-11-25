@@ -794,6 +794,9 @@ export {
   getEntityRecordsByIds,
   getEntityRecordsByRelation,
   getEntityRecordsByFirstListOption,
+  getEntityRecordsLinkedByField,
+  getEntityRecordsByFieldText,
+  primeEntityRecordsByIds,
 } from "./model/record-queries";
 export { resolveEntityRecordClosure } from "./model/record-closure";
 export {

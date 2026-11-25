@@ -383,7 +383,9 @@ function TaskWorkspaceBody({
       getCurrentUserRecordId(),
       taskAsk.relatedVisibleFields,
     ).then((seed) => {
-      if (!cancelled) setValues(seed);
+      if (cancelled) return;
+      // Keep a heal that landed while the seed was loading.
+      setValues((current) => ({ ...seed, ...current }));
     });
     return () => {
       cancelled = true;
@@ -404,10 +406,21 @@ function TaskWorkspaceBody({
           hostRecord: record,
           entities,
         });
-        if (cancelled) return;
-        if (healed?.healed) {
-          setValues((current) => ({ ...current, ...healed.values }));
-        }
+        if (cancelled || !healed) return;
+        setValues((current) => {
+          if (healed.healed) return { ...current, ...healed.values };
+          // A store refresh can cancel the pass that wrote the roots.
+          // The next pass sees them on the record and must still fill the form.
+          const next = { ...current };
+          let changed = false;
+          for (const [key, value] of Object.entries(healed.values)) {
+            if (!value || (current[key] ?? "").trim()) continue;
+            if (!value.includes('"children"')) continue;
+            next[key] = value;
+            changed = true;
+          }
+          return changed ? next : current;
+        });
         await maybeEnsureDeptCalculationGipForTask({
           hostEntity: entity,
           hostRecord: healed?.values

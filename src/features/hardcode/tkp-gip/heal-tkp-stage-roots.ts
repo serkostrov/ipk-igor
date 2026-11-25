@@ -7,15 +7,22 @@ import { collectRecordsLinkedToParent } from "@/entities/automation";
 import {
   coerceToEntityRelationGroupsValue,
   findTkpLeadRelationField,
+  getEntityConfig,
   getEntityRecordById,
-  getEntityRecords,
+  getEntityRecordsByFieldText,
+  getEntityRecordsLinkedByField,
   getEntityRelationTargetId,
+  getRelationGroupsLevelEntityId,
+  isEntityNameField,
+  isEntityRelationRecordGhost,
   isTkpAnalysisEntity,
   parseEntityListValueIds,
   parseEntityRelationGroups,
   parseEntityRelationIds,
+  primeEntityRecordsByIds,
   updateEntityRecord,
   type Entity,
+  type EntityField,
   type EntityRecord,
 } from "@/entities/entity";
 
@@ -107,6 +114,78 @@ function stageIdsFromProtocolValue(
   return parseEntityRelationIds(raw);
 }
 
+function liveEntity(entity: Entity): Entity {
+  return (
+    getEntityConfig().entities.find((item) => item.id === entity.id) ?? entity
+  );
+}
+
+function catalogEntityForGroups(
+  field: EntityField,
+  entities: readonly Entity[],
+): Entity | null {
+  const level = field.relationGroups?.levels[0];
+  if (!level) return null;
+  const entityId = getRelationGroupsLevelEntityId(level, null, () => null);
+  if (!entityId) return null;
+  return entities.find((item) => item.id === entityId) ?? null;
+}
+
+function isCatalogRoot(
+  catalog: Entity,
+  recordId: string,
+  entities: readonly Entity[],
+): boolean {
+  const live = liveEntity(catalog);
+  return (
+    live.records.some((record) => record.id === recordId) &&
+    !isEntityRelationRecordGhost(live, recordId, entities)
+  );
+}
+
+async function resolveCatalogRootIds(
+  catalog: Entity,
+  stagesField: EntityField,
+  stageIds: readonly string[],
+  entities: readonly Entity[],
+): Promise<string[]> {
+  await primeEntityRecordsByIds(stageIds);
+  const nameField = liveEntity(catalog).fields.find((field) =>
+    isEntityNameField(field),
+  );
+  const resolved: string[] = [];
+  const seen = new Set<string>();
+
+  for (const id of stageIds) {
+    let nextId = "";
+    if (isCatalogRoot(catalog, id, entities)) {
+      nextId = id;
+    } else if (stagesField.type === "list" && nameField) {
+      const optionName =
+        stagesField.listOptions
+          .find((option) => option.id === id)
+          ?.name.trim() ?? "";
+      if (optionName) {
+        const matches = await getEntityRecordsByFieldText(
+          liveEntity(catalog),
+          nameField.id,
+          optionName,
+        );
+        const named = matches.find((record) =>
+          isCatalogRoot(catalog, record.id, entities),
+        );
+        if (named) nextId = named.id;
+      }
+    }
+    if (!nextId || seen.has(nextId)) continue;
+    seen.add(nextId);
+    resolved.push(nextId);
+  }
+
+  if (resolved.length > 0) await primeEntityRecordsByIds(resolved);
+  return resolved;
+}
+
 async function loadProtocolRecords(options: {
   protocolEntity: Entity;
   hostEntity: Entity;
@@ -116,45 +195,49 @@ async function loadProtocolRecords(options: {
 }): Promise<EntityRecord[]> {
   const { protocolEntity, hostEntity, hostRecord, leadEntity, leadRecord } =
     options;
-  const byId = new Map(
-    (await getEntityRecords(protocolEntity)).map((record) => [
-      record.id,
-      record,
-    ]),
+  const byId = new Map<string, EntityRecord>();
+
+  const absorb = async (ids: readonly string[]) => {
+    for (const id of ids) {
+      if (!id || byId.has(id)) continue;
+      const row = await getEntityRecordById(protocolEntity, id);
+      if (row) byId.set(row.id, row);
+    }
+  };
+
+  await absorb(
+    await collectRecordsLinkedToParent({
+      childEntity: protocolEntity,
+      parentEntityId: hostEntity.id,
+      parentRecordId: hostRecord.id,
+      host: hostEntity,
+    }),
   );
-  const resolve = (ids: readonly string[]) =>
-    ids
-      .map((id) => byId.get(id))
-      .filter((record): record is EntityRecord => record != null);
+  await absorb(
+    await collectRecordsLinkedToParent({
+      childEntity: protocolEntity,
+      parentEntityId: leadEntity.id,
+      parentRecordId: leadRecord.id,
+      host: leadEntity,
+    }),
+  );
+  if (byId.size > 0) return [...byId.values()];
 
-  let ids = await collectRecordsLinkedToParent({
-    childEntity: protocolEntity,
-    parentEntityId: hostEntity.id,
-    parentRecordId: hostRecord.id,
-    host: hostEntity,
-  });
-  if (ids.length > 0) return resolve(ids);
-
-  ids = await collectRecordsLinkedToParent({
-    childEntity: protocolEntity,
-    parentEntityId: leadEntity.id,
-    parentRecordId: leadRecord.id,
-    host: leadEntity,
-  });
-  if (ids.length > 0) return resolve(ids);
-
-  return [...byId.values()].filter((record) => {
-    for (const field of protocolEntity.fields) {
-      if (field.type !== "relation" && field.type !== "belonging") continue;
-      const targetId = getEntityRelationTargetId(field);
-      if (targetId !== leadEntity.id && targetId !== hostEntity.id) continue;
-      const linked = parseEntityRelationIds(record.values[field.id]);
-      if (linked.includes(leadRecord.id) || linked.includes(hostRecord.id)) {
-        return true;
+  for (const field of protocolEntity.fields) {
+    if (field.type !== "relation" && field.type !== "belonging") continue;
+    const targetId = getEntityRelationTargetId(field);
+    if (targetId !== leadEntity.id && targetId !== hostEntity.id) continue;
+    for (const parentId of [hostRecord.id, leadRecord.id]) {
+      for (const row of await getEntityRecordsLinkedByField(
+        protocolEntity,
+        field.id,
+        parentId,
+      )) {
+        byId.set(row.id, row);
       }
     }
-    return false;
-  });
+  }
+  return [...byId.values()];
 }
 
 /**
@@ -173,7 +256,13 @@ export async function maybeHealTkpStageDepartmentRoots(options: {
   if (!groupsField) return null;
 
   const existing = parseEntityRelationGroups(hostRecord.values[groupsField.id]);
-  if (existing.length > 0) {
+  const catalog = catalogEntityForGroups(groupsField, entities);
+  if (existing.length > 0 && catalog) {
+    await primeEntityRecordsByIds(existing.map((node) => node.id));
+    if (existing.every((node) => isCatalogRoot(catalog, node.id, entities))) {
+      return { values: hostRecord.values, healed: false };
+    }
+  } else if (existing.length > 0) {
     return { values: hostRecord.values, healed: false };
   }
 
@@ -217,9 +306,12 @@ export async function maybeHealTkpStageDepartmentRoots(options: {
   }
   if (stageIds.length === 0) return null;
 
-  const nextGroups = coerceToEntityRelationGroupsValue(
-    JSON.stringify(stageIds),
-  );
+  const rootIds = catalog
+    ? await resolveCatalogRootIds(catalog, stagesField, stageIds, entities)
+    : stageIds;
+  if (rootIds.length === 0) return null;
+
+  const nextGroups = coerceToEntityRelationGroupsValue(JSON.stringify(rootIds));
   if (!nextGroups || parseEntityRelationGroups(nextGroups).length === 0) {
     return null;
   }
