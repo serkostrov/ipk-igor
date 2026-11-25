@@ -5,10 +5,10 @@ import {
   fetchAutomationTasks,
   getAutomationConfig,
   isAutomationSilentTaskKind,
+  isAutomationFolderFileOperator,
   isStageOptionSelectable,
-  matchAutomationConditions,
+  resolveProcessScenarioForStageGate,
   resolveStageTransition,
-  type AutomationScenario,
   type AutomationTask,
 } from "@/entities/automation";
 import {
@@ -385,23 +385,29 @@ async function openDialogAfterStageChange(input: {
   return false;
 }
 
-function pickScenarioForTransition(
-  processId: string,
-  values: Record<string, string | undefined>,
-  previousValues: Record<string, string | undefined>,
-): AutomationScenario | null {
-  const { scenarios } = getAutomationConfig();
-  const forProcess = scenarios.filter((item) => item.processId === processId);
-  const matched = forProcess
-    .filter((item) => !item.isDefault && item.entryConditions.rules.length > 0)
-    .filter((item) =>
-      matchAutomationConditions(item.entryConditions, {
-        values,
-        previousValues,
-      }),
-    )
-    .sort((a, b) => b.priority - a.priority)[0];
-  return matched ?? forProcess.find((item) => item.isDefault) ?? null;
+function conditionsIncludeFolderGate(
+  conditions: { rules?: unknown } | null | undefined,
+): boolean {
+  const rules = Array.isArray(conditions?.rules) ? conditions.rules : [];
+  for (const node of rules) {
+    if (!node || typeof node !== "object") continue;
+    const record = node as {
+      kind?: string;
+      operator?: string;
+      rules?: unknown[];
+    };
+    if (record.kind === "group" && Array.isArray(record.rules)) {
+      if (conditionsIncludeFolderGate({ rules: record.rules })) return true;
+      continue;
+    }
+    if (
+      typeof record.operator === "string" &&
+      isAutomationFolderFileOperator(record.operator)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -484,19 +490,14 @@ export async function applyRecordListChange(
   }
 
   try {
-    const { processes } = getAutomationConfig();
-    const process = processes.find(
-      (item) =>
-        item.enabled &&
-        item.entityId === entity.id &&
-        item.triggerFieldId === field.id,
-    );
-    if (process && fromOptionId && toOptionId) {
-      const scenario = pickScenarioForTransition(
-        process.id,
-        record.values,
+    if (fromOptionId && toOptionId) {
+      const gate = resolveProcessScenarioForStageGate({
+        entityId: entity.id,
+        triggerFieldId: field.id,
+        values: record.values,
         previousValues,
-      );
+      });
+      const scenario = gate?.scenario ?? null;
       if (!scenario || scenario.stageTransitions.length === 0) {
         let pendingForSelect: AutomationTask[] = [];
         if (isSupabaseConfigured) {
@@ -568,18 +569,26 @@ export async function applyRecordListChange(
               // Prep for this destination already done → allow the move even
               // when the edge «ТОГДА» conditions still fail (legacy records
               // that completed beforeEnter without auto stage advance).
+              // Never bypass folder/file gates — empty guarantee-letter folder
+              // must not reach the guarantee approval branch.
+              const folderGate = conditionsIncludeFolderGate(
+                resolution.transition?.conditions,
+              );
               if (
-                await isBeforeEnterPrepCompletedForDestination(
+                !folderGate &&
+                (await isBeforeEnterPrepCompletedForDestination(
                   record.id,
                   scenario.id,
                   toOptionId,
                   fromOptionId,
-                )
+                ))
               ) {
                 // fall through — apply the list change
               } else {
                 toast.warning("Переход недоступен", {
-                  description: resolution.message,
+                  description: folderGate
+                    ? "В папке нет файлов — переход по этой ветке недоступен"
+                    : resolution.message,
                   duration: 7_000,
                 });
                 return false;

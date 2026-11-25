@@ -5,9 +5,11 @@ import {
   formulaToDisplay,
   getEntityFormulaOperands,
   getEntityFormulaResultType,
+  getEntityRelationTargetId,
   getEntityTimeTracking,
   isEntityNumericFieldType,
   isEntityRelationGroupsConfigReady,
+  resolveEntityTabParentLinkFieldId,
   suggestFormulaResultType,
   type Entity,
   type EntityDeadlineConfig,
@@ -19,6 +21,7 @@ import {
   type EntityLookupConfig,
   type EntityNumberDecimals,
   type EntityNumberSignColor,
+  type EntityRelatedTimeHoursConfig,
   type EntityRelationFilter,
   type EntityRelationGroupsConfig,
   type EntityRollupAggregation,
@@ -31,6 +34,7 @@ export type EntityFieldTypeSettings = Pick<
   | "formula"
   | "rollup"
   | "lookup"
+  | "relatedTimeHours"
   | "dependencies"
   | "relationGroups"
   | "defaultValue"
@@ -56,6 +60,7 @@ export type FieldTypeSettingsDraft = {
   allowManualInput: boolean;
   rollup: EntityRollupConfig | null;
   lookup: EntityLookupConfig | null;
+  relatedTimeHours: EntityRelatedTimeHoursConfig | null;
   dependencies: EntityDependenciesConfig;
   relationGroups: EntityRelationGroupsConfig;
   defaultValue: EntityFieldDefaultValue | null;
@@ -70,6 +75,7 @@ const PROGRESS_TYPES = new Set<EntityFieldType>([
   "formula",
   "rollup",
   "timeHours",
+  "relatedTimeHours",
 ]);
 
 const DEFAULT_VALUE_TYPES = new Set<EntityFieldType>([
@@ -111,6 +117,7 @@ const COMPUTED_DEFAULT_TYPES = new Set<EntityFieldType>([
   "rollup",
   "numberSum",
   "timeHours",
+  "relatedTimeHours",
 ]);
 
 /** Lists need saved options; relations need a target entity. */
@@ -187,6 +194,7 @@ export function createFieldTypeSettingsDraft(
     allowManualInput: field?.allowManualInput === true,
     rollup: field?.rollup ?? null,
     lookup: field?.lookup ?? null,
+    relatedTimeHours: field?.relatedTimeHours ?? null,
     dependencies: field?.dependencies ?? { sameFieldId: null },
     relationGroups: field?.relationGroups
       ? {
@@ -225,7 +233,7 @@ function compileDraftFormula(
 export function getFieldTypeSettingsError(
   type: EntityFieldType,
   draft: FieldTypeSettingsDraft,
-  entity: Pick<Entity, "fields" | "timeTracking"> | null,
+  entity: Pick<Entity, "id" | "fields" | "tabs" | "timeTracking"> | null,
   fieldId: string | null,
   entities: readonly Entity[] = [],
 ): string | null {
@@ -245,6 +253,38 @@ export function getFieldTypeSettingsError(
   if (type === "timeHours") {
     if (!entity || !getEntityTimeTracking(entity, entities)) {
       return "Сначала настройте вкладку «Учёт времени»";
+    }
+  }
+  if (type === "relatedTimeHours") {
+    const config = draft.relatedTimeHours;
+    if (!config) return "Выберите источник суммирования";
+    if (config.source === "tab") {
+      const tab = entity?.tabs.find((item) => item.id === config.tabId);
+      const linkedEntityId = tab?.linkedEntityId?.trim() || null;
+      const target = linkedEntityId
+        ? entities.find((item) => item.id === linkedEntityId)
+        : null;
+      if (
+        !entity ||
+        !tab ||
+        tab.kind !== "entity" ||
+        !target ||
+        !getEntityTimeTracking(target, entities) ||
+        !resolveEntityTabParentLinkFieldId(tab, target, entity.id)
+      ) {
+        return "Выберите вкладку сущности с учётом времени";
+      }
+    } else {
+      const relation = entity?.fields.find(
+        (field) => field.id === config.relationFieldId,
+      );
+      const targetId = relation ? getEntityRelationTargetId(relation) : null;
+      const target = targetId
+        ? entities.find((item) => item.id === targetId)
+        : null;
+      if (!relation || !target || !getEntityTimeTracking(target, entities)) {
+        return "Выберите связь с сущностью, у которой настроен «Учёт времени»";
+      }
     }
   }
   if (
@@ -285,6 +325,10 @@ export function resolveFieldTypeSettings(
       : undefined,
     rollup: type === "rollup" ? (draft.rollup ?? undefined) : undefined,
     lookup: type === "lookup" ? (draft.lookup ?? undefined) : undefined,
+    relatedTimeHours:
+      type === "relatedTimeHours"
+        ? (draft.relatedTimeHours ?? undefined)
+        : undefined,
     dependencies: type === "dependencies" ? draft.dependencies : undefined,
     relationGroups:
       type === "relationGroups" ? draft.relationGroups : undefined,

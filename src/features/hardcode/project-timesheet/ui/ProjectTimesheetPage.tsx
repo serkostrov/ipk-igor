@@ -180,8 +180,7 @@ function LeftCell({
               "bg-muted font-semibold shadow-[inset_0_-1px_0_var(--border)]",
               isSticky && "z-50",
             )
-          : isSticky &&
-              "bg-card shadow-[4px_0_6px_-6px_rgba(0,0,0,0.3)]",
+          : isSticky && "bg-card shadow-[4px_0_6px_-6px_rgba(0,0,0,0.3)]",
         className,
       )}
     >

@@ -20,7 +20,9 @@ export function makeTimesheetRef(fieldId: string | null): TimesheetRef | null {
 }
 
 /** The leaf (last) field id of a ref, or null. Phase 1: the only field id. */
-export function refLeafFieldId(ref: TimesheetRef | null | undefined): string | null {
+export function refLeafFieldId(
+  ref: TimesheetRef | null | undefined,
+): string | null {
   return ref?.path[ref.path.length - 1] ?? null;
 }
 
@@ -150,7 +152,11 @@ export function findStaleFieldRefs(
   const issues: TimesheetFieldIssue[] = [];
 
   // Flag `fieldId` only when its entity exists but lacks the field.
-  const check = (path: string, entityId: string | null, fieldId: string | null) => {
+  const check = (
+    path: string,
+    entityId: string | null,
+    fieldId: string | null,
+  ) => {
     if (!entityId || !fieldId) return;
     const entity = byId.get(entityId);
     if (!entity) return; // entity-level issue — reported server-side

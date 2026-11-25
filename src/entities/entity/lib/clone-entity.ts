@@ -15,6 +15,7 @@ import {
   type EntityListOption,
   type EntityLookupConfig,
   type EntityPageLayout,
+  type EntityRelatedTimeHoursConfig,
   type EntityRelationFilter,
   type EntityRelationGroupsConfig,
   type EntityRollupConfig,
@@ -163,6 +164,25 @@ function remapLookup(
   };
 }
 
+function remapRelatedTimeHours(
+  config: EntityRelatedTimeHoursConfig | undefined,
+  fieldIdMap: Map<string, string>,
+  tabIdMap: Map<string, string>,
+): EntityRelatedTimeHoursConfig | undefined {
+  if (!config) return undefined;
+  if (config.source === "tab") {
+    return {
+      source: "tab",
+      tabId: mapId(tabIdMap, config.tabId) ?? config.tabId,
+    };
+  }
+  return {
+    source: "relation",
+    relationFieldId:
+      mapId(fieldIdMap, config.relationFieldId) ?? config.relationFieldId,
+  };
+}
+
 function remapDependencies(
   config: EntityDependenciesConfig | undefined,
   fieldIdMap: Map<string, string>,
@@ -295,6 +315,11 @@ function remapField(
     formula: remapFormula(field.formula, fieldIdMap),
     rollup: remapRollup(field.rollup, fieldIdMap, entityIdMap, optionIdMap),
     lookup: remapLookup(field.lookup, fieldIdMap),
+    relatedTimeHours: remapRelatedTimeHours(
+      field.relatedTimeHours,
+      fieldIdMap,
+      tabIdMap,
+    ),
     dependencies: remapDependencies(field.dependencies, fieldIdMap),
     relationGroups: remapRelationGroups(
       field.relationGroups,

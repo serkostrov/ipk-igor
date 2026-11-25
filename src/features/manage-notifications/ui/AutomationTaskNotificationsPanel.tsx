@@ -106,8 +106,8 @@ export function AutomationTaskNotificationsPanel({
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {task.rules.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">
-            Пока нет уведомлений для этого задания. Добавьте правило, если нужно
-            оповестить кого-то кроме исполнителя.
+            Пока нет уведомлений для этого задания. Добавьте правило, чтобы
+            оповещать при назначении, завершении или просрочке.
           </p>
         ) : (
           <ul className="flex flex-col gap-3">

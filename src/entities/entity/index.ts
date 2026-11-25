@@ -23,6 +23,7 @@ export type {
   EntityNumberDecimals,
   EntityNumberSignColor,
   EntityRelationFilter,
+  EntityRelatedTimeHoursConfig,
   EntityRollupAggregation,
   EntityRollupConfig,
   EntityRecord,
@@ -238,6 +239,8 @@ export {
   getEntityLinkedRecords,
   getEntityPreviewValueContext,
   getEntityRecordCopyValues,
+  getEntityRelatedTimeHoursRelationOptions,
+  getEntityRelatedTimeHoursTabOptions,
   getEntityRollupSources,
   getEntityValueContext,
   getFormulaResult,
@@ -421,6 +424,7 @@ export { fieldTargetsUsers, recordMatchesOwnScope } from "./model/own-scope";
 export {
   findParentVisibilityLinks,
   recordMatchesParentVisibility,
+  resolveEntityTabParentLinkFieldId,
   type ParentVisibilityLink,
 } from "./model/parent-visibility";
 export {

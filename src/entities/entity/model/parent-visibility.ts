@@ -9,8 +9,11 @@ export type ParentVisibilityLink = {
   childLinkFieldId: string;
 };
 
-/** Same rule as `resolveLinkedTabParentLinkFieldId` (keep in entity layer — no automation import). */
-function resolveParentLinkFieldId(
+/**
+ * Parent-link field on the linked entity for an entity tab.
+ * Same rule as `resolveLinkedTabParentLinkFieldId` (entity layer — no automation import).
+ */
+export function resolveEntityTabParentLinkFieldId(
   tab: Pick<EntityTab, "parentLinkFieldId">,
   linkedEntity: Entity,
   parentEntityId: string,
@@ -67,7 +70,11 @@ export function findParentVisibilityLinks(
     for (const tab of parent.tabs) {
       if (tab.kind !== "entity") continue;
       if (tab.linkedEntityId !== childEntity.id) continue;
-      const fieldId = resolveParentLinkFieldId(tab, childEntity, parent.id);
+      const fieldId = resolveEntityTabParentLinkFieldId(
+        tab,
+        childEntity,
+        parent.id,
+      );
       if (!fieldId) continue;
       add(parent, fieldId);
     }
