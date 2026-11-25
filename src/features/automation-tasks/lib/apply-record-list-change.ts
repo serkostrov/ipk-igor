@@ -519,7 +519,7 @@ export async function applyRecordListChange(
         ) {
           toast.warning("Переход недоступен", {
             description:
-              "Можно перейти только на следующую стадию процесса или завершить текущие задания.",
+              "Сначала выполните текущие блокирующие задания на этой стадии.",
             duration: 7_000,
           });
           return false;
