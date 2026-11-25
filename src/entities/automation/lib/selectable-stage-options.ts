@@ -1,8 +1,6 @@
 import type { EntityField, EntityListOption } from "@/entities/entity";
 import { parseEntityListValueIds } from "@/entities/entity";
 import type { AutomationTask } from "../model/types";
-import { nextProcessStageOptionId } from "./outcome-stage-action";
-import { matchAutomationConditions } from "./evaluate-conditions";
 import { resolveProcessScenarioForStageGate } from "./resolve-process-scenario";
 
 function listOptionId(value: string | undefined) {
@@ -13,12 +11,13 @@ function listOptionId(value: string | undefined) {
 
 /**
  * Option ids the user may pick for a process trigger list field.
- * Always includes the current stage. With pending blocking tasks on the
- * current stage — only the current stage. Otherwise: configured transitions
- * from the current stage (ТОГДА only when its conditions match; ИНАЧЕ always).
- * When the graph has no edge leaving the current stage, the next sequential
- * option stays available — a graph that covers other stages must not trap
- * the record on the current one.
+ *
+ * Manual stage changes on a record are free: any visible option is allowed.
+ * The only UI lock is open blocking tasks on the current stage — then only
+ * the current stage stays selectable. Conditioned edges (folderHasFiles etc.)
+ * are still enforced on write by the client/SQL gate for that exact edge.
+ *
+ * Returns `null` when there is no process gate or nothing to restrict.
  */
 export function getSelectableStageOptionIds(input: {
   entityId: string;
@@ -37,9 +36,6 @@ export function getSelectableStageOptionIds(input: {
   if (!gate) return null;
 
   const current = listOptionId(input.currentOptionId);
-  const allowed = new Set<string>();
-  if (current) allowed.add(current);
-
   const blocking = (input.pendingTasks ?? []).filter(
     (task) =>
       task.isBlocking &&
@@ -47,29 +43,10 @@ export function getSelectableStageOptionIds(input: {
       listOptionId(task.triggerOptionId) === current &&
       (task.status === "pending" || task.status === "returned"),
   );
-  if (blocking.length > 0) return allowed;
+  if (blocking.length === 0) return null;
 
-  const transitions = gate.scenario.stageTransitions;
-  let coversCurrent = false;
-  if (transitions.length > 0) {
-    for (const edge of transitions) {
-      if (listOptionId(edge.fromOptionId) !== current) continue;
-      coversCurrent = true;
-      const to = listOptionId(edge.toOptionId);
-      const elseId = listOptionId(edge.elseOptionId);
-      const conditionsOk =
-        edge.conditions.rules.length === 0 ||
-        matchAutomationConditions(edge.conditions, { values: input.values });
-      if (to && conditionsOk) allowed.add(to);
-      if (elseId) allowed.add(elseId);
-      // When ТОГДА fails and there is no ИНАЧЕ — keep only current.
-    }
-  }
-
-  if (!coversCurrent) {
-    const next = nextProcessStageOptionId(input.field.listOptions, current);
-    if (next) allowed.add(next);
-  }
+  const allowed = new Set<string>();
+  if (current) allowed.add(current);
   return allowed;
 }
 
