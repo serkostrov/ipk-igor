@@ -416,11 +416,16 @@ export {
   collectRecordDepartmentIds,
   collectUserDepartmentIds,
   collectViewerDepartmentIds,
+  entitySupportsDepartmentScope,
   findDepartmentsEntity,
   getDepartmentLinkFields,
   recordMatchesDepartmentScope,
 } from "./model/departments";
-export { fieldTargetsUsers, recordMatchesOwnScope } from "./model/own-scope";
+export {
+  fieldParticipatesInOwnScope,
+  fieldTargetsUsers,
+  recordMatchesOwnScope,
+} from "./model/own-scope";
 export {
   findParentVisibilityLinks,
   recordMatchesParentVisibility,

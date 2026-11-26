@@ -88,8 +88,8 @@ export function TkpReviewHardcodeSlot({
 }) {
   const role = useCurrentRole();
   const visibility = useMemo(
-    () => resolveTkpReviewCostVisibility(role),
-    [role],
+    () => resolveTkpReviewCostVisibility(role, entity.id),
+    [entity.id, role],
   );
   const { entities } = useEntityConfig();
   const ctx = useEntityValueContext();

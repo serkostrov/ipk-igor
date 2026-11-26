@@ -1,10 +1,6 @@
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useState } from "react";
-import {
-  canViewRecordForDataScope,
-  canViewRecordForLegalEntities,
-  useCurrentRole,
-} from "@/entities/access";
+import { filterVisibleEntityRecords, useCurrentRole } from "@/entities/access";
 import {
   getEntityHiddenListOptionIds,
   getEntityRecords,
@@ -66,26 +62,17 @@ export function useEntityRecordScope(entity: Entity | null): EntityRecordScope {
     const authUserId = sessionUser?.id ?? null;
     const currentUserRecordId = getCurrentUserRecordId();
     const records = await getEntityRecords(entity);
-    const visibility = await Promise.all(
-      records.map(async (record) => {
-        if (
-          !(await canViewRecordForDataScope(role, entity, record, {
-            entities: ctx.entities,
-            authUserId,
-            currentUserRecordId,
-            valueContext: ctx,
-          }))
-        )
-          return false;
-        return canViewRecordForLegalEntities(
-          role,
-          entity,
-          record,
-          ctx.entities,
-        );
-      }),
+    const scopedRecords = await filterVisibleEntityRecords(
+      role,
+      entity,
+      records,
+      {
+        entities: ctx.entities,
+        authUserId,
+        currentUserRecordId,
+        valueContext: ctx,
+      },
     );
-    const scopedRecords = records.filter((_, index) => visibility[index]);
     const hiddenOptionIds = getEntityHiddenListOptionIds(entity, ctx.entities);
     const unhidden = scopedRecords.filter(
       (record) => !isEntityRecordHidden(record, hiddenOptionIds),

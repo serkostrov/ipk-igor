@@ -1,6 +1,6 @@
+import { readVisibleEntityRecords } from "@/entities/access";
 import {
   getEntityListOption,
-  getEntityRecords,
   getRecordFieldNumber,
   isEntityNameField,
   isEntityNumericFieldType,
@@ -147,7 +147,7 @@ export async function adaptCategories(
 ): Promise<DashboardCategory[]> {
   if (!articlesEntity) return [];
   const parentField = resolveEntityTableParentField(articlesEntity);
-  return (await getEntityRecords(articlesEntity)).map((record) => {
+  return (await readVisibleEntityRecords(articlesEntity)).map((record) => {
     const parentRaw = parentField ? (record.values[parentField.id] ?? "") : "";
     return {
       id: record.id,
@@ -184,7 +184,7 @@ export async function adaptWallets(
     (field) => isEntityNumericFieldType(field.type),
   );
 
-  return (await getEntityRecords(walletsEntity)).map((record) => ({
+  return (await readVisibleEntityRecords(walletsEntity)).map((record) => ({
     id: record.id,
     name: recordLabel(walletsEntity, record),
     legal_entity_id: legalField
@@ -204,7 +204,7 @@ export async function adaptLegalEntities(
   legalEntity: Entity | null,
 ): Promise<DashboardLegalEntity[]> {
   if (!legalEntity) return [];
-  return (await getEntityRecords(legalEntity)).map((record) => ({
+  return (await readVisibleEntityRecords(legalEntity)).map((record) => ({
     id: record.id,
     name: recordLabel(legalEntity, record),
   }));
@@ -214,7 +214,7 @@ export async function adaptProjects(
   projectsEntity: Entity | null,
 ): Promise<DashboardProject[]> {
   if (!projectsEntity) return [];
-  return (await getEntityRecords(projectsEntity)).map((record) => ({
+  return (await readVisibleEntityRecords(projectsEntity)).map((record) => ({
     id: record.id,
     name: recordLabel(projectsEntity, record),
   }));
@@ -261,7 +261,7 @@ export async function adaptDdsEntries(
   );
 
   const out: DashboardCashflowEntry[] = [];
-  for (const record of await getEntityRecords(ddsEntity)) {
+  for (const record of await readVisibleEntityRecords(ddsEntity)) {
     const entryDate = extractDatePart(record.values[dateField.id] ?? "");
     if (!entryDate) continue;
 
@@ -353,7 +353,7 @@ async function adaptPlannedItems(
   if (!dateField || !amountField) return [];
 
   const out: DashboardPlannedItem[] = [];
-  for (const record of await getEntityRecords(entity)) {
+  for (const record of await readVisibleEntityRecords(entity)) {
     const entryDate = extractDatePart(record.values[dateField.id] ?? "");
     if (!entryDate) continue;
     const amount = readNumber(ctx, entity, record, amountField) ?? 0;

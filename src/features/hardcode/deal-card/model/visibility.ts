@@ -1,4 +1,5 @@
-import { isAdminRole, type Role } from "@/entities/access";
+import { explicitTabView, isAdminRole, type Role } from "@/entities/access";
+import { DEAL_CALCULATION_TAB_ID } from "./tabs";
 
 export type DealCardVisibility = {
   /** «Расчёт» tab, costs and profitability in the summary. */
@@ -15,6 +16,16 @@ function normalizeRoleName(value: string): string {
  * UX only, not a security check.
  */
 export function resolveDealCardVisibility(
+  role: Role | null | undefined,
+  entityId?: string | null,
+): DealCardVisibility {
+  const base = resolveDealCardVisibilityByName(role);
+  if (!entityId) return base;
+  const finance = explicitTabView(role, entityId, DEAL_CALCULATION_TAB_ID);
+  return { showFinance: finance ?? base.showFinance };
+}
+
+function resolveDealCardVisibilityByName(
   role: Role | null | undefined,
 ): DealCardVisibility {
   if (isAdminRole(role)) return { showFinance: true };

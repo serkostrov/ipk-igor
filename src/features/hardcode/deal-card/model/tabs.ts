@@ -20,8 +20,10 @@ export type DealCardSection =
   | "payments";
 
 /** Virtual record tabs — not stored in the entity schema. */
-const EXPENSES_TAB = { id: "hardcode-deal-expenses", name: "Расходы" };
-const CALCULATION_TAB = { id: "hardcode-deal-calculation", name: "Расчёт" };
+export const DEAL_EXPENSES_TAB_ID = "hardcode-deal-expenses";
+export const DEAL_CALCULATION_TAB_ID = "hardcode-deal-calculation";
+const EXPENSES_TAB = { id: DEAL_EXPENSES_TAB_ID, name: "Расходы" };
+const CALCULATION_TAB = { id: DEAL_CALCULATION_TAB_ID, name: "Расчёт" };
 
 function createDealCardTab(id: string, name: string): EntityTab {
   return {

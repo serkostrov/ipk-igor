@@ -44,6 +44,9 @@ export {
   canViewAutomationTask,
   canViewRecordForDataScope,
   canViewRecordForLegalEntities,
+  explicitTabEdit,
+  explicitTabView,
+  filterVisibleEntityRecords,
   entityScope,
   entityScopeFilter,
   filterAutomationTasksForRole,
@@ -52,6 +55,7 @@ export {
   roleLegalEntityIds,
   roleMenuFlat,
 } from "./model/permissions";
+export { readVisibleEntityRecords } from "./model/visible-records";
 export {
   cloneDefaultRolesConfig,
   ensureSystemRoles,

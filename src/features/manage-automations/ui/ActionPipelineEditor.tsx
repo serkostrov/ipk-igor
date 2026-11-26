@@ -328,6 +328,18 @@ export function ActionPipelineEditor({
                     : undefined
                 }
               />
+              {createAction &&
+              sourceEntity?.tabs.some(
+                (tab) =>
+                  isEntityTabWithLinkedEntity(tab) &&
+                  tab.linkedEntityId === createAction.entityId,
+              ) ? (
+                <p className="text-[10px] leading-snug text-muted-foreground/80">
+                  Исполнитель создаёт такие записи на вкладке сущности в
+                  задании. Отдельная форма «Спросить при создании» для этого не
+                  нужна.
+                </p>
+              ) : null}
             </div>
 
             {createAction && showCreateAsk && createTarget ? (
@@ -1561,6 +1573,13 @@ function ViewTabsEditor({
     [selectedIds, tabs],
   );
   const selectedFilesTabs = selectedTabs.filter(isEntityFilesTab);
+  const selectedLinkedTabs = selectedTabs.filter(isEntityTabWithLinkedEntity);
+  const linkedTabHint =
+    selectedLinkedTabs.length === 0
+      ? null
+      : selectedLinkedTabs.length === 1
+        ? `Исполнитель добавит записи на вкладке «${selectedLinkedTabs[0]?.name.trim() || "связанные записи"}» в задании. Отдельная форма «создать запись» для той же сущности не нужна.`
+        : "Исполнитель добавит записи на вкладках связанных записей в задании. Отдельная форма «создать запись» для тех же сущностей не нужна.";
 
   function setTabIds(tabIds: string[]) {
     const nextIds = tabIds.filter((id) => knownIds.has(id));
@@ -1609,7 +1628,8 @@ function ViewTabsEditor({
           Показать в форме задачи
         </p>
         <p className="text-[10px] leading-snug text-muted-foreground/80">
-          Только просмотр — любая вкладка карточки этой сущности
+          Поля и файлы — просмотр. На вкладках связанных записей (подзадачи и
+          т.п.) исполнитель создаёт строки прямо в задании, без карточки.
         </p>
       </div>
       <ListSelect
@@ -1623,6 +1643,11 @@ function ViewTabsEditor({
         className="h-8 rounded-md border-input font-normal shadow-xs"
         onChange={(next) => setTabIds(parseEntityListValueIds(next))}
       />
+      {linkedTabHint ? (
+        <p className="text-[10px] leading-snug text-muted-foreground/80">
+          {linkedTabHint}
+        </p>
+      ) : null}
 
       {selectedFilesTabs.map((tab) => {
         const folderOptions: EntityListOption[] = tab.defaultFolders.map(

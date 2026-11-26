@@ -109,6 +109,11 @@ type TaskViewTabsPreviewProps = {
   className?: string;
   /** Hardcode commercial pricing tab: block edits while task is busy. */
   readOnly?: boolean;
+  /**
+   * Linked-entity tabs (подзадачи и т.п.) accept create/edit in the task.
+   * Files, comments, and field previews stay read-only.
+   */
+  relatedTabsWritable?: boolean;
 };
 
 function folderPathLabel(
@@ -924,10 +929,12 @@ function LinkedEntityPreview({
   tab,
   parentEntityId,
   parentRecordId,
+  readOnly,
 }: {
   tab: EntityTab;
   parentEntityId: string;
   parentRecordId: string;
+  readOnly: boolean;
 }) {
   const { entities } = useEntityConfig();
   const linkedEntity =
@@ -944,7 +951,12 @@ function LinkedEntityPreview({
       parentEntityId={parentEntityId}
       parentRecordId={parentRecordId}
       entities={entities}
-      readOnly
+      readOnly={readOnly}
+      emptyHint={
+        readOnly
+          ? undefined
+          : "Добавьте записи здесь — карточку основной записи открывать не нужно."
+      }
     />
   );
 }
@@ -1006,6 +1018,7 @@ function TabPreviewBody({
   filesTabAllowMove = false,
   depth = 0,
   readOnly = true,
+  relatedTabsWritable = false,
 }: {
   entity: Entity;
   record: EntityRecord;
@@ -1015,6 +1028,7 @@ function TabPreviewBody({
   /** Prevent infinite mirror → mirror recursion. */
   depth?: number;
   readOnly?: boolean;
+  relatedTabsWritable?: boolean;
 }) {
   if (isTkpPriceHardcodeTab(tab)) {
     return (
@@ -1067,6 +1081,7 @@ function TabPreviewBody({
         tab={tab}
         parentEntityId={entity.id}
         parentRecordId={record.id}
+        readOnly={!relatedTabsWritable}
       />
     );
   }
@@ -1087,11 +1102,12 @@ export function TaskViewTabsPreview({
   fillBadge,
   className,
   readOnly = true,
+  relatedTabsWritable = false,
 }: TaskViewTabsPreviewProps) {
   const role = useCurrentRole();
   const showCommercialPricing = useMemo(
-    () => resolveTkpReviewCostVisibility(role).showCommercialPricing,
-    [role],
+    () => resolveTkpReviewCostVisibility(role, entity.id).showCommercialPricing,
+    [entity.id, role],
   );
   const { entities } = useEntityConfig();
   const viewTabs = useMemo(() => {
@@ -1203,6 +1219,7 @@ export function TaskViewTabsPreview({
             filesTabEntryIds={filesTabEntryIds}
             filesTabAllowMove={filesTabAllowMove}
             readOnly={readOnly}
+            relatedTabsWritable={relatedTabsWritable}
           />
         </TabsContent>
       ))}

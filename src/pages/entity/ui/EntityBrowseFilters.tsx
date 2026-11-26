@@ -1,4 +1,13 @@
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Search, X } from "lucide-react";
+import {
+  canField,
+  canTab,
+  filterVisibleEntityRecords,
+  useCurrentRole,
+  type Role,
+} from "@/entities/access";
+import { getSessionUser } from "@/entities/session";
 import { Button } from "@/shared/ui/button";
 import {
   DateRangeFilterControl,
@@ -18,7 +27,9 @@ import {
   formatEntityFieldFilesSummary,
   formatEntityPeriodDisplay,
   formatRecordFieldValue,
+  getCurrentUserRecordId,
   getEntityFieldDisplayName,
+  getEntityFieldTabId,
   getEntityListOption,
   getEntityRelationTargetId,
   getRecordFieldIds,
@@ -26,6 +37,7 @@ import {
   getRelationRecordOptions,
   isEntityFieldManualInputEnabled,
   isEntityNameField,
+  isRoleConfigurableTab,
   isEntityNumericFieldType,
   normalizeEntityDecimalInput,
   parseEntityDecimal,
@@ -36,6 +48,7 @@ import {
   resolveEntityListFieldPresentation,
   resolveEntityLookupTarget,
   resolveRecordFieldCells,
+  useEntityValueContext,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -43,11 +56,40 @@ import {
 } from "@/entities/entity";
 import { formatDatetimeDisplay } from "@/shared/lib/format-date";
 
+/** Fields the role must not see in tables, search, or filters. */
+// eslint-disable-next-line react-refresh/only-export-components -- shared browse helpers
+export function roleHiddenFieldIds(
+  role: Role | null | undefined,
+  entity: Entity,
+): Set<string> {
+  const hidden = new Set<string>();
+  for (const field of entity.fields) {
+    const tabId = getEntityFieldTabId(field);
+    const tab = entity.tabs.find((item) => item.id === tabId);
+    if (
+      !canField(role, entity.id, field.id, "view") ||
+      (tab &&
+        isRoleConfigurableTab(tab) &&
+        !canTab(role, entity.id, tab.id, "view"))
+    ) {
+      hidden.add(field.id);
+    }
+  }
+  return hidden;
+}
+
 /** Fields shown in the browse filter bar (`showInFilters`, excluding name). */
 // eslint-disable-next-line react-refresh/only-export-components -- shared browse helpers
-export function getEntityBrowseFilterFields(entity: Entity): EntityField[] {
+export function getEntityBrowseFilterFields(
+  entity: Entity,
+  role?: Role | null,
+): EntityField[] {
+  const hidden = role ? roleHiddenFieldIds(role, entity) : null;
   return entity.fields.filter(
-    (field) => field.showInFilters !== false && !isEntityNameField(field),
+    (field) =>
+      field.showInFilters !== false &&
+      !isEntityNameField(field) &&
+      !hidden?.has(field.id),
   );
 }
 
@@ -151,13 +193,17 @@ export function recordMatchesSearch(
   entity: Entity,
   record: EntityRecord,
   search: string,
+  hiddenFieldIds?: ReadonlySet<string>,
 ) {
   const query = search.trim().toLowerCase();
   if (!query) return true;
 
-  return entity.fields.some((field) =>
-    fieldSearchText(ctx, entity, record, field).toLowerCase().includes(query),
-  );
+  return entity.fields.some((field) => {
+    if (hiddenFieldIds?.has(field.id)) return false;
+    return fieldSearchText(ctx, entity, record, field)
+      .toLowerCase()
+      .includes(query);
+  });
 }
 
 function extractDatePart(value: string) {
@@ -278,6 +324,49 @@ export function EntityBrowseFilters({
   layout?: "bar" | "sidebar";
   searchId?: string;
 }) {
+  const role = useCurrentRole();
+  const valueContext = useEntityValueContext();
+  const visibleRelationIds = useAsyncValue(async () => {
+    const ids = new Set<string>();
+    const seen = new Set<string>();
+    const authUserId = getSessionUser()?.id ?? null;
+    const currentUserRecordId = getCurrentUserRecordId();
+    for (const field of fields) {
+      const source = resolveBrowseFilterSource(entity, field, entities);
+      if (!source) continue;
+      if (
+        source.field.type !== "relation" &&
+        source.field.type !== "belonging"
+      ) {
+        continue;
+      }
+      const targetId =
+        source.field.type === "belonging"
+          ? source.entity.id
+          : getEntityRelationTargetId(source.field);
+      const target = targetId
+        ? (entities.find((item) => item.id === targetId) ?? null)
+        : null;
+      if (!target || seen.has(target.id)) continue;
+      seen.add(target.id);
+      const visible = await filterVisibleEntityRecords(
+        role,
+        target,
+        target.records,
+        {
+          entities: valueContext.entities,
+          authUserId,
+          currentUserRecordId,
+          valueContext,
+        },
+      );
+      for (const record of visible) ids.add(record.id);
+    }
+    return ids;
+  }, [entities, entity, fields, role, valueContext]);
+  const allowedRelationIds =
+    visibleRelationIds.status === "ready" ? visibleRelationIds.value : null;
+
   const isSidebar = layout === "sidebar";
   const hasActive =
     search.trim().length > 0 ||
@@ -471,7 +560,9 @@ export function EntityBrowseFilters({
           const target = targetId
             ? (entities.find((item) => item.id === targetId) ?? null)
             : null;
-          const recordOptions = getRelationRecordOptions(target);
+          const recordOptions = getRelationRecordOptions(target).filter(
+            (option) => allowedRelationIds?.has(option.id) ?? false,
+          );
           const current = filters[field.id];
           const optionId = current?.kind === "list" ? current.optionId : "";
           const selected = recordOptions.find((item) => item.id === optionId);

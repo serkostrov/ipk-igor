@@ -32,11 +32,13 @@ import {
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+import { useCurrentRole } from "@/entities/access";
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
   recordMatchesFilters,
   recordMatchesSearch,
+  roleHiddenFieldIds,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 import { useKanbanColumnSummary } from "./use-kanban-column-summary";
@@ -495,6 +497,7 @@ export function EntityKanbanView({
   title,
   onOpenRecord,
 }: EntityKanbanViewProps) {
+  const role = useCurrentRole();
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
@@ -513,16 +516,26 @@ export function EntityKanbanView({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropColumnId, setDropColumnId] = useState<string | null>(null);
 
+  const hiddenFieldIds = useMemo(
+    () => roleHiddenFieldIds(role, entity),
+    [entity, role],
+  );
   const filterFields = useMemo(
-    () => getEntityBrowseFilterFields(entity),
-    [entity],
+    () => getEntityBrowseFilterFields(entity, role),
+    [entity, role],
   );
 
   const filteredRecords = useMemo(() => {
     if (!showFilters) return records;
     return records.filter(
       (record) =>
-        recordMatchesSearch(valueContext, entity, record, search) &&
+        recordMatchesSearch(
+          valueContext,
+          entity,
+          record,
+          search,
+          hiddenFieldIds,
+        ) &&
         recordMatchesFilters(
           valueContext,
           entity,
@@ -535,6 +548,7 @@ export function EntityKanbanView({
     entity,
     filterFields,
     filters,
+    hiddenFieldIds,
     records,
     search,
     showFilters,

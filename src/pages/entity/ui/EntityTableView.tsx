@@ -117,6 +117,7 @@ import {
   isEntityFilterActive,
   recordMatchesFilters,
   recordMatchesSearch,
+  roleHiddenFieldIds,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 
@@ -437,7 +438,11 @@ function EntityTableViewInner({
     () => buildEntityTableDisplayColumns(tableFields),
     [tableFields],
   );
-  const filterFields = getEntityBrowseFilterFields(entity).filter(
+  const hiddenFieldIds = useMemo(
+    () => roleHiddenFieldIds(role, entity),
+    [entity, role],
+  );
+  const filterFields = getEntityBrowseFilterFields(entity, role).filter(
     (field) => field.id !== parentField?.id && field.id !== subgroupField?.id,
   );
 
@@ -475,7 +480,13 @@ function EntityTableViewInner({
         entity,
         records.filter(
           (record) =>
-            recordMatchesSearch(valueContext, entity, record, search) &&
+            recordMatchesSearch(
+              valueContext,
+              entity,
+              record,
+              search,
+              hiddenFieldIds,
+            ) &&
             recordMatchesFilters(
               valueContext,
               entity,
@@ -486,7 +497,16 @@ function EntityTableViewInner({
         ),
         sort,
       ),
-    [entity, filterFields, filters, records, search, sort, valueContext],
+    [
+      entity,
+      filterFields,
+      filters,
+      hiddenFieldIds,
+      records,
+      search,
+      sort,
+      valueContext,
+    ],
   );
 
   const filteredRecords = matchedRecords;

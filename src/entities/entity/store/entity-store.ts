@@ -2542,7 +2542,7 @@ export function updateEntityTab(
               tableFlat:
                 patch.tableFlat !== undefined ? patch.tableFlat : tab.tableFlat,
               ...(isMirror ? { sourceRelationFieldId, sourceTabId } : null),
-              locked: isOverview,
+              locked: isOverview || tabTarget.locked,
             })
           : tab,
       ),
@@ -2557,6 +2557,7 @@ export async function removeEntityTab(
   const parent = config.entities.find((item) => item.id === entityId);
   const target = parent?.tabs.find((tab) => tab.id === tabId);
   if (!parent || !target || parent.tabs.length <= 1) return;
+  if (target.locked || isEntityOverviewTab(target)) return;
 
   const linkedEntityId =
     isEntityTabWithLinkedEntity(target) && target.linkedEntityId

@@ -113,6 +113,7 @@ import {
 import {
   canEntity,
   canField,
+  filterVisibleEntityRecords,
   useCurrentRole,
   type Role,
 } from "@/entities/access";
@@ -153,6 +154,8 @@ type RecordEntityTabPanelProps = {
   onOpenRelation?: (entityId: string, recordId: string) => void;
   /** Task / preview: same layout, no add / edit / delete. */
   readOnly?: boolean;
+  /** Empty list copy. Writable tasks explain that create stays in the task. */
+  emptyHint?: string;
 };
 
 type AddFlow = "closed" | "choice" | "existing";
@@ -1918,6 +1921,7 @@ export function RecordEntityTabPanel({
   entities,
   onOpenRelation,
   readOnly = false,
+  emptyHint,
 }: RecordEntityTabPanelProps) {
   const valueContext = useEntityValueContext();
   const role = useCurrentRole();
@@ -2001,24 +2005,30 @@ export function RecordEntityTabPanel({
     const linked = ids
       .map((id) => byId.get(id))
       .filter((record): record is EntityRecord => record != null);
-    if (!restrictDeptToOwn || !isDeptCalculationsEntity(linkedEntity)) {
-      return linked;
-    }
     const sessionId = getSessionUser()?.id ?? null;
-    const leadParent =
-      hostEntity && parentRecord
-        ? { entity: hostEntity, record: parentRecord }
-        : null;
-    return filterDeptCalculationRecordsForAssignee({
-      entity: linkedEntity,
-      records: linked,
+    let rows = linked;
+    if (restrictDeptToOwn && isDeptCalculationsEntity(linkedEntity)) {
+      const leadParent =
+        hostEntity && parentRecord
+          ? { entity: hostEntity, record: parentRecord }
+          : null;
+      rows = await filterDeptCalculationRecordsForAssignee({
+        entity: linkedEntity,
+        records: linked,
+        entities,
+        assigneeUserId: currentUserRecordId ?? sessionId,
+        assigneeUserIds: [currentUserRecordId, sessionId].filter(
+          (id): id is string => Boolean(id),
+        ),
+        leadParent,
+        restrictToOwnDepartments: true,
+      });
+    }
+    return await filterVisibleEntityRecords(role, linkedEntity, rows, {
       entities,
-      assigneeUserId: currentUserRecordId ?? sessionId,
-      assigneeUserIds: [currentUserRecordId, sessionId].filter(
-        (id): id is string => Boolean(id),
-      ),
-      leadParent,
-      restrictToOwnDepartments: true,
+      authUserId: sessionId,
+      currentUserRecordId,
+      valueContext,
     });
   }, [
     currentUserRecordId,
@@ -2029,6 +2039,8 @@ export function RecordEntityTabPanel({
     parentRecord,
     parentRecordId,
     restrictDeptToOwn,
+    role,
+    valueContext,
     tab,
   ]);
   const records: EntityRecord[] =
@@ -2039,13 +2051,44 @@ export function RecordEntityTabPanel({
     [records],
   );
 
-  const availableExistingOptions = useMemo(() => {
-    if (!parentLinkFieldId) return [];
-    return getRelationRecordOptions(linkedEntity).filter(
+  const availableExistingOptionsValue = useAsyncValue(async () => {
+    if (!parentLinkFieldId) return [] as Array<{ id: string; label: string }>;
+    const options = getRelationRecordOptions(linkedEntity).filter(
       (option) =>
         option.id !== parentRecordId && !linkedRecordIds.has(option.id),
     );
-  }, [linkedEntity, linkedRecordIds, parentLinkFieldId, parentRecordId]);
+    const candidates = options
+      .map((option) =>
+        linkedEntity.records.find((record) => record.id === option.id),
+      )
+      .filter((record): record is EntityRecord => record != null);
+    const visible = await filterVisibleEntityRecords(
+      role,
+      linkedEntity,
+      candidates,
+      {
+        entities,
+        authUserId: getSessionUser()?.id ?? null,
+        currentUserRecordId,
+        valueContext,
+      },
+    );
+    const ids = new Set(visible.map((record) => record.id));
+    return options.filter((option) => ids.has(option.id));
+  }, [
+    currentUserRecordId,
+    entities,
+    linkedEntity,
+    linkedRecordIds,
+    parentLinkFieldId,
+    parentRecordId,
+    role,
+    valueContext,
+  ]);
+  const availableExistingOptions =
+    availableExistingOptionsValue.status === "ready"
+      ? availableExistingOptionsValue.value
+      : [];
 
   const recordsDisplay = normalizeEntityRecordsDisplay(
     linkedEntity.recordsDisplay,
@@ -2238,15 +2281,29 @@ export function RecordEntityTabPanel({
 
       {records.length === 0 ? (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-12 text-center">
-            <p className="text-sm font-medium text-foreground">Нет записей</p>
-            <p className="max-w-sm text-sm text-muted-foreground">
-              {readOnly
-                ? "Связанных записей пока нет."
-                : singleRecord
-                  ? "Добавьте запись, чтобы она появилась здесь."
-                  : "Добавьте первую запись, чтобы она появилась здесь."}
-            </p>
+          <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+            <div className="flex flex-col gap-1.5">
+              <p className="text-sm font-medium text-foreground">Нет записей</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                {readOnly
+                  ? "Связанных записей пока нет."
+                  : (emptyHint ??
+                    (singleRecord
+                      ? "Добавьте запись, чтобы она появилась здесь."
+                      : "Добавьте первую запись, чтобы она появилась здесь."))}
+              </p>
+            </div>
+            {!readOnly && !atSingleRecordLimit && canCreate ? (
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1.5"
+                onClick={openAdd}
+              >
+                <Plus className="size-3.5" />
+                Добавить
+              </Button>
+            ) : null}
           </div>
           {tkpGipSummary ? (
             <div className="px-3 pb-3">{tkpGipSummary}</div>

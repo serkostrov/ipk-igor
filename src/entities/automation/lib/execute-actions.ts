@@ -1018,6 +1018,11 @@ export async function executeAutomationActions(
                 ) {
                   count = 1;
                 }
+                const draftCount = readNestedDraftCount(
+                  ctx.formValues,
+                  action.id,
+                  nestedId,
+                );
                 for (let index = 0; index < count; index++) {
                   const multiAsk = readAskDraftValues(
                     ctx.formValues,
@@ -1030,6 +1035,19 @@ export async function executeAutomationActions(
                         fieldId,
                       ),
                   );
+                  if (draftCount === 0 && Object.keys(multiAsk).length === 0) {
+                    const existingChild = await findLinkedChildToParent(
+                      ctx,
+                      action.entityId,
+                      parentLink.parentEntityId,
+                      parentLink.parentRecordId,
+                    );
+                    if (existingChild) {
+                      createdRecordIds.push(existingChild.id);
+                      multiIds.push(existingChild.id);
+                      continue;
+                    }
+                  }
                   const child = await createMappedRecord(
                     action.entityId,
                     relatedMappings,
@@ -1151,6 +1169,11 @@ export async function executeAutomationActions(
               });
               break;
             }
+            const multiDraftCount = readNestedDraftCount(
+              ctx.formValues,
+              action.id,
+              CREATE_RECORD_MULTI_NESTED_ID,
+            );
             const multiIds: string[] = [];
             for (let index = 0; index < count; index++) {
               const multiAsk = readAskDraftValues(
@@ -1164,6 +1187,17 @@ export async function executeAutomationActions(
                     fieldId,
                   ),
               );
+              if (multiDraftCount === 0 && Object.keys(multiAsk).length === 0) {
+                const existingChild = await findLinkedChildToTrigger(
+                  ctx,
+                  action.entityId,
+                );
+                if (existingChild) {
+                  createdRecordIds.push(existingChild.id);
+                  multiIds.push(existingChild.id);
+                  continue;
+                }
+              }
               const child = await createMappedRecord(
                 action.entityId,
                 multiMappings,

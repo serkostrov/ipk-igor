@@ -60,7 +60,10 @@ function DealFinanceSummaryContent({
   record: EntityRecord;
 }) {
   const state = useDealCard(entity, record);
-  const { showFinance } = resolveDealCardVisibility(useCurrentRole());
+  const { showFinance } = resolveDealCardVisibility(
+    useCurrentRole(),
+    entity.id,
+  );
 
   if (!state.ready) return <Loader block label="Загрузка финансов сделки…" />;
   const { data, view } = state;
