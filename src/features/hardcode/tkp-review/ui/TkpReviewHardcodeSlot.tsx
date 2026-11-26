@@ -11,6 +11,7 @@ import {
   getEntityRecordById,
   getEntityRecords,
   getSystemUserName,
+  parseEntityListValueIds,
   updateEntityRecord,
   useCurrentUserRecordId,
   useEntityConfig,
@@ -48,6 +49,7 @@ import {
 import {
   isTkpApprovalInProgress,
   readTkpApprovalState,
+  resolveTkpSentStatusOptionId,
 } from "../lib/tkp-approval";
 import {
   countTkpRevisionFilesById,
@@ -190,6 +192,12 @@ export function TkpReviewHardcodeSlot({
     liveRecord.values[PENDING_NEW_PRICE_KEY] === "1";
   const approvalState = readTkpApprovalState(liveRecord.values);
   const approvalInProgress = useMemo(() => {
+    const sent = resolveTkpSentStatusOptionId(liveEntity, entities);
+    if (sent) {
+      const current =
+        parseEntityListValueIds(liveRecord.values[sent.fieldId] ?? "")[0] ?? "";
+      if (current === sent.optionId) return false;
+    }
     if (
       isTkpApprovalInProgress({
         entity: liveEntity,
@@ -304,6 +312,10 @@ export function TkpReviewHardcodeSlot({
     if (result.createdFilesTab) {
       toast.message(`Создана вкладка «${result.filesTabName}»`);
     }
+    if (result.approvalStarted) {
+      toast.success("Файлы загружены — запущено согласование новой версии ТКП");
+    }
+    await reloadHistory();
   }
 
   const wantGip = sections.includes("gip");

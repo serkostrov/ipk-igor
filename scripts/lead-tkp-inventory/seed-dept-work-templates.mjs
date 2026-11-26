@@ -564,6 +564,7 @@ function buildLinesDef() {
         type: "list",
         tableOrder: 10,
         listOptions: categoryOptions(),
+        hint: "Для подрядных работ обязательны налоговый статус и налог %",
       }),
       baseField({
         id: IDS.lineTaxStatus,
@@ -571,7 +572,17 @@ function buildLinesDef() {
         type: "list",
         tableOrder: 11,
         listUseColors: false,
+        required: true,
         listOptions: taxStatusOptions(),
+        hint: "ИП / СЗ / ГПХ — в базе FIX; ООО — после FIX с коэффициентом",
+        visibilityConditions: [
+          {
+            id: "condition-line-tax-status",
+            fieldId: IDS.lineCategory,
+            operator: "in",
+            values: [OPT.catContract],
+          },
+        ],
       }),
       baseField({
         id: IDS.lineTax,
@@ -580,6 +591,16 @@ function buildLinesDef() {
         unitSuffix: "%",
         tableOrder: 12,
         decimals: 2,
+        required: true,
+        hint: "Ставка % к стоимости подрядной строки (учитывается в «Стоимость с налогом»)",
+        visibilityConditions: [
+          {
+            id: "condition-line-tax",
+            fieldId: IDS.lineCategory,
+            operator: "in",
+            values: [OPT.catContract],
+          },
+        ],
       }),
       baseField({
         id: IDS.lineCoeff,

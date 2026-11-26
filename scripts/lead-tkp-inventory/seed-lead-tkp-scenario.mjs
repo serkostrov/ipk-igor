@@ -242,6 +242,72 @@ function setField(fieldId, value) {
   return { id: uid("aact"), kind: "setField", fieldId, value };
 }
 
+function viewField(fieldIds, relatedFields = []) {
+  return {
+    id: uid("aact"),
+    kind: "viewField",
+    fieldIds,
+    relatedFields,
+  };
+}
+
+function viewTabs(tabIds) {
+  return { id: uid("aact"), kind: "viewTabs", tabIds };
+}
+
+/** Soft keys cleared after send so «Цена ТКП» is not locked. */
+const TKP_SOFT_CLEAR = [
+  setField("__tkp_approval_revision_id__", ""),
+  setField("__tkp_approval_submitted_at__", ""),
+  setField("__tkp_approval_step__", ""),
+  setField("__tkp_approval_return_to_step__", ""),
+  setField("__tkp_approval_history__", ""),
+];
+
+const TKP_CONTEXT_TABS = [
+  F.tkpProtoTab, // Протокол запуска
+  "tab-b8258a3d-b8c5-46a5-8a40-86e9eaa7d979", // Файлы лида (ТЗ / тех ИД)
+  "tab-77fa887c-bfd8-43a5-9415-d81be783709b", // Комментарии лида
+  "tab-8b2fdc11-9699-44ed-b259-77d70fb3d913", // Файлы ТКП
+  "tab-b7f4f0df-97b6-4682-913e-96372e6e5d41", // Комментарии ТКП
+];
+
+function deptCalcContextActions() {
+  return [
+    viewField(
+      [NEW.tkpCalcDeadline, NEW.tkpHeadsComment],
+      [
+        {
+          id: "view-lead-gip-comment",
+          linkedTabId: "",
+          relationFieldId: F.tkpLead,
+          fieldId: NEW.leadGipComment,
+        },
+        {
+          id: "view-lead-comment",
+          linkedTabId: "",
+          relationFieldId: F.tkpLead,
+          fieldId: F.leadComment,
+        },
+      ],
+    ),
+    viewTabs(TKP_CONTEXT_TABS),
+  ];
+}
+
+function approveContextActions() {
+  // «Цена ТКП» hardcode injects first; then protocol / files / depts.
+  return [
+    viewTabs([
+      F.tkpProtoTab,
+      NEW.tkpDeptTab,
+      "tab-b8258a3d-b8c5-46a5-8a40-86e9eaa7d979",
+      "tab-77fa887c-bfd8-43a5-9415-d81be783709b",
+      "tab-8b2fdc11-9699-44ed-b259-77d70fb3d913",
+    ]),
+  ];
+}
+
 function template(partial) {
   return {
     name_template: "",
@@ -1372,6 +1438,7 @@ async function main() {
       },
       sla: { hours: 4, calendar: "247" },
       field_access: deptCalcAsk(false),
+      actions: deptCalcContextActions(),
       outcomes: [
         outcome("Готово", "#22c55e", [], deptCalcAsk(true)),
         outcome("Нет объёмов", "#f59e0b", []),
@@ -1493,6 +1560,7 @@ async function main() {
         relationFieldId: F.tkpLead,
         fieldId: F.leadGip,
       },
+      actions: approveContextActions(),
       outcomes: [
         outcome("Согласовать", "#22c55e", [
           setField(F.tkpStatus, TKP_STAGE.approveRko),
@@ -1524,6 +1592,7 @@ async function main() {
         via: [F.leadManager, USER_DEPT],
         fieldId: F.deptHead,
       },
+      actions: approveContextActions(),
       outcomes: [
         outcome("Согласовать", "#22c55e", [
           setField(F.tkpStatus, TKP_STAGE.approveGd),
@@ -1549,6 +1618,7 @@ async function main() {
       step_order: 0,
       kind: "decision",
       assignee: { type: "role", roleId: ROLE_GD, completeWhen: "any" },
+      actions: approveContextActions(),
       outcomes: [
         outcome("Согласовать", "#22c55e", [
           setField(F.tkpStatus, TKP_STAGE.readySend),
@@ -1581,6 +1651,7 @@ async function main() {
       outcomes: [
         outcome("Отправлено", "#22c55e", [
           setField(F.tkpStatus, TKP_STAGE.sent),
+          ...TKP_SOFT_CLEAR,
           {
             id: uid("aact"),
             kind: "updateRecords",

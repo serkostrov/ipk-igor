@@ -566,6 +566,7 @@ function EntityRecordForm({
         recordId={draftRecordId}
         required={field.required}
         softFillParent={softFillParent}
+        creating={!isEdit}
         onOpenRelation={onOpenRelation}
       />
     );

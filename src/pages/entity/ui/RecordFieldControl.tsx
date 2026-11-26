@@ -26,6 +26,7 @@ import {
   isEntityFieldManualInputEnabled,
   isEntityFormulaDateField,
   isEntityNameField,
+  isRelationFieldMultiValueInput,
   isValidEntityEmail,
   resolveTkpGipDepartmentRecordId,
   coerceEntityDatetimeStoredValue,
@@ -262,6 +263,8 @@ export function RecordFieldControl({
   relationGroupsMode = "full",
   softFillParent = null,
   emptyNumberPlaceholder = false,
+  /** Create dialog: spawn-per-user fields allow multi-pick to fan out. */
+  creating = false,
   onOpenRelation,
   maxDate,
 }: {
@@ -292,6 +295,8 @@ export function RecordFieldControl({
   required?: boolean;
   /** Soft-fill formula/manual: no grey `0,00` when the value is still empty. */
   emptyNumberPlaceholder?: boolean;
+  /** Create dialog: spawn-per-user fields allow multi-pick to fan out. */
+  creating?: boolean;
   /** Open a related / belonging record from the chip label. */
   onOpenRelation?: (entityId: string, recordId: string) => void;
   /** Inclusive max `YYYY-MM-DD` for datetime date pickers. */
@@ -581,9 +586,7 @@ export function RecordFieldControl({
               entities,
             )}
             value={relationParentEmpty ? "" : value}
-            multiple={
-              field.type === "belonging" ? false : field.relationMultiple
-            }
+            multiple={isRelationFieldMultiValueInput(field, { creating })}
             disabled={relationParentEmpty}
             placeholder={
               relationParentEmpty

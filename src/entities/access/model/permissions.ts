@@ -257,7 +257,8 @@ export function canField(
 
 /**
  * Access to an entity tab (files folders, notes, …).
- * Legacy roles without `tabs` keep full tab access.
+ * Legacy roles without `tabs` / `tabs: "*"` keep full tab access.
+ * Explicit tab matrix: missing id = deny (safe for salary / tariff tabs).
  */
 export function canTab(
   role: Role | null | undefined,
@@ -274,9 +275,8 @@ export function canTab(
   const tabs = access.tabs;
   if (tabs == null || tabs === "*") return true;
   const tab = tabs[tabId];
-  // Legacy roles only listed files tabs; missing ids stay allowed until
-  // the role matrix is re-saved with the full configurable set.
-  if (!tab) return true;
+  // Explicit matrix: unknown configurable tab stays hidden until granted.
+  if (!tab) return false;
   return mode === "edit" ? tab.edit : tab.view;
 }
 

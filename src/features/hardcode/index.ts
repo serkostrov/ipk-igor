@@ -197,10 +197,14 @@ export {
   type DealCardVisibility,
 } from "./deal-card";
 export {
+  buildTkpApprovalClearedPatch,
   findTkpApprovalListField,
+  findTkpStatusField,
   readTkpApprovalState,
   resolveTkpApprovalChainReady,
   resolveTkpApprovalPendingOptionId,
+  resolveTkpApproveGipStatusOptionId,
+  resolveTkpSentStatusOptionId,
   TKP_APPROVAL_REVISION_KEY,
   TKP_APPROVAL_SUBMITTED_AT_KEY,
 } from "./tkp-review/lib/tkp-approval";

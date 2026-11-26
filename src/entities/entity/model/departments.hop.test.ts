@@ -1,9 +1,13 @@
 /**
- * Commercial-group hop must not attribute the group head’s departments to leads.
+ * Department scope hops for leads / commercial groups.
  * Run: npx --yes vite-node src/entities/entity/model/departments.hop.test.ts
  */
 import { SYSTEM_USERS_ENTITY_ID } from "./system-entities";
-import { collectRecordDepartmentIds } from "./departments";
+import {
+  collectRecordDepartmentIds,
+  collectUserDepartmentIds,
+  recordMatchesDepartmentScope,
+} from "./departments";
 import type { Entity, EntityField, EntityRecord } from "./types";
 
 function field(
@@ -94,12 +98,27 @@ function record(id: string, values: Record<string, string>): EntityRecord {
   };
 }
 
+function assert(condition: boolean, message: string) {
+  if (!condition) throw new Error(message);
+}
+
 async function main() {
   const departments = entity({
     id: "entity-departments",
     name: "Отделы",
     namePlural: "Отделы",
-    records: [record("dept-a", { name: "A" }), record("dept-b", { name: "B" })],
+    fields: [
+      field({
+        id: "field-dept-head",
+        name: "Руководитель",
+        type: "relation",
+        relationEntityId: SYSTEM_USERS_ENTITY_ID,
+      }),
+    ],
+    records: [
+      record("dept-a", { name: "A" }),
+      record("dept-b", { name: "B", "field-dept-head": "user-head" }),
+    ],
   });
 
   const users = entity({
@@ -118,6 +137,7 @@ async function main() {
     records: [
       record("user-manager", { "field-user-dept": "dept-a" }),
       record("user-head", { "field-user-dept": "dept-b" }),
+      record("user-viewer", {}),
     ],
   });
 
@@ -132,8 +152,23 @@ async function main() {
         type: "relation",
         relationEntityId: SYSTEM_USERS_ENTITY_ID,
       }),
+      field({
+        id: "field-group-dept",
+        name: "Отдел",
+        type: "relation",
+        relationEntityId: departments.id,
+      }),
     ],
-    records: [record("group-main", { "field-group-head": "user-head" })],
+    records: [
+      record("group-main", {
+        "field-group-head": "user-head",
+        "field-group-dept": "dept-b",
+      }),
+      record("group-other", {
+        "field-group-head": "user-manager",
+        "field-group-dept": "dept-a",
+      }),
+    ],
   });
 
   const leads = entity({
@@ -155,34 +190,110 @@ async function main() {
       }),
     ],
     records: [
-      record("lead-1", {
+      record("lead-mine", {
         "field-lead-manager": "user-manager",
         "field-lead-group": "group-main",
+      }),
+      record("lead-other-group", {
+        "field-lead-manager": "user-head",
+        "field-lead-group": "group-other",
+      }),
+      record("lead-orphan", {
+        "field-lead-manager": "user-manager",
       }),
     ],
   });
 
   const entitiesList = [departments, users, groups, leads];
-  const lead = leads.records[0]!;
-  const ids = await collectRecordDepartmentIds(
+
+  // Explicit group→dept only — manager dept must not leak.
+  const mineIds = await collectRecordDepartmentIds(
     leads,
-    lead,
+    leads.records[0]!,
     departments,
     entitiesList,
   );
+  assert(
+    [...mineIds].sort().join(",") === "dept-b",
+    `lead-mine expected dept-b only, got: ${mineIds.join(",") || "(empty)"}`,
+  );
 
-  const unique = [...new Set(ids)].sort();
-  if (unique.includes("dept-b")) {
-    throw new Error(
-      `commercial-group head dept leaked into lead: ${unique.join(",")}`,
-    );
-  }
-  if (!unique.includes("dept-a")) {
-    throw new Error(
-      `expected manager dept-a on lead, got: ${unique.join(",") || "(empty)"}`,
-    );
-  }
-  console.log("ok: collectRecordDepartmentIds ignores commercial-group head");
+  const otherIds = await collectRecordDepartmentIds(
+    leads,
+    leads.records[1]!,
+    departments,
+    entitiesList,
+  );
+  assert(
+    [...otherIds].sort().join(",") === "dept-a",
+    `lead-other-group expected dept-a, got: ${otherIds.join(",") || "(empty)"}`,
+  );
+
+  const orphanIds = await collectRecordDepartmentIds(
+    leads,
+    leads.records[2]!,
+    departments,
+    entitiesList,
+  );
+  assert(
+    orphanIds.length === 0,
+    `orphan lead (no group) must have no depts, got: ${orphanIds.join(",")}`,
+  );
+
+  // Viewer who heads commercial group gets that group's department.
+  const headDepts = collectUserDepartmentIds(
+    users.records[1]!,
+    users,
+    departments,
+    entitiesList,
+  );
+  assert(
+    headDepts.includes("dept-b"),
+    `group head should include dept-b, got: ${headDepts.join(",")}`,
+  );
+
+  const viewerOpts = {
+    authUserId: null as string | null,
+    currentUserRecordId: "user-head",
+  };
+
+  assert(
+    await recordMatchesDepartmentScope(
+      leads,
+      leads.records[0]!,
+      ["dept-b"],
+      departments,
+      entitiesList,
+      viewerOpts,
+    ),
+    "head should see lead in own group dept",
+  );
+
+  assert(
+    !(await recordMatchesDepartmentScope(
+      leads,
+      leads.records[1]!,
+      ["dept-b"],
+      departments,
+      entitiesList,
+      viewerOpts,
+    )),
+    "head must not see lead of other group dept",
+  );
+
+  assert(
+    !(await recordMatchesDepartmentScope(
+      leads,
+      leads.records[2]!,
+      ["dept-b"],
+      departments,
+      entitiesList,
+      viewerOpts,
+    )),
+    "head must not see orphan lead without group/dept",
+  );
+
+  console.log("ok: department scope uses group→dept, not manager hop");
 }
 
 main().catch((error) => {

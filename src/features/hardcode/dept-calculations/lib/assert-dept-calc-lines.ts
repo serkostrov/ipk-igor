@@ -8,14 +8,19 @@ import {
   collectDeptCalculationRecordsForParent,
   entityRelationIncludesId,
   filterDeptCalculationRecordsForAssignee,
+  formatEntityListFieldValue,
   getEntityConfig,
   getEntityRecordById,
   getEntityRecords,
+  getEntityValueContext,
   isDeptCalculationsEntity,
   isTkpAnalysisEntity,
   isTkpGipFillingOptionId,
+  parseEntityListValueIds,
   resolveEditableDeptCalculationRecordIds,
 } from "@/entities/entity";
+import { reviewExpenseCategoryFromLabel } from "../../tkp-gip-cost/model/expense-category";
+import { resolveDeptCalculationsSubtaskFields } from "../model/fields";
 import { resolveDeptCalculationsNestedTarget } from "../model/resolve-nested";
 
 function isNoVolumeOutcome(label: string | null | undefined): boolean {
@@ -103,20 +108,70 @@ export async function assertDeptCalculationLinesForComplete(options: {
   const nestedRecords = nested ? await getEntityRecords(nested.entity) : [];
   // «Хотя бы одна» среди строк, которые исполнитель может править
   // (у ГИПа несколько стадий — пустая соседняя не блокирует).
-  const hasLine =
-    nested != null &&
-    scoped.some((record) =>
-      nestedRecords.some((child) =>
-        entityRelationIncludesId(
-          child.values[nested.parentLinkFieldId],
-          record.id,
-        ),
-      ),
-    );
-  if (!hasLine) {
+  const scopedLines =
+    nested == null
+      ? []
+      : nestedRecords.filter((child) =>
+          scoped.some((record) =>
+            entityRelationIncludesId(
+              child.values[nested.parentLinkFieldId],
+              record.id,
+            ),
+          ),
+        );
+  if (scopedLines.length === 0) {
     throw new Error(
       "Добавьте хотя бы одну строку расчёта перед завершением задания",
     );
+  }
+
+  if (!nested) return;
+  const lineFields = resolveDeptCalculationsSubtaskFields(nested.entity);
+  const ctx = getEntityValueContext(entities);
+  for (const line of scopedLines) {
+    const categoryField = lineFields.category;
+    const categoryLabel = categoryField
+      ? formatEntityListFieldValue(
+          categoryField,
+          line.values[categoryField.id],
+          ctx.entities,
+        ).trim()
+      : "";
+    const category = reviewExpenseCategoryFromLabel(
+      categoryLabel === "—" ? "" : categoryLabel,
+    );
+    if (!category && lineFields.category) {
+      const calcLabel = lineFields.calcType
+        ? formatEntityListFieldValue(
+            lineFields.calcType,
+            line.values[lineFields.calcType.id],
+            ctx.entities,
+          ).trim()
+        : "";
+      const isHours = calcLabel.toLocaleLowerCase("ru").includes("час");
+      if (!isHours) {
+        throw new Error(
+          "Укажите категорию расходов для каждой суммы — иначе подрядные блоки попадут в расходы",
+        );
+      }
+    }
+    if (category !== "subcontractor") continue;
+    const taxStatusId = lineFields.taxStatus
+      ? (parseEntityListValueIds(line.values[lineFields.taxStatus.id])[0] ?? "")
+      : "";
+    if (!taxStatusId) {
+      throw new Error(
+        "Для подрядных работ укажите налоговый статус (ИП / СЗ / ГПХ / ООО)",
+      );
+    }
+    const taxRaw = lineFields.tax
+      ? (line.values[lineFields.tax.id] ?? "").trim()
+      : "";
+    if (!taxRaw) {
+      throw new Error(
+        "Для подрядных работ укажите налог, % (ставка к стоимости строки)",
+      );
+    }
   }
 }
 

@@ -127,12 +127,12 @@ export function netProfitRows(
       value: fmtMoney(calculation.profitTaxAmount),
     },
     {
-      label: "Подрядные работы по договорам",
-      value: fmtMoney(calculation.contractorWorkBase),
+      label: "Подрядные работы с коэффициентом",
+      value: fmtMoney(calculation.contractorWorkTotal),
     },
     {
-      label: "Дополнительные работы по договорам",
-      value: fmtMoney(calculation.additionalWorkBase),
+      label: "Дополнительные работы с коэффициентом",
+      value: fmtMoney(calculation.additionalWorkTotal),
     },
     { label: "Чистая прибыль", value: fmtMoney(calculation.netProfit) },
   ];

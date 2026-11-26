@@ -108,11 +108,21 @@ function CurrentCostSummary({
   const contractorGroups = calculation.groups.filter(
     (group) => group.treatment === "separate_after_fixed",
   );
+  const missingTaxStatus = calculation.groups
+    .flatMap((group) => group.items)
+    .filter(
+      (item) => item.category === "subcontractor" && item.taxStatus == null,
+    );
 
   return (
     <SummaryShell
       description="Состав каждой суммы раскрывается до отдела и строки расчёта."
       durationControl={durationControl}
+      alert={
+        missingTaxStatus.length > 0
+          ? `У ${missingTaxStatus.length} подрядных строк нет налогового статуса (ИП / СЗ / ГПХ / ООО) — укажите его, иначе расчёт некорректный.`
+          : null
+      }
     >
       <MetricDetails
         metricKey="labor"
@@ -311,10 +321,12 @@ function HistoricalCostSummary({
 function SummaryShell({
   description,
   durationControl,
+  alert = null,
   children,
 }: {
   description: string;
   durationControl: ReactNode;
+  alert?: string | null;
   children: ReactNode;
 }) {
   return (
@@ -327,6 +339,14 @@ function SummaryShell({
           Расчёт ГИПа
         </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        {alert ? (
+          <p
+            className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-900 dark:text-amber-100"
+            data-testid="review-gip-missing-tax-status"
+          >
+            {alert}
+          </p>
+        ) : null}
       </header>
 
       <div className="grid grid-cols-1 gap-2.5 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3 xl:grid-cols-4">
