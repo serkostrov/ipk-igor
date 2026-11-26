@@ -713,10 +713,11 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
         configurable.map((tab) => [tab.id, { view: true, edit: true }]),
       );
     } else {
-      // Backfill legacy maps that only listed files tabs.
+      // Explicit matrix: missing configurable tabs stay denied until granted
+      // (salary / tariff must not appear as allowed by omission).
       tabs = { ...current.tabs };
       for (const tab of configurable) {
-        if (!tabs[tab.id]) tabs[tab.id] = { view: true, edit: true };
+        if (!tabs[tab.id]) tabs[tab.id] = { view: false, edit: false };
       }
     }
     tabs[tabId] = {
@@ -1606,9 +1607,9 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                             const access = allTabs
                               ? { view: true, edit: true }
                               : (tabMap?.[tab.id] ?? {
-                                  // Legacy maps omitted non-files tabs → allowed.
-                                  view: true,
-                                  edit: true,
+                                  // Explicit matrix: omitted tab = deny.
+                                  view: false,
+                                  edit: false,
                                 });
                             const kindLabel = getEntityTabKindLabel(tab.kind);
                             const title =

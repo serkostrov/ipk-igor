@@ -19,6 +19,8 @@ import {
   getEntityBrowseViews,
   getEntityRecordById,
   inviteSystemUser,
+  setSystemUserPassword,
+  updateEntityRecord,
   isEntityBrowseView,
   isEntityInternal,
   hasEntityPageLayout,
@@ -613,7 +615,23 @@ export function EntityPage({
           }}
           entity={currentEntity}
           record={editingRecord}
+          allowAccountPasswordReset={isUsersEntity}
           onOpenRelation={onOpenRelation}
+          onSubmit={
+            isUsersEntity && editingRecord
+              ? async (values, meta) => {
+                  await updateEntityRecord(
+                    currentEntity.id,
+                    editingRecord.id,
+                    values,
+                  );
+                  const password = meta.password?.trim() ?? "";
+                  if (password.length >= 6) {
+                    await setSystemUserPassword(editingRecord.id, password);
+                  }
+                }
+              : undefined
+          }
         />
       ) : null}
       <EntityTimelineSettingsDialog

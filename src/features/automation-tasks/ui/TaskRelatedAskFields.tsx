@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { useCurrentRole } from "@/entities/access";
 import {
@@ -14,6 +14,7 @@ import {
   parseEntityListValueIds,
   resolveEntityListFieldPresentation,
   serializeTkpStageDepartmentPairs,
+  updateEntityRecord,
   useCurrentUserRecordId,
   type Entity,
   type EntityRecord,
@@ -33,6 +34,7 @@ import {
 } from "@/features/hardcode";
 import { RecordFieldControl } from "@/pages/entity/ui/RecordFieldControl";
 import { DeptCalculationsView } from "@/pages/entity/ui/DeptCalculationsView";
+import { EntityRecordDialog } from "@/pages/entity/ui/EntityRecordDialog";
 import type {
   RelatedAskEmptyRelation,
   RelatedAskGroup,
@@ -133,9 +135,14 @@ function collectDeptCalcAskBundle(
   relationLabel: string;
   /**
    * Host fields (срок / описание / …) that this ask actually requests —
-   * when non-empty we show the departments table instead of flat controls.
+   * folded into the departments table instead of flat controls.
    */
   tableFieldIds: Set<string>;
+  /**
+   * Selection step asks only «Стадия/отделы» — keep the groups picker,
+   * do not embed the fill table yet.
+   */
+  selectionOnly: boolean;
   /** Asks that still need flat controls (e.g. stage/dept picker). */
   leftoverFields: RelatedAskGroup["fields"];
   primary: RelatedAskGroup;
@@ -156,20 +163,23 @@ function collectDeptCalcAskBundle(
       .filter(Boolean)
       .map((field) => field!.id),
   );
-  // Only show the fill table when this outcome asks for table-owned fields.
-  // Selection step asks «Стадия/отделы» alone — keep the groups picker.
   const tableFieldIds = new Set(
     [...hostTableFieldIds].filter((id) => askedFieldIds.has(id)),
   );
+  // Selection step: only the stage/department picker is asked.
+  const selectionOnly = Boolean(
+    groupsField &&
+    askedFieldIds.size > 0 &&
+    [...askedFieldIds].every((id) => id === groupsField.id),
+  );
+  // Fill step (or any ask beyond selection): always embed the table so
+  // lines/subtasks are created in-task without opening the TKP card.
+  const showFillTable = !selectionOnly;
   const leftoverFields = primary.fields.filter((row) => {
-    if (tableFieldIds.has(row.field.id)) return false;
+    if (showFillTable && hostTableFieldIds.has(row.field.id)) return false;
+    if (showFillTable && tableFieldIds.has(row.field.id)) return false;
     // On a fill-table step, groups are already chosen — hide the picker.
-    // On a selection step (no table fields asked), keep «Стадия/отделы».
-    if (
-      groupsField &&
-      row.field.id === groupsField.id &&
-      tableFieldIds.size > 0
-    ) {
+    if (groupsField && row.field.id === groupsField.id && showFillTable) {
       return false;
     }
     return true;
@@ -179,6 +189,7 @@ function collectDeptCalcAskBundle(
     recordIds: [...new Set(deptGroups.map((item) => item.relatedRecordId))],
     relationLabel: primary.relationLabel,
     tableFieldIds,
+    selectionOnly,
     leftoverFields,
     primary,
   };
@@ -229,6 +240,8 @@ export function TaskRelatedAskFields({
     pinGipExecutionDuration &&
     softFillParent != null &&
     isTkpAnalysisEntity(softFillParent.entity);
+  const [editingDeptRecord, setEditingDeptRecord] =
+    useState<EntityRecord | null>(null);
 
   const displayGroupsValue = useAsyncValue(
     () => collapseDeptCalculationGroups(groups, entities, softFillParent),
@@ -384,9 +397,12 @@ export function TaskRelatedAskFields({
 
   if (groups.length === 0 && emptyRelations.length === 0) return null;
 
-  const showDeptTable = Boolean(
-    deptBundle && deptBundle.tableFieldIds.size > 0,
-  );
+  const showDeptTable = Boolean(deptBundle && !deptBundle.selectionOnly);
+  const deptEntityForEdit =
+    deptBundle != null
+      ? (entities.find((item) => item.id === deptBundle.entity.id) ??
+        deptBundle.entity)
+      : null;
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -398,8 +414,8 @@ export function TaskRelatedAskFields({
           key={item.relationFieldId}
           className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-3 py-2.5 text-xs text-muted-foreground"
         >
-          Нет связанных записей «{item.relationLabel}». Сначала создайте их
-          (автозаполнение или предыдущий шаг).
+          Нет связанных записей «{item.relationLabel}». Они появятся после
+          предыдущего шага автоматизации — оставайтесь в задании.
         </p>
       ))}
 
@@ -423,25 +439,52 @@ export function TaskRelatedAskFields({
               hideExecutionDuration={showGipDurationAsk}
             />
           ) : null}
-          <p className="truncate text-[11px] font-medium text-muted-foreground">
-            {deptBundle.relationLabel}
-          </p>
+          <div className="flex flex-col gap-0.5">
+            <p className="truncate text-[11px] font-medium text-foreground">
+              {deptBundle.relationLabel}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Работы и подзадачи отдела — добавляйте строки здесь, не открывая
+              карточку ТКП.
+            </p>
+          </div>
           {deptTableRecords.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-3 py-2.5 text-xs text-muted-foreground">
-              Нет расчётов отделов для этого исполнителя. Проверьте выбор
-              отделов на предыдущем шаге.
+              Нет расчётов отделов для этого исполнителя. Дождитесь выбора
+              отделов на предыдущем шаге — затем добавьте строки кнопкой
+              «Строка» прямо в этом задании.
             </p>
           ) : (
             <DeptCalculationsView
-              entity={
-                entities.find((item) => item.id === deptBundle.entity.id) ??
-                deptBundle.entity
-              }
+              entity={deptEntityForEdit!}
               records={deptTableRecords}
               leadParent={softFillParent}
-              editableRecordIds={editableDeptRecordIds}
+              editableRecordIds={disabled ? new Set() : editableDeptRecordIds}
+              onEditRecord={
+                disabled ? undefined : (record) => setEditingDeptRecord(record)
+              }
             />
           )}
+          {deptEntityForEdit && editingDeptRecord ? (
+            <EntityRecordDialog
+              open
+              onOpenChange={(open) => {
+                if (!open) setEditingDeptRecord(null);
+              }}
+              entity={deptEntityForEdit}
+              record={editingDeptRecord}
+              entities={entities}
+              softFillParent={softFillParent}
+              onSubmit={async (nextValues) => {
+                await updateEntityRecord(
+                  deptEntityForEdit.id,
+                  editingDeptRecord.id,
+                  nextValues,
+                );
+                setEditingDeptRecord(null);
+              }}
+            />
+          ) : null}
         </div>
       ) : null}
 

@@ -89,6 +89,8 @@ import {
   resolveRelationRecordLabel,
   resolveEntityListFieldPresentation,
   SYSTEM_ENTITY_KEY_USERS,
+  setSystemUserPassword,
+  updateEntityRecord,
   useEntityConfig,
   useEntityForRecord,
   useEntityValueContext,
@@ -1776,7 +1778,19 @@ function EntityRecordContent({
         onOpenChange={setEditOpen}
         entity={entity}
         record={record}
+        allowAccountPasswordReset={isUsersEntity}
         onOpenRelation={onOpenRelation}
+        onSubmit={
+          isUsersEntity
+            ? async (values, meta) => {
+                await updateEntityRecord(entity.id, record.id, values);
+                const password = meta.password?.trim() ?? "";
+                if (password.length >= 6) {
+                  await setSystemUserPassword(record.id, password);
+                }
+              }
+            : undefined
+        }
       />
 
       <RecordDeleteConfirmDialog

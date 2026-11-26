@@ -13,9 +13,15 @@ import {
   type EntityRecord,
 } from "@/entities/entity";
 import {
-  TKP_APPROVAL_REVISION_KEY,
+  buildTkpApprovalClearedPatch,
   readTkpApprovalState,
+  resolveTkpSentStatusOptionId,
 } from "./tkp-approval";
+import {
+  TKP_APPROVAL_HISTORY_KEY,
+  TKP_APPROVAL_RETURN_TO_STEP_KEY,
+  TKP_APPROVAL_STEP_KEY,
+} from "./tkp-approval-progress";
 
 export const TKP_SEND_REVISION_KEY = "__tkp_sent_revision_id__";
 export const TKP_SEND_AT_KEY = "__tkp_sent_at__";
@@ -121,13 +127,26 @@ export function buildTkpSendToCustomerPatch(input: {
   revisionId: string;
   sentAt: string;
   nextCallAt: string;
+  entity?: Entity;
+  entities?: readonly Entity[];
 }): Record<string, string> {
-  return {
+  const patch: Record<string, string> = {
     [TKP_SEND_REVISION_KEY]: input.revisionId,
     [TKP_SEND_AT_KEY]: input.sentAt,
     [TKP_SEND_CALL_AT_KEY]: input.nextCallAt,
-    [TKP_APPROVAL_REVISION_KEY]: input.revisionId,
+    ...buildTkpApprovalClearedPatch(),
+    [TKP_APPROVAL_STEP_KEY]: "",
+    [TKP_APPROVAL_RETURN_TO_STEP_KEY]: "",
+    [TKP_APPROVAL_HISTORY_KEY]: "",
   };
+  if (input.entity) {
+    const sent = resolveTkpSentStatusOptionId(
+      input.entity,
+      input.entities ?? [],
+    );
+    if (sent) patch[sent.fieldId] = sent.optionId;
+  }
+  return patch;
 }
 
 /** Option id for lead stage «ТКП на согласовании у заказчика» if present. */

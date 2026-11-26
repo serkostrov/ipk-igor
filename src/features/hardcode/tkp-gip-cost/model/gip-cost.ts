@@ -775,7 +775,7 @@ export function calculateReviewCostBreakdown({
     }
 
     for (const line of lines) {
-      const category = normalizeReviewExpenseCategory(
+      const rawCategory = normalizeReviewExpenseCategory(
         line.expense_category_snapshot,
       );
       const calculationType = normalizeReviewLineCalculationType(
@@ -783,8 +783,24 @@ export function calculateReviewCostBreakdown({
       );
       const lineId = optionalString(line.id);
       const sourceAmount = nonNegativeNumber(line.cost);
+      const titleHint = optionalString(line.title) ?? "";
       const isLegacyCoefficientLine =
-        category === null && line.requires_coefficient_snapshot === true;
+        rawCategory === null && line.requires_coefficient_snapshot === true;
+      const isHourlyLabor =
+        rawCategory === null &&
+        !isLegacyCoefficientLine &&
+        calculationType === "hours";
+      // Recover mislabeled / uncategorized contractor rows so they never
+      // land in «Расходы и командировки».
+      const inferredSubcontractor =
+        rawCategory === null &&
+        !isHourlyLabor &&
+        !isLegacyCoefficientLine &&
+        (normalizeReviewLineTaxStatus(line.tax_status_snapshot) != null ||
+          /подряд/i.test(titleHint));
+      const category: ReviewExpenseCategory | null = inferredSubcontractor
+        ? "subcontractor"
+        : rawCategory;
       const isContractorCategory =
         category === "subcontractor" ||
         category === "survey" ||
@@ -804,10 +820,6 @@ export function calculateReviewCostBreakdown({
         isLegacyCoefficientLine,
         line.coefficient_snapshot,
       );
-      const isHourlyLabor =
-        category === null &&
-        !isLegacyCoefficientLine &&
-        calculationType === "hours";
       const categoryLabel = reviewExpenseCategoryLabel(category);
       const title =
         optionalString(line.title) ??
@@ -839,7 +851,7 @@ export function calculateReviewCostBreakdown({
       } else if (isHourlyLabor) {
         laborItems.push(item);
       } else {
-        // Manager, travel, other without coefficient, and uncategorized amounts.
+        // Explicit manager / travel / other-without-coeff only.
         expenseItems.push(item);
       }
     }

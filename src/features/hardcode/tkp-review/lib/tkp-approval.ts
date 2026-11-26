@@ -141,3 +141,66 @@ export function writeTkpApprovalSubmittedPatch(input: {
 
   return next;
 }
+
+/** Soft keys that keep «Цена ТКП» locked after send / cancel. */
+export function buildTkpApprovalClearedPatch(): Record<string, string> {
+  return {
+    [TKP_APPROVAL_REVISION_KEY]: "",
+    [TKP_APPROVAL_SUBMITTED_AT_KEY]: "",
+  };
+}
+
+/** Process trigger list on Разбор ТКП («Статус» / «Стадия»). */
+export function findTkpStatusField(entity: Entity): EntityField | null {
+  return (
+    entity.fields.find((field) => {
+      if (field.type !== "list") return false;
+      const name = normalizeName(getEntityFieldDisplayName(field));
+      return name === "статус" || name === "стадия";
+    }) ?? null
+  );
+}
+
+function resolveTkpStatusOptionId(
+  field: EntityField,
+  entities: readonly Entity[],
+  matchers: readonly ((name: string) => boolean)[],
+): string | null {
+  const options = getEntityFieldListOptions(field, entities);
+  for (const match of matchers) {
+    const hit = options.find((option) => match(normalizeName(option.name)));
+    if (hit) return hit.id;
+  }
+  return null;
+}
+
+/** First approval-chain stage (ГИП). */
+export function resolveTkpApproveGipStatusOptionId(
+  entity: Entity,
+  entities: readonly Entity[] = [],
+): { fieldId: string; optionId: string } | null {
+  const field = findTkpStatusField(entity);
+  if (!field) return null;
+  const optionId = resolveTkpStatusOptionId(field, entities, [
+    (name) =>
+      name.includes("согласован") &&
+      name.includes("гип") &&
+      !name.includes("заказчик"),
+    (name) => name.includes("на согласован") && name.includes("гип"),
+  ]);
+  return optionId ? { fieldId: field.id, optionId } : null;
+}
+
+/** Terminal «Отправлено» status after send-to-customer. */
+export function resolveTkpSentStatusOptionId(
+  entity: Entity,
+  entities: readonly Entity[] = [],
+): { fieldId: string; optionId: string } | null {
+  const field = findTkpStatusField(entity);
+  if (!field) return null;
+  const optionId = resolveTkpStatusOptionId(field, entities, [
+    (name) => name === "отправлено" || name.includes("ткп отправл"),
+    (name) => name.includes("отправл") && !name.includes("согласован"),
+  ]);
+  return optionId ? { fieldId: field.id, optionId } : null;
+}

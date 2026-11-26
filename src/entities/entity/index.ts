@@ -454,6 +454,7 @@ export {
 export {
   inviteSystemUser,
   isUsersEntityId,
+  setSystemUserPassword,
   type InviteUserInput,
 } from "./api/invite-user-api";
 export { ensureCurrentUserProfile } from "./api/ensure-user-profile-api";
@@ -625,6 +626,7 @@ export {
   createEntityRecordsWithUserSpawn,
   expandUserSpawnRecordValues,
   findUserSpawnRelationField,
+  isRelationFieldMultiValueInput,
   isUserSpawnRelationField,
 } from "./lib/user-spawn-records";
 export {

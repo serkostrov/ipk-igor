@@ -97,60 +97,123 @@ export async function ensureCurrentUserProfile(input: {
 
   if (existingError) throw existingError;
   if (existing) {
-    const record = rowToRecord(existing as unknown as EntityRecordRow);
-    // List-encoded role (CSV / JSON array) still counts as assigned.
-    const roleId =
-      parseEntityListValueIds(
-        record.values[SYSTEM_USERS_FIELD_ROLE_ID],
-      )[0]?.trim() ?? "";
-    if (!roleId) {
-      const nextValues = {
-        ...record.values,
-        [SYSTEM_USERS_FIELD_ROLE_ID]: defaultRoleId,
-      };
-      let { data: updated, error: updateError } = await supabase
-        .from("entity_records")
-        .update({
-          field_values: nextValues,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", record.id)
-        .select(recordSelect())
-        .single();
-      if (isMissingSchemaVersionColumn(updateError)) {
-        markEntityRecordsSchemaVersionUnsupported();
-        ({ data: updated, error: updateError } = await supabase
-          .from("entity_records")
-          .update({
-            field_values: nextValues,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", record.id)
-          .select(recordSelect())
-          .single());
-      }
-      if (isMissingCreatedByColumn(updateError)) {
-        markEntityRecordsCreatedByUnsupported();
-        ({ data: updated, error: updateError } = await supabase
-          .from("entity_records")
-          .update({
-            field_values: nextValues,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", record.id)
-          .select(recordSelect())
-          .single());
-      }
-      if (updateError) throw updateError;
-      return rowToRecord(updated as unknown as EntityRecordRow);
-    }
-    return record;
+    return finalizeUserProfile(
+      rowToRecord(existing as unknown as EntityRecordRow),
+      defaultRoleId,
+    );
   }
 
   const email = (input.email ?? "").trim().toLowerCase();
   const name =
     (input.fullName ?? "").trim() ||
     (email.includes("@") ? email.split("@")[0]! : "Пользователь");
+
+  // Claim an orphan Users row that already has this email but no auth link.
+  if (email) {
+    let { data: orphans, error: orphanError } = await supabase
+      .from("entity_records")
+      .select(recordSelect())
+      .eq("entity_id", SYSTEM_USERS_ENTITY_ID)
+      .is("auth_user_id", null)
+      .filter(`field_values->>"${SYSTEM_USERS_FIELD_EMAIL_ID}"`, "ilike", email)
+      .limit(5);
+
+    if (isMissingSchemaVersionColumn(orphanError)) {
+      markEntityRecordsSchemaVersionUnsupported();
+      ({ data: orphans, error: orphanError } = await supabase
+        .from("entity_records")
+        .select(recordSelect())
+        .eq("entity_id", SYSTEM_USERS_ENTITY_ID)
+        .is("auth_user_id", null)
+        .filter(
+          `field_values->>"${SYSTEM_USERS_FIELD_EMAIL_ID}"`,
+          "ilike",
+          email,
+        )
+        .limit(5));
+    }
+    if (isMissingCreatedByColumn(orphanError)) {
+      markEntityRecordsCreatedByUnsupported();
+      ({ data: orphans, error: orphanError } = await supabase
+        .from("entity_records")
+        .select(recordSelect())
+        .eq("entity_id", SYSTEM_USERS_ENTITY_ID)
+        .is("auth_user_id", null)
+        .filter(
+          `field_values->>"${SYSTEM_USERS_FIELD_EMAIL_ID}"`,
+          "ilike",
+          email,
+        )
+        .limit(5));
+    }
+    if (orphanError) throw orphanError;
+
+    const orphan = ((orphans ?? []) as unknown as EntityRecordRow[]).find(
+      (row) =>
+        (parseFieldValues(row.field_values)[SYSTEM_USERS_FIELD_EMAIL_ID] ?? "")
+          .trim()
+          .toLowerCase() === email,
+    );
+    if (orphan) {
+      const claimed = rowToRecord(orphan);
+      const nextValues = {
+        ...claimed.values,
+        [SYSTEM_USERS_FIELD_NAME_ID]:
+          (claimed.values[SYSTEM_USERS_FIELD_NAME_ID] ?? "").trim() || name,
+        [SYSTEM_USERS_FIELD_EMAIL_ID]: email,
+        [SYSTEM_USERS_FIELD_ROLE_ID]:
+          parseEntityListValueIds(
+            claimed.values[SYSTEM_USERS_FIELD_ROLE_ID],
+          )[0]?.trim() || defaultRoleId,
+      };
+      let { data: updated, error: claimError } = await supabase
+        .from("entity_records")
+        .update({
+          auth_user_id: input.authUserId,
+          field_values: nextValues,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", claimed.id)
+        .is("auth_user_id", null)
+        .select(recordSelect())
+        .maybeSingle();
+      if (isMissingSchemaVersionColumn(claimError)) {
+        markEntityRecordsSchemaVersionUnsupported();
+        ({ data: updated, error: claimError } = await supabase
+          .from("entity_records")
+          .update({
+            auth_user_id: input.authUserId,
+            field_values: nextValues,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", claimed.id)
+          .is("auth_user_id", null)
+          .select(recordSelect())
+          .maybeSingle());
+      }
+      if (isMissingCreatedByColumn(claimError)) {
+        markEntityRecordsCreatedByUnsupported();
+        ({ data: updated, error: claimError } = await supabase
+          .from("entity_records")
+          .update({
+            auth_user_id: input.authUserId,
+            field_values: nextValues,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", claimed.id)
+          .is("auth_user_id", null)
+          .select(recordSelect())
+          .maybeSingle());
+      }
+      if (claimError) throw claimError;
+      if (updated) {
+        return finalizeUserProfile(
+          rowToRecord(updated as unknown as EntityRecordRow),
+          defaultRoleId,
+        );
+      }
+    }
+  }
 
   const recordId = `record-${crypto.randomUUID()}`;
   const values: Record<string, string> = {
@@ -196,7 +259,75 @@ export async function ensureCurrentUserProfile(input: {
       .single());
   }
 
+  // Trigger on auth.users may have created the profile first — reuse it.
+  if (error && /auth_user_id|duplicate|unique/i.test(error.message)) {
+    const linked = await supabase
+      .from("entity_records")
+      .select(recordSelect())
+      .eq("auth_user_id", input.authUserId)
+      .maybeSingle();
+    if (linked.error) throw linked.error;
+    if (linked.data) {
+      return finalizeUserProfile(
+        rowToRecord(linked.data as unknown as EntityRecordRow),
+        defaultRoleId,
+      );
+    }
+  }
+
   if (error) throw error;
 
   return rowToRecord(data as unknown as EntityRecordRow);
+}
+
+async function finalizeUserProfile(
+  record: EntityRecord,
+  defaultRoleId: string,
+): Promise<EntityRecord> {
+  if (!isSupabaseConfigured || !supabase) return record;
+  const roleId =
+    parseEntityListValueIds(
+      record.values[SYSTEM_USERS_FIELD_ROLE_ID],
+    )[0]?.trim() ?? "";
+  if (roleId) return record;
+
+  const nextValues = {
+    ...record.values,
+    [SYSTEM_USERS_FIELD_ROLE_ID]: defaultRoleId,
+  };
+  let { data: updated, error: updateError } = await supabase
+    .from("entity_records")
+    .update({
+      field_values: nextValues,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", record.id)
+    .select(recordSelect())
+    .single();
+  if (isMissingSchemaVersionColumn(updateError)) {
+    markEntityRecordsSchemaVersionUnsupported();
+    ({ data: updated, error: updateError } = await supabase
+      .from("entity_records")
+      .update({
+        field_values: nextValues,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", record.id)
+      .select(recordSelect())
+      .single());
+  }
+  if (isMissingCreatedByColumn(updateError)) {
+    markEntityRecordsCreatedByUnsupported();
+    ({ data: updated, error: updateError } = await supabase
+      .from("entity_records")
+      .update({
+        field_values: nextValues,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", record.id)
+      .select(recordSelect())
+      .single());
+  }
+  if (updateError) throw updateError;
+  return rowToRecord(updated as unknown as EntityRecordRow);
 }

@@ -4,6 +4,7 @@ import {
   getRelationGroupsLeafEntityId,
   getRelationGroupsLevelEntityId,
   isEntityRelationLikeFieldType,
+  isUserSpawnRelationField,
   resolveEntityLookupTarget,
   SYSTEM_USERS_ENTITY_ID,
   type Entity,
@@ -216,6 +217,8 @@ export function relationTargetEntity(
 
 export function formatUserFieldLabel(field: EntityField) {
   const name = getEntityFieldDisplayName(field);
+  // Spawn-per-user: one assignee per record — not «несколько» in automations.
+  if (isUserSpawnRelationField(field)) return name;
   return field.relationMultiple ? `${name} · несколько` : name;
 }
 

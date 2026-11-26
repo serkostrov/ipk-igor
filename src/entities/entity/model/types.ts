@@ -1005,8 +1005,10 @@ export function isEntityContentTab(tab: Pick<EntityTab, "kind">) {
 
 /**
  * Tabs that roles can allow/deny in the ACL matrix.
- * Overview (`fields` + locked) stays always available when the entity is readable;
- * extra field-layout tabs (e.g. tariff / salary on Users) are configurable.
+ * Canonical overview (`id === overview`) stays always available when the entity
+ * is readable. Extra field-layout tabs (e.g. tariff / salary on Users) are
+ * configurable even if `locked` (locked only blocks deleting the tab in schema
+ * settings — it must not hide the tab from role ACL).
  */
 export function isRoleConfigurableTab(
   tab: Pick<EntityTab, "kind" | "id" | "locked" | "linkedEntityId">,
@@ -1021,7 +1023,9 @@ export function isRoleConfigurableTab(
   ) {
     return true;
   }
-  return isEntityFieldsHostTab(tab) && !isEntityOverviewTab(tab);
+  // Do not use isEntityOverviewTab(locked) — locked custom tabs (тариф / ЗП)
+  // would otherwise stay always visible and missing from the role editor.
+  return isEntityFieldsHostTab(tab) && tab.id !== ENTITY_OVERVIEW_TAB_ID;
 }
 
 /** Role-configurable tabs of an entity (stable order as in schema). */

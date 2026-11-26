@@ -144,3 +144,24 @@ export async function inviteSystemUser(
 export function isUsersEntityId(entityId: string) {
   return entityId === SYSTEM_USERS_ENTITY_ID;
 }
+
+/** Set/reset the Auth password for an existing Users entity record. */
+export async function setSystemUserPassword(
+  recordId: string,
+  password: string,
+): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error("Supabase не настроен");
+  }
+  const trimmed = password.trim();
+  if (trimmed.length < 6) {
+    throw new Error("Пароль должен быть не короче 6 символов");
+  }
+  const { error } = await supabase.rpc("app_set_user_password", {
+    p_record_id: recordId,
+    p_password: trimmed,
+  });
+  if (error) {
+    throw new Error(error.message || "Не удалось обновить пароль");
+  }
+}

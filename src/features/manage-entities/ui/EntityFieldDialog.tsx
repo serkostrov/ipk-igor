@@ -611,28 +611,47 @@ function RelationMultipleControl({
   multiple,
   onMultipleChange,
   disabled = false,
+  struckBySpawn = false,
 }: {
   multiple: boolean;
   onMultipleChange: (multiple: boolean) => void;
   disabled?: boolean;
+  /**
+   * Spawn-per-user: multiple stays on (create picker), but is struck through —
+   * each resulting record still has one assignee.
+   */
+  struckBySpawn?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 flex-col gap-0.5">
         <Label
           htmlFor="entity-field-relation-multiple"
-          className="text-xs font-medium text-muted-foreground"
+          className={
+            struckBySpawn
+              ? "text-xs font-medium text-muted-foreground/70 line-through decoration-muted-foreground/80"
+              : "text-xs font-medium text-muted-foreground"
+          }
         >
           Множественный выбор
         </Label>
-        <span className="text-[11px] leading-tight text-muted-foreground">
-          Можно выбрать несколько записей
+        <span
+          className={
+            struckBySpawn
+              ? "text-[11px] leading-tight text-muted-foreground/70 line-through decoration-muted-foreground/70"
+              : "text-[11px] leading-tight text-muted-foreground"
+          }
+        >
+          {struckBySpawn
+            ? "В записи один исполнитель — несколько человек выбираются только при создании"
+            : "Можно выбрать несколько записей"}
         </span>
       </div>
       <Switch
         id="entity-field-relation-multiple"
         checked={multiple}
-        disabled={disabled}
+        disabled={disabled || struckBySpawn}
+        className={struckBySpawn ? "opacity-50" : undefined}
         onCheckedChange={onMultipleChange}
       />
     </div>
@@ -659,7 +678,7 @@ function RelationSpawnPerUserControl({
         </Label>
         <span className="text-[11px] leading-tight text-muted-foreground">
           При создании для каждого выбранного пользователя создаётся своя запись
-          этой сущности
+          с одним исполнителем
         </span>
       </div>
       <Switch
@@ -1633,7 +1652,7 @@ function EntityFieldForm({
     Boolean(field?.relationMultiple),
   );
   const [relationSpawnPerUser, setRelationSpawnPerUser] = useState(
-    Boolean(field?.relationSpawnPerUser),
+    Boolean(field?.relationSpawnPerUser) && Boolean(field?.relationMultiple),
   );
   const [relationCascadeDelete, setRelationCascadeDelete] = useState(
     Boolean(field?.relationCascadeDelete),
@@ -1948,7 +1967,10 @@ function EntityFieldForm({
       if (isTabLinkRelation && field?.relationEntityId) {
         setRelationEntityId(field.relationEntityId);
         setRelationMultiple(Boolean(field.relationMultiple));
-        setRelationSpawnPerUser(Boolean(field.relationSpawnPerUser));
+        setRelationSpawnPerUser(
+          Boolean(field.relationSpawnPerUser) &&
+            Boolean(field.relationMultiple),
+        );
       } else if (!relationEntityId && entityOptions.length === 1) {
         setRelationEntityId(entityOptions[0]!.id);
       }
@@ -2002,7 +2024,13 @@ function EntityFieldForm({
 
   function handleRelationMultipleChange(next: boolean) {
     setRelationMultiple(next);
+    // Spawn is only meaningful with multi-select at create time.
     if (!next) setRelationSpawnPerUser(false);
+  }
+
+  function handleRelationSpawnPerUserChange(next: boolean) {
+    // Multiple stays on (create picker); UI strikes it through while spawn is on.
+    setRelationSpawnPerUser(next);
   }
 
   function handleDatetimeWithTimeChange(checked: boolean) {
@@ -2158,6 +2186,7 @@ function EntityFieldForm({
                   <RelationMultipleControl
                     multiple={relationMultiple}
                     disabled={relationBindingLocked}
+                    struckBySpawn={relationSpawnPerUser}
                     onMultipleChange={handleRelationMultipleChange}
                   />
                 ) : null}
@@ -2167,7 +2196,7 @@ function EntityFieldForm({
                   <RelationSpawnPerUserControl
                     enabled={relationSpawnPerUser}
                     disabled={relationBindingLocked}
-                    onEnabledChange={setRelationSpawnPerUser}
+                    onEnabledChange={handleRelationSpawnPerUserChange}
                   />
                 ) : null}
                 {type === "relation" || type === "belonging" ? (
