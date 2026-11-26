@@ -180,14 +180,28 @@ function readStages(
   });
 }
 
-/** Приходные операции ДДС (тип движения «Поступление» / «Приход»). */
-function readReceipts(
+export type DdsOperationDraft = {
+  income: boolean;
+  date: string | null;
+  amount: number | null;
+  dealId: string | null;
+  contractId: string | null;
+  stageId: string | null;
+  legalId: string | null;
+  counterpartyId: string | null;
+};
+
+/**
+ * Reader of a ДДС operation (a stored record or unsaved form values wrapped in
+ * a record). Movement «Поступление» / «Приход» / «Доход» marks an income.
+ */
+export function createDdsOperationReader(
   ctx: EntityValueContext,
   sources: PaymentCalendarSources,
-): CalendarReceipt[] {
+): ((record: EntityRecord) => DdsOperationDraft) | null {
   const { dds: entity, deal, contract, stage, legal, counterparty } = sources;
   const { article } = sources;
-  if (!entity) return [];
+  if (!entity) return null;
   const movement = findNamedField(entity, ["Тип движения", "Движение"]);
   const articleMovement = findNamedField(article, ["Тип движения"]);
   const articleLink = findRelationTo(entity, article, ["Статья"]);
@@ -218,21 +232,44 @@ function readReceipts(
     return INCOME_MARKERS.some((marker) => value.includes(marker));
   };
 
-  const receipts: CalendarReceipt[] = [];
-  for (const record of ctx.getRecords(entity.id)) {
-    const isoDate = extractIsoDate(readRaw(record, date));
+  return (record) => {
     const sum = readNumber(ctx, entity, record, amount);
-    if (!isoDate || sum == null || !isIncome(record)) continue;
-    receipts.push({
-      id: record.id,
-      title: getEntityRecordTitle(ctx, entity, record),
-      date: isoDate,
-      amount: Math.abs(sum),
+    return {
+      income: isIncome(record),
+      date: extractIsoDate(readRaw(record, date)),
+      amount: sum == null ? null : Math.abs(sum),
       dealId: firstRelationId(record, links.deal),
       contractId: firstRelationId(record, links.contract),
       stageId: firstRelationId(record, links.stage),
       legalId: firstRelationId(record, links.legal),
       counterpartyId: firstRelationId(record, links.counterparty),
+    };
+  };
+}
+
+/** Приходные операции ДДС с датой и суммой. */
+function readReceipts(
+  ctx: EntityValueContext,
+  sources: PaymentCalendarSources,
+): CalendarReceipt[] {
+  const entity = sources.dds;
+  const read = createDdsOperationReader(ctx, sources);
+  if (!entity || !read) return [];
+
+  const receipts: CalendarReceipt[] = [];
+  for (const record of ctx.getRecords(entity.id)) {
+    const draft = read(record);
+    if (!draft.income || !draft.date || draft.amount == null) continue;
+    receipts.push({
+      id: record.id,
+      title: getEntityRecordTitle(ctx, entity, record),
+      date: draft.date,
+      amount: draft.amount,
+      dealId: draft.dealId,
+      contractId: draft.contractId,
+      stageId: draft.stageId,
+      legalId: draft.legalId,
+      counterpartyId: draft.counterpartyId,
     });
   }
   return receipts;

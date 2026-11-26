@@ -5,6 +5,7 @@ import { useLocalStorageState } from "@/shared/hooks/use-local-storage-state";
 import { Loader } from "@/shared/ui/loader";
 import { TablePagination } from "@/shared/ui/table-pagination";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
+import { useEntityRecordScope } from "@/pages/entity/ui/use-entity-record-scope";
 import {
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
   ENTITY_TABLE_PAGE_SIZES,
@@ -85,6 +86,7 @@ export function PaymentCalendarPage({
   onOpenRecord?: OpenRecord;
 }) {
   const { sources, ready, calendar } = usePaymentCalendar();
+  const { records: ddsRecords } = useEntityRecordScope(sources?.dds ?? null);
   const [view, setView] = useState<CalendarView>("table");
   const [scale, setScale] = useState<GraphScale>("month");
   const [filters, setFilters] = useState<PaymentCalendarFilters>(
@@ -196,6 +198,19 @@ export function PaymentCalendarPage({
           </DealEmptyState>
         ) : !tableProps ? (
           <Loader block label="Загрузка…" />
+        ) : isGraph ? (
+          sources?.dds ? (
+            <PaymentGraph
+              entity={sources.dds}
+              sources={sources}
+              records={ddsRecords}
+              rows={calendar!.rows}
+              receiptsById={tableProps.receiptsById}
+              unallocated={calendar!.unallocated}
+              scale={scale}
+              onOpenRecord={onOpenRecord}
+            />
+          ) : null
         ) : (
           <>
             <div className="shrink-0">
@@ -210,16 +225,7 @@ export function PaymentCalendarPage({
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs">
-              {isGraph ? (
-                <PaymentGraph
-                  rows={filteredRows}
-                  receiptsById={tableProps.receiptsById}
-                  unallocated={filteredUnallocated}
-                  scale={scale}
-                  stageEntityId={tableProps.stageEntityId}
-                  onOpenRecord={onOpenRecord}
-                />
-              ) : (
+              {
                 <>
                   <div className="min-h-0 min-w-0 flex-1 overflow-auto">
                     {total === 0 ? (
@@ -263,7 +269,7 @@ export function PaymentCalendarPage({
                     }}
                   />
                 </>
-              )}
+              }
             </div>
           </>
         )}
