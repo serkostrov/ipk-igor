@@ -1,7 +1,12 @@
 import type { Role } from "@/entities/access";
 import { getRoleConfigurableTabs, type Entity } from "@/entities/entity";
 
-/** Fill missing field/tab ids as allowed; never overwrite explicit denials. */
+/**
+ * Fill missing field ids as allowed (create/edit forms must not go empty).
+ * Missing tab ids in an explicit matrix are filled as denied — new tabs
+ * (тариф / ЗП) stay hidden until an admin enables them.
+ * Never overwrite explicit entries.
+ */
 export function backfillRoleAccessMatrices(
   role: Role,
   entities: Entity[],
@@ -32,7 +37,7 @@ export function backfillRoleAccessMatrices(
       let tabsChanged = false;
       for (const tab of getRoleConfigurableTabs(entity.tabs)) {
         if (!tabs[tab.id]) {
-          tabs[tab.id] = { view: true, edit: true };
+          tabs[tab.id] = { view: false, edit: false };
           tabsChanged = true;
         }
       }

@@ -121,7 +121,7 @@ function getUserLinkFields(entity: Pick<Entity, "fields">) {
 
 /**
  * Department ids for a Users record: «Отдел» field + catalogs where the user
- * is listed as «Руководитель».
+ * is listed as «Руководитель» + «Отдел» of commercial groups they head.
  */
 export function collectUserDepartmentIds(
   userRecord: EntityRecord,
@@ -130,6 +130,7 @@ export function collectUserDepartmentIds(
   entities: readonly Entity[],
 ): string[] {
   const found = new Set<string>();
+  const ctx = getEntityValueContext(entities);
 
   for (const field of getNamedDepartmentLinkFields(
     usersEntity,
@@ -142,9 +143,7 @@ export function collectUserDepartmentIds(
 
   const managerField = findEntityManagerUserField(departmentsEntity);
   if (managerField) {
-    for (const department of getEntityValueContext(entities).getRecords(
-      departmentsEntity.id,
-    )) {
+    for (const department of ctx.getRecords(departmentsEntity.id)) {
       const managers = parseEntityRelationIds(
         department.values[managerField.id],
       );
@@ -152,7 +151,45 @@ export function collectUserDepartmentIds(
     }
   }
 
+  // Commercial groups (and similar): head → group.«Отдел».
+  for (const entity of entities) {
+    if (!entityNameMatches(entity, DEPARTMENT_HOP_ENTITY_KEYS)) continue;
+    const headField = findEntityManagerUserField(entity);
+    if (!headField) continue;
+    const deptFields = getDepartmentLinkFields(entity, departmentsEntity.id);
+    if (deptFields.length === 0) continue;
+    for (const group of ctx.getRecords(entity.id)) {
+      const heads = parseEntityRelationIds(group.values[headField.id]);
+      if (!heads.includes(userRecord.id)) continue;
+      for (const field of deptFields) {
+        for (const id of parseEntityRelationIds(group.values[field.id])) {
+          if (id) found.add(id);
+        }
+      }
+    }
+  }
+
   return [...found];
+}
+
+/** Direct «Отдел» or a hop through «Коммерческая группа» (etc.). */
+function entityHasExplicitDepartmentBinding(
+  entity: Entity,
+  departmentsEntityId: string,
+  entities: readonly Entity[],
+): boolean {
+  if (getDepartmentLinkFields(entity, departmentsEntityId).length > 0) {
+    return true;
+  }
+  for (const field of entity.fields) {
+    if (field.type !== "belonging" && field.type !== "relation") continue;
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) continue;
+    const target = entityById(entities, targetId);
+    if (!target) continue;
+    if (entityNameMatches(target, DEPARTMENT_HOP_ENTITY_KEYS)) return true;
+  }
+  return false;
 }
 
 /**
@@ -214,12 +251,10 @@ function entityCanLinkToDepartments(
       continue;
     }
     if (hopNamed) {
-      // Commercial group etc. counts only with a direct «Отдел» link —
-      // not via the group head Users (would make every lead match the head).
-      if (getDepartmentLinkFields(target, departmentsEntityId).length > 0) {
-        return true;
-      }
-      continue;
+      // Commercial group binding is enough for department scope (empty
+      // group.«Отдел» → record hidden). Do not require the link yet — and
+      // never treat the group head Users as the department path.
+      return true;
     }
     if (
       entityCanLinkToDepartments(
@@ -237,8 +272,10 @@ function entityCanLinkToDepartments(
 }
 
 /**
- * Collect department ids linked to a record: direct «Отдел», short hops, and
- * departments of related Users.
+ * Collect department ids linked to a record.
+ * Prefer explicit «Отдел» / «Коммерческая группа»→«Отдел». Users-field hops
+ * (менеджер, наблюдатели) are only a fallback when the entity has no such
+ * binding — otherwise «своего отдела» leaks via people on the card.
  */
 export async function collectRecordDepartmentIds(
   entity: Entity,
@@ -279,26 +316,15 @@ export async function collectRecordDepartmentIds(
     return [...found];
   }
 
+  const explicitOnly = entityHasExplicitDepartmentBinding(
+    entity,
+    departmentsEntity.id,
+    entities,
+  );
+
   for (const field of getDepartmentLinkFields(entity, departmentsEntity.id)) {
     for (const id of parseEntityRelationIds(record.values[field.id])) {
       if (id) found.add(id);
-    }
-  }
-
-  if (usersEntity) {
-    for (const field of getUserLinkFields(entity)) {
-      for (const userId of parseEntityRelationIds(record.values[field.id])) {
-        const user = await getEntityRecordById(usersEntity, userId);
-        if (!user) continue;
-        for (const id of collectUserDepartmentIds(
-          user,
-          usersEntity,
-          departmentsEntity,
-          entities,
-        )) {
-          found.add(id);
-        }
-      }
     }
   }
 
@@ -314,6 +340,7 @@ export async function collectRecordDepartmentIds(
     if (field.type === "relation" && field.relationMultiple && !hopNamed) {
       continue;
     }
+    if (explicitOnly && !hopNamed) continue;
     if (
       !hopNamed &&
       !entityCanLinkToDepartments(
@@ -338,6 +365,25 @@ export async function collectRecordDepartmentIds(
         visited,
       )) {
         found.add(id);
+      }
+    }
+  }
+
+  // Fallback: departments of related Users — only when there is no explicit
+  // dept / commercial-group binding on the entity.
+  if (!explicitOnly && usersEntity) {
+    for (const field of getUserLinkFields(entity)) {
+      for (const userId of parseEntityRelationIds(record.values[field.id])) {
+        const user = await getEntityRecordById(usersEntity, userId);
+        if (!user) continue;
+        for (const id of collectUserDepartmentIds(
+          user,
+          usersEntity,
+          departmentsEntity,
+          entities,
+        )) {
+          found.add(id);
+        }
       }
     }
   }

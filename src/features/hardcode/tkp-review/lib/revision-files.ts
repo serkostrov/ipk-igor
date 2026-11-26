@@ -29,6 +29,12 @@ import {
   listNativeFilesTabs,
   resolveTkpDocumentFilesTarget,
 } from "./resolve-tkp-files-target";
+import {
+  resolveTkpApproveGipStatusOptionId,
+  TKP_APPROVAL_REVISION_KEY,
+  TKP_APPROVAL_SUBMITTED_AT_KEY,
+} from "./tkp-approval";
+import { buildTkpApprovalResubmitPatch } from "./tkp-approval-progress";
 
 export function uniqueTkpFileName(
   base: string,
@@ -151,6 +157,7 @@ export type UploadTkpRevisionFilesResult = {
   uploadedCount: number;
   filesTabName: string;
   createdFilesTab: boolean;
+  approvalStarted?: boolean;
 };
 
 export async function uploadTkpRevisionFiles(input: {
@@ -161,7 +168,12 @@ export async function uploadTkpRevisionFiles(input: {
   files: readonly File[];
 }): Promise<UploadTkpRevisionFilesResult> {
   if (input.files.length === 0) {
-    return { uploadedCount: 0, filesTabName: "Файлы", createdFilesTab: false };
+    return {
+      uploadedCount: 0,
+      filesTabName: "Файлы",
+      createdFilesTab: false,
+      approvalStarted: false,
+    };
   }
 
   const target = await resolveTkpDocumentFilesTarget({
@@ -221,16 +233,43 @@ export async function uploadTkpRevisionFiles(input: {
     ];
   }
 
+  const wasNewPriceVersion =
+    liveValues[PENDING_NEW_PRICE_KEY] === "1" ||
+    Boolean((liveValues[BIND_PRICE_REVISION_KEY] ?? "").trim());
+
   // Patch only files + bind keys (same pattern as task files-tab upload).
-  await updateEntityRecord(target.entity.id, target.record.id, {
+  const patch: Record<string, string> = {
     [valueKey]: serializeEntityTabFileEntries(entries),
     [PENDING_NEW_PRICE_KEY]: "",
     [BIND_PRICE_REVISION_KEY]: "",
-  });
+  };
+
+  // After new price version + file — kick Status → approve GIP so automation runs.
+  if (wasNewPriceVersion && input.files.length > 0) {
+    patch[TKP_APPROVAL_REVISION_KEY] = input.revisionId;
+    patch[TKP_APPROVAL_SUBMITTED_AT_KEY] = new Date().toISOString();
+    Object.assign(
+      patch,
+      buildTkpApprovalResubmitPatch({
+        values: liveValues,
+        revisionId: input.revisionId,
+      }),
+    );
+    const approve = resolveTkpApproveGipStatusOptionId(
+      target.entity,
+      input.entities,
+    );
+    if (approve) {
+      patch[approve.fieldId] = approve.optionId;
+    }
+  }
+
+  await updateEntityRecord(target.entity.id, target.record.id, patch);
 
   return {
     uploadedCount: input.files.length,
     filesTabName: target.tab.name.trim() || "Файлы",
     createdFilesTab: target.createdTab,
+    approvalStarted: wasNewPriceVersion && input.files.length > 0,
   };
 }

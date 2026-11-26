@@ -8,6 +8,7 @@ import {
 import {
   getEntityHiddenListOptionIds,
   getEntityRecords,
+  getEntityRecordsLoadStatus,
   getCurrentUserRecordId,
   isEntityRecordHidden,
   useEntityValueContext,
@@ -47,7 +48,14 @@ export function useEntityRecordScope(entity: Entity | null): EntityRecordScope {
   }
   const { showHidden } = current;
 
+  const recordsLoadStatus = entity
+    ? getEntityRecordsLoadStatus(entity.id)
+    : "unloaded";
+  const recordsCount = entity?.records.length ?? 0;
+
   const scope = useAsyncValue(async () => {
+    void recordsLoadStatus;
+    void recordsCount;
     if (!entity) {
       return {
         records: [],
@@ -87,7 +95,16 @@ export function useEntityRecordScope(entity: Entity | null): EntityRecordScope {
       hiddenCount: scopedRecords.length - unhidden.length,
       hiddenOptionIds,
     };
-  }, [ctx, entity, showHidden, role, sessionUser?.id]);
+  }, [
+    ctx,
+    entity,
+    showHidden,
+    role,
+    sessionUser?.id,
+    // Re-filter after page-scoped load fills entity.records.
+    recordsLoadStatus,
+    recordsCount,
+  ]);
   if (scope.status === "error") throw scope.error;
 
   return {

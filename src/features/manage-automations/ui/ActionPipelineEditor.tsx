@@ -702,10 +702,16 @@ function ActionFields({
               />
             </div>
           ) : null}
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            В задании исполнитель нажмёт «Добавить» и заполнит поля как при
-            создании записи в сущности. Система заранее ничего не создаёт.
-          </p>
+          <div className="rounded-md border border-border/70 bg-muted/25 px-2.5 py-2">
+            <p className="text-[11px] font-medium text-foreground">
+              Создавать связанные записи в задании
+            </p>
+            <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+              На вкладке «Заполнить» под каждым родителем появится блок
+              «Добавить». Запись сразу сохраняется в базу — карточка основной
+              сущности не нужна.
+            </p>
+          </div>
           <CreateRecordCopyTabsSettings
             action={createRecord}
             sourceEntity={sourceEntity}
@@ -806,17 +812,19 @@ function ActionFields({
             {relatedParentOptions.length > 0 && !hasRelatedParents ? (
               <p className="text-[10px] leading-snug text-muted-foreground">
                 Можно выбрать несколько целей. Если расчёты уже созданы раньше —
-                добавьте «Уже существующие…»
+                добавьте «Уже существующие…». В задании под каждым родителем
+                будет своя кнопка «Добавить».
               </p>
             ) : hasRelatedParents && action.alsoLinkTrigger ? (
               <p className="text-[10px] leading-snug text-muted-foreground">
-                Новая запись будет привязана ко всем выбранным целям сразу
-                (текущая запись и связанные)
+                Новая запись привяжется ко всем выбранным целям сразу. В задании
+                исполнитель создаст её кнопкой «Добавить» — без ухода в
+                карточку.
               </p>
             ) : hasRelatedParents ? (
               <p className="text-[10px] leading-snug text-muted-foreground">
-                Новые записи будут созданы под каждой выбранной связанной
-                записью
+                Под каждой выбранной связанной записью в задании появится блок
+                «Добавить» — строки сохраняются сразу.
               </p>
             ) : null}
           </div>

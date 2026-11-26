@@ -626,6 +626,7 @@ export {
   createEntityRecordsWithUserSpawn,
   expandUserSpawnRecordValues,
   findUserSpawnRelationField,
+  isRelationFieldMultiValueInput,
   isUserSpawnRelationField,
 } from "./lib/user-spawn-records";
 export {

@@ -89,6 +89,8 @@ export function TkpSendToCustomerPanel({
         revisionId: effectiveRevisionId,
         sentAt: new Date(sentAt).toISOString(),
         nextCallAt: new Date(nextCallAt).toISOString(),
+        entity,
+        entities,
       });
       await updateEntityRecord(entity.id, live.id, patch);
 

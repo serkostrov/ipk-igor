@@ -923,7 +923,7 @@ function TaskFillFieldsDialogBody({
       ) : !task || !entity || !record ? (
         <p className="text-sm text-muted-foreground">
           {error ??
-            "Запись ещё не загружена. Обновите страницу или откройте карточку."}
+            "Запись ещё не загружена. Обновите страницу и снова откройте задание."}
         </p>
       ) : (
         <div className="flex flex-col gap-4">

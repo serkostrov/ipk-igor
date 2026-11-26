@@ -452,8 +452,15 @@ export type AutomationCreateAskNestedSlot = {
   fieldAskOptions: Record<string, AutomationFieldAskOptions>;
 };
 
-/** Existing related parent for createRecord.parentFromRelated drafts. */
+/** Parent host for immediate createAsk persist (child → parent link). */
+export type AutomationCreateAskParentLink = {
+  parentEntityId: string;
+  parentRecordId: string;
+};
+
+/** Existing related parent for createRecord.parentFromRelated. */
 export type AutomationCreateAskUnderRelatedParent = {
+  parentEntityId: string;
   parentRecordId: string;
   parentTitle: string;
   nestedId: string;
@@ -469,16 +476,26 @@ export type AutomationCreateAskSlot = {
   fieldAskOptions: Record<string, AutomationFieldAskOptions>;
   /**
    * Several records linked to the trigger (подсущность).
-   * Draft keys use `CREATE_RECORD_MULTI_NESTED_ID`.
+   * Interactive UI persists immediately; draft keys remain for silent autofill.
    */
   multiple?: boolean;
   /**
    * Create under existing related parents (e.g. подзадачи → расчёты отделов).
-   * When set, `multiple` list is per parent via `under_*` nested ids.
+   * When set, one list per parent.
    */
   underRelatedParents?: AutomationCreateAskUnderRelatedParent[];
   /** Empty-state label when no related parents exist yet. */
   underRelatedEmptyLabel?: string;
+  /**
+   * Primary parent for `multiple` under the trigger (or alsoLinkTrigger
+   * unified list).
+   */
+  linkParent?: AutomationCreateAskParentLink;
+  /**
+   * Extra parents when `alsoLinkTrigger` — each new row links to trigger
+   * plus these related hosts.
+   */
+  alsoLinkParents?: AutomationCreateAskParentLink[];
   nested: AutomationCreateAskNestedSlot[];
 };
 
@@ -607,6 +624,8 @@ export async function getOutcomeCreateAskSlots(
     let underRelatedParents:
       AutomationCreateAskUnderRelatedParent[] | undefined;
     let underRelatedEmptyLabel: string | undefined;
+    let linkParent: AutomationCreateAskParentLink | undefined;
+    let alsoLinkParents: AutomationCreateAskParentLink[] | undefined;
     let entityLabel = childEntityLabel(
       sourceEntity &&
         resolveHostChildParentLinkField(sourceEntity, entity) != null
@@ -616,6 +635,13 @@ export async function getOutcomeCreateAskSlots(
     );
 
     const linkAllParents = hasRelatedParents && action.alsoLinkTrigger === true;
+    const triggerLink: AutomationCreateAskParentLink | undefined =
+      sourceEntity && options.triggerRecordId
+        ? {
+            parentEntityId: sourceEntity.id,
+            parentRecordId: options.triggerRecordId,
+          }
+        : undefined;
 
     if (hasRelatedParents) {
       const emptyLabels: string[] = [];
@@ -642,6 +668,7 @@ export async function getOutcomeCreateAskSlots(
               parentRecordId,
             );
             relatedParentsList.push({
+              parentEntityId: resolved.parentEntity.id,
               parentRecordId,
               parentTitle:
                 provided ??
@@ -665,8 +692,13 @@ export async function getOutcomeCreateAskSlots(
           ? [...new Set(parentLabels)].join(", ")
           : (parentLabels[0] ?? underRelatedEmptyLabel);
       if (linkAllParents) {
-        // Unified list: one draft set linked to trigger + all related parents.
+        // Unified list: rows link to trigger + all related parents.
         underRelatedParents = undefined;
+        linkParent = triggerLink;
+        alsoLinkParents = relatedParentsList.map((item) => ({
+          parentEntityId: item.parentEntityId,
+          parentRecordId: item.parentRecordId,
+        }));
         entityLabel = useEntityCreateForm
           ? `Новые «${childLabel}»`
           : sourceEntity
@@ -680,6 +712,9 @@ export async function getOutcomeCreateAskSlots(
       }
     } else if (useEntityCreateForm) {
       entityLabel = `Новые «${entityLabel}»`;
+      linkParent = triggerLink;
+    } else if (multiple && !hasRelatedParents) {
+      linkParent = triggerLink;
     }
 
     const linkToTriggerMultiple =
@@ -701,6 +736,10 @@ export async function getOutcomeCreateAskSlots(
       ...(linkToTriggerMultiple ? { multiple: true } : {}),
       ...(underRelatedParents
         ? { underRelatedParents, underRelatedEmptyLabel }
+        : {}),
+      ...(linkParent ? { linkParent } : {}),
+      ...(alsoLinkParents && alsoLinkParents.length > 0
+        ? { alsoLinkParents }
         : {}),
       nested,
     });

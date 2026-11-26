@@ -163,11 +163,12 @@ export function calculateTkpCommercialV7(
   }
 
   const rawTotalBeforeVat = rawBaseTotalBeforeVat.add(rawRetroWithFactor);
+  // ТЗ: ЧП = цена без НДС − база − налог на прибыль − подрядные блоки с коэф.
   const rawNetProfit = rawTotalBeforeVat
     .subtract(rawCostWithFixed)
     .subtract(rawProfitTaxAmount)
-    .subtract(rawContractorWorkBase)
-    .subtract(rawAdditionalWorkBase);
+    .subtract(rawContractorWorkTotal)
+    .subtract(rawAdditionalWorkTotal);
   const profitabilityPercent = rawNetProfit
     .divide(rawTotalBeforeVat)
     .multiply(PreciseDecimal.from(100))

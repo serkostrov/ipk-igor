@@ -101,7 +101,6 @@ import {
   findTkpCalcDeadlineField,
   isTkpDepartmentHeadRole,
   isTkpGipFillAutomationTask,
-  isTkpGipRole,
   maybeEnsureDeptCalculationGipForTask,
   readTkpGipExecutionDurationDays,
   resolveTkpCalcDeadlineMaxIso,
@@ -273,8 +272,8 @@ function TaskWorkspaceBody({
       }),
     [entity, task.entityId, task.name, task.triggerOptionId],
   );
-  const showPinnedGipDuration =
-    isGipFillTask || (Boolean(entity) && isTkpGipRole(role));
+  // Editable «Общий срок расчёта» only on GIP fill — not on verify/approve.
+  const showPinnedGipDuration = isGipFillTask;
 
   const taskAsk = getAutomationTaskAskFields(task);
   const templateAsk = getAutomationTemplateAskFields(task);

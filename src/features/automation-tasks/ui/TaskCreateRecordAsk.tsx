@@ -11,12 +11,24 @@ import {
 } from "@/shared/ui/table";
 import { TreeBranchGuides } from "@/shared/ui/tree-branch-guides";
 import { cn } from "@/shared/lib/cn";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import {
+  resolveHostChildParentLinkField,
+  resolveParentForwardChildField,
+} from "@/entities/automation";
+import {
+  addEntityRecord,
+  getEntityParentLinkField,
+  getEntityRecordsLinkedByField,
+  getEntityRelationTargetId,
+  parseEntityRelationIds,
+  removeEntityRecord,
+  serializeEntityRelationIds,
+  updateEntityRecord,
   buildEntityTableDisplayColumns,
   flattenEntityTableHierarchyRows,
   formatRecordFieldValue,
   getEntityFieldDisplayName,
-  getEntityParentLinkField,
   getEntityRecordTitle,
   getEntityTableFields,
   isEntityInternal,
@@ -45,17 +57,9 @@ import {
   getEntityTableHeaderMinWidth,
 } from "@/pages/entity/lib/table-column-width";
 import {
-  addNestedDraftRow,
-  buildCreateAskDraftRecord,
-  buildSingleCreateAskDraftRecord,
-  clearSingleCreateAskFieldValues,
   createAskMultiNestedSlot,
-  getNestedDraftCount,
-  removeNestedDraftRow,
-  singleCreateAskHasDraft,
-  writeNestedAskFieldValues,
-  writeSingleCreateAskFieldValues,
   type AutomationCreateAskNestedSlot,
+  type AutomationCreateAskParentLink,
   type AutomationCreateAskSlot,
 } from "../lib/task-ask-fields";
 
@@ -65,8 +69,83 @@ const dataTableHeadClass =
 const dataTableActionsHeadClass =
   "h-9 w-24 min-w-24 max-w-24 border-b border-border bg-foreground/[0.045] px-2 text-right text-[11px] font-semibold tracking-wide text-foreground/65 uppercase";
 
-type DialogState =
-  { mode: "create" } | { mode: "edit"; index: number; record: EntityRecord };
+const EMPTY_CREATE_ASK_RECORDS: EntityRecord[] = [];
+
+type DialogState = { mode: "create" } | { mode: "edit"; record: EntityRecord };
+
+function resolveChildParentLinkFieldId(
+  child: Entity,
+  parentEntityId: string | null | undefined,
+  entities: Entity[],
+): string | null {
+  if (!parentEntityId?.trim()) {
+    return getEntityParentLinkField(child)?.id ?? null;
+  }
+  const host = entities.find((item) => item.id === parentEntityId) ?? null;
+  if (host) {
+    const fromHost = resolveHostChildParentLinkField(host, child);
+    if (fromHost) return fromHost.field.id;
+  }
+  if (child.parentEntityId?.trim() === parentEntityId) {
+    return getEntityParentLinkField(child)?.id ?? null;
+  }
+  return (
+    child.fields.find(
+      (field) =>
+        (field.type === "relation" || field.type === "belonging") &&
+        getEntityRelationTargetId(field) === parentEntityId,
+    )?.id ?? null
+  );
+}
+
+async function writeBackChildToParents(
+  childEntityId: string,
+  childRecordId: string,
+  parentLinks: readonly AutomationCreateAskParentLink[],
+  entities: Entity[],
+) {
+  for (const link of parentLinks) {
+    const parentSchema =
+      entities.find((entity) => entity.id === link.parentEntityId) ?? null;
+    if (!parentSchema) continue;
+    const field = resolveParentForwardChildField(parentSchema, childEntityId);
+    if (!field) continue;
+    const parentRecord = parentSchema.records.find(
+      (item) => item.id === link.parentRecordId,
+    );
+    const existing = parseEntityRelationIds(
+      parentRecord?.values[field.id] ?? "",
+    );
+    if (existing.includes(childRecordId)) continue;
+    await updateEntityRecord(link.parentEntityId, link.parentRecordId, {
+      [field.id]: serializeEntityRelationIds([...existing, childRecordId]),
+    });
+  }
+}
+
+function mergeParentLinksOntoValues(
+  values: Record<string, string>,
+  child: Entity,
+  parentLinks: readonly AutomationCreateAskParentLink[],
+  entities: Entity[],
+): Record<string, string> {
+  const next = { ...values };
+  for (const link of parentLinks) {
+    const fieldId = resolveChildParentLinkFieldId(
+      child,
+      link.parentEntityId,
+      entities,
+    );
+    if (!fieldId) continue;
+    const existing = parseEntityRelationIds(next[fieldId]);
+    if (existing.includes(link.parentRecordId)) continue;
+    next[fieldId] = serializeEntityRelationIds([
+      ...existing,
+      link.parentRecordId,
+    ]);
+  }
+  return next;
+}
 
 function getCreateAskTableColumns(
   entity: Entity,
@@ -782,6 +861,7 @@ function CreateAskPanel({
   onDialogOpenChange,
   onDialogSubmit,
   softFillParent = null,
+  presetValues,
 }: {
   title: string;
   entity: Entity;
@@ -797,8 +877,12 @@ function CreateAskPanel({
   onDelete: (record: EntityRecord) => void;
   dialog: DialogState | null;
   onDialogOpenChange: (open: boolean) => void;
-  onDialogSubmit: (fieldValues: Record<string, string>) => void;
+  onDialogSubmit: (
+    fieldValues: Record<string, string>,
+    meta: { recordId?: string },
+  ) => void | Promise<void>;
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
+  presetValues?: Record<string, string>;
 }) {
   const recordsDisplay = normalizeEntityRecordsDisplay(entity.recordsDisplay);
   const recordColumns = normalizeEntityRecordColumns(entity.recordColumns);
@@ -816,9 +900,15 @@ function CreateAskPanel({
     <>
       <section className="overflow-hidden rounded-xl border border-border bg-card">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <h2 className="text-base font-semibold tracking-tight text-foreground">
-            {title}
-          </h2>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              {title}
+            </h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Связанные записи — добавляйте здесь, не открывая карточку основной
+              сущности.
+            </p>
+          </div>
           <div className="flex items-center gap-3">
             {singleRecord ? null : (
               <span className="text-sm text-muted-foreground">
@@ -840,13 +930,25 @@ function CreateAskPanel({
         </header>
 
         {records.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-12 text-center">
-            <p className="text-sm font-medium text-foreground">Нет записей</p>
-            <p className="max-w-sm text-sm text-muted-foreground">
-              {singleRecord
-                ? "Добавьте запись, чтобы она появилась здесь."
-                : "Добавьте первую запись, чтобы она появилась здесь."}
-            </p>
+          <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-foreground">Нет записей</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Нажмите «Добавить», чтобы создать связанную запись прямо в
+                задании.
+              </p>
+            </div>
+            {!disabled && !atLimit ? (
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1.5"
+                onClick={onAdd}
+              >
+                <Plus className="size-3.5" />
+                Добавить
+              </Button>
+            ) : null}
           </div>
         ) : recordsDisplay === "table" && !singleRecord ? (
           <CreateAskDraftsTable
@@ -885,13 +987,14 @@ function CreateAskPanel({
         record={dialogRecord}
         entities={entities}
         softFillParent={softFillParent}
+        presetValues={dialog?.mode === "create" ? presetValues : undefined}
         hiddenFieldIds={dialogHiddenFieldIds}
         titleOverride={
           dialog?.mode === "create" ? `Новая запись · ${title}` : undefined
         }
         submitLabel={dialog?.mode === "create" ? "Добавить" : "Сохранить"}
-        onSubmit={(fieldValues) => {
-          onDialogSubmit(fieldValues);
+        onSubmit={async (fieldValues, meta) => {
+          await onDialogSubmit(fieldValues, meta);
         }}
       />
     </>
@@ -902,111 +1005,157 @@ function CreateAskNestedPanel({
   title,
   nested,
   entity,
-  actionId,
-  values,
   entities,
   ctx,
   disabled,
-  onValuesChange,
+  parentLinks,
   softFillParent = null,
 }: {
   title: string;
   nested: AutomationCreateAskNestedSlot;
   entity: Entity;
-  actionId: string;
-  values: Record<string, string>;
   entities: Entity[];
   ctx: EntityValueContext;
   disabled?: boolean;
-  onValuesChange: (next: Record<string, string>) => void;
+  parentLinks: readonly AutomationCreateAskParentLink[];
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
 }) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
-  const count = getNestedDraftCount(values, actionId, nested.nestedId);
-  const records = useMemo(
-    () =>
-      Array.from({ length: count }, (_, index) =>
-        buildCreateAskDraftRecord(
-          values,
-          actionId,
-          nested.nestedId,
-          index,
-          nested.askFieldIds,
-        ),
-      ),
-    [actionId, count, nested.askFieldIds, nested.nestedId, values],
+  const [reloadToken, setReloadToken] = useState(0);
+  const primaryParent = parentLinks[0] ?? null;
+  const liveEntity = entities.find((item) => item.id === entity.id) ?? entity;
+  const parentLinkFieldId = resolveChildParentLinkFieldId(
+    liveEntity,
+    primaryParent?.parentEntityId,
+    entities,
   );
+
+  const primaryParentRecordId = primaryParent?.parentRecordId ?? null;
+  const linkedRecordsVersion = liveEntity.records.length + reloadToken;
+  const recordsValue = useAsyncValue(async () => {
+    void linkedRecordsVersion;
+    if (!primaryParentRecordId || !parentLinkFieldId) {
+      return EMPTY_CREATE_ASK_RECORDS;
+    }
+    return getEntityRecordsLinkedByField(
+      liveEntity,
+      parentLinkFieldId,
+      primaryParentRecordId,
+    );
+  }, [
+    liveEntity,
+    parentLinkFieldId,
+    primaryParentRecordId,
+    linkedRecordsVersion,
+  ]);
+  const records =
+    recordsValue.status === "ready"
+      ? recordsValue.value
+      : EMPTY_CREATE_ASK_RECORDS;
 
   const hideFieldIds = useMemo(() => {
     const ids = new Set<string>();
-    const parentLinkId = getEntityParentLinkField(entity)?.id ?? null;
-    for (const field of entity.fields) {
-      if (!nested.askFieldIds.includes(field.id)) ids.add(field.id);
-      if (parentLinkId && field.id === parentLinkId) ids.add(field.id);
+    const restrictAsk = nested.askFieldIds.length > 0;
+    for (const field of liveEntity.fields) {
+      if (restrictAsk && !nested.askFieldIds.includes(field.id)) {
+        ids.add(field.id);
+      }
+      if (parentLinkFieldId && field.id === parentLinkFieldId) {
+        ids.add(field.id);
+      }
+      for (const link of parentLinks) {
+        const linkFieldId = resolveChildParentLinkFieldId(
+          liveEntity,
+          link.parentEntityId,
+          entities,
+        );
+        if (linkFieldId) ids.add(linkFieldId);
+      }
     }
     return ids;
-  }, [entity, nested.askFieldIds]);
+  }, [
+    entities,
+    liveEntity,
+    nested.askFieldIds,
+    parentLinkFieldId,
+    parentLinks,
+  ]);
 
-  function openCreate() {
-    setDialog({ mode: "create" });
-  }
+  const presetValues = useMemo(() => {
+    if (parentLinks.length === 0) return undefined;
+    return mergeParentLinksOntoValues({}, liveEntity, parentLinks, entities);
+  }, [entities, liveEntity, parentLinks]);
 
-  function openEdit(record: EntityRecord) {
-    const index = records.findIndex((item) => item.id === record.id);
-    if (index < 0) return;
-    setDialog({ mode: "edit", index, record: records[index]! });
-  }
+  const dialogSoftFill =
+    softFillParent ??
+    (primaryParent
+      ? (() => {
+          const parentEntity =
+            entities.find((item) => item.id === primaryParent.parentEntityId) ??
+            null;
+          const parentRecord = parentEntity?.records.find(
+            (item) => item.id === primaryParent.parentRecordId,
+          );
+          return parentEntity && parentRecord
+            ? { entity: parentEntity, record: parentRecord }
+            : null;
+        })()
+      : null);
 
-  function handleDelete(record: EntityRecord) {
-    const index = records.findIndex((item) => item.id === record.id);
-    if (index < 0) return;
-    onValuesChange(removeNestedDraftRow(values, actionId, nested, index));
-  }
-
-  function handleDialogSubmit(fieldValues: Record<string, string>) {
+  async function handleDialogSubmit(
+    fieldValues: Record<string, string>,
+    meta: { recordId?: string },
+  ) {
     if (!dialog) return;
+    const withParents = mergeParentLinksOntoValues(
+      fieldValues,
+      liveEntity,
+      parentLinks,
+      entities,
+    );
     if (dialog.mode === "create") {
-      const withRow = addNestedDraftRow(values, actionId, nested);
-      const index = getNestedDraftCount(withRow, actionId, nested.nestedId) - 1;
-      onValuesChange(
-        writeNestedAskFieldValues(
-          withRow,
-          actionId,
-          nested.nestedId,
-          index,
-          nested.askFieldIds,
-          fieldValues,
-        ),
+      const created = await addEntityRecord(
+        liveEntity.id,
+        withParents,
+        meta.recordId ? { id: meta.recordId } : undefined,
       );
+      if (parentLinks.length > 0) {
+        await writeBackChildToParents(
+          liveEntity.id,
+          created.id,
+          parentLinks,
+          entities,
+        );
+      }
     } else {
-      onValuesChange(
-        writeNestedAskFieldValues(
-          values,
-          actionId,
-          nested.nestedId,
-          dialog.index,
-          nested.askFieldIds,
-          fieldValues,
-        ),
-      );
+      await updateEntityRecord(liveEntity.id, dialog.record.id, withParents);
     }
     setDialog(null);
+    setReloadToken((n) => n + 1);
+  }
+
+  async function handleDelete(record: EntityRecord) {
+    await removeEntityRecord(liveEntity.id, record.id);
+    setReloadToken((n) => n + 1);
   }
 
   return (
     <CreateAskPanel
       title={title}
-      entity={entity}
+      entity={liveEntity}
       records={records}
       hideFieldIds={hideFieldIds}
       dialogHiddenFieldIds={hideFieldIds}
       entities={entities}
       ctx={ctx}
       disabled={disabled}
-      softFillParent={softFillParent}
-      onAdd={openCreate}
-      onEdit={openEdit}
-      onDelete={handleDelete}
+      softFillParent={dialogSoftFill}
+      presetValues={presetValues}
+      onAdd={() => setDialog({ mode: "create" })}
+      onEdit={(record) => setDialog({ mode: "edit", record })}
+      onDelete={(record) => {
+        void handleDelete(record);
+      }}
       dialog={dialog}
       onDialogOpenChange={(open) => {
         if (!open) setDialog(null);
@@ -1020,60 +1169,120 @@ function CreateAskSinglePanel({
   title,
   slot,
   entity,
-  values,
   entities,
   ctx,
   disabled,
-  onValuesChange,
+  parentLinks,
   nestedPanels,
   softFillParent = null,
 }: {
   title: string;
   slot: AutomationCreateAskSlot;
   entity: Entity;
-  values: Record<string, string>;
   entities: Entity[];
   ctx: EntityValueContext;
   disabled?: boolean;
-  onValuesChange: (next: Record<string, string>) => void;
+  parentLinks: readonly AutomationCreateAskParentLink[];
   nestedPanels: ReactNode;
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
 }) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
-  const hasDraft = singleCreateAskHasDraft(
-    values,
-    slot.actionId,
-    slot.askFieldIds,
+  const [reloadToken, setReloadToken] = useState(0);
+  const primaryParent = parentLinks[0] ?? null;
+  const liveEntity = entities.find((item) => item.id === entity.id) ?? entity;
+  const parentLinkFieldId = resolveChildParentLinkFieldId(
+    liveEntity,
+    primaryParent?.parentEntityId,
+    entities,
   );
-  const records = useMemo(
-    () =>
-      hasDraft
-        ? [
-            buildSingleCreateAskDraftRecord(
-              values,
-              slot.actionId,
-              slot.askFieldIds,
-            ),
-          ]
-        : [],
-    [hasDraft, slot.actionId, slot.askFieldIds, values],
-  );
+
+  const primaryParentRecordId = primaryParent?.parentRecordId ?? null;
+  const linkedRecordsVersion = liveEntity.records.length + reloadToken;
+  const recordsValue = useAsyncValue(async () => {
+    void linkedRecordsVersion;
+    if (!primaryParentRecordId || !parentLinkFieldId) {
+      return EMPTY_CREATE_ASK_RECORDS;
+    }
+    const linked = await getEntityRecordsLinkedByField(
+      liveEntity,
+      parentLinkFieldId,
+      primaryParentRecordId,
+    );
+    return linked.slice(0, 1);
+  }, [
+    liveEntity,
+    parentLinkFieldId,
+    primaryParentRecordId,
+    linkedRecordsVersion,
+  ]);
+  const records =
+    recordsValue.status === "ready"
+      ? recordsValue.value
+      : EMPTY_CREATE_ASK_RECORDS;
 
   const hideFieldIds = useMemo(() => {
     const ids = new Set<string>();
-    const parentLinkId = getEntityParentLinkField(entity)?.id ?? null;
-    for (const field of entity.fields) {
-      if (!slot.askFieldIds.includes(field.id)) ids.add(field.id);
-      if (parentLinkId && field.id === parentLinkId) ids.add(field.id);
+    const restrictAsk = slot.askFieldIds.length > 0;
+    for (const field of liveEntity.fields) {
+      if (restrictAsk && !slot.askFieldIds.includes(field.id)) {
+        ids.add(field.id);
+      }
+      if (parentLinkFieldId && field.id === parentLinkFieldId) {
+        ids.add(field.id);
+      }
     }
     return ids;
-  }, [entity, slot.askFieldIds]);
+  }, [liveEntity, parentLinkFieldId, slot.askFieldIds]);
+
+  const presetValues = useMemo(() => {
+    if (parentLinks.length === 0) return undefined;
+    return mergeParentLinksOntoValues({}, liveEntity, parentLinks, entities);
+  }, [entities, liveEntity, parentLinks]);
+
+  async function handleDialogSubmit(
+    fieldValues: Record<string, string>,
+    meta: { recordId?: string },
+  ) {
+    if (!dialog) return;
+    const withParents = mergeParentLinksOntoValues(
+      fieldValues,
+      liveEntity,
+      parentLinks,
+      entities,
+    );
+    if (dialog.mode === "create") {
+      const created = await addEntityRecord(
+        liveEntity.id,
+        withParents,
+        meta.recordId ? { id: meta.recordId } : undefined,
+      );
+      if (parentLinks.length > 0) {
+        await writeBackChildToParents(
+          liveEntity.id,
+          created.id,
+          parentLinks,
+          entities,
+        );
+      }
+    } else {
+      await updateEntityRecord(liveEntity.id, dialog.record.id, withParents);
+    }
+    setDialog(null);
+    setReloadToken((n) => n + 1);
+  }
+
+  async function handleDelete(record: EntityRecord) {
+    await removeEntityRecord(liveEntity.id, record.id);
+    setReloadToken((n) => n + 1);
+  }
+
+  const hostRecord = records[0] ?? null;
 
   return (
     <div className="flex flex-col gap-4">
       <CreateAskPanel
         title={title}
-        entity={entity}
+        entity={liveEntity}
         records={records}
         hideFieldIds={hideFieldIds}
         dialogHiddenFieldIds={hideFieldIds}
@@ -1082,47 +1291,58 @@ function CreateAskSinglePanel({
         disabled={disabled}
         singleRecord
         softFillParent={softFillParent}
+        presetValues={presetValues}
         onAdd={() => setDialog({ mode: "create" })}
-        onEdit={(record) => setDialog({ mode: "edit", index: 0, record })}
-        onDelete={() =>
-          onValuesChange(
-            clearSingleCreateAskFieldValues(
-              values,
-              slot.actionId,
-              slot.askFieldIds,
-            ),
-          )
-        }
+        onEdit={(record) => setDialog({ mode: "edit", record })}
+        onDelete={(record) => {
+          void handleDelete(record);
+        }}
         dialog={dialog}
         onDialogOpenChange={(open) => {
           if (!open) setDialog(null);
         }}
-        onDialogSubmit={(fieldValues) => {
-          onValuesChange(
-            writeSingleCreateAskFieldValues(
-              values,
-              slot.actionId,
-              slot.askFieldIds,
-              fieldValues,
-            ),
-          );
-          setDialog(null);
-        }}
+        onDialogSubmit={handleDialogSubmit}
       />
-      {nestedPanels}
+      {hostRecord
+        ? slot.nested.map((nested) => {
+            const child = entities.find((item) => item.id === nested.entityId);
+            if (!child) return null;
+            return (
+              <CreateAskNestedPanel
+                key={nested.nestedId}
+                title={nested.entityLabel}
+                nested={nested}
+                entity={child}
+                entities={entities}
+                ctx={ctx}
+                disabled={disabled}
+                parentLinks={[
+                  {
+                    parentEntityId: liveEntity.id,
+                    parentRecordId: hostRecord.id,
+                  },
+                ]}
+                softFillParent={{
+                  entity: liveEntity,
+                  record: hostRecord,
+                }}
+              />
+            );
+          })
+        : nestedPanels}
     </div>
   );
 }
 
 export function TaskCreateRecordAsk({
   slots,
-  values,
+  values: _values,
   entities,
   ctx,
   disabled,
   softFillParent = null,
   onChange: _onChange,
-  onValuesChange,
+  onValuesChange: _onValuesChange,
 }: {
   slots: AutomationCreateAskSlot[];
   values: Record<string, string>;
@@ -1130,11 +1350,13 @@ export function TaskCreateRecordAsk({
   ctx: EntityValueContext;
   disabled?: boolean;
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
-  /** Kept for API compatibility; drafts are written via onValuesChange. */
+  /** Kept for API compatibility; interactive creates persist immediately. */
   onChange: (draftKey: string, value: string) => void;
   onValuesChange: (next: Record<string, string>) => void;
 }) {
   void _onChange;
+  void _onValuesChange;
+  void _values;
   if (slots.length === 0) return null;
 
   return (
@@ -1142,6 +1364,22 @@ export function TaskCreateRecordAsk({
       {slots.map((slot) => {
         const entity = entities.find((item) => item.id === slot.entityId);
         if (!entity) return null;
+
+        const triggerParentLinks: AutomationCreateAskParentLink[] = [
+          ...(slot.linkParent ? [slot.linkParent] : []),
+          ...(slot.alsoLinkParents ?? []),
+        ];
+        const fallbackTriggerLinks: AutomationCreateAskParentLink[] =
+          triggerParentLinks.length > 0
+            ? triggerParentLinks
+            : softFillParent
+              ? [
+                  {
+                    parentEntityId: softFillParent.entity.id,
+                    parentRecordId: softFillParent.record.id,
+                  },
+                ]
+              : [];
 
         if (slot.underRelatedParents) {
           const triggerMulti =
@@ -1158,7 +1396,8 @@ export function TaskCreateRecordAsk({
                   </header>
                   <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                     Сначала нужны записи «
-                    {slot.underRelatedEmptyLabel ?? "связанной подсущности"}»
+                    {slot.underRelatedEmptyLabel ?? "связанной подсущности"}» —
+                    они появятся после предыдущего шага. Оставайтесь в задании.
                   </div>
                 </section>
               ) : (
@@ -1179,13 +1418,16 @@ export function TaskCreateRecordAsk({
                       fieldAskOptions: slot.fieldAskOptions,
                     }}
                     entity={entity}
-                    actionId={slot.actionId}
-                    values={values}
                     entities={entities}
                     ctx={ctx}
                     disabled={disabled}
+                    parentLinks={[
+                      {
+                        parentEntityId: parent.parentEntityId,
+                        parentRecordId: parent.parentRecordId,
+                      },
+                    ]}
                     softFillParent={softFillParent}
-                    onValuesChange={onValuesChange}
                   />
                 ))
               )}
@@ -1194,13 +1436,11 @@ export function TaskCreateRecordAsk({
                   title={`${slot.entityLabel} · текущая запись`}
                   nested={triggerMulti}
                   entity={entity}
-                  actionId={slot.actionId}
-                  values={values}
                   entities={entities}
                   ctx={ctx}
                   disabled={disabled}
+                  parentLinks={fallbackTriggerLinks}
                   softFillParent={softFillParent}
-                  onValuesChange={onValuesChange}
                 />
               ) : null}
             </div>
@@ -1215,13 +1455,11 @@ export function TaskCreateRecordAsk({
               title={slot.entityLabel}
               nested={multi}
               entity={entity}
-              actionId={slot.actionId}
-              values={values}
               entities={entities}
               ctx={ctx}
               disabled={disabled}
+              parentLinks={fallbackTriggerLinks}
               softFillParent={softFillParent}
-              onValuesChange={onValuesChange}
             />
           );
         }
@@ -1232,33 +1470,12 @@ export function TaskCreateRecordAsk({
             title={slot.entityLabel}
             slot={slot}
             entity={entity}
-            values={values}
             entities={entities}
             ctx={ctx}
             disabled={disabled}
             softFillParent={softFillParent}
-            onValuesChange={onValuesChange}
-            nestedPanels={slot.nested.map((nested) => {
-              const child = entities.find(
-                (item) => item.id === nested.entityId,
-              );
-              if (!child) return null;
-              return (
-                <CreateAskNestedPanel
-                  key={nested.nestedId}
-                  title={nested.entityLabel}
-                  nested={nested}
-                  entity={child}
-                  actionId={slot.actionId}
-                  values={values}
-                  entities={entities}
-                  ctx={ctx}
-                  disabled={disabled}
-                  softFillParent={softFillParent}
-                  onValuesChange={onValuesChange}
-                />
-              );
-            })}
+            parentLinks={fallbackTriggerLinks}
+            nestedPanels={null}
           />
         );
       })}
