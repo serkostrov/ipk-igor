@@ -63,6 +63,13 @@ import {
   type EntityValueContext,
 } from "@/entities/entity";
 import { canEntity, canField, useCurrentRole } from "@/entities/access";
+import {
+  isDdsOperationsEntity,
+  PaymentPlanLinkSection,
+  savePaymentPlanLinks,
+  validatePaymentPlanLinks,
+  type PlanLinkItem,
+} from "@/features/hardcode";
 import { RecordFieldControl } from "./RecordFieldControl";
 
 export type EntityRecordSubmitMeta = {
@@ -354,6 +361,9 @@ function EntityRecordForm({
   const [password, setPassword] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  /** ДДС: planned payments this operation covers (`null` — not touched). */
+  const [planLinks, setPlanLinks] = useState<PlanLinkItem[] | null>(null);
+  const isDdsOperation = isDdsOperationsEntity(entity);
   const formulaSoftFill = useMemo(
     () =>
       computeAllowManualFormulaSoftFill({
@@ -662,6 +672,16 @@ function EntityRecordForm({
             );
           })}
 
+        {isDdsOperation ? (
+          <PaymentPlanLinkSection
+            entity={entity}
+            recordId={draftRecordId}
+            values={values}
+            items={planLinks}
+            onChange={setPlanLinks}
+          />
+        ) : null}
+
         {createUploadTarget ? (
           <EntityFilesUploadPanel
             entity={entity}
@@ -715,10 +735,35 @@ function EntityRecordForm({
                 : {}),
               ...(!isEdit ? { recordId: draftRecordId } : {}),
             };
+            const planForm = {
+              ctx: valueContext,
+              entities,
+              entity,
+              recordId: draftRecordId,
+              values: nextValues,
+            };
+            const planError =
+              isDdsOperation && planLinks
+                ? validatePaymentPlanLinks(planForm, planLinks)
+                : null;
+            if (planError) {
+              setSubmitError(planError);
+              return;
+            }
             setPending(true);
             setSubmitError(null);
             void Promise.resolve(onSubmit(nextValues, meta))
-              .then(() => {
+              .then(async () => {
+                if (isDdsOperation && planLinks) {
+                  try {
+                    await savePaymentPlanLinks(planForm, planLinks);
+                  } catch (error: unknown) {
+                    throw new Error(
+                      `Операция сохранена, но привязка к плану не записана: ${getErrorMessage(error, "ошибка")}`,
+                      { cause: error },
+                    );
+                  }
+                }
                 onCancel();
               })
               .catch((error: unknown) => {

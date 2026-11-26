@@ -1,5 +1,11 @@
 export { getPaymentRequestDraftSummary } from "./payment-requests/model/draft-summary";
 export { isDdsOperationsEntity } from "./dds/match";
+export { PaymentPlanLinkSection } from "./payment-calendar/ui/PaymentPlanLinkSection";
+export {
+  savePaymentPlanLinks,
+  validatePaymentPlanLinks,
+} from "./payment-calendar/lib/plan-link-actions";
+export type { PlanLinkItem } from "./payment-calendar/model/plan-links";
 
 export {
   applyTkpGipDepartmentUsers,

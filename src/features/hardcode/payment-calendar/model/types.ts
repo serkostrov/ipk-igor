@@ -53,7 +53,21 @@ export type PlannedPart = {
   amount: number;
 };
 
-export type ReceiptShare = { receiptId: string; amount: number };
+/** `manual` — привязано пользователем (таблица распределений), а не подобрано автоматически. */
+export type ReceiptShare = {
+  receiptId: string;
+  amount: number;
+  manual: boolean;
+};
+
+/** Явная привязка части операции ДДС к плановому платежу (аванс / постоплата этапа). */
+export type PaymentAllocation = {
+  id: string;
+  ddsRecordId: string;
+  stageId: string;
+  partKind: PaymentKind;
+  amount: number;
+};
 
 export type PaymentRow = PlannedPart & {
   paid: number;

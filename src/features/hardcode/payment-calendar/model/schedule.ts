@@ -4,6 +4,7 @@ import { buildStageParts } from "./plan";
 import type {
   CalendarReceipt,
   CalendarStage,
+  PaymentAllocation,
   PaymentCalendar,
   PaymentRow,
   PaymentStatus,
@@ -98,27 +99,57 @@ function resolveStatus(
 export function buildPaymentCalendar(input: {
   stages: readonly CalendarStage[];
   receipts: readonly CalendarReceipt[];
+  allocations?: readonly PaymentAllocation[];
   today: string;
 }): PaymentCalendar {
   const parts = input.stages.flatMap(buildStageParts).sort(compareDue);
+  const partByKey = new Map(parts.map((part) => [part.key, part]));
   const open = new Map(parts.map((part) => [part.key, part.amount]));
   const shares = new Map<string, ReceiptShare[]>();
   const unallocated: UnallocatedReceipt[] = [];
-
-  const facts = input.receipts
-    .filter((receipt) => receipt.date <= input.today && receipt.amount > 0)
-    .sort((a, b) => a.date.localeCompare(b.date));
 
   const assign = (
     part: PlannedPart,
     receipt: CalendarReceipt,
     amount: number,
+    manual = false,
   ) => {
     const list = shares.get(part.key) ?? [];
-    list.push({ receiptId: receipt.id, amount });
+    list.push({ receiptId: receipt.id, amount, manual });
     shares.set(part.key, list);
     open.set(part.key, roundMoney((open.get(part.key) ?? 0) - amount));
   };
+
+  // Manual links come first and are taken as is (any date): the user decided.
+  // Such operations are not matched automatically; what is left of them is
+  // shown as unallocated.
+  const receiptById = new Map(input.receipts.map((item) => [item.id, item]));
+  const manualRest = new Map<string, number>();
+  for (const allocation of input.allocations ?? []) {
+    const receipt = receiptById.get(allocation.ddsRecordId);
+    if (!receipt) continue;
+    const rest = manualRest.get(receipt.id) ?? receipt.amount;
+    const part = partByKey.get(`${allocation.stageId}:${allocation.partKind}`);
+    if (!part) {
+      manualRest.set(receipt.id, rest);
+      continue;
+    }
+    assign(part, receipt, allocation.amount, true);
+    manualRest.set(receipt.id, roundMoney(rest - allocation.amount));
+  }
+  for (const [receiptId, rest] of manualRest) {
+    const receipt = receiptById.get(receiptId);
+    if (receipt && rest > 0) unallocated.push({ receipt, amount: rest });
+  }
+
+  const facts = input.receipts
+    .filter(
+      (receipt) =>
+        receipt.date <= input.today &&
+        receipt.amount > 0 &&
+        !manualRest.has(receipt.id),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   for (const receipt of facts) {
     const scope = candidateParts(receipt, parts);
