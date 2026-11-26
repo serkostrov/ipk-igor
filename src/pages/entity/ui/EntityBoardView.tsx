@@ -27,12 +27,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
+import { useCurrentRole } from "@/entities/access";
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
   isEntityFilterActive,
   recordMatchesFilters,
   recordMatchesSearch,
+  roleHiddenFieldIds,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 import { EntityTableView } from "./EntityTableView";
@@ -318,8 +320,9 @@ function FiltersPanelView({
   filters: EntityFiltersState;
   onFiltersChange: (next: EntityFiltersState) => void;
 }) {
+  const role = useCurrentRole();
   const { entities } = useEntityConfig();
-  const allFilterFields = getEntityBrowseFilterFields(entity);
+  const allFilterFields = getEntityBrowseFilterFields(entity, role);
   const fields =
     panel.fieldIds == null
       ? allFilterFields
@@ -452,6 +455,7 @@ export function EntityBoardView({
   onOpenRelation,
   onCreateChildRecord,
 }: EntityBoardViewProps) {
+  const role = useCurrentRole();
   const layout = entity.pageLayout;
   const valueContext = useEntityValueContext();
   const { entities } = useEntityConfig();
@@ -459,9 +463,13 @@ export function EntityBoardView({
   const [filters, setFilters] = useState<EntityFiltersState>({});
   const [drillRow, setDrillRow] = useState<EntityAggregateRow | null>(null);
 
+  const hiddenFieldIds = useMemo(
+    () => roleHiddenFieldIds(role, entity),
+    [entity, role],
+  );
   const filterFields = useMemo(
-    () => getEntityBrowseFilterFields(entity),
-    [entity],
+    () => getEntityBrowseFilterFields(entity, role),
+    [entity, role],
   );
 
   const hasFiltersPanel = Boolean(
@@ -482,7 +490,13 @@ export function EntityBoardView({
     () =>
       records.filter(
         (record) =>
-          recordMatchesSearch(valueContext, entity, record, search) &&
+          recordMatchesSearch(
+            valueContext,
+            entity,
+            record,
+            search,
+            hiddenFieldIds,
+          ) &&
           recordMatchesFilters(
             valueContext,
             entity,
@@ -491,7 +505,15 @@ export function EntityBoardView({
             filters,
           ),
       ),
-    [entity, filterFields, filters, records, search, valueContext],
+    [
+      entity,
+      filterFields,
+      filters,
+      hiddenFieldIds,
+      records,
+      search,
+      valueContext,
+    ],
   );
 
   const registryRecords = useMemo(() => {
@@ -519,7 +541,13 @@ export function EntityBoardView({
         const historyFilters = filtersWithoutField(filters, dateFieldId);
         const historyRecords = records.filter(
           (record) =>
-            recordMatchesSearch(valueContext, entity, record, search) &&
+            recordMatchesSearch(
+              valueContext,
+              entity,
+              record,
+              search,
+              hiddenFieldIds,
+            ) &&
             recordMatchesFilters(
               valueContext,
               entity,
@@ -551,6 +579,7 @@ export function EntityBoardView({
     entity,
     filterFields,
     filters,
+    hiddenFieldIds,
     records,
     scopedRecords,
     search,

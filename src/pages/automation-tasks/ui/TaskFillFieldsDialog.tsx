@@ -57,6 +57,7 @@ import {
   automationTaskShowsViewBeforeOutcomes,
   automationTemplateHasFillFields,
   automationTemplateHasViewContext,
+  filterCreateAskSlotsCoveredByViewTabs,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
@@ -434,9 +435,13 @@ function TaskFillFieldsDialogBody({
     relatedLayoutValue.status === "ready"
       ? relatedLayoutValue.value
       : { groups: [], emptyRelations: [] };
-  const createAskSlots = filterCreateAskSlotsForDeptCalculationsView(
-    createAskSlotsRaw,
-    relatedLayout.groups,
+  const createAskSlots = filterCreateAskSlotsCoveredByViewTabs(
+    filterCreateAskSlotsForDeptCalculationsView(
+      createAskSlotsRaw,
+      relatedLayout.groups,
+    ),
+    entity,
+    taskAsk?.viewTabIds ?? [],
   );
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
@@ -949,6 +954,7 @@ function TaskFillFieldsDialogBody({
                   ? taskAsk?.viewFilesTabAllowMove === true
                   : ask?.viewFilesTabAllowMove === true
               }
+              relatedTabsWritable
               fillBadge={
                 hasEditableFill && missingRequiredCount > 0 ? (
                   <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">

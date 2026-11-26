@@ -7,6 +7,8 @@ import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
 import { useMemo } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import { filterVisibleEntityRecords, useCurrentRole } from "@/entities/access";
+import { getSessionUser } from "@/entities/session";
 import {
   createEntityDraftRecord,
   getEntityRecordById,
@@ -15,6 +17,7 @@ import {
   RelationSelect,
   entityFieldInputType,
   formatRecordFieldValue,
+  getCurrentUserRecordId,
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
@@ -322,6 +325,27 @@ export function RecordFieldControl({
   const relationDisabledHint = nestedParentField
     ? `Сначала выберите «${getEntityFieldDisplayName(nestedParentField)}»`
     : undefined;
+  const role = useCurrentRole();
+  const visibleRelationIds = useAsyncValue(async () => {
+    if (field.type !== "relation" && field.type !== "belonging") return null;
+    const catalog =
+      field.type === "belonging"
+        ? (entities.find((item) => item.id === entity.id) ?? entity)
+        : target;
+    if (!catalog) return null;
+    const visible = await filterVisibleEntityRecords(
+      role,
+      catalog,
+      catalog.records,
+      {
+        entities: ctx.entities,
+        authUserId: getSessionUser()?.id ?? null,
+        currentUserRecordId: getCurrentUserRecordId(),
+        valueContext: ctx,
+      },
+    );
+    return new Set(visible.map((record) => record.id));
+  }, [ctx, entities, entity, field.type, role, target]);
 
   const labelNode = (
     <Label htmlFor={id}>
@@ -576,15 +600,30 @@ export function RecordFieldControl({
         ) : (
           <RelationSelect
             id={id}
-            options={getRelationControlOptions(
-              ctx,
-              entity,
-              field,
-              values,
-              recordId,
-              belongingTarget,
-              entities,
-            )}
+            options={(() => {
+              const options = getRelationControlOptions(
+                ctx,
+                entity,
+                field,
+                values,
+                recordId,
+                belongingTarget,
+                entities,
+              );
+              const allowed =
+                visibleRelationIds.status === "ready"
+                  ? visibleRelationIds.value
+                  : null;
+              const selected = new Set(
+                parseEntityRelationIds(relationParentEmpty ? "" : value),
+              );
+              if (!allowed) {
+                return options.filter((option) => selected.has(option.id));
+              }
+              return options.filter(
+                (option) => allowed.has(option.id) || selected.has(option.id),
+              );
+            })()}
             value={relationParentEmpty ? "" : value}
             multiple={isRelationFieldMultiValueInput(field, { creating })}
             disabled={relationParentEmpty}

@@ -38,7 +38,10 @@ export function ProjectGanttHardcodeSlot({
   onOpenRelation?: (entityId: string, recordId: string) => void;
 }) {
   const role = useCurrentRole();
-  const visibility = useMemo(() => resolveProjectGanttVisibility(role), [role]);
+  const visibility = useMemo(
+    () => resolveProjectGanttVisibility(role, entity.id),
+    [entity.id, role],
+  );
   const valueContext = useEntityValueContext();
   const { entities } = useEntityConfig();
   const currentUserRecordId = useCurrentUserRecordId();

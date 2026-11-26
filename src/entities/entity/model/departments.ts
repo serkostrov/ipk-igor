@@ -4,14 +4,17 @@ import {
   getEntityRelationTargetId,
   parseEntityRelationIds,
 } from "./field";
-import { findEntityManagerUserField } from "./table-hierarchy";
-import { getEntityValueContext } from "./field-value";
+import {
+  getEntityValueContext,
+  getRecordFieldIds,
+  resolveEntityLookupTarget,
+  type EntityValueContext,
+} from "./field-value";
 import {
   findSystemUserByAuthId,
   getSystemUsersEntity,
   SYSTEM_USERS_ENTITY_ID,
 } from "./system-entities";
-import { recordMatchesOwnScope } from "./own-scope";
 import type { Entity, EntityField, EntityRecord } from "./types";
 
 const DEPARTMENT_ENTITY_NAMES = [
@@ -111,6 +114,34 @@ function getNamedDepartmentLinkFields(
   return named.length > 0 ? named : links;
 }
 
+/**
+ * Head of a department or commercial group. «Менеджер» / «Менеджеры» is
+ * membership, not headship — matching it made every member see every department.
+ */
+function findDepartmentHeadField(entity: Entity): EntityField | null {
+  for (const field of entity.fields) {
+    if (field.type !== "relation" && field.type !== "belonging") continue;
+    if (getEntityRelationTargetId(field) !== SYSTEM_USERS_ENTITY_ID) continue;
+    const name = getEntityFieldDisplayName(field)
+      .trim()
+      .toLocaleLowerCase("ru");
+    if (name.includes("руководитель")) return field;
+  }
+  return null;
+}
+
+function lookupResolvesToDepartments(
+  entity: Entity,
+  field: EntityField,
+  entities: readonly Entity[],
+  departmentsEntityId: string,
+): boolean {
+  const target = resolveEntityLookupTarget(entity, field, entities);
+  if (!target) return false;
+  if (target.entity.id === departmentsEntityId) return true;
+  return getEntityRelationTargetId(target.field) === departmentsEntityId;
+}
+
 /** User-relation fields (to the system Users entity). */
 function getUserLinkFields(entity: Pick<Entity, "fields">) {
   return entity.fields.filter((field) => {
@@ -141,7 +172,7 @@ export function collectUserDepartmentIds(
     }
   }
 
-  const managerField = findEntityManagerUserField(departmentsEntity);
+  const managerField = findDepartmentHeadField(departmentsEntity);
   if (managerField) {
     for (const department of ctx.getRecords(departmentsEntity.id)) {
       const managers = parseEntityRelationIds(
@@ -154,7 +185,7 @@ export function collectUserDepartmentIds(
   // Commercial groups (and similar): head → group.«Отдел».
   for (const entity of entities) {
     if (!entityNameMatches(entity, DEPARTMENT_HOP_ENTITY_KEYS)) continue;
-    const headField = findEntityManagerUserField(entity);
+    const headField = findDepartmentHeadField(entity);
     if (!headField) continue;
     const deptFields = getDepartmentLinkFields(entity, departmentsEntity.id);
     if (deptFields.length === 0) continue;
@@ -172,13 +203,27 @@ export function collectUserDepartmentIds(
   return [...found];
 }
 
-/** Direct «Отдел» or a hop through «Коммерческая группа» (etc.). */
+/** Direct «Отдел», a department lookup, or a hop through «Коммерческая группа». */
 function entityHasExplicitDepartmentBinding(
   entity: Entity,
   departmentsEntityId: string,
   entities: readonly Entity[],
 ): boolean {
   if (getDepartmentLinkFields(entity, departmentsEntityId).length > 0) {
+    return true;
+  }
+  if (
+    entity.fields.some(
+      (field) =>
+        field.type === "lookup" &&
+        lookupResolvesToDepartments(
+          entity,
+          field,
+          entities,
+          departmentsEntityId,
+        ),
+    )
+  ) {
     return true;
   }
   for (const field of entity.fields) {
@@ -190,6 +235,16 @@ function entityHasExplicitDepartmentBinding(
     if (entityNameMatches(target, DEPARTMENT_HOP_ENTITY_KEYS)) return true;
   }
   return false;
+}
+
+/** Whether «Своего отдела» can apply (department field, lookup, or hop). */
+export function entitySupportsDepartmentScope(
+  entity: Entity,
+  entities: readonly Entity[],
+): boolean {
+  const departmentsEntity = findDepartmentsEntity(entities);
+  if (!departmentsEntity) return false;
+  return entityCanLinkToDepartments(entity, departmentsEntity.id, entities);
 }
 
 /**
@@ -238,6 +293,20 @@ function entityCanLinkToDepartments(
   if (getDepartmentLinkFields(entity, departmentsEntityId).length > 0) {
     return true;
   }
+  if (
+    entity.fields.some(
+      (field) =>
+        field.type === "lookup" &&
+        lookupResolvesToDepartments(
+          entity,
+          field,
+          entities,
+          departmentsEntityId,
+        ),
+    )
+  ) {
+    return true;
+  }
   if (getUserLinkFields(entity).length > 0) return true;
 
   for (const field of entity.fields) {
@@ -284,6 +353,7 @@ export async function collectRecordDepartmentIds(
   entities: readonly Entity[],
   depth = 0,
   visited = new Set<string>(),
+  scope?: { valueContext?: EntityValueContext },
 ): Promise<string[]> {
   const key = `${entity.id}:${record.id}`;
   if (depth > 3 || visited.has(key)) return [];
@@ -328,6 +398,30 @@ export async function collectRecordDepartmentIds(
     }
   }
 
+  if (scope?.valueContext) {
+    for (const field of entity.fields) {
+      if (field.type !== "lookup") continue;
+      if (
+        !lookupResolvesToDepartments(
+          entity,
+          field,
+          entities,
+          departmentsEntity.id,
+        )
+      ) {
+        continue;
+      }
+      for (const id of getRecordFieldIds(
+        scope.valueContext,
+        entity,
+        record,
+        field,
+      )) {
+        if (id) found.add(id);
+      }
+    }
+  }
+
   for (const field of entity.fields) {
     const targetId = getEntityRelationTargetId(field);
     if (!targetId || targetId === departmentsEntity.id) continue;
@@ -363,16 +457,29 @@ export async function collectRecordDepartmentIds(
         entities,
         depth + 1,
         visited,
+        scope,
       )) {
         found.add(id);
       }
     }
   }
 
-  // Fallback: departments of related Users — only when there is no explicit
-  // dept / commercial-group binding on the entity.
+  // Fallback: departments of the responsible user — only when the entity
+  // has no department field and no department lookup. Watchers and other
+  // people on the card do not pull the record into their department.
   if (!explicitOnly && usersEntity) {
-    for (const field of getUserLinkFields(entity)) {
+    const responsible = getUserLinkFields(entity).filter((field) => {
+      const name = getEntityFieldDisplayName(field)
+        .trim()
+        .toLocaleLowerCase("ru");
+      return (
+        name.includes("менеджер") ||
+        name.includes("руководитель") ||
+        name.includes("исполнител") ||
+        name.includes("ответствен")
+      );
+    });
+    for (const field of responsible) {
       for (const userId of parseEntityRelationIds(record.values[field.id])) {
         const user = await getEntityRecordById(usersEntity, userId);
         if (!user) continue;
@@ -396,9 +503,9 @@ export async function collectRecordDepartmentIds(
  * - Entity linked to departments: visible only when record department ids
  *   intersect the viewer’s. Empty dept on a department-capable entity → hide
  *   (no «own» escape for orphan admin leads that merely list the viewer).
- * - Entity not linked to departments: fall back to «только свои».
- * - No departments catalog / empty viewer depts on a capable entity → hide
- *   unless the entity is not department-capable (then own).
+ * - Entity not linked to departments: hide. «Своего отдела» does not
+ *   widen into «только свои».
+ * - No departments catalog / empty viewer depts → hide.
  */
 export async function recordMatchesDepartmentScope(
   entity: Entity,
@@ -409,22 +516,17 @@ export async function recordMatchesDepartmentScope(
   options: {
     authUserId: string | null;
     currentUserRecordId: string | null;
+    valueContext?: EntityValueContext;
   },
 ): Promise<boolean> {
-  const ownMatch = recordMatchesOwnScope(entity, record, {
-    authUserId: options.authUserId,
-    currentUserRecordId: options.currentUserRecordId,
-    entities,
-  });
-
-  if (!departmentsEntity) return ownMatch;
+  if (!departmentsEntity) return false;
 
   const capable = entityCanLinkToDepartments(
     entity,
     departmentsEntity.id,
     entities,
   );
-  if (!capable) return ownMatch;
+  if (!capable) return false;
 
   if (viewerDepartmentIds.length === 0) return false;
 
@@ -434,6 +536,9 @@ export async function recordMatchesDepartmentScope(
     record,
     departmentsEntity,
     entities,
+    0,
+    new Set<string>(),
+    { valueContext: options.valueContext },
   );
 
   // Orphan / unbound record on a department-capable entity — not visible

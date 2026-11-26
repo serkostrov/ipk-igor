@@ -514,6 +514,9 @@ export function normalizeEntityField(field: EntityField): EntityField {
     showInFilters: field.showInFilters !== false,
     showOnRecord: field.showOnRecord !== false,
     showOnCreate: field.showOnCreate !== false,
+    ...(typeof field.ownScope === "boolean"
+      ? { ownScope: field.ownScope }
+      : {}),
     visibilityConditions: locked
       ? []
       : normalizeEntityConditions(field.visibilityConditions),

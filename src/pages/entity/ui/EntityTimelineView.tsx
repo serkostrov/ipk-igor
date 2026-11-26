@@ -38,11 +38,13 @@ import {
   type TimelineScale,
   type TimelineSegment,
 } from "../lib/timeline-layout";
+import { useCurrentRole } from "@/entities/access";
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
   recordMatchesFilters,
   recordMatchesSearch,
+  roleHiddenFieldIds,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 import { TimelineGroupRecordsDialog } from "./TimelineGroupRecordsDialog";
@@ -188,6 +190,7 @@ export function EntityTimelineView({
   headerSlot?: ReactNode;
   className?: string;
 }) {
+  const role = useCurrentRole();
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const setup = useMemo(() => getEntityTimelineSetup(entity), [entity]);
@@ -207,16 +210,26 @@ export function EntityTimelineView({
     cellLabel: string;
   } | null>(null);
 
+  const hiddenFieldIds = useMemo(
+    () => roleHiddenFieldIds(role, entity),
+    [entity, role],
+  );
   const filterFields = useMemo(
-    () => getEntityBrowseFilterFields(entity),
-    [entity],
+    () => getEntityBrowseFilterFields(entity, role),
+    [entity, role],
   );
 
   const filteredRecords = useMemo(
     () =>
       records.filter(
         (record) =>
-          recordMatchesSearch(valueContext, entity, record, search) &&
+          recordMatchesSearch(
+            valueContext,
+            entity,
+            record,
+            search,
+            hiddenFieldIds,
+          ) &&
           recordMatchesFilters(
             valueContext,
             entity,
@@ -225,7 +238,15 @@ export function EntityTimelineView({
             filters,
           ),
       ),
-    [entity, filterFields, filters, records, search, valueContext],
+    [
+      entity,
+      filterFields,
+      filters,
+      hiddenFieldIds,
+      records,
+      search,
+      valueContext,
+    ],
   );
 
   const ddsWalletSetup = useMemo(
@@ -241,7 +262,13 @@ export function EntityTimelineView({
     );
     return records.filter(
       (record) =>
-        recordMatchesSearch(valueContext, entity, record, search) &&
+        recordMatchesSearch(
+          valueContext,
+          entity,
+          record,
+          search,
+          hiddenFieldIds,
+        ) &&
         recordMatchesFilters(
           valueContext,
           entity,
@@ -255,6 +282,7 @@ export function EntityTimelineView({
     entity,
     filterFields,
     filters,
+    hiddenFieldIds,
     records,
     search,
     valueContext,

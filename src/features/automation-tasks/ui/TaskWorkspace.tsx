@@ -61,6 +61,7 @@ import {
   automationOutcomeNeedsInput,
   automationTaskShowsFormUpfront,
   automationTaskShowsViewBeforeOutcomes,
+  filterCreateAskSlotsCoveredByViewTabs,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,
@@ -500,9 +501,13 @@ function TaskWorkspaceBody({
       ? relatedLayoutValue.value
       : { groups: [], emptyRelations: [] };
 
-  const createAskSlots = filterCreateAskSlotsForDeptCalculationsView(
-    createAskSlotsRaw,
-    relatedLayout.groups,
+  const createAskSlots = filterCreateAskSlotsCoveredByViewTabs(
+    filterCreateAskSlotsForDeptCalculationsView(
+      createAskSlotsRaw,
+      relatedLayout.groups,
+    ),
+    entity ?? null,
+    taskAsk.viewTabIds,
   );
 
   // Template view always before buttons; outcome view after select (or single).
@@ -1157,6 +1162,9 @@ function TaskWorkspaceBody({
           tabIds={earlyViewTabIds}
           filesTabEntryIds={taskAsk.viewFilesTabEntryIds}
           filesTabAllowMove={taskAsk.viewFilesTabAllowMove}
+          relatedTabsWritable={
+            !busy && (task.status === "pending" || task.status === "returned")
+          }
           fillBadge={
             showFillTab && missingRequiredCount > 0 ? (
               <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive tabular-nums">

@@ -539,6 +539,27 @@ export function filterCreateAskSlotsForDeptCalculationsView(
   });
 }
 
+/**
+ * Writable linked view-tabs already host create/edit. Hide the matching
+ * create-ask block on «Заполнить» so the same child is not offered twice.
+ */
+export function filterCreateAskSlotsCoveredByViewTabs(
+  slots: AutomationCreateAskSlot[],
+  entity: Entity | null,
+  viewTabIds: readonly string[],
+): AutomationCreateAskSlot[] {
+  if (!entity || viewTabIds.length === 0) return slots;
+  const covered = new Set<string>();
+  for (const tabId of viewTabIds) {
+    const tab = entity.tabs.find((item) => item.id === tabId);
+    if (!tab || !isEntityTabWithLinkedEntity(tab)) continue;
+    const linkedId = tab.linkedEntityId?.trim();
+    if (linkedId) covered.add(linkedId);
+  }
+  if (covered.size === 0) return slots;
+  return slots.filter((slot) => !covered.has(slot.entityId));
+}
+
 function nestedSpecToSlot(
   nested: AutomationCreateNestedSpec,
   entities: Entity[],

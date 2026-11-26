@@ -1,4 +1,13 @@
-import { isAdminRole, type Role } from "@/entities/access";
+import {
+  explicitTabEdit,
+  explicitTabView,
+  isAdminRole,
+  type Role,
+} from "@/entities/access";
+import { TKP_PRICE_HARDCODE_TAB_ID } from "./price-tab";
+
+/** Role-matrix id for the GIP cost block (not a stored schema tab). */
+export const TKP_GIP_COST_TAB_ID = "hardcode-tkp-gip-cost";
 
 export type TkpReviewCostVisibility = {
   /** Full «Расчёт ГИПа» block — only ГИП (and sysadmin for support). */
@@ -58,6 +67,27 @@ function isTkpCommercialPricingEditorRole(
  * (this CRM has no roleCode).
  */
 export function resolveTkpReviewCostVisibility(
+  role: Role | null | undefined,
+  entityId?: string | null,
+): TkpReviewCostVisibility {
+  const base = resolveTkpReviewCostVisibilityByName(role);
+  if (!entityId) return base;
+  const price = explicitTabView(role, entityId, TKP_PRICE_HARDCODE_TAB_ID);
+  const priceEdit = explicitTabEdit(role, entityId, TKP_PRICE_HARDCODE_TAB_ID);
+  const gip = explicitTabView(role, entityId, TKP_GIP_COST_TAB_ID);
+  return {
+    showGipCalculation: gip ?? base.showGipCalculation,
+    showDepartmentRestrictedTotals: base.showDepartmentRestrictedTotals,
+    showCommercialPricing: price ?? base.showCommercialPricing,
+    canEditCommercialPricing:
+      priceEdit ??
+      (price == null
+        ? base.canEditCommercialPricing
+        : price === true && base.canEditCommercialPricing),
+  };
+}
+
+function resolveTkpReviewCostVisibilityByName(
   role: Role | null | undefined,
 ): TkpReviewCostVisibility {
   if (isAdminRole(role)) {

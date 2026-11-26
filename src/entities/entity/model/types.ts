@@ -375,6 +375,12 @@ export type EntityField = {
    */
   showOnCreate: boolean;
   /**
+   * Participation in «Только свои».
+   * `undefined` — relation / belonging to Users counts, lookup does not.
+   * `true` / `false` — explicit override (a lookup opt-in, or a relation opt-out).
+   */
+  ownScope?: boolean;
+  /**
    * When non-empty, the field is shown only if the record matches
    * all conditions (e.g. hide «Часы» unless «Тип расчета» is hours).
    * Hidden values are kept so lookups / formulas still resolve.
@@ -1488,8 +1494,13 @@ export function normalizeEntityRecordColumns(
   return 2;
 }
 
-export function isEntityOverviewTab(tab: Pick<EntityTab, "locked" | "id">) {
-  return Boolean(tab.locked) || tab.id === ENTITY_OVERVIEW_TAB_ID;
+/**
+ * Canonical overview tab. `locked` on any other tab only blocks deleting it
+ * in the schema editor — it must not collapse that tab into «Обзор»
+ * (tariff / salary tabs on Users were disappearing from the role matrix).
+ */
+export function isEntityOverviewTab(tab: Pick<EntityTab, "id">) {
+  return tab.id === ENTITY_OVERVIEW_TAB_ID;
 }
 
 export function normalizeEntityTabDefaultFolders(
@@ -1549,9 +1560,10 @@ export function normalizeEntityTab(
     tableFlat?: boolean;
   },
 ): EntityTab {
-  const locked = isEntityOverviewTab(tab);
+  const isOverview = isEntityOverviewTab(tab);
+  const locked = isOverview || Boolean(tab.locked);
   const name = typeof tab.name === "string" ? tab.name.trim() : "";
-  const kind: EntityTabKind = locked
+  const kind: EntityTabKind = isOverview
     ? "fields"
     : normalizeEntityTabKind(tab.kind);
   const linkedEntityId =
@@ -1577,19 +1589,19 @@ export function normalizeEntityTab(
   const singleRecord = kind === "entity" && Boolean(tab.singleRecord);
   const tableFlat = kind === "entity" && Boolean(tab.tableFlat);
   return {
-    id: locked ? ENTITY_OVERVIEW_TAB_ID : tab.id,
+    id: isOverview ? ENTITY_OVERVIEW_TAB_ID : tab.id,
     name:
       name.length > 0
         ? name
-        : locked
+        : isOverview
           ? ENTITY_OVERVIEW_TAB_NAME
           : "Без названия",
     locked,
     kind,
-    linkedEntityId: locked ? null : linkedEntityId,
-    parentLinkFieldId: locked ? null : parentLinkFieldId,
-    sourceRelationFieldId: locked ? null : sourceRelationFieldId,
-    sourceTabId: locked ? null : sourceTabId,
+    linkedEntityId: isOverview ? null : linkedEntityId,
+    parentLinkFieldId: isOverview ? null : parentLinkFieldId,
+    sourceRelationFieldId: isOverview ? null : sourceRelationFieldId,
+    sourceTabId: isOverview ? null : sourceTabId,
     defaultFolders,
     singleRecord,
     tableFlat,

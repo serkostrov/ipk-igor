@@ -2,6 +2,7 @@
  * Department scope hops for leads / commercial groups.
  * Run: npx --yes vite-node src/entities/entity/model/departments.hop.test.ts
  */
+import { getEntityValueContext } from "./field-value";
 import { SYSTEM_USERS_ENTITY_ID } from "./system-entities";
 import {
   collectRecordDepartmentIds,
@@ -11,9 +12,13 @@ import {
 import type { Entity, EntityField, EntityRecord } from "./types";
 
 function field(
-  partial: Pick<EntityField, "id" | "name" | "type"> & {
-    relationEntityId?: string | null;
-  },
+  partial: Pick<EntityField, "id" | "name" | "type"> &
+    Partial<
+      Pick<
+        EntityField,
+        "relationEntityId" | "relationMultiple" | "lookup" | "ownScope"
+      >
+    >,
 ): EntityField {
   return {
     hint: "",
@@ -114,10 +119,21 @@ async function main() {
         type: "relation",
         relationEntityId: SYSTEM_USERS_ENTITY_ID,
       }),
+      field({
+        id: "field-dept-managers",
+        name: "Менеджеры",
+        type: "relation",
+        relationEntityId: SYSTEM_USERS_ENTITY_ID,
+        relationMultiple: true,
+      }),
     ],
     records: [
       record("dept-a", { name: "A" }),
-      record("dept-b", { name: "B", "field-dept-head": "user-head" }),
+      record("dept-b", {
+        name: "B",
+        "field-dept-head": "user-head",
+        "field-dept-managers": "user-manager",
+      }),
     ],
   });
 
@@ -291,6 +307,98 @@ async function main() {
       viewerOpts,
     )),
     "head must not see orphan lead without group/dept",
+  );
+
+  const managerDepts = collectUserDepartmentIds(
+    users.records[0]!,
+    users,
+    departments,
+    entitiesList,
+  );
+  assert(
+    managerDepts.includes("dept-a") && !managerDepts.includes("dept-b"),
+    `membership in «Менеджеры» must not grant the department, got: ${managerDepts.join(",")}`,
+  );
+
+  const notes = entity({
+    id: "entity-notes",
+    name: "Заметки",
+    fields: [],
+    records: [record("note-1", {})],
+  });
+  assert(
+    !(await recordMatchesDepartmentScope(
+      notes,
+      notes.records[0]!,
+      ["dept-a"],
+      departments,
+      [...entitiesList, notes],
+      { authUserId: null, currentUserRecordId: "user-manager" },
+    )),
+    "department scope hides entities that cannot link to a department",
+  );
+
+  const requests = entity({
+    id: "entity-requests",
+    name: "Заявки",
+    fields: [
+      field({
+        id: "field-req-manager",
+        name: "Менеджер",
+        type: "relation",
+        relationEntityId: SYSTEM_USERS_ENTITY_ID,
+      }),
+      field({
+        id: "field-req-watcher",
+        name: "Наблюдатель",
+        type: "relation",
+        relationEntityId: SYSTEM_USERS_ENTITY_ID,
+      }),
+      field({
+        id: "field-req-dept",
+        name: "Отдел менеджера",
+        type: "lookup",
+        lookup: {
+          relationFieldId: "field-req-manager",
+          targetFieldId: "field-user-dept",
+        },
+      }),
+    ],
+    records: [
+      record("request-1", {
+        "field-req-manager": "user-manager",
+        "field-req-watcher": "user-head",
+      }),
+    ],
+  });
+  const requestEntities = [...entitiesList, requests];
+  const requestCtx = getEntityValueContext(requestEntities);
+  const requestOpts = {
+    authUserId: null as string | null,
+    currentUserRecordId: "user-viewer",
+    valueContext: requestCtx,
+  };
+  assert(
+    await recordMatchesDepartmentScope(
+      requests,
+      requests.records[0]!,
+      ["dept-a"],
+      departments,
+      requestEntities,
+      requestOpts,
+    ),
+    "department lookup of the manager must match the manager department",
+  );
+  assert(
+    !(await recordMatchesDepartmentScope(
+      requests,
+      requests.records[0]!,
+      ["dept-b"],
+      departments,
+      requestEntities,
+      requestOpts,
+    )),
+    "a watcher must not pull the record into their department when a department lookup exists",
   );
 
   console.log("ok: department scope uses group→dept, not manager hop");

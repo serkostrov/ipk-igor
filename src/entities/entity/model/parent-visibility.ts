@@ -1,6 +1,11 @@
 import { getEntityRecordById } from "./record-queries";
 import { getEntityRelationTargetId, parseEntityRelationIds } from "./field";
-import { getEntityTableNestedTargets } from "./table-hierarchy";
+import {
+  getEntityTableNestedTargets,
+  resolveEntityTableParentField,
+} from "./table-hierarchy";
+import { SYSTEM_USERS_ENTITY_ID } from "./system-entities";
+import { findDepartmentsEntity } from "./departments";
 import type { Entity, EntityRecord, EntityTab } from "./types";
 
 export type ParentVisibilityLink = {
@@ -101,6 +106,26 @@ export function findParentVisibilityLinks(
         add(parent, field.id);
       }
     }
+  }
+
+  const departmentsId = findDepartmentsEntity(entities)?.id ?? null;
+  const tableParent = resolveEntityTableParentField(childEntity);
+  for (const field of childEntity.fields) {
+    if (field.type !== "relation" && field.type !== "belonging") continue;
+    const targetId = getEntityRelationTargetId(field);
+    if (!targetId) continue;
+    if (targetId === SYSTEM_USERS_ENTITY_ID || targetId === departmentsId) {
+      continue;
+    }
+    const parent = entities.find((item) => item.id === targetId);
+    if (!parent) continue;
+    const structural =
+      field.type === "belonging" ||
+      field.relationCascadeDelete === true ||
+      tableParent?.id === field.id ||
+      childEntity.parentEntityId?.trim() === parent.id;
+    if (!structural) continue;
+    add(parent, field.id);
   }
 
   return links;

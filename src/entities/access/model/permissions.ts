@@ -170,6 +170,7 @@ async function matchesEntityDataScopeDirect(
       {
         authUserId: options.authUserId,
         currentUserRecordId: options.currentUserRecordId,
+        valueContext: options.valueContext,
       },
     );
   }
@@ -237,7 +238,8 @@ export function canField(
   const peers = Object.values(access.fields);
   const field = access.fields[fieldId];
   if (field) {
-    return mode === "edit" ? field.edit : field.view;
+    if (!field.view) return false;
+    return mode === "edit" ? field.edit : true;
   }
   // Create is on but the field matrix grants edit nowhere (stale «сбросить»
   // or only view flags) — treat like «Все поля» for writable checks on
@@ -361,7 +363,7 @@ async function taskAssigneeInViewerDepartment(
     entities: Entity[];
   },
 ): Promise<boolean> {
-  if (!assigneeUserId) return true;
+  if (!assigneeUserId) return false;
   if (options.authUserId != null && assigneeUserId === options.authUserId) {
     return true;
   }
@@ -408,7 +410,7 @@ async function taskMatchesAutomationScope(
   if (scope === "all") return true;
 
   if (scope === "own") {
-    if (!task.assigneeUserId) return true;
+    if (!task.assigneeUserId) return false;
     if (
       options.authUserId != null &&
       task.assigneeUserId === options.authUserId
@@ -450,6 +452,7 @@ async function taskMatchesAutomationScope(
       {
         authUserId: options.authUserId,
         currentUserRecordId: options.userRecordId,
+        valueContext: options.valueContext,
       },
     );
   }
@@ -486,8 +489,69 @@ export async function canViewAutomationTask(
 
   const entity = options.entities.find((item) => item.id === task.entityId);
   const record = await getEntityRecordById(entity, task.recordId);
-  if (!entity || !record) return true;
+  if (!entity || !record) return roleLegalEntityIds(role).length === 0;
   return canViewRecordForLegalEntities(role, entity, record, options.entities);
+}
+
+/**
+ * Explicit matrix entry for a tab, including hardcoded card tabs.
+ * `null` — the role has not set this tab (caller may keep a legacy default).
+ */
+export function explicitTabView(
+  role: Role | null | undefined,
+  entityId: string,
+  tabId: string,
+): boolean | null {
+  return explicitTabFlag(role, entityId, tabId, "view");
+}
+
+export function explicitTabEdit(
+  role: Role | null | undefined,
+  entityId: string,
+  tabId: string,
+): boolean | null {
+  return explicitTabFlag(role, entityId, tabId, "edit");
+}
+
+function explicitTabFlag(
+  role: Role | null | undefined,
+  entityId: string,
+  tabId: string,
+  mode: FieldAccessMode,
+): boolean | null {
+  if (!role) return false;
+  if (isAdminRole(role)) return true;
+  const access = getEntityAccess(role.permissions, entityId);
+  if (!access?.read) return false;
+  const tabs = access.tabs;
+  if (tabs == null || tabs === "*") return null;
+  if (!Object.prototype.hasOwnProperty.call(tabs, tabId)) return null;
+  const tab = tabs[tabId];
+  if (!tab?.view) return false;
+  return mode === "edit" ? tab.edit : true;
+}
+
+/** Records the role may see (data scope, ownership parent, legal entities). */
+export async function filterVisibleEntityRecords(
+  role: Role | null | undefined,
+  entity: Entity,
+  records: readonly EntityRecord[],
+  options: RecordDataScopeOptions,
+): Promise<EntityRecord[]> {
+  const visible = await Promise.all(
+    records.map(async (record) => {
+      if (!(await canViewRecordForDataScope(role, entity, record, options))) {
+        return false;
+      }
+      return canViewRecordForLegalEntities(
+        role,
+        entity,
+        record,
+        options.entities,
+      );
+    }),
+  );
+  return records.filter((_, index) => visible[index]);
 }
 
 export async function filterAutomationTasksForRole<

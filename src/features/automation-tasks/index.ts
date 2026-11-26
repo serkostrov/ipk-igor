@@ -19,6 +19,7 @@ export {
   automationTemplateHasCreateAsk,
   automationTemplateHasFillFields,
   automationTemplateHasViewContext,
+  filterCreateAskSlotsCoveredByViewTabs,
   filterCreateAskSlotsForDeptCalculationsView,
   getAutomationOutcomeAskFields,
   getAutomationTaskAskFields,

@@ -1,4 +1,10 @@
-import { isAdminRole, type Role } from "@/entities/access";
+import {
+  explicitTabEdit,
+  explicitTabView,
+  isAdminRole,
+  type Role,
+} from "@/entities/access";
+import { PROJECT_GANTT_HARDCODE_TAB_ID } from "./gantt-tab";
 
 export type ProjectGanttVisibility = {
   /** Show the График tab on project records. */
@@ -30,6 +36,23 @@ function normalizeRoleName(value: string): string {
  * department heads can review; others see read-only chart when tab is shown.
  */
 export function resolveProjectGanttVisibility(
+  role: Role | null | undefined,
+  entityId?: string | null,
+): ProjectGanttVisibility {
+  const base = resolveProjectGanttVisibilityByName(role);
+  if (!entityId) return base;
+  const view = explicitTabView(role, entityId, PROJECT_GANTT_HARDCODE_TAB_ID);
+  const edit = explicitTabEdit(role, entityId, PROJECT_GANTT_HARDCODE_TAB_ID);
+  if (view == null && edit == null) return base;
+  return {
+    ...base,
+    showGanttTab: view ?? base.showGanttTab,
+    ganttReviewOnly: view === false ? false : base.ganttReviewOnly,
+    canEditSchedule: edit ?? base.canEditSchedule,
+  };
+}
+
+function resolveProjectGanttVisibilityByName(
   role: Role | null | undefined,
 ): ProjectGanttVisibility {
   if (isAdminRole(role)) {

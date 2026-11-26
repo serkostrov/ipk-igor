@@ -1,6 +1,6 @@
+import { readVisibleEntityRecords } from "@/entities/access";
 import {
   getEntityListOption,
-  getEntityRecords,
   getRecordFieldNumber,
   isEntityNameField,
   isEntityNumericFieldType,
@@ -105,7 +105,7 @@ export async function adaptActsToSources(
   if (!dateField) return [];
 
   const out: ProfitLossActSource[] = [];
-  for (const record of await getEntityRecords(actsEntity)) {
+  for (const record of await readVisibleEntityRecords(actsEntity)) {
     const actDate = extractDatePart(record.values[dateField.id] ?? "");
     if (!actDate) continue;
     const withoutVat = readNumber(ctx, actsEntity, record, withoutVatField);
@@ -130,7 +130,7 @@ export async function adaptArticlesToCategories(
     articlesEntity.fields.find((field) => isEntityNameField(field)) ?? null;
   const parentField = resolveEntityTableParentField(articlesEntity);
 
-  return (await getEntityRecords(articlesEntity)).map((record) => {
+  return (await readVisibleEntityRecords(articlesEntity)).map((record) => {
     const name =
       (nameField
         ? resolveRelationRecordLabel(articlesEntity, record.id)
@@ -194,7 +194,7 @@ export async function adaptDdsToCashflowSources(
   );
 
   const out: ProfitLossCashflowSource[] = [];
-  for (const record of await getEntityRecords(ddsEntity)) {
+  for (const record of await readVisibleEntityRecords(ddsEntity)) {
     const entryDate = extractDatePart(record.values[dateField.id] ?? "");
     if (!entryDate) continue;
 

@@ -1388,16 +1388,16 @@ function EntityRecordContent({
     );
   }, [isUsersEntity, primaryGroups]);
   const tkpCostVisibility = useMemo(
-    () => resolveTkpReviewCostVisibility(role),
-    [role],
+    () => resolveTkpReviewCostVisibility(role, entity.id),
+    [entity.id, role],
   );
   const projectGanttVisibility = useMemo(
-    () => resolveProjectGanttVisibility(role),
-    [role],
+    () => resolveProjectGanttVisibility(role, entity.id),
+    [entity.id, role],
   );
   const dealCardVisibility = useMemo(
-    () => resolveDealCardVisibility(role),
-    [role],
+    () => resolveDealCardVisibility(role, entity.id),
+    [entity.id, role],
   );
   const isDealRecord = isDealsEntity(entity);
   const entityTabs = useMemo(() => {

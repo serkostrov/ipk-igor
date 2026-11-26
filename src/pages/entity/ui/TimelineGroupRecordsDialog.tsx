@@ -33,11 +33,13 @@ import {
   type EntityTimelineSetup,
   type EntityValueContext,
 } from "@/entities/entity";
+import { useCurrentRole } from "@/entities/access";
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
   recordMatchesFilters,
   recordMatchesSearch,
+  roleHiddenFieldIds,
   type EntityFiltersState,
 } from "./EntityBrowseFilters";
 import { EntityRecordDialog } from "./EntityRecordDialog";
@@ -102,12 +104,17 @@ export function TimelineGroupRecordsDialog({
   groupLabel,
   cellLabel,
 }: TimelineGroupRecordsDialogProps) {
+  const role = useCurrentRole();
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
   const setup = useMemo(() => getEntityTimelineSetup(entity), [entity]);
+  const hiddenFieldIds = useMemo(
+    () => roleHiddenFieldIds(role, entity),
+    [entity, role],
+  );
   const filterFields = useMemo(
-    () => getEntityBrowseFilterFields(entity),
-    [entity],
+    () => getEntityBrowseFilterFields(entity, role),
+    [entity, role],
   );
 
   const [editing, setEditing] = useState<EntityRecord | null>(null);
@@ -157,7 +164,16 @@ export function TimelineGroupRecordsDialog({
     for (const id of recordIds) {
       const record = recordsById.get(id);
       if (!record) continue;
-      if (!recordMatchesSearch(valueContext, entity, record, search)) continue;
+      if (
+        !recordMatchesSearch(
+          valueContext,
+          entity,
+          record,
+          search,
+          hiddenFieldIds,
+        )
+      )
+        continue;
       if (
         !recordMatchesFilters(
           valueContext,
@@ -176,6 +192,7 @@ export function TimelineGroupRecordsDialog({
     entity,
     filterFields,
     filters,
+    hiddenFieldIds,
     recordIds,
     recordsById,
     search,

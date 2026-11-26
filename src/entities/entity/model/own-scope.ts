@@ -37,9 +37,25 @@ export function fieldTargetsUsers(
 }
 
 /**
+ * Whether this field makes the viewer a participant for «Только свои».
+ * Relation / belonging to Users participates unless `ownScope` is false.
+ * Lookup participates only when `ownScope` is explicitly true — a lookup
+ * chain (manager → someone else) must not open every record.
+ */
+export function fieldParticipatesInOwnScope(
+  entity: Entity,
+  field: EntityField,
+  entities: readonly Entity[],
+): boolean {
+  if (field.ownScope === false) return false;
+  if (!fieldTargetsUsers(entity, field, entities)) return false;
+  if (field.type === "lookup") return field.ownScope === true;
+  return field.type === "relation" || field.type === "belonging";
+}
+
+/**
  * «Только свои»: viewer created the record, is the Users row itself, or is
- * referenced on the card (исполнитель / наблюдатель / ответственный / … —
- * any relation/belonging/lookup to Users).
+ * referenced by a participating user field (исполнитель, наблюдатель, …).
  */
 export function recordMatchesOwnScope(
   entity: Entity,
@@ -64,7 +80,7 @@ export function recordMatchesOwnScope(
   }
 
   for (const field of entity.fields) {
-    if (!fieldTargetsUsers(entity, field, options.entities)) continue;
+    if (!fieldParticipatesInOwnScope(entity, field, options.entities)) continue;
 
     if (field.type === "relation" || field.type === "belonging") {
       const ids = parseEntityRelationIds(record.values[field.id]);

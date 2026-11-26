@@ -40,6 +40,7 @@ import {
   getEntityFieldDisplayName,
   getEntityTabKindLabel,
   getRelationRecordOptions,
+  entitySupportsDepartmentScope,
   getRoleConfigurableTabs,
   isEntitySubEntity,
   isRoleConfigurableTab,
@@ -51,6 +52,7 @@ import {
   type Entity,
   type EntityCondition,
 } from "@/entities/entity";
+import { hardcodeRoleTabs } from "@/features/hardcode/role-tabs";
 import {
   flattenMenuGroupItems,
   getMenuEntityTree,
@@ -502,9 +504,9 @@ function buildEntityAccessTableRows(
     rows.push({
       type: "group",
       id: "outside-menu",
-      title: "Вне меню",
+      title: "Без пункта меню",
       description:
-        "Не пункты бокового меню и не сессии входа: системные сущности, служебные и подсущности вкладок. Права на них всё равно настраиваются.",
+        "Сущности без пункта в боковом меню: системные, вложенные во вкладку и служебные (в том числе учёт времени). Это не сессии входа. Права на них действуют так же.",
       depth: 0,
     });
     for (const entity of leftovers) {
@@ -512,6 +514,14 @@ function buildEntityAccessTableRows(
     }
   }
   return rows;
+}
+
+function roleMatrixTabs(entity: Entity) {
+  const schema = getRoleConfigurableTabs(entity.tabs);
+  const extra = hardcodeRoleTabs(entity).filter(
+    (tab) => !schema.some((item) => item.id === tab.id),
+  );
+  return [...schema, ...extra];
 }
 
 function rowIndent(depth: number) {
@@ -706,7 +716,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
       entityAccessList.find((item) => item.entityId === entityId) ??
       createEmptyEntityAccess(entityId);
     const entity = entities.find((item) => item.id === entityId);
-    const configurable = getRoleConfigurableTabs(entity?.tabs ?? []);
+    const configurable = entity ? roleMatrixTabs(entity) : [];
     let tabs: Record<string, FieldAccess>;
     if (current.tabs == null || current.tabs === "*") {
       tabs = Object.fromEntries(
@@ -745,7 +755,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
         ]),
       ),
       tabs: Object.fromEntries(
-        getRoleConfigurableTabs(entity.tabs).map((tab) => [
+        roleMatrixTabs(entity).map((tab) => [
           tab.id,
           { view: false, edit: false } satisfies FieldAccess,
         ]),
@@ -1183,6 +1193,23 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                           </Select>
                         </PermissionCell>
                       </tr>
+                      {access.scope === "department" &&
+                      !entitySupportsDepartmentScope(row.entity, entities) ? (
+                        <tr className="border-b border-border bg-muted/10">
+                          <td
+                            colSpan={6}
+                            className="px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400"
+                          >
+                            <span
+                              className="block"
+                              style={rowIndent(row.depth)}
+                            >
+                              У сущности нет связи с отделом — при области
+                              «Своего отдела» записи скрыты.
+                            </span>
+                          </td>
+                        </tr>
+                      ) : null}
                       {filterOpen ? (
                         <tr className="border-b border-border bg-muted/10">
                           <td colSpan={6} className="px-3 py-3">
@@ -1583,9 +1610,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                       );
                     })}
                     {(() => {
-                      const configurableTabs = getRoleConfigurableTabs(
-                        fieldsEntity.tabs,
-                      );
+                      const configurableTabs = roleMatrixTabs(fieldsEntity);
                       if (configurableTabs.length === 0) return null;
                       const allTabs =
                         fieldsAccess.tabs == null || fieldsAccess.tabs === "*";

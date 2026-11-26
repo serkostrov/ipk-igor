@@ -4663,6 +4663,7 @@ export function EntityFieldsEditor({
                   <TabsList className="!h-full w-max min-w-max max-w-none flex-none items-stretch justify-start gap-0.5 bg-transparent p-0">
                     {entityTabs.map((tab, tabIndex) => {
                       const isOverview = isEntityOverviewTab(tab);
+                      const tabProtected = isOverview || tab.locked;
                       const dropActive =
                         dropHighlight?.type === "tab" &&
                         dropHighlight.tabId === tab.id &&
@@ -4852,7 +4853,7 @@ export function EntityFieldsEditor({
                                 >
                                   <Pencil className="size-3" />
                                 </span>
-                                {!canDeleteTab ? null : (
+                                {!canDeleteTab || tabProtected ? null : (
                                   <span
                                     role="button"
                                     tabIndex={-1}
