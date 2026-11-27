@@ -45,7 +45,7 @@ export function createUsersRoleFromListOption(data: {
     description: "",
     isSystem: false,
   });
-  upsertRole(role);
+  void upsertRole(role);
 
   if (data.color?.trim()) {
     updateEntityListOption(
@@ -69,7 +69,7 @@ export function updateUsersRoleFromListOption(
   const existing = getRolesConfig().roles.find((role) => role.id === optionId);
   const nextName = data.name.trim() || existing?.name || "Роль";
   if (existing && nextName !== existing.name) {
-    upsertRole(normalizeRole({ ...existing, name: nextName }));
+    void upsertRole(normalizeRole({ ...existing, name: nextName }));
   }
 
   // Keep list option name aligned with the roles catalog immediately
@@ -90,7 +90,7 @@ export function updateUsersRoleFromListOption(
 
 export function deleteUsersRoleFromListOption(optionId: string) {
   if (isProtectedSystemRoleId(optionId)) return;
-  removeRole(optionId);
+  void removeRole(optionId);
 }
 
 /** Persist option order as roles catalog order. */
@@ -112,5 +112,5 @@ export function reorderUsersRolesFromListOptions(orderedRoleIds: string[]) {
   ) {
     return;
   }
-  setRolesConfig({ roles: next });
+  void setRolesConfig({ roles: next });
 }

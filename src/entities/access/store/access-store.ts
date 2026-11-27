@@ -1,4 +1,5 @@
 import { isSupabaseConfigured } from "@/shared/api/supabase";
+import { getErrorMessage } from "@/shared/lib/error-message";
 import {
   SYSTEM_USERS_ENTITY_ID,
   SYSTEM_USERS_FIELD_ROLE_ID,
@@ -70,9 +71,14 @@ function installRecordMutationGuard() {
 
 export type AccessStatus = "idle" | "loading" | "ready" | "error";
 
+/** Result of a role write. `ok` only after the database row matches the write. */
+export type RoleSaveResult = { ok: true } | { ok: false; message: string };
+
 type Listener = () => void;
 
 let config: RolesConfig = cloneDefaultRolesConfig();
+/** Last document confirmed to match `app_documents`. Optimistic edits stay out. */
+let confirmed: RolesConfig = cloneDefaultRolesConfig();
 let currentRole: Role | null = null;
 let currentAuthUserId: string | null = null;
 let status: AccessStatus = "idle";
@@ -134,7 +140,7 @@ function healProfileRoleEncoding(
   });
 }
 
-function applyRoles(next: RolesConfig, persistRemote: boolean) {
+function publishRoles(next: RolesConfig) {
   const ensured = ensureSystemRoles(next.roles);
   config = { roles: ensured.roles };
   syncUsersRoleOptions(
@@ -142,15 +148,99 @@ function applyRoles(next: RolesConfig, persistRemote: boolean) {
   );
   currentRole = resolveCurrentRole(currentAuthUserId);
   notify();
+}
 
-  if (!persistRemote || !isSupabaseConfigured) return;
+function rememberConfirmed(next: RolesConfig) {
+  confirmed = structuredClone(toRolesDocument(next));
+}
 
-  void saveRolesConfig(toRolesDocument(config)).catch((error: unknown) => {
-    const message =
-      error instanceof Error ? error.message : "Не удалось сохранить роли";
-    console.error("[access] save roles failed", error);
-    setStatus("error", message);
-  });
+function restoreConfirmed() {
+  publishRoles(confirmed);
+}
+
+/** Canonical JSON: object key order does not matter, role order does. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function sameRolesDocument(left: RolesConfig, right: RolesConfig): boolean {
+  return stableJson(left) === stableJson(right);
+}
+
+let persistTail: Promise<void> = Promise.resolve();
+let persistPending = false;
+
+/**
+ * Write the latest roles document, then read it back.
+ * A newer edit sets `persistPending` and is written by the same loop, so an
+ * older request cannot finish last and overwrite it.
+ */
+async function flushPendingRoles(): Promise<void> {
+  while (persistPending) {
+    persistPending = false;
+    const document = toRolesDocument(config);
+    try {
+      await saveRolesConfig(document);
+      const remote = await fetchRolesConfig();
+      const stored = remote ? toRolesDocument(remote) : null;
+      if (!stored || !sameRolesDocument(stored, document)) {
+        throw new Error("Изменения не записались в базу");
+      }
+      rememberConfirmed(stored);
+      if (!persistPending) publishRoles(stored);
+    } catch (error) {
+      if (!persistPending) restoreConfirmed();
+      throw error;
+    }
+  }
+}
+
+function schedulePersist(): Promise<RoleSaveResult> {
+  if (!isSupabaseConfigured) {
+    rememberConfirmed(config);
+    return Promise.resolve({ ok: true });
+  }
+
+  persistPending = true;
+  const job = persistTail.then(flushPendingRoles);
+  persistTail = job.then(
+    () => undefined,
+    () => undefined,
+  );
+  return job.then(
+    () => {
+      setStatus("ready");
+      return { ok: true };
+    },
+    (error: unknown) => {
+      const raw = getErrorMessage(error, "Не удалось сохранить роли");
+      const message = /failed to fetch|networkerror|load failed/i.test(raw)
+        ? "Нет связи с базой. Изменения не записались"
+        : raw;
+      console.error("[access] save roles failed", error);
+      setStatus("error", message);
+      return { ok: false, message };
+    },
+  );
+}
+
+function applyRoles(
+  next: RolesConfig,
+  persistRemote: boolean,
+): Promise<RoleSaveResult> {
+  publishRoles(next);
+  if (!persistRemote) return Promise.resolve({ ok: true });
+  return schedulePersist();
 }
 
 /**
@@ -228,21 +318,13 @@ export async function initAccessConfig(authUserId?: string | null) {
       const next = remote ?? cloneDefaultRolesConfig();
       const ensured = ensureSystemRoles(next.roles);
       config = { roles: ensured.roles };
+      rememberConfirmed(config);
       syncUsersRoleOptions(
         config.roles.map((role) => ({ id: role.id, name: role.name })),
       );
 
       if (isSupabaseConfigured && (remote == null || ensured.changed)) {
-        void saveRolesConfig(toRolesDocument(config)).catch(
-          (error: unknown) => {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Не удалось сохранить роли";
-            console.error("[access] save roles failed", error);
-            setStatus("error", message);
-          },
-        );
+        void schedulePersist();
       }
 
       if (currentAuthUserId) {
@@ -271,22 +353,21 @@ export async function initAccessConfig(authUserId?: string | null) {
   return initPromise;
 }
 
-export function setRolesConfig(next: RolesConfig) {
-  applyRoles(next, true);
-  setStatus("ready");
+export function setRolesConfig(next: RolesConfig): Promise<RoleSaveResult> {
+  return applyRoles(next, true);
 }
 
-export function upsertRole(role: Role) {
+export function upsertRole(role: Role): Promise<RoleSaveResult> {
   const exists = config.roles.some((item) => item.id === role.id);
   const roles = exists
     ? config.roles.map((item) => (item.id === role.id ? role : item))
     : [...config.roles, role];
-  applyRoles({ roles }, true);
+  return applyRoles({ roles }, true);
 }
 
-export function removeRole(roleId: string) {
-  if (roleId === ROLE_ADMIN_ID) return;
-  applyRoles(
+export function removeRole(roleId: string): Promise<RoleSaveResult> {
+  if (roleId === ROLE_ADMIN_ID) return Promise.resolve({ ok: true });
+  return applyRoles(
     { roles: config.roles.filter((role) => role.id !== roleId) },
     true,
   );
@@ -301,7 +382,7 @@ export function cloneRole(roleId: string): Role | null {
     name: `${source.name} (копия)`,
     isSystem: false,
   };
-  applyRoles({ roles: [...config.roles, cloned] }, true);
+  void applyRoles({ roles: [...config.roles, cloned] }, true);
   return cloned;
 }
 
