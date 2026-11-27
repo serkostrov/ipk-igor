@@ -57,6 +57,15 @@ export {
   roleMenuFlat,
 } from "./model/permissions";
 export {
+  inspectAutomationTaskAccess,
+  logAutomationTaskAccessDenied,
+} from "./model/explain-automation-task-access";
+export type {
+  AutomationTaskAccessCheck,
+  AutomationTaskAccessReport,
+  AutomationTaskAccessSubject,
+} from "./model/explain-automation-task-access";
+export {
   readVisibleEntityRecords,
   retainVisibleEntityRecords,
   scopeValueContext,

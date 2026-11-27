@@ -145,7 +145,7 @@ type RecordDataScopeOptions = {
 };
 
 /** Direct entity scope only (no parent inheritance). */
-async function matchesEntityDataScopeDirect(
+export async function matchesRecordDataScopeDirect(
   role: Role,
   entity: Entity,
   record: EntityRecord,
@@ -224,7 +224,7 @@ export async function canViewRecordForDataScope(
   if (!role) return false;
   if (isAdminRole(role)) return true;
   if (!canEntity(role, entity.id, "read")) return false;
-  if (await matchesEntityDataScopeDirect(role, entity, record, options)) {
+  if (await matchesRecordDataScopeDirect(role, entity, record, options)) {
     return true;
   }
 
@@ -419,7 +419,7 @@ async function taskAssigneeInViewerDepartment(
   ).some((id) => viewerDepartmentIds.has(id));
 }
 
-async function taskMatchesAutomationScope(
+export async function taskMatchesAutomationScope(
   role: Role | null | undefined,
   task: AutomationTaskVisibilityTarget,
   options: {
