@@ -1,6 +1,6 @@
+import { readVisibleEntityRecords } from "@/entities/access";
 import {
   SYSTEM_USERS_FIELD_NAME_ID,
-  getEntityRecords,
   getSystemUsersEntity,
   type Entity,
 } from "@/entities/entity";
@@ -19,7 +19,7 @@ export async function listMessengerUserOptions(
   const users = getSystemUsersEntity(entities);
   if (!users) return [];
   const options: MessengerUserOption[] = [];
-  for (const record of await getEntityRecords(users)) {
+  for (const record of await readVisibleEntityRecords(users)) {
     const authUserId = record.authUserId?.trim();
     if (!authUserId || excludeAuthIds.has(authUserId)) continue;
     const name =

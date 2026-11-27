@@ -3,10 +3,9 @@ import { Bell } from "lucide-react";
 import {
   formatNotificationCopy,
   markNotificationRead,
-  useNotificationInbox,
-  useUnreadNotificationCount,
   type Notification,
 } from "@/entities/notification";
+import { useVisibleNotifications } from "../lib/use-visible-notifications";
 import { useEntityConfig } from "@/entities/entity";
 import { Button } from "@/shared/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
@@ -22,8 +21,8 @@ export function NotificationBell({
   onOpenRecord?: (entityId: string, recordId: string) => void;
   onOpenTasks?: () => void;
 }) {
-  const inbox = useNotificationInbox();
-  const unread = useUnreadNotificationCount();
+  const inbox = useVisibleNotifications();
+  const unread = inbox.filter((item) => item.readAt == null).length;
   const { entities } = useEntityConfig();
   const [open, setOpen] = useState(false);
   const recent = inbox.slice(0, 8);

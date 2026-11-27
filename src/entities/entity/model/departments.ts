@@ -8,6 +8,7 @@ import {
   getEntityValueContext,
   getRecordFieldIds,
   resolveEntityLookupTarget,
+  resolveRecordFieldCells,
   type EntityValueContext,
 } from "./field-value";
 import {
@@ -150,6 +151,55 @@ function getUserLinkFields(entity: Pick<Entity, "fields">) {
   });
 }
 
+const userDepartmentIdsCache = new WeakMap<
+  readonly Entity[],
+  Map<string, string[]>
+>();
+const viewerDepartmentIdsCache = new WeakMap<
+  readonly Entity[],
+  Map<string, string[]>
+>();
+const departmentLinkCache = new WeakMap<
+  readonly Entity[],
+  Map<string, boolean>
+>();
+const recordsByIdCache = new WeakMap<
+  readonly EntityRecord[],
+  Map<string, EntityRecord>
+>();
+const absentLinkedRecords = new Set<string>();
+
+function readLocalRecord(
+  entity: Entity,
+  recordId: string,
+): EntityRecord | undefined {
+  let index = recordsByIdCache.get(entity.records);
+  if (!index) {
+    index = new Map(entity.records.map((record) => [record.id, record]));
+    recordsByIdCache.set(entity.records, index);
+  }
+  return index.get(recordId);
+}
+
+/**
+ * Linked row for department matching. A list filter loads the whole set once
+ * and then reads locally — a miss must not turn into one request per record.
+ */
+async function readLinkedRecord(
+  entity: Entity,
+  recordId: string,
+  resolveMissing: boolean,
+): Promise<EntityRecord | undefined> {
+  const local = readLocalRecord(entity, recordId);
+  if (local) return local;
+  if (!resolveMissing) return undefined;
+  const absentKey = `${entity.id}:${recordId}`;
+  if (absentLinkedRecords.has(absentKey)) return undefined;
+  const loaded = await getEntityRecordById(entity, recordId);
+  if (!loaded) absentLinkedRecords.add(absentKey);
+  return loaded;
+}
+
 /**
  * Department ids for a Users record: «Отдел» field + catalogs where the user
  * is listed as «Руководитель» + «Отдел» of commercial groups they head.
@@ -160,6 +210,14 @@ export function collectUserDepartmentIds(
   departmentsEntity: Entity,
   entities: readonly Entity[],
 ): string[] {
+  let byUser = userDepartmentIdsCache.get(entities);
+  if (!byUser) {
+    byUser = new Map();
+    userDepartmentIdsCache.set(entities, byUser);
+  }
+  const cached = byUser.get(userRecord.id);
+  if (cached) return cached;
+
   const found = new Set<string>();
   const ctx = getEntityValueContext(entities);
 
@@ -200,7 +258,9 @@ export function collectUserDepartmentIds(
     }
   }
 
-  return [...found];
+  const result = [...found];
+  byUser.set(userRecord.id, result);
+  return result;
 }
 
 /** Direct «Отдел», a department lookup, or a hop through «Коммерческая группа». */
@@ -261,6 +321,15 @@ export function collectViewerDepartmentIds(
   const usersEntity = getSystemUsersEntity(entities);
   if (!departmentsEntity || !usersEntity) return [];
 
+  const cacheKey = `${options.currentUserRecordId ?? ""}\0${options.authUserId ?? ""}`;
+  let byViewer = viewerDepartmentIdsCache.get(entities);
+  if (!byViewer) {
+    byViewer = new Map();
+    viewerDepartmentIdsCache.set(entities, byViewer);
+  }
+  const cached = byViewer.get(cacheKey);
+  if (cached) return cached;
+
   const userRecord =
     (options.currentUserRecordId
       ? getEntityValueContext(entities).getRecord(
@@ -269,13 +338,18 @@ export function collectViewerDepartmentIds(
         )
       : null) ?? findSystemUserByAuthId(entities, options.authUserId);
 
-  if (!userRecord) return [];
-  return collectUserDepartmentIds(
+  if (!userRecord) {
+    byViewer.set(cacheKey, []);
+    return [];
+  }
+  const result = collectUserDepartmentIds(
     userRecord,
     usersEntity,
     departmentsEntity,
     entities,
   );
+  byViewer.set(cacheKey, result);
+  return result;
 }
 
 function entityCanLinkToDepartments(
@@ -284,6 +358,41 @@ function entityCanLinkToDepartments(
   entities: readonly Entity[],
   depth = 0,
   seen = new Set<string>(),
+): boolean {
+  if (depth === 0 && seen.size === 0) {
+    let cache = departmentLinkCache.get(entities);
+    if (!cache) {
+      cache = new Map();
+      departmentLinkCache.set(entities, cache);
+    }
+    const key = `${entity.id}:${departmentsEntityId}`;
+    const hit = cache.get(key);
+    if (hit !== undefined) return hit;
+    const value = computeEntityCanLinkToDepartments(
+      entity,
+      departmentsEntityId,
+      entities,
+      depth,
+      seen,
+    );
+    cache.set(key, value);
+    return value;
+  }
+  return computeEntityCanLinkToDepartments(
+    entity,
+    departmentsEntityId,
+    entities,
+    depth,
+    seen,
+  );
+}
+
+function computeEntityCanLinkToDepartments(
+  entity: Entity,
+  departmentsEntityId: string,
+  entities: readonly Entity[],
+  depth: number,
+  seen: Set<string>,
 ): boolean {
   if (entity.id === departmentsEntityId) return true;
   if (entity.id === SYSTEM_USERS_ENTITY_ID) return true;
@@ -340,6 +449,220 @@ function entityCanLinkToDepartments(
   return false;
 }
 
+type LookupTarget = {
+  entity: Entity;
+  field: EntityField;
+};
+
+/**
+ * Department ids behind a lookup.
+ * «Отдел менеджера» lands on the departments catalog and displays «Название».
+ * The name is text, so the department id is the catalog row the lookup
+ * reached (the manager's «Отдел»), not an id parsed out of that text.
+ */
+async function addLookupDepartmentIds(
+  entity: Entity,
+  record: EntityRecord,
+  departmentsEntity: Entity,
+  entities: readonly Entity[],
+  found: Set<string>,
+  scope?: { valueContext?: EntityValueContext; resolveMissing?: boolean },
+): Promise<void> {
+  const resolveMissing = scope?.resolveMissing !== false;
+  for (const field of entity.fields) {
+    if (field.type !== "lookup") continue;
+    const target = resolveEntityLookupTarget(entity, field, entities);
+    if (!target) continue;
+    const onCatalog = target.entity.id === departmentsEntity.id;
+    const fieldPointsAtDepartment =
+      getEntityRelationTargetId(target.field) === departmentsEntity.id;
+    if (!onCatalog && !fieldPointsAtDepartment) continue;
+
+    const before = found.size;
+    if (onCatalog) {
+      for (const id of await lookupDepartmentIdsFromStoredLinks(
+        entity,
+        record,
+        field,
+        target,
+        departmentsEntity,
+        entities,
+        resolveMissing,
+      )) {
+        if (id) found.add(id);
+      }
+      if (found.size === before && scope?.valueContext) {
+        for (const cell of resolveRecordFieldCells(
+          scope.valueContext,
+          entity,
+          record,
+          field,
+        )) {
+          if (cell.entity.id === departmentsEntity.id && cell.record.id) {
+            found.add(cell.record.id);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (scope?.valueContext) {
+      for (const id of getRecordFieldIds(
+        scope.valueContext,
+        entity,
+        record,
+        field,
+      )) {
+        if (id) found.add(id);
+      }
+    }
+    if (found.size > before) continue;
+    for (const id of await lookupDepartmentIdsFromStoredLinks(
+      entity,
+      record,
+      field,
+      target,
+      departmentsEntity,
+      entities,
+      resolveMissing,
+    )) {
+      if (id) found.add(id);
+    }
+  }
+}
+
+async function lookupDepartmentIdsFromStoredLinks(
+  entity: Entity,
+  record: EntityRecord,
+  field: EntityField,
+  target: LookupTarget,
+  departmentsEntity: Entity,
+  entities: readonly Entity[],
+  resolveMissing: boolean,
+): Promise<string[]> {
+  const lookup = field.lookup;
+  if (!lookup) return [];
+  const bridge = entity.fields.find(
+    (item) => item.id === lookup.relationFieldId,
+  );
+  if (!bridge || (bridge.type !== "relation" && bridge.type !== "belonging")) {
+    return [];
+  }
+  const bridgeEntity = entityById(
+    entities,
+    getEntityRelationTargetId(bridge) ?? "",
+  );
+  if (!bridgeEntity) return [];
+
+  const onCatalog = target.entity.id === departmentsEntity.id;
+  const fieldPointsAtDepartment =
+    getEntityRelationTargetId(target.field) === departmentsEntity.id;
+  const viaFieldId = lookup.viaFieldId?.trim() ?? "";
+  const ids: string[] = [];
+
+  for (const bridgeId of parseEntityRelationIds(record.values[bridge.id])) {
+    const bridgeRecord = await readLinkedRecord(
+      bridgeEntity,
+      bridgeId,
+      resolveMissing,
+    );
+    if (!bridgeRecord) continue;
+    if (!viaFieldId) {
+      if (fieldPointsAtDepartment) {
+        ids.push(
+          ...parseEntityRelationIds(bridgeRecord.values[target.field.id]),
+        );
+      } else if (onCatalog && bridgeEntity.id === departmentsEntity.id) {
+        ids.push(bridgeRecord.id);
+      }
+      continue;
+    }
+    const viaField = bridgeEntity.fields.find((item) => item.id === viaFieldId);
+    if (!viaField || viaField.type !== "relation") continue;
+    const viaIds = parseEntityRelationIds(bridgeRecord.values[viaField.id]);
+    const viaTargetId = getEntityRelationTargetId(viaField);
+    if (onCatalog || viaTargetId === departmentsEntity.id) {
+      ids.push(...viaIds);
+      continue;
+    }
+    if (!fieldPointsAtDepartment || !viaTargetId) continue;
+    const viaEntity = entityById(entities, viaTargetId);
+    if (!viaEntity) continue;
+    for (const viaId of viaIds) {
+      const viaRecord = await readLinkedRecord(
+        viaEntity,
+        viaId,
+        resolveMissing,
+      );
+      if (!viaRecord) continue;
+      ids.push(...parseEntityRelationIds(viaRecord.values[target.field.id]));
+    }
+  }
+  return ids;
+}
+
+/**
+ * User, department and commercial-group ids a department-scope pass will read.
+ * Loaded once for a list, instead of one request per row.
+ */
+export function collectDepartmentScopeLinkIds(
+  entity: Entity,
+  records: readonly EntityRecord[],
+  entities: readonly Entity[],
+): string[] {
+  const departmentsEntity = findDepartmentsEntity(entities);
+  const ids = new Set<string>();
+  const addValue = (value: string | undefined) => {
+    for (const id of parseEntityRelationIds(value)) {
+      if (id) ids.add(id);
+    }
+  };
+
+  for (const record of records) {
+    for (const field of entity.fields) {
+      if (field.type === "lookup") {
+        if (
+          !departmentsEntity ||
+          !lookupResolvesToDepartments(
+            entity,
+            field,
+            entities,
+            departmentsEntity.id,
+          )
+        ) {
+          continue;
+        }
+        const bridge = entity.fields.find(
+          (item) => item.id === field.lookup?.relationFieldId,
+        );
+        if (
+          bridge &&
+          (bridge.type === "relation" || bridge.type === "belonging")
+        ) {
+          addValue(record.values[bridge.id]);
+        }
+        continue;
+      }
+      if (field.type !== "relation" && field.type !== "belonging") continue;
+      const targetId = getEntityRelationTargetId(field);
+      if (!targetId) continue;
+      if (targetId === SYSTEM_USERS_ENTITY_ID) {
+        addValue(record.values[field.id]);
+        continue;
+      }
+      if (departmentsEntity && targetId === departmentsEntity.id) {
+        addValue(record.values[field.id]);
+        continue;
+      }
+      const target = entityById(entities, targetId);
+      if (target && entityNameMatches(target, DEPARTMENT_HOP_ENTITY_KEYS)) {
+        addValue(record.values[field.id]);
+      }
+    }
+  }
+  return [...ids];
+}
+
 /**
  * Collect department ids linked to a record.
  * Prefer explicit «Отдел» / «Коммерческая группа»→«Отдел». Users-field hops
@@ -353,7 +676,7 @@ export async function collectRecordDepartmentIds(
   entities: readonly Entity[],
   depth = 0,
   visited = new Set<string>(),
-  scope?: { valueContext?: EntityValueContext },
+  scope?: { valueContext?: EntityValueContext; resolveMissing?: boolean },
 ): Promise<string[]> {
   const key = `${entity.id}:${record.id}`;
   if (depth > 3 || visited.has(key)) return [];
@@ -398,29 +721,14 @@ export async function collectRecordDepartmentIds(
     }
   }
 
-  if (scope?.valueContext) {
-    for (const field of entity.fields) {
-      if (field.type !== "lookup") continue;
-      if (
-        !lookupResolvesToDepartments(
-          entity,
-          field,
-          entities,
-          departmentsEntity.id,
-        )
-      ) {
-        continue;
-      }
-      for (const id of getRecordFieldIds(
-        scope.valueContext,
-        entity,
-        record,
-        field,
-      )) {
-        if (id) found.add(id);
-      }
-    }
-  }
+  await addLookupDepartmentIds(
+    entity,
+    record,
+    departmentsEntity,
+    entities,
+    found,
+    scope,
+  );
 
   for (const field of entity.fields) {
     const targetId = getEntityRelationTargetId(field);
@@ -448,7 +756,11 @@ export async function collectRecordDepartmentIds(
       continue;
     }
     for (const relatedId of parseEntityRelationIds(record.values[field.id])) {
-      const related = await getEntityRecordById(target, relatedId);
+      const related = await readLinkedRecord(
+        target,
+        relatedId,
+        scope?.resolveMissing !== false,
+      );
       if (!related) continue;
       for (const id of await collectRecordDepartmentIds(
         target,
@@ -481,7 +793,11 @@ export async function collectRecordDepartmentIds(
     });
     for (const field of responsible) {
       for (const userId of parseEntityRelationIds(record.values[field.id])) {
-        const user = await getEntityRecordById(usersEntity, userId);
+        const user = await readLinkedRecord(
+          usersEntity,
+          userId,
+          scope?.resolveMissing !== false,
+        );
         if (!user) continue;
         for (const id of collectUserDepartmentIds(
           user,
@@ -517,6 +833,8 @@ export async function recordMatchesDepartmentScope(
     authUserId: string | null;
     currentUserRecordId: string | null;
     valueContext?: EntityValueContext;
+    /** False after a list filter has already loaded the linked rows. */
+    resolveMissing?: boolean;
   },
 ): Promise<boolean> {
   if (!departmentsEntity) return false;
@@ -538,7 +856,10 @@ export async function recordMatchesDepartmentScope(
     entities,
     0,
     new Set<string>(),
-    { valueContext: options.valueContext },
+    {
+      valueContext: options.valueContext,
+      resolveMissing: options.resolveMissing,
+    },
   );
 
   // Orphan / unbound record on a department-capable entity — not visible

@@ -51,6 +51,8 @@ import {
   type EntityTableDisplayColumn,
   type EntityValueContext,
 } from "@/entities/entity";
+import { filterVisibleEntityRecords, getCurrentRole } from "@/entities/access";
+import { getSessionUser } from "@/entities/session";
 import { EntityRecordDialog } from "@/pages/entity/ui/EntityRecordDialog";
 import {
   ENTITY_TABLE_ACTIONS_WIDTH,
@@ -1037,12 +1039,24 @@ function CreateAskNestedPanel({
     if (!primaryParentRecordId || !parentLinkFieldId) {
       return EMPTY_CREATE_ASK_RECORDS;
     }
-    return getEntityRecordsLinkedByField(
+    return filterVisibleEntityRecords(
+      getCurrentRole(),
       liveEntity,
-      parentLinkFieldId,
-      primaryParentRecordId,
+      await getEntityRecordsLinkedByField(
+        liveEntity,
+        parentLinkFieldId,
+        primaryParentRecordId,
+      ),
+      {
+        entities,
+        authUserId: getSessionUser()?.id ?? null,
+        currentUserRecordId: ctx.currentUserRecordId,
+        valueContext: ctx,
+      },
     );
   }, [
+    ctx,
+    entities,
     liveEntity,
     parentLinkFieldId,
     primaryParentRecordId,
@@ -1203,13 +1217,25 @@ function CreateAskSinglePanel({
     if (!primaryParentRecordId || !parentLinkFieldId) {
       return EMPTY_CREATE_ASK_RECORDS;
     }
-    const linked = await getEntityRecordsLinkedByField(
+    const linked = await filterVisibleEntityRecords(
+      getCurrentRole(),
       liveEntity,
-      parentLinkFieldId,
-      primaryParentRecordId,
+      await getEntityRecordsLinkedByField(
+        liveEntity,
+        parentLinkFieldId,
+        primaryParentRecordId,
+      ),
+      {
+        entities,
+        authUserId: getSessionUser()?.id ?? null,
+        currentUserRecordId: ctx.currentUserRecordId,
+        valueContext: ctx,
+      },
     );
     return linked.slice(0, 1);
   }, [
+    ctx,
+    entities,
     liveEntity,
     parentLinkFieldId,
     primaryParentRecordId,

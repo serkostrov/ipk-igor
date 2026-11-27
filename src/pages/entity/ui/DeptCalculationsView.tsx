@@ -48,7 +48,6 @@ import {
   serializeEntityRelationIds,
   updateEntityRecord,
   useEntityConfig,
-  useEntityValueContext,
   type Entity,
   type EntityRecord,
   type EntityTableNestedTarget,
@@ -81,7 +80,7 @@ import {
   missingDeptCalculationGipStageIds,
   syncDeptCalculationCatalogManagers,
 } from "@/features/hardcode/tkp-gip/fan-out-related-persist";
-import { useCanEntity } from "@/entities/access";
+import { useCanEntity, useDisplayValueContext } from "@/entities/access";
 import { EntityRecordDialog } from "./EntityRecordDialog";
 import { RecordDeleteConfirmDialog } from "./RecordDeleteConfirmDialog";
 
@@ -243,7 +242,7 @@ export function DeptCalculationsView({
   editableRecordIds = null,
 }: DeptCalculationsViewProps) {
   const { entities } = useEntityConfig();
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const canDeleteHost = useCanEntity(entity.id, "delete");
   const hostFields = useMemo(
     () => resolveDeptCalculationsHostFields(entity),

@@ -3621,11 +3621,14 @@ async function insertRecord(
   return appendEntityRecord(entityId, record);
 }
 
-export function addEntityRecord(
+export async function addEntityRecord(
   entityId: string,
   values: Record<string, string> = {},
   options?: { id?: string },
 ): Promise<EntityRecord> {
+  if (!(await canMutateEntityRecord(entityId, "create"))) {
+    throw new Error("Недостаточно прав для создания записи");
+  }
   return insertRecord(entityId, values, options);
 }
 
@@ -3852,6 +3855,9 @@ async function saveRecord(
   if (!existing) {
     throw new Error("Запись не найдена");
   }
+  if (!(await canMutateEntityRecord(entityId, "update", existing))) {
+    throw new Error("Недостаточно прав для изменения записи");
+  }
 
   // Match SQL `update_entity_record_values`: callers may pass a partial patch
   // (setField, files tab, upload). Keep the merge local so other fields survive.
@@ -4003,7 +4009,9 @@ export async function removeEntityRecord(
   entityId: string,
   recordId: string,
 ): Promise<void> {
-  if (!canMutateEntityRecord(entityId, "delete")) {
+  const entity = config.entities.find((item) => item.id === entityId);
+  const existing = await getEntityRecordById(entity, recordId);
+  if (!(await canMutateEntityRecord(entityId, "delete", existing ?? null))) {
     console.warn(
       "[entity] removeEntityRecord denied by access policy",
       entityId,

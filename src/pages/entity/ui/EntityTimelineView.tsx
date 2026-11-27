@@ -16,7 +16,6 @@ import {
   resolveEntityListFieldOptions,
   resolveRelationRecordLabel,
   useEntityConfig,
-  useEntityValueContext,
   type Entity,
   type EntityRecord,
 } from "@/entities/entity";
@@ -38,7 +37,7 @@ import {
   type TimelineScale,
   type TimelineSegment,
 } from "../lib/timeline-layout";
-import { useCurrentRole } from "@/entities/access";
+import { useCurrentRole, useDisplayValueContext } from "@/entities/access";
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
@@ -192,7 +191,7 @@ export function EntityTimelineView({
 }) {
   const role = useCurrentRole();
   const { entities } = useEntityConfig();
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const setup = useMemo(() => getEntityTimelineSetup(entity), [entity]);
   /** Cluster / split: collapsed when present (default expanded). */
   const [collapsedClusterIds, setCollapsedClusterIds] = useState(

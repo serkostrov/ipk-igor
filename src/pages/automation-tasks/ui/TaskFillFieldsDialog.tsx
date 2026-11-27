@@ -47,7 +47,6 @@ import {
   sanitizeEntityRelationDependencies,
   updateEntityRecord,
   useEntityConfig,
-  useEntityValueContext,
   type EntityField,
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
@@ -105,7 +104,7 @@ import { TaskViewContextFields } from "@/features/automation-tasks/ui/TaskViewCo
 import { TaskViewTabsPreview } from "@/features/automation-tasks/ui/TaskViewTabsPreview";
 import { TaskUploadPanel } from "@/features/automation-tasks/ui/TaskUploadPanel";
 import { getAutomationErrorMessage } from "@/shared/lib/error-message";
-import { useCurrentRole } from "@/entities/access";
+import { useCurrentRole, useDisplayValueContext } from "@/entities/access";
 import {
   findTkpCalcDeadlineField,
   isTkpDepartmentHeadRole,
@@ -137,11 +136,6 @@ function TaskFillFieldsDialogBody({
   const role = useCurrentRole();
   const restrictDeptToOwn = isTkpDepartmentHeadRole(role);
   const { entities } = useEntityConfig();
-  const valueContext = useEntityValueContext();
-  const previewContext = useMemo(
-    () => getEntityPreviewValueContext(valueContext),
-    [valueContext],
-  );
 
   const [task, setTask] = useState<AutomationTask | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -284,6 +278,11 @@ function TaskFillFieldsDialogBody({
   }, [taskId]);
 
   const entity = entities.find((item) => item.id === task?.entityId) ?? null;
+  const valueContext = useDisplayValueContext(entity);
+  const previewContext = useMemo(
+    () => getEntityPreviewValueContext(valueContext),
+    [valueContext],
+  );
   const recordValue = useAsyncValue(
     () => getEntityRecordById(entity, task?.recordId),
     [entity, task?.recordId],

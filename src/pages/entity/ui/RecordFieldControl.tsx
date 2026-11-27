@@ -7,17 +7,16 @@ import { Textarea } from "@/shared/ui/textarea";
 import { TimePicker } from "@/shared/ui/time-picker";
 import { useMemo } from "react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
-import { filterVisibleEntityRecords, useCurrentRole } from "@/entities/access";
-import { getSessionUser } from "@/entities/session";
+import { readVisibleEntityRecords, useCurrentRole } from "@/entities/access";
 import {
   createEntityDraftRecord,
   getEntityRecordById,
+  getRelationGroupsLevelEntityId,
   ListSelect,
   RelationGroupsFieldControl,
   RelationSelect,
   entityFieldInputType,
   formatRecordFieldValue,
-  getCurrentUserRecordId,
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityRelationTargetId,
@@ -231,6 +230,37 @@ function TkpRelationGroupsControl({
       gipDepartmentId.status === "ready" ? gipDepartmentId.value : null;
     return gipId ? new Set([gipId]) : undefined;
   }, [gipDepartmentId]);
+  const levelEntityIds = useMemo(() => {
+    const config = field.relationGroups;
+    if (!config) return [] as string[];
+    const ids: string[] = [];
+    let previous: string | null = null;
+    for (const level of config.levels) {
+      const id = getRelationGroupsLevelEntityId(
+        level,
+        previous,
+        (entityId, fieldId) => {
+          const host = entities.find((item) => item.id === entityId);
+          const source = host?.fields.find((item) => item.id === fieldId);
+          return source ? getEntityRelationTargetId(source) : null;
+        },
+      );
+      if (!id) continue;
+      ids.push(id);
+      previous = id;
+    }
+    return ids;
+  }, [entities, field.relationGroups]);
+  const allowedRecordIds = useAsyncValue(async () => {
+    const map = new Map<string, Set<string>>();
+    for (const id of levelEntityIds) {
+      const target = entities.find((item) => item.id === id);
+      if (!target) continue;
+      const visible = await readVisibleEntityRecords(target);
+      map.set(id, new Set(visible.map((record) => record.id)));
+    }
+    return map;
+  }, [entities, levelEntityIds]);
 
   return (
     <RelationGroupsFieldControl
@@ -243,6 +273,9 @@ function TkpRelationGroupsControl({
       hiddenNestedRecordIds={hiddenNestedRecordIds}
       catalogFilterSource={{ entity, record: hostRecord }}
       resolveRecordExtras={resolveRecordExtras}
+      allowedRecordIds={
+        allowedRecordIds.status === "ready" ? allowedRecordIds.value : new Map()
+      }
     />
   );
 }
@@ -332,20 +365,10 @@ export function RecordFieldControl({
       field.type === "belonging"
         ? (entities.find((item) => item.id === entity.id) ?? entity)
         : target;
-    if (!catalog) return null;
-    const visible = await filterVisibleEntityRecords(
-      role,
-      catalog,
-      catalog.records,
-      {
-        entities: ctx.entities,
-        authUserId: getSessionUser()?.id ?? null,
-        currentUserRecordId: getCurrentUserRecordId(),
-        valueContext: ctx,
-      },
-    );
+    if (!catalog || !role) return new Set<string>();
+    const visible = await readVisibleEntityRecords(catalog);
     return new Set(visible.map((record) => record.id));
-  }, [ctx, entities, entity, field.type, role, target]);
+  }, [entities, entity, field.type, role, target]);
 
   const labelNode = (
     <Label htmlFor={id}>

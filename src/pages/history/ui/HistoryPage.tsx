@@ -1,4 +1,10 @@
 import { useState } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import {
+  canEntity,
+  readVisibleEntityRecords,
+  useCurrentRole,
+} from "@/entities/access";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
@@ -81,6 +87,7 @@ export function HistoryPage({
 }: HistoryPageProps) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
+  const role = useCurrentRole();
   const today = todayIsoDate();
   const [from, setFrom] = useState(() => addCalendarDays(today, -30));
   const [to, setTo] = useState(today);
@@ -98,9 +105,30 @@ export function HistoryPage({
       : undefined
     )?.authUserId ?? undefined;
   const entity = entities.find((item) => item.id === entityId);
+  const readableEntities = entities.filter((item) =>
+    canEntity(role, item.id, "read"),
+  );
+  const userOptions = useAsyncValue(async () => {
+    if (!users || !canEntity(role, users.id, "read")) return [];
+    const visible = await readVisibleEntityRecords(users);
+    const ids = new Set(visible.map((record) => record.id));
+    return getRelationRecordOptions(users).filter((option) =>
+      ids.has(option.id),
+    );
+  }, [role, users]);
+  const recordOptions = useAsyncValue(async () => {
+    if (!entity || !canEntity(role, entity.id, "read")) return [];
+    const visible = await readVisibleEntityRecords(entity);
+    const ids = new Set(visible.map((record) => record.id));
+    return getRelationRecordOptions(entity).filter((option) =>
+      ids.has(option.id),
+    );
+  }, [entity, role]);
   // Load records for the filtered entity (+ Users for actor names). Events
   // referencing other entities fall back to id-priming via the value context.
   usePageRecordScope([entityId, users?.id ?? ""]);
+  if (userOptions.status === "error") throw userOptions.error;
+  if (recordOptions.status === "error") throw recordOptions.error;
   const query = { from, to, actorId, entityId: entityId || undefined };
   const hasFilters = Boolean(userRecordId || entityId || recordId);
 
@@ -151,13 +179,13 @@ export function HistoryPage({
         <FilterSelect
           label="Пользователь"
           value={userRecordId}
-          options={getRelationRecordOptions(users)}
+          options={userOptions.status === "ready" ? userOptions.value : []}
           onChange={setUserRecordId}
         />
         <FilterSelect
           label="Сущность"
           value={entityId}
-          options={entities
+          options={readableEntities
             .map((item) => ({ id: item.id, label: getEntityDisplayName(item) }))
             .sort((a, b) => a.label.localeCompare(b.label, "ru"))}
           onChange={(next) => {
@@ -167,7 +195,9 @@ export function HistoryPage({
         />
         {entity && kind === "record" ? (
           <RelationSelect
-            options={getRelationRecordOptions(entity)}
+            options={
+              recordOptions.status === "ready" ? recordOptions.value : []
+            }
             value={recordId ? serializeEntityRelationIds([recordId]) : ""}
             placeholder="Любая запись"
             aria-label="Запись"

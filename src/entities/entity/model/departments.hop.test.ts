@@ -114,6 +114,11 @@ async function main() {
     namePlural: "Отделы",
     fields: [
       field({
+        id: "field-dept-name",
+        name: "Название",
+        type: "text",
+      }),
+      field({
         id: "field-dept-head",
         name: "Руководитель",
         type: "relation",
@@ -399,6 +404,85 @@ async function main() {
       requestOpts,
     )),
     "a watcher must not pull the record into their department when a department lookup exists",
+  );
+
+  // «Отдел менеджера»: manager → user.«Отдел» → department.«Название» (text).
+  // The department id is the catalog row, not an id parsed from the name.
+  const namedLeads = entity({
+    id: "entity-named-leads",
+    name: "Лиды отдела",
+    fields: [
+      field({
+        id: "field-named-manager",
+        name: "Менеджер",
+        type: "relation",
+        relationEntityId: SYSTEM_USERS_ENTITY_ID,
+      }),
+      field({
+        id: "field-named-gip",
+        name: "ГИП",
+        type: "relation",
+        relationEntityId: SYSTEM_USERS_ENTITY_ID,
+      }),
+      field({
+        id: "field-named-dept",
+        name: "Отдел менеджера",
+        type: "lookup",
+        lookup: {
+          relationFieldId: "field-named-manager",
+          viaFieldId: "field-user-dept",
+          targetFieldId: "field-dept-name",
+        },
+      }),
+    ],
+    records: [
+      record("named-lead", {
+        "field-named-manager": "user-manager",
+        "field-named-gip": "user-head",
+      }),
+    ],
+  });
+  const namedEntities = [...entitiesList, namedLeads];
+  const namedIds = await collectRecordDepartmentIds(
+    namedLeads,
+    namedLeads.records[0]!,
+    departments,
+    namedEntities,
+  );
+  assert(
+    [...namedIds].sort().join(",") === "dept-a",
+    `name lookup expected dept-a only, got: ${namedIds.join(",") || "(empty)"}`,
+  );
+  const namedCtx = getEntityValueContext(namedEntities);
+  assert(
+    await recordMatchesDepartmentScope(
+      namedLeads,
+      namedLeads.records[0]!,
+      ["dept-a"],
+      departments,
+      namedEntities,
+      {
+        authUserId: null,
+        currentUserRecordId: "user-viewer",
+        valueContext: namedCtx,
+      },
+    ),
+    "viewer in the manager department sees the lead",
+  );
+  assert(
+    !(await recordMatchesDepartmentScope(
+      namedLeads,
+      namedLeads.records[0]!,
+      ["dept-b"],
+      departments,
+      namedEntities,
+      {
+        authUserId: null,
+        currentUserRecordId: "user-viewer",
+        valueContext: namedCtx,
+      },
+    )),
+    "ГИП from another department must not pull the lead in",
   );
 
   console.log("ok: department scope uses group→dept, not manager hop");

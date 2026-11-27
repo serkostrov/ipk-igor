@@ -117,6 +117,11 @@ export type EntityValueContext = {
   recordIndexByEntity: Map<string, Map<string, EntityRecord>>;
   /** Records of `entityId` (store + anything primed into the index). */
   getRecords: (entityId: string) => readonly EntityRecord[];
+  /**
+   * When set, linked aggregates (rollup, related hours) skip other ids.
+   * Absent — no extra filter. Display code fills this for the current role.
+   */
+  visibleRecordIds?: ReadonlyMap<string, ReadonlySet<string>>;
   /** A single record of `entityId` by id, or `undefined`. */
   getRecord: (entityId: string, id: string) => EntityRecord | undefined;
   linkIndexes: Map<string, Map<string, EntityRecord[]>>;
@@ -337,7 +342,10 @@ export function getEntityLinkedRecords(
     }
     ctx.linkIndexes.set(key, index);
   }
-  return index.get(parentRecordId) ?? [];
+  const linked = index.get(parentRecordId) ?? [];
+  const allowed = ctx.visibleRecordIds?.get(sourceEntityId);
+  if (!allowed) return linked;
+  return linked.filter((record) => allowed.has(record.id));
 }
 
 /**
@@ -2163,15 +2171,57 @@ export type EntityConditionSource = {
   record: EntityRecord;
 };
 
+/**
+ * Role data-scope filters pass `missingFieldFails` so a broken condition
+ * hides the record. Ordinary UI filters keep the legacy «unknown field passes».
+ */
+export type EntityConditionMatchMode = {
+  missingFieldFails?: boolean;
+  /** Session id, matched together with the Users record id. */
+  authUserId?: string | null;
+};
+
+function conditionOperandMissing(condition: EntityCondition): boolean {
+  const values = (condition.values ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  const scalar = (condition.value ?? "").trim();
+  switch (condition.operator) {
+    case "in":
+    case "notIn":
+    case "userRoleIn":
+    case "userRoleNotIn":
+      return values.length === 0;
+    case "equalsCurrentUserField":
+    case "notEqualsCurrentUserField":
+    case "equalsRecordField":
+    case "gt":
+    case "lt":
+    case "eq":
+    case "on":
+    case "before":
+    case "after":
+    case "contains":
+    case "withinDays":
+      return scalar.length === 0;
+    default:
+      return condition.fieldId.trim().length === 0;
+  }
+}
+
 function matchesEntityCondition(
   ctx: EntityValueContext,
   entity: Entity,
   record: EntityRecord,
   condition: EntityCondition,
   source?: EntityConditionSource | null,
+  mode?: EntityConditionMatchMode,
 ): boolean {
   const field = findField(entity, condition.fieldId);
-  if (!field) return true;
+  if (!field) return mode?.missingFieldFails ? false : true;
+  if (mode?.missingFieldFails && conditionOperandMissing(condition)) {
+    return false;
+  }
   const cells = resolveRecordFieldCells(ctx, entity, record, field);
 
   switch (condition.operator) {
@@ -2203,13 +2253,15 @@ function matchesEntityCondition(
       return cells.some((cell) =>
         isEntityListOptionProblem(listOptionOf(ctx, cell)),
       );
-    case "isCurrentUser":
-      return (
-        ctx.currentUserRecordId != null &&
-        getRecordFieldIds(ctx, entity, record, field).includes(
-          ctx.currentUserRecordId,
-        )
+    case "isCurrentUser": {
+      const viewerIds = new Set<string>();
+      if (ctx.currentUserRecordId) viewerIds.add(ctx.currentUserRecordId);
+      if (mode?.authUserId) viewerIds.add(mode.authUserId);
+      if (viewerIds.size === 0) return false;
+      return getRecordFieldIds(ctx, entity, record, field).some((id) =>
+        viewerIds.has(id),
       );
+    }
     case "userRoleIn":
     case "userRoleNotIn": {
       const wanted = new Set(
@@ -2341,10 +2393,11 @@ export function matchesEntityConditions(
   record: EntityRecord,
   conditions: readonly EntityCondition[] | undefined,
   source?: EntityConditionSource | null,
+  mode?: EntityConditionMatchMode,
 ): boolean {
   if (!conditions || conditions.length === 0) return true;
   return conditions.every((condition) =>
-    matchesEntityCondition(ctx, entity, record, condition, source),
+    matchesEntityCondition(ctx, entity, record, condition, source, mode),
   );
 }
 

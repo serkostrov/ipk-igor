@@ -413,6 +413,7 @@ export {
   recordMatchesLegalEntityScope,
 } from "./model/legal-entities";
 export {
+  collectDepartmentScopeLinkIds,
   collectRecordDepartmentIds,
   collectUserDepartmentIds,
   collectViewerDepartmentIds,

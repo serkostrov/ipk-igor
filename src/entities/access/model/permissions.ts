@@ -3,21 +3,21 @@ import {
   CHATS_ITEM_ID,
   FEED_ITEM_ID,
   HISTORY_ITEM_ID,
-  OPIU_ITEM_ID,
-  FINANCE_DASHBOARDS_ITEM_ID,
-  PROJECT_TIMESHEET_ITEM_ID,
-  PAYMENT_CALENDAR_ITEM_ID,
   NOTIFICATIONS_ITEM_ID,
   SETTINGS_ITEM_ID,
 } from "@/entities/menu";
 import {
+  collectDepartmentScopeLinkIds,
   collectUserDepartmentIds,
   collectViewerDepartmentIds,
   findDepartmentsEntity,
   findLegalEntitiesEntity,
   findSystemUserByAuthId,
+  getEntityConfig,
+  getEntityValueContext,
   getSystemUsersEntity,
   getEntityRecordById,
+  primeEntityRecordsByIds,
   matchesEntityConditions,
   recordMatchesDepartmentScope,
   recordMatchesLegalEntityScope,
@@ -135,6 +135,13 @@ type RecordDataScopeOptions = {
   valueContext?: EntityValueContext;
   /** Shared cycle guard for parent→child view inheritance. */
   parentVisit?: Set<string>;
+  /** Computed once per list so each row does not rescan departments. */
+  viewerDepartmentIds?: readonly string[];
+  /**
+   * List filters load linked rows first. Further misses stay local so a
+   * catalog of thousands of rows cannot issue one request per record.
+   */
+  resolveMissing?: boolean;
 };
 
 /** Direct entity scope only (no parent inheritance). */
@@ -148,19 +155,26 @@ async function matchesEntityDataScopeDirect(
   if (scope === "all") return true;
 
   if (scope === "own") {
+    const ownFieldIds = getEntityAccess(
+      role.permissions,
+      entity.id,
+    )?.ownFieldIds;
     return recordMatchesOwnScope(entity, record, {
       authUserId: options.authUserId,
       currentUserRecordId: options.currentUserRecordId,
       entities: options.entities,
       valueContext: options.valueContext,
+      ...(ownFieldIds !== undefined ? { ownFieldIds } : {}),
     });
   }
 
   if (scope === "department") {
-    const viewerDepartmentIds = collectViewerDepartmentIds(options.entities, {
-      authUserId: options.authUserId,
-      currentUserRecordId: options.currentUserRecordId,
-    });
+    const viewerDepartmentIds =
+      options.viewerDepartmentIds ??
+      collectViewerDepartmentIds(options.entities, {
+        authUserId: options.authUserId,
+        currentUserRecordId: options.currentUserRecordId,
+      });
     return recordMatchesDepartmentScope(
       entity,
       record,
@@ -171,6 +185,7 @@ async function matchesEntityDataScopeDirect(
         authUserId: options.authUserId,
         currentUserRecordId: options.currentUserRecordId,
         valueContext: options.valueContext,
+        resolveMissing: options.resolveMissing,
       },
     );
   }
@@ -183,6 +198,11 @@ async function matchesEntityDataScopeDirect(
       entity,
       record,
       conditions,
+      null,
+      {
+        missingFieldFails: true,
+        authUserId: options.authUserId,
+      },
     );
   }
 
@@ -191,7 +211,9 @@ async function matchesEntityDataScopeDirect(
 
 /**
  * Whether a record is visible under entity data scope (all / own / department /
- * filter), or via a visible parent (project → task → subtask).
+ * filter), or via a visible owning parent (project → task → subtask).
+ * No read on the entity hides the record even when scope is «all» — that
+ * scope must not open children through a catalog the role cannot read.
  */
 export async function canViewRecordForDataScope(
   role: Role | null | undefined,
@@ -201,6 +223,7 @@ export async function canViewRecordForDataScope(
 ): Promise<boolean> {
   if (!role) return false;
   if (isAdminRole(role)) return true;
+  if (!canEntity(role, entity.id, "read")) return false;
   if (await matchesEntityDataScopeDirect(role, entity, record, options)) {
     return true;
   }
@@ -470,6 +493,11 @@ async function taskMatchesAutomationScope(
     entity,
     record,
     filter.conditions,
+    null,
+    {
+      missingFieldFails: true,
+      authUserId: options.authUserId,
+    },
   );
 }
 
@@ -489,7 +517,17 @@ export async function canViewAutomationTask(
 
   const entity = options.entities.find((item) => item.id === task.entityId);
   const record = await getEntityRecordById(entity, task.recordId);
-  if (!entity || !record) return roleLegalEntityIds(role).length === 0;
+  if (!entity || !record) return false;
+  if (
+    !(await canViewRecordForDataScope(role, entity, record, {
+      entities: options.entities,
+      authUserId: options.authUserId,
+      currentUserRecordId: options.userRecordId,
+      valueContext: options.valueContext,
+    }))
+  ) {
+    return false;
+  }
   return canViewRecordForLegalEntities(role, entity, record, options.entities);
 }
 
@@ -531,6 +569,49 @@ function explicitTabFlag(
   return mode === "edit" ? tab.edit : true;
 }
 
+/**
+ * Department scope reads the responsible user (and similar links) of every
+ * row. Load those rows once, then match against memory.
+ */
+async function withDepartmentListOptions(
+  role: Role | null | undefined,
+  entity: Entity,
+  records: readonly EntityRecord[],
+  options: RecordDataScopeOptions,
+): Promise<RecordDataScopeOptions> {
+  if (!role || isAdminRole(role)) return options;
+  if (entityScope(role, entity.id) !== "department") return options;
+
+  let next = options;
+  if (options.entities === getEntityConfig().entities) {
+    const ids = collectDepartmentScopeLinkIds(
+      entity,
+      records,
+      options.entities,
+    );
+    if (ids.length > 0) await primeEntityRecordsByIds(ids);
+    const entities = getEntityConfig().entities;
+    next = {
+      ...options,
+      entities,
+      valueContext:
+        entities === options.entities
+          ? options.valueContext
+          : getEntityValueContext(entities, options.currentUserRecordId),
+      resolveMissing: false,
+    };
+  }
+
+  if (next.viewerDepartmentIds) return next;
+  return {
+    ...next,
+    viewerDepartmentIds: collectViewerDepartmentIds(next.entities, {
+      authUserId: next.authUserId,
+      currentUserRecordId: next.currentUserRecordId,
+    }),
+  };
+}
+
 /** Records the role may see (data scope, ownership parent, legal entities). */
 export async function filterVisibleEntityRecords(
   role: Role | null | undefined,
@@ -538,16 +619,22 @@ export async function filterVisibleEntityRecords(
   records: readonly EntityRecord[],
   options: RecordDataScopeOptions,
 ): Promise<EntityRecord[]> {
+  const scoped = await withDepartmentListOptions(
+    role,
+    entity,
+    records,
+    options,
+  );
   const visible = await Promise.all(
     records.map(async (record) => {
-      if (!(await canViewRecordForDataScope(role, entity, record, options))) {
+      if (!(await canViewRecordForDataScope(role, entity, record, scoped))) {
         return false;
       }
       return canViewRecordForLegalEntities(
         role,
         entity,
         record,
-        options.entities,
+        scoped.entities,
       );
     }),
   );
@@ -567,9 +654,6 @@ export async function filterAutomationTasksForRole<
   },
 ): Promise<T[]> {
   if (!canAccessAutomationTasks(role)) return [];
-  const scope = automationTasksScope(role);
-  const hasLegalRestriction = roleLegalEntityIds(role).length > 0;
-  if (scope === "all" && !hasLegalRestriction) return tasks;
   const visible = await Promise.all(
     tasks.map((task) => canViewAutomationTask(role, task, options)),
   );
@@ -600,6 +684,33 @@ export function canCreateNewsPosts(role: Role | null | undefined): boolean {
   return role.permissions.canCreateNewsPosts;
 }
 
+/**
+ * Separate switch for a built-in page (лента, история, настройки, …).
+ * `null` — the menu item has no switch of its own.
+ */
+export function systemMenuItemAllowed(
+  role: Role | null | undefined,
+  menuItemId: string,
+): boolean | null {
+  if (!role) return null;
+  switch (menuItemId) {
+    case SETTINGS_ITEM_ID:
+      return canAccessSettings(role);
+    case HISTORY_ITEM_ID:
+      return canAccessHistory(role);
+    case AUTOMATION_TASKS_ITEM_ID:
+      return canAccessAutomationTasks(role);
+    case NOTIFICATIONS_ITEM_ID:
+      return canAccessNotifications(role);
+    case CHATS_ITEM_ID:
+      return canAccessMessenger(role);
+    case FEED_ITEM_ID:
+      return canAccessNewsFeed(role);
+    default:
+      return null;
+  }
+}
+
 /** Whether a sidebar / app menu item id is visible for the role. */
 export function canMenuItem(
   role: Role | null | undefined,
@@ -608,46 +719,12 @@ export function canMenuItem(
 ): boolean {
   if (!role) return false;
 
-  if (menuItemId === SETTINGS_ITEM_ID) {
-    return canAccessSettings(role);
-  }
-  if (menuItemId === HISTORY_ITEM_ID) {
-    return canAccessHistory(role);
-  }
-  if (menuItemId === AUTOMATION_TASKS_ITEM_ID) {
-    return canAccessAutomationTasks(role);
-  }
-  if (menuItemId === NOTIFICATIONS_ITEM_ID) {
-    return canAccessNotifications(role);
-  }
-  if (menuItemId === CHATS_ITEM_ID) {
-    return canAccessMessenger(role);
-  }
-  if (menuItemId === FEED_ITEM_ID) {
-    return canAccessNewsFeed(role);
-  }
-  if (menuItemId === OPIU_ITEM_ID) {
-    // Visible when role menu allows the item (admin "*" or explicit id).
-    const allowed = role.permissions.menuItemIds;
-    return allowed === "*" || allowed.includes(OPIU_ITEM_ID);
-  }
-  if (menuItemId === FINANCE_DASHBOARDS_ITEM_ID) {
-    const allowed = role.permissions.menuItemIds;
-    return allowed === "*" || allowed.includes(FINANCE_DASHBOARDS_ITEM_ID);
-  }
-  if (menuItemId === PROJECT_TIMESHEET_ITEM_ID) {
-    const allowed = role.permissions.menuItemIds;
-    return allowed === "*" || allowed.includes(PROJECT_TIMESHEET_ITEM_ID);
-  }
-  if (menuItemId === PAYMENT_CALENDAR_ITEM_ID) {
-    const allowed = role.permissions.menuItemIds;
-    return allowed === "*" || allowed.includes(PAYMENT_CALENDAR_ITEM_ID);
-  }
-
+  // The menu checklist is the visibility switch for every item, including
+  // built-in pages. Their extra switches (лента, история, …) stay an
+  // additional off-gate and no longer keep a removed item on screen.
   const allowed = role.permissions.menuItemIds;
-  if (allowed !== "*" && !allowed.includes(menuItemId)) {
-    return false;
-  }
+  if (allowed !== "*" && !allowed.includes(menuItemId)) return false;
+  if (systemMenuItemAllowed(role, menuItemId) === false) return false;
 
   if (entityIdForItem) {
     return canEntity(role, entityIdForItem, "read");

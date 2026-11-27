@@ -42,7 +42,6 @@ import {
   sanitizeEntityRelationDependencies,
   updateEntityRecord,
   useEntityConfig,
-  useEntityValueContext,
   usePageRecordScope,
   type Entity,
   type EntityField,
@@ -97,7 +96,7 @@ import {
   resolveTaskLeadManagerName,
 } from "../lib/task-people";
 import { applyRelatedAskFieldChange } from "../lib/apply-related-ask-field-change";
-import { useCurrentRole } from "@/entities/access";
+import { useCurrentRole, useDisplayValueContext } from "@/entities/access";
 import {
   findTkpCalcDeadlineField,
   isTkpDepartmentHeadRole,
@@ -258,7 +257,7 @@ function TaskWorkspaceBody({
   const sessionUser = useSessionUser();
   const role = useCurrentRole();
   const restrictDeptToOwn = isTkpDepartmentHeadRole(role);
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const previewContext = useMemo(
     () => getEntityPreviewValueContext(valueContext),
     [valueContext],

@@ -25,14 +25,13 @@ import {
   serializeEntityKanbanColumnValue,
   updateEntityRecord,
   useEntityConfig,
-  useEntityValueContext,
   type Entity,
   type EntityField,
   type EntityKanbanColumn,
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
-import { useCurrentRole } from "@/entities/access";
+import { useCurrentRole, useDisplayValueContext } from "@/entities/access";
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
@@ -499,7 +498,7 @@ export function EntityKanbanView({
 }: EntityKanbanViewProps) {
   const role = useCurrentRole();
   const { entities } = useEntityConfig();
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
   const timers = useRecordTimers(entity);
   const groupFields = getEntityKanbanGroupFields(entity);

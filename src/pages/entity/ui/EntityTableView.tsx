@@ -35,7 +35,6 @@ import {
   getEntityFieldTypeLabel,
   getEntityListParentField,
   getEntityRelationTargetId,
-  getEntityRecords,
   getEntityTableDisplayColumnNumber,
   getEntityTableFields,
   isEntityInternal,
@@ -51,7 +50,6 @@ import {
   ListSelect,
   ListValueDisplay,
   RecordValue,
-  useEntityValueContext,
   usePrefetchEntitySchemaVersions,
   type EntityValueContext,
   parseEntityListValueIds,
@@ -88,7 +86,13 @@ import {
   type EntityRecord,
   type EntityRecordSortDirection,
 } from "@/entities/entity";
-import { canField, useCanEntity, useCurrentRole } from "@/entities/access";
+import {
+  canField,
+  readVisibleEntityRecords,
+  useCanEntity,
+  useCurrentRole,
+  useDisplayValueContext,
+} from "@/entities/access";
 import {
   fetchAutomationTasks,
   filterSelectableListOptions,
@@ -349,7 +353,7 @@ function EntityTableViewInner({
   hideFilters = false,
 }: EntityTableViewProps) {
   const { entities } = useEntityConfig();
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const canDelete = useCanEntity(entity.id, "delete");
   usePrefetchEntitySchemaVersions(entity.id, records);
   // Relation labels for growing targets are primed centrally by
@@ -412,10 +416,11 @@ function EntityTableViewInner({
     }
     return map;
   }, [pendingTasksResult]);
-  const nestedChildCountByHostValue = useAsyncValue(
-    () => countNestedChildrenByHost(nestedTarget),
-    [nestedTarget],
-  );
+  const nestedChildCountByHostValue = useAsyncValue(async () => {
+    if (!nestedTarget) return countNestedChildrenByHost(null);
+    const visible = await readVisibleEntityRecords(nestedTarget.entity);
+    return countNestedChildrenByHost(nestedTarget, visible);
+  }, [nestedTarget]);
   const nestedChildCountByHost =
     nestedChildCountByHostValue.status === "ready"
       ? nestedChildCountByHostValue.value
@@ -755,7 +760,7 @@ function EntityTableViewInner({
 
   // Total record count (store/DB) to detect a filtered subset — async.
   const totalRecordCount = useAsyncValue(
-    () => getEntityRecords(entity).then((rows) => rows.length),
+    () => readVisibleEntityRecords(entity).then((rows) => rows.length),
     [entity],
   );
 

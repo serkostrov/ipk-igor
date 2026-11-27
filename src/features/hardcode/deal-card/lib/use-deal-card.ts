@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import { readVisibleEntityRecords, scopeValueContext } from "@/entities/access";
 import { todayIsoDate } from "@/shared/lib/business-days";
 import {
   useEntityConfig,
@@ -32,16 +34,33 @@ export function useDealCard(entity: Entity, record: EntityRecord) {
     () => resolveDealCardSources(entity, entities),
     [entity, entities],
   );
-  const { ready } = usePageRecordScope(listDealCardSourceIds(sources));
+  const sourceIds = useMemo(() => listDealCardSourceIds(sources), [sources]);
+  const { ready } = usePageRecordScope(sourceIds);
+  const visibleIds = useAsyncValue(async () => {
+    const map = new Map<string, Set<string>>();
+    for (const id of sourceIds) {
+      const source = entities.find((item) => item.id === id);
+      if (!source) continue;
+      const records = await readVisibleEntityRecords(source);
+      map.set(source.id, new Set(records.map((item) => item.id)));
+    }
+    return map;
+  }, [entities, sourceIds]);
+  const scoped =
+    visibleIds.status === "ready"
+      ? scopeValueContext(ctx, visibleIds.value)
+      : null;
 
-  return useMemo<DealCardState>(() => {
-    if (!ready) return { ready: false, sources };
-    const data = collectDealCardData(ctx, sources, record);
+  const view = useMemo<DealCardState>(() => {
+    if (!ready || !scoped) return { ready: false, sources };
+    const data = collectDealCardData(scoped, sources, record);
     return {
       ready: true,
       sources,
       data,
       view: buildDealCardView(data, todayIsoDate()),
     };
-  }, [ready, ctx, sources, record]);
+  }, [ready, scoped, sources, record]);
+  if (visibleIds.status === "error") throw visibleIds.error;
+  return view;
 }

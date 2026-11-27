@@ -1,4 +1,6 @@
+import { filterVisibleEntityRecords, getCurrentRole } from "@/entities/access";
 import {
+  getCurrentUserRecordId,
   getEntityDisplayName,
   getEntityFieldDisplayName,
   getEntityRecords,
@@ -9,6 +11,7 @@ import {
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
+import { getSessionUser } from "@/entities/session";
 import type { AutomationViewEntityField } from "../model/types";
 
 function normalizeMatchTokens(
@@ -136,8 +139,19 @@ export async function resolveViewEntityFieldsLayout(options: {
       continue;
     }
 
-    const matches = (await getEntityRecords(entity)).filter((record) =>
-      recordMatchesView(record, entity, view, triggerEntity, triggerValues),
+    const matches = await filterVisibleEntityRecords(
+      getCurrentRole(),
+      entity,
+      (await getEntityRecords(entity)).filter((record) =>
+        recordMatchesView(record, entity, view, triggerEntity, triggerValues),
+      ),
+      {
+        entities,
+        authUserId: getSessionUser()?.id ?? null,
+        currentUserRecordId:
+          ctx.currentUserRecordId ?? getCurrentUserRecordId(),
+        valueContext: ctx,
+      },
     );
 
     if (matches.length === 0) {

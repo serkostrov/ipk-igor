@@ -3,11 +3,10 @@ import { Search, X } from "lucide-react";
 import {
   canField,
   canTab,
-  filterVisibleEntityRecords,
+  readVisibleEntityRecords,
   useCurrentRole,
   type Role,
 } from "@/entities/access";
-import { getSessionUser } from "@/entities/session";
 import { Button } from "@/shared/ui/button";
 import {
   DateRangeFilterControl,
@@ -27,7 +26,6 @@ import {
   formatEntityFieldFilesSummary,
   formatEntityPeriodDisplay,
   formatRecordFieldValue,
-  getCurrentUserRecordId,
   getEntityFieldDisplayName,
   getEntityFieldTabId,
   getEntityListOption,
@@ -48,7 +46,6 @@ import {
   resolveEntityListFieldPresentation,
   resolveEntityLookupTarget,
   resolveRecordFieldCells,
-  useEntityValueContext,
   type Entity,
   type EntityField,
   type EntityRecord,
@@ -325,12 +322,10 @@ export function EntityBrowseFilters({
   searchId?: string;
 }) {
   const role = useCurrentRole();
-  const valueContext = useEntityValueContext();
   const visibleRelationIds = useAsyncValue(async () => {
     const ids = new Set<string>();
+    if (!role) return ids;
     const seen = new Set<string>();
-    const authUserId = getSessionUser()?.id ?? null;
-    const currentUserRecordId = getCurrentUserRecordId();
     for (const field of fields) {
       const source = resolveBrowseFilterSource(entity, field, entities);
       if (!source) continue;
@@ -349,21 +344,11 @@ export function EntityBrowseFilters({
         : null;
       if (!target || seen.has(target.id)) continue;
       seen.add(target.id);
-      const visible = await filterVisibleEntityRecords(
-        role,
-        target,
-        target.records,
-        {
-          entities: valueContext.entities,
-          authUserId,
-          currentUserRecordId,
-          valueContext,
-        },
-      );
+      const visible = await readVisibleEntityRecords(target);
       for (const record of visible) ids.add(record.id);
     }
     return ids;
-  }, [entities, entity, fields, role, valueContext]);
+  }, [entities, entity, fields, role]);
   const allowedRelationIds =
     visibleRelationIds.status === "ready" ? visibleRelationIds.value : null;
 
@@ -560,8 +545,15 @@ export function EntityBrowseFilters({
           const target = targetId
             ? (entities.find((item) => item.id === targetId) ?? null)
             : null;
-          const recordOptions = getRelationRecordOptions(target).filter(
-            (option) => allowedRelationIds?.has(option.id) ?? false,
+          const recordOptions = getRelationRecordOptions(
+            target && allowedRelationIds
+              ? {
+                  ...target,
+                  records: target.records.filter((record) =>
+                    allowedRelationIds.has(record.id),
+                  ),
+                }
+              : null,
           );
           const current = filters[field.id];
           const optionId = current?.kind === "list" ? current.optionId : "";

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { retainVisibleEntityRecords } from "@/entities/access";
 import { X } from "lucide-react";
 import { useAsyncValue } from "@/shared/hooks/use-async-value";
 import { Button } from "@/shared/ui/button";
@@ -104,10 +105,13 @@ export function DependenciesFieldControl({
   const scopeMissing = scopeField != null && scopeIds.length === 0;
   const allOptions = getRelationRecordOptions(entity);
   const usedIds = new Set(dependencies.map((item) => item.recordId));
-  const recordsByIdValue = useAsyncValue(
-    async () => new Map((await getEntityRecords(entity)).map((r) => [r.id, r])),
-    [entity],
-  );
+  const recordsByIdValue = useAsyncValue(async () => {
+    const visible = await retainVisibleEntityRecords(
+      entity,
+      await getEntityRecords(entity),
+    );
+    return new Map(visible.map((record) => [record.id, record]));
+  }, [entity]);
   const recordsById =
     recordsByIdValue.status === "ready"
       ? recordsByIdValue.value
@@ -121,14 +125,16 @@ export function DependenciesFieldControl({
         )
       : false;
   };
-  const available = scopeMissing
-    ? []
-    : allOptions.filter(
-        (option) =>
-          option.id !== recordId &&
-          !usedIds.has(option.id) &&
-          inScope(option.id),
-      );
+  const available =
+    scopeMissing || recordsByIdValue.status !== "ready"
+      ? []
+      : allOptions.filter(
+          (option) =>
+            option.id !== recordId &&
+            !usedIds.has(option.id) &&
+            recordsById.has(option.id) &&
+            inScope(option.id),
+        );
 
   function commit(next: EntityDependency[]) {
     onChange(serializeEntityDependencies(next));
@@ -153,9 +159,10 @@ export function DependenciesFieldControl({
             <span />
           </div>
           {dependencies.map((dependency) => {
-            const label =
-              allOptions.find((option) => option.id === dependency.recordId)
-                ?.label ?? "Удалённая запись";
+            const label = recordsById.has(dependency.recordId)
+              ? (allOptions.find((option) => option.id === dependency.recordId)
+                  ?.label ?? "Удалённая запись")
+              : "Скрытая запись";
             const kind = ENTITY_DEPENDENCY_TYPE_LABELS[dependency.type];
             return (
               <div

@@ -33,7 +33,7 @@ import {
   type EntityTimelineSetup,
   type EntityValueContext,
 } from "@/entities/entity";
-import { useCurrentRole } from "@/entities/access";
+import { retainVisibleEntityRecords, useCurrentRole } from "@/entities/access";
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
@@ -134,7 +134,10 @@ export function TimelineGroupRecordsDialog({
 
   const recordsByIdValue = useAsyncValue(async () => {
     const map = new Map<string, EntityRecord>();
-    for (const record of await getEntityRecords(entity)) {
+    for (const record of await retainVisibleEntityRecords(
+      entity,
+      await getEntityRecords(entity),
+    )) {
       map.set(record.id, record);
     }
     return map;
@@ -156,12 +159,14 @@ export function TimelineGroupRecordsDialog({
   }
 
   const filteredIds = useMemo(() => {
+    if (recordsByIdValue.status !== "ready") return [] as string[];
+    const visibleIds = recordIds.filter((id) => recordsById.has(id));
     const hasSearch = search.trim().length > 0;
     const hasFilters = Object.keys(filters).length > 0;
-    if (!hasSearch && !hasFilters) return recordIds as string[];
+    if (!hasSearch && !hasFilters) return visibleIds;
 
     const next: string[] = [];
-    for (const id of recordIds) {
+    for (const id of visibleIds) {
       const record = recordsById.get(id);
       if (!record) continue;
       if (
@@ -195,11 +200,15 @@ export function TimelineGroupRecordsDialog({
     hiddenFieldIds,
     recordIds,
     recordsById,
+    recordsByIdValue.status,
     search,
     valueContext,
   ]);
 
-  const sourceCount = recordIds.length;
+  const sourceCount =
+    recordsByIdValue.status === "ready"
+      ? recordIds.filter((id) => recordsById.has(id)).length
+      : 0;
   const total = filteredIds.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(Math.max(1, effectivePage), totalPages);
