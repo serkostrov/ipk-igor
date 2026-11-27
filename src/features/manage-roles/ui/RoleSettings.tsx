@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Pencil, Plus, Shield, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
@@ -19,12 +19,21 @@ import { RoleEditor } from "./RoleEditor";
 type ViewState =
   { mode: "list" } | { mode: "edit"; draft: Role; isNew: boolean };
 
+type SaveState =
+  | { status: "idle" }
+  | { status: "saving" }
+  | { status: "success" }
+  | { status: "error"; message: string };
+
 export function RoleSettings({ leading }: { leading?: ReactNode }) {
   const roles = useRoles();
   const status = useAccessStatus();
   const { entities } = useEntityConfig();
   const [view, setView] = useState<ViewState>({ mode: "list" });
+  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const [pendingDelete, setPendingDelete] = useState<Role | null>(null);
+  const savingRef = useRef(false);
+  const editedDuringSaveRef = useRef(false);
 
   const openCreate = () => {
     const base = createEmployeeRole();
@@ -35,14 +44,48 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
       description: "",
       isSystem: false,
     };
+    setSaveState({ status: "idle" });
     setView({ mode: "edit", draft: role, isNew: true });
   };
 
-  const handleSave = () => {
-    if (view.mode !== "edit") return;
-    upsertRole(normalizeRole(backfillRoleAccessMatrices(view.draft, entities)));
-    setView({ mode: "list" });
+  const handleSave = async () => {
+    if (
+      view.mode !== "edit" ||
+      savingRef.current ||
+      saveState.status === "success"
+    ) {
+      return;
+    }
+    const draft = view.draft;
+    savingRef.current = true;
+    editedDuringSaveRef.current = false;
+    setSaveState({ status: "saving" });
+    try {
+      const result = await upsertRole(
+        normalizeRole(backfillRoleAccessMatrices(draft, entities)),
+      );
+      if (!result.ok) {
+        setSaveState({ status: "error", message: result.message });
+        return;
+      }
+      setSaveState(
+        editedDuringSaveRef.current
+          ? { status: "idle" }
+          : { status: "success" },
+      );
+    } finally {
+      savingRef.current = false;
+    }
   };
+
+  const saveLabel =
+    saveState.status === "saving"
+      ? "Сохранение…"
+      : saveState.status === "success"
+        ? "Сохранено"
+        : saveState.status === "error"
+          ? "Ошибка"
+          : "Сохранить";
 
   if (view.mode === "edit") {
     return (
@@ -52,17 +95,37 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
             <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {leading}
             </div>
-            <div className="relative z-10 flex shrink-0 items-center gap-2 bg-background pl-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setView({ mode: "list" })}
-              >
-                Отмена
-              </Button>
-              <Button type="button" onClick={handleSave}>
-                Сохранить
-              </Button>
+            <div className="relative z-10 flex shrink-0 flex-col items-end gap-1 bg-background pl-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={saveState.status === "saving"}
+                  onClick={() => setView({ mode: "list" })}
+                >
+                  {saveState.status === "success" ? "К списку" : "Отмена"}
+                </Button>
+                <Button
+                  type="button"
+                  loading={false}
+                  disabled={saveState.status === "saving"}
+                  variant={
+                    saveState.status === "error" ? "destructive" : "default"
+                  }
+                  aria-live="polite"
+                  onClick={() => void handleSave()}
+                >
+                  {saveLabel}
+                </Button>
+              </div>
+              {saveState.status === "error" ? (
+                <p
+                  role="status"
+                  className="max-w-xs text-right text-xs break-words text-destructive"
+                >
+                  {saveState.message}
+                </p>
+              ) : null}
             </div>
           </div>
           <h2 className="text-lg font-semibold tracking-tight">
@@ -72,11 +135,15 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
         <div className="min-h-0 flex-1 overflow-auto pb-8">
           <RoleEditor
             role={view.draft}
-            onChange={(draft) =>
+            onChange={(draft) => {
+              if (savingRef.current) editedDuringSaveRef.current = true;
+              setSaveState((prev) =>
+                prev.status === "saving" ? prev : { status: "idle" },
+              );
               setView((prev) =>
                 prev.mode === "edit" ? { ...prev, draft } : prev,
-              )
-            }
+              );
+            }}
           />
         </div>
       </div>
@@ -139,6 +206,7 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
                       // name matches the list (no stale draft / option drift).
                       const fresh =
                         roles.find((item) => item.id === role.id) ?? role;
+                      setSaveState({ status: "idle" });
                       setView({
                         mode: "edit",
                         draft: structuredClone(fresh),
@@ -175,7 +243,7 @@ export function RoleSettings({ leading }: { leading?: ReactNode }) {
         description={`Роль «${pendingDelete?.name ?? ""}» будет удалена. Пользователям с этой ролью нужно назначить другую.`}
         confirmLabel="Удалить"
         onConfirm={() => {
-          if (pendingDelete) removeRole(pendingDelete.id);
+          if (pendingDelete) void removeRole(pendingDelete.id);
           setPendingDelete(null);
         }}
       />
