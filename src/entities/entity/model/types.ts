@@ -31,6 +31,7 @@ export {
   getEntityFieldNumericValue,
   getEntityFieldTypeLabel,
   getEntityRelationTargetId,
+  getEntityAggregateValueFields,
   getEntitySummableFields,
   getEntityUrlHref,
   isEntityDatetimeWithTime,
