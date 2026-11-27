@@ -538,21 +538,28 @@ function TaskWorkspaceBody({
       ? ask.viewEntityFields
       : []),
   ];
+  const viewRelatedLayoutKey = relatedAskLayoutDepKey(
+    viewRelatedFieldsForForm,
+    record?.values,
+    values,
+  );
   const viewRelatedLayoutValue = useAsyncValue(
     () =>
-      entity && viewRelatedFieldsForForm.length > 0
-        ? resolveRelatedAskLayout({
-            triggerEntity: entity,
-            entities,
-            relatedFields: viewRelatedFieldsForForm,
-            relatedRequiredIds: [],
-            triggerValues: { ...(record?.values ?? {}), ...values },
-            triggerRecordId: record?.id ?? task.recordId,
-            ctx: previewContext,
-          })
-        : Promise.resolve({ groups: [], emptyRelations: [] }),
+      resolveLiveRelatedAskLayout({
+        entityId: task.entityId,
+        recordId: record?.id ?? task.recordId,
+        relatedFields: viewRelatedFieldsForForm,
+        relatedRequiredIds: [],
+        draftValues: values,
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entity, entities, selectedOutcome, task, record, previewContext, values],
+    [
+      task.entityId,
+      task.recordId,
+      record?.id,
+      viewRelatedLayoutKey,
+      recordsReady,
+    ],
   );
   const viewRelatedLayout =
     viewRelatedLayoutValue.status === "ready"
