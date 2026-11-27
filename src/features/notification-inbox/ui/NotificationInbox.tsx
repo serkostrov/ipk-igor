@@ -12,10 +12,10 @@ import {
   formatNotificationCopy,
   markAllNotificationsRead,
   markNotificationRead,
-  useNotificationInbox,
   useNotificationInboxStatus,
   type Notification,
 } from "@/entities/notification";
+import { useVisibleNotifications } from "../lib/use-visible-notifications";
 import { useEnsureRecordsByIds, useEntityConfig } from "@/entities/entity";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
@@ -30,7 +30,7 @@ export function NotificationInbox({
   onOpenRecord?: (entityId: string, recordId: string) => void;
   onOpenTasks?: () => void;
 }) {
-  const inbox = useNotificationInbox();
+  const inbox = useVisibleNotifications();
   const status = useNotificationInboxStatus();
   const { entities } = useEntityConfig();
   const [filter, setFilter] = useState<"all" | "unread">("all");

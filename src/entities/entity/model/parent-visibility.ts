@@ -6,7 +6,8 @@ import {
 } from "./table-hierarchy";
 import { SYSTEM_USERS_ENTITY_ID } from "./system-entities";
 import { findDepartmentsEntity } from "./departments";
-import type { Entity, EntityRecord, EntityTab } from "./types";
+import { findLegalEntitiesEntity } from "./legal-entities";
+import type { Entity, EntityField, EntityRecord, EntityTab } from "./types";
 
 export type ParentVisibilityLink = {
   parentEntity: Entity;
@@ -46,25 +47,67 @@ function inferChildLinkToParent(
 }
 
 /**
- * How a child entity attaches to parents for view-inheritance:
- * - parent tabs `kind: "entity"` with configured or inferred `parentLinkFieldId`
- * - nested table targets (`tableNestedEntityId` / linked nested tabs)
- * - `parentEntityId` + belonging/relation on the child to that parent
+ * Users, departments and legal entities are catalogs. A tab or link to them
+ * describes the record; it does not make every catalog row an owner.
  */
-export function findParentVisibilityLinks(
+function isVisibilityCatalog(
+  entity: Entity,
+  entities: readonly Entity[],
+): boolean {
+  if (entity.id === SYSTEM_USERS_ENTITY_ID) return true;
+  const departmentsId = findDepartmentsEntity(entities)?.id ?? null;
+  if (departmentsId && entity.id === departmentsId) return true;
+  const legalId = findLegalEntitiesEntity(entities)?.id ?? null;
+  return legalId != null && entity.id === legalId;
+}
+
+/**
+ * Ownership, not a reference. A plain relation used only by another entity's
+ * tab (counterparty → projects) does not grant visibility.
+ */
+function isStructuralOwnershipField(
+  childEntity: Entity,
+  field: EntityField,
+  parent: Entity,
+): boolean {
+  if (field.type === "belonging") return true;
+  if (field.relationCascadeDelete === true) return true;
+  if (resolveEntityTableParentField(childEntity)?.id === field.id) return true;
+  return childEntity.parentEntityId?.trim() === parent.id;
+}
+
+/**
+ * How a child entity attaches to an owning parent for view-inheritance:
+ * - belonging, cascade delete, table parent field, or `parentEntityId`
+ * - the host's nested table (`tableNestedEntityId`), even via a plain relation
+ * Catalogs (users, departments, legal entities) are never owners.
+ * An entity tab alone is not ownership.
+ */
+function collectParentVisibilityLinks(
   childEntity: Entity,
   entities: readonly Entity[],
 ): ParentVisibilityLink[] {
   const links: ParentVisibilityLink[] = [];
   const seen = new Set<string>();
 
-  const add = (parentEntity: Entity, childLinkFieldId: string) => {
+  const add = (
+    parentEntity: Entity,
+    childLinkFieldId: string,
+    nestedTable = false,
+  ) => {
+    if (isVisibilityCatalog(parentEntity, entities)) return;
     const field = childEntity.fields.find(
       (item) => item.id === childLinkFieldId,
     );
     if (!field) return;
     if (field.type !== "relation" && field.type !== "belonging") return;
     if (getEntityRelationTargetId(field) !== parentEntity.id) return;
+    if (
+      !nestedTable &&
+      !isStructuralOwnershipField(childEntity, field, parentEntity)
+    ) {
+      return;
+    }
     const key = `${parentEntity.id}:${childLinkFieldId}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -72,28 +115,14 @@ export function findParentVisibilityLinks(
   };
 
   for (const parent of entities) {
-    for (const tab of parent.tabs) {
-      if (tab.kind !== "entity") continue;
-      if (tab.linkedEntityId !== childEntity.id) continue;
-      const fieldId = resolveEntityTabParentLinkFieldId(
-        tab,
-        childEntity,
-        parent.id,
-      );
-      if (!fieldId) continue;
-      add(parent, fieldId);
-    }
-
-    for (const nested of getEntityTableNestedTargets(parent, entities)) {
-      if (nested.entityId !== childEntity.id) continue;
-      add(parent, nested.parentLinkFieldId);
-    }
-
-    const nestedId = parent.tableNestedEntityId?.trim();
-    if (nestedId === childEntity.id) {
-      const fieldId = inferChildLinkToParent(childEntity, parent.id);
-      if (fieldId) add(parent, fieldId);
-    }
+    if (parent.tableNestedEntityId?.trim() !== childEntity.id) continue;
+    const nested = getEntityTableNestedTargets(parent, entities).find(
+      (item) => item.entityId === childEntity.id,
+    );
+    const fieldId =
+      nested?.parentLinkFieldId ??
+      inferChildLinkToParent(childEntity, parent.id);
+    if (fieldId) add(parent, fieldId, true);
   }
 
   const parentEntityId = childEntity.parentEntityId?.trim();
@@ -108,26 +137,40 @@ export function findParentVisibilityLinks(
     }
   }
 
-  const departmentsId = findDepartmentsEntity(entities)?.id ?? null;
-  const tableParent = resolveEntityTableParentField(childEntity);
   for (const field of childEntity.fields) {
     if (field.type !== "relation" && field.type !== "belonging") continue;
     const targetId = getEntityRelationTargetId(field);
     if (!targetId) continue;
-    if (targetId === SYSTEM_USERS_ENTITY_ID || targetId === departmentsId) {
-      continue;
-    }
     const parent = entities.find((item) => item.id === targetId);
     if (!parent) continue;
-    const structural =
-      field.type === "belonging" ||
-      field.relationCascadeDelete === true ||
-      tableParent?.id === field.id ||
-      childEntity.parentEntityId?.trim() === parent.id;
-    if (!structural) continue;
     add(parent, field.id);
   }
 
+  return links;
+}
+
+const parentVisibilityLinkCache = new WeakMap<
+  readonly Entity[],
+  Map<string, ParentVisibilityLink[]>
+>();
+
+/**
+ * Ownership links of one entity. The schema does not change between rows of
+ * a list, so the walk is computed once per entity.
+ */
+export function findParentVisibilityLinks(
+  childEntity: Entity,
+  entities: readonly Entity[],
+): ParentVisibilityLink[] {
+  let byChild = parentVisibilityLinkCache.get(entities);
+  if (!byChild) {
+    byChild = new Map();
+    parentVisibilityLinkCache.set(entities, byChild);
+  }
+  const cached = byChild.get(childEntity.id);
+  if (cached) return cached;
+  const links = collectParentVisibilityLinks(childEntity, entities);
+  byChild.set(childEntity.id, links);
   return links;
 }
 

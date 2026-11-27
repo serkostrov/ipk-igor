@@ -32,6 +32,7 @@ import {
   canViewRecordForLegalEntities,
   useCanEntity,
   useCurrentRole,
+  useDisplayValueContext,
 } from "@/entities/access";
 import {
   fetchAutomationTasks,
@@ -1303,7 +1304,7 @@ function EntityRecordContent({
   const location = useAppLocation();
   const { go } = useAppNavigate();
   const { entities } = useEntityConfig();
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const { requestListChange, dialog: listChangeDialog } = useRecordListChange();
   const pendingTasksResult = useAsyncValue(
     () =>

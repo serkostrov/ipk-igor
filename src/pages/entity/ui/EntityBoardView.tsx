@@ -8,7 +8,6 @@ import {
   getEntityPagePanel,
   hasEntityPageLayout,
   useEntityConfig,
-  useEntityValueContext,
   type Entity,
   type EntityAggregateRow,
   type EntityCashFlowPeriod,
@@ -27,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
-import { useCurrentRole } from "@/entities/access";
+import { useCurrentRole, useDisplayValueContext } from "@/entities/access";
 import {
   EntityBrowseFilters,
   getEntityBrowseFilterFields,
@@ -457,7 +456,7 @@ export function EntityBoardView({
 }: EntityBoardViewProps) {
   const role = useCurrentRole();
   const layout = entity.pageLayout;
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const { entities } = useEntityConfig();
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<EntityFiltersState>({});

@@ -762,11 +762,12 @@ export async function flattenEntityTableNestedRows(
   nested: EntityTableNestedTarget,
   expandedIds: ReadonlySet<string>,
   getParentLabel: (record: EntityRecord) => string,
+  nestedRecords?: readonly EntityRecord[],
 ): Promise<EntityTableNestedHierarchyRow[]> {
   const rows: EntityTableNestedHierarchyRow[] = [];
-  const nestedRecords = await getEntityRecords(nested.entity);
+  const children = nestedRecords ?? (await getEntityRecords(nested.entity));
   for (const parent of parentRecords) {
-    const children = nestedRecords.filter((record) =>
+    const linked = children.filter((record) =>
       entityRelationIncludesId(
         record.values[nested.parentLinkFieldId],
         parent.id,
@@ -776,12 +777,12 @@ export async function flattenEntityTableNestedRows(
       kind: "group",
       id: parent.id,
       label: getParentLabel(parent).trim() || "Без названия",
-      childCount: children.length,
+      childCount: linked.length,
       parentRecord: parent,
       depth: 0,
     });
     if (!expandedIds.has(parent.id)) continue;
-    for (const child of children) {
+    for (const child of linked) {
       rows.push({
         kind: "nested",
         record: child,
@@ -856,10 +857,12 @@ export function resolveEntityTableHierarchyGroupRecord(
  */
 export async function countNestedChildrenByHost(
   nested: EntityTableNestedTarget | null,
+  nestedRecords?: readonly EntityRecord[],
 ): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   if (!nested) return counts;
-  for (const child of await getEntityRecords(nested.entity)) {
+  const children = nestedRecords ?? (await getEntityRecords(nested.entity));
+  for (const child of children) {
     for (const hostId of parseEntityRelationIds(
       child.values[nested.parentLinkFieldId],
     )) {

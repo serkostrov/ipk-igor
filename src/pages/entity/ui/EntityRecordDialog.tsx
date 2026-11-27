@@ -56,13 +56,17 @@ import {
   updateEntityRecord,
   useCurrentUserRecordId,
   useEntityConfig,
-  useEntityValueContext,
   type Entity,
   type EntityField,
   type EntityRecord,
   type EntityValueContext,
 } from "@/entities/entity";
-import { canEntity, canField, useCurrentRole } from "@/entities/access";
+import {
+  canEntity,
+  canField,
+  useCurrentRole,
+  useDisplayValueContext,
+} from "@/entities/access";
 import {
   isDdsOperationsEntity,
   PaymentPlanLinkSection,
@@ -244,7 +248,7 @@ function EntityRecordForm({
   ) => void | Promise<void>;
 }) {
   const isEdit = Boolean(record);
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const currentUserRecordId = useCurrentUserRecordId();
   const role = useCurrentRole();
   const draftRecordId = useMemo(

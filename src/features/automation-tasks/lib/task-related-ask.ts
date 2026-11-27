@@ -1,3 +1,5 @@
+import { canViewRecordForDataScope, getCurrentRole } from "@/entities/access";
+import { getSessionUser } from "@/entities/session";
 import {
   askRelatedScopeKey,
   relatedAskValueKey,
@@ -125,6 +127,22 @@ export async function resolveRelatedAskLayout(options: {
         resolved.relatedEntity,
         relatedRecordId,
       );
+      if (
+        !relatedRecord ||
+        !(await canViewRecordForDataScope(
+          getCurrentRole(),
+          resolved.relatedEntity,
+          relatedRecord,
+          {
+            entities,
+            authUserId: getSessionUser()?.id ?? null,
+            currentUserRecordId: ctx.currentUserRecordId,
+            valueContext: ctx,
+          },
+        ))
+      ) {
+        continue;
+      }
       const fields: RelatedAskFieldRow[] = [];
       for (const ask of asks) {
         const field = resolved.relatedEntity.fields.find(

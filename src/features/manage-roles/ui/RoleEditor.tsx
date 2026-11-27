@@ -21,12 +21,14 @@ import {
 } from "@/shared/ui/select";
 import { cn } from "@/shared/lib/cn";
 import {
+  DATA_SCOPE_DESCRIPTIONS,
   DATA_SCOPE_LABELS,
   SETTINGS_TAB_IDS,
   createEmptyEntityAccess,
   createFullEntityAccess,
   isDataScope,
   normalizeEntityAccess,
+  systemMenuItemAllowed,
   type DataScope,
   type EntityAccess,
   type FieldAccess,
@@ -35,6 +37,7 @@ import {
 } from "@/entities/access";
 import {
   ConditionBuilder,
+  fieldParticipatesInOwnScope,
   findLegalEntitiesEntity,
   findParentVisibilityLinks,
   getEntityFieldDisplayName,
@@ -54,6 +57,12 @@ import {
 } from "@/entities/entity";
 import { hardcodeRoleTabs } from "@/features/hardcode/role-tabs";
 import {
+  AUTOMATION_TASKS_ITEM_ID,
+  CHATS_ITEM_ID,
+  FEED_ITEM_ID,
+  HISTORY_ITEM_ID,
+  NOTIFICATIONS_ITEM_ID,
+  SETTINGS_ITEM_ID,
   flattenMenuGroupItems,
   getMenuEntityTree,
   getMenuIcon,
@@ -414,6 +423,57 @@ function patchPermissions(
   };
 }
 
+function menuListsItem(role: Role, itemId: string): boolean {
+  const ids = role.permissions.menuItemIds;
+  return ids === "*" || ids.includes(itemId);
+}
+
+function systemSectionOn(role: Role, itemId: string): boolean {
+  return (
+    systemMenuItemAllowed(role, itemId) === true && menuListsItem(role, itemId)
+  );
+}
+
+/**
+ * Menu checklist and the built-in page switches describe the same visibility.
+ * Turning a system item off drops it from the menu and closes its switch;
+ * turning it on puts it back and opens the switch.
+ */
+function menuSelectionPatch(
+  role: Role,
+  itemIds: readonly string[],
+  checked: boolean,
+): Partial<Role["permissions"]> {
+  const patch: Partial<Role["permissions"]> = {};
+  if (role.permissions.menuItemIds !== "*") {
+    const next = new Set(role.permissions.menuItemIds);
+    for (const id of itemIds) {
+      if (checked) next.add(id);
+      else next.delete(id);
+    }
+    patch.menuItemIds = [...next];
+  }
+  for (const id of itemIds) {
+    if (id === FEED_ITEM_ID) patch.canAccessNewsFeed = checked;
+    else if (id === NOTIFICATIONS_ITEM_ID) {
+      patch.canAccessNotifications = checked;
+    } else if (id === CHATS_ITEM_ID) patch.canAccessMessenger = checked;
+    else if (id === HISTORY_ITEM_ID) patch.canAccessHistory = checked;
+    else if (id === AUTOMATION_TASKS_ITEM_ID) {
+      patch.canAccessAutomationTasks = checked;
+      if (!checked) patch.canDeleteAutomationTasks = false;
+    } else if (
+      id === SETTINGS_ITEM_ID &&
+      checked &&
+      role.permissions.settingsTabs !== "*" &&
+      role.permissions.settingsTabs.length === 0
+    ) {
+      patch.settingsTabs = "*";
+    }
+  }
+  return patch;
+}
+
 function getEntityAccessList(role: Role, entities: Entity[]): EntityAccess[] {
   if (role.permissions.entities === "*") {
     return entities.map((entity) => createFullEntityAccess(entity.id));
@@ -529,6 +589,62 @@ function rowIndent(depth: number) {
   return { paddingLeft: Math.min(depth, 4) * 12 };
 }
 
+function OwnScopeFields({
+  entity,
+  entities,
+  access,
+  onChange,
+}: {
+  entity: Entity;
+  entities: Entity[];
+  access: EntityAccess;
+  onChange: (ownFieldIds: string[] | undefined) => void;
+}) {
+  const fields = entity.fields.filter((field) =>
+    fieldParticipatesInOwnScope(entity, field, entities),
+  );
+  if (fields.length === 0) {
+    return (
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        {DATA_SCOPE_DESCRIPTIONS.own} Нет полей-связей с пользователем — запись
+        видна только создателю.
+      </p>
+    );
+  }
+  const selected = new Set(
+    access.ownFieldIds ?? fields.map((field) => field.id),
+  );
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        Запись видна, если вы её создали или указаны в отмеченных полях.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {fields.map((field) => (
+          <label
+            key={field.id}
+            className="flex items-center gap-2 text-xs text-foreground"
+          >
+            <Switch
+              checked={selected.has(field.id)}
+              onCheckedChange={(checked) => {
+                const next = new Set(selected);
+                if (checked) next.add(field.id);
+                else next.delete(field.id);
+                const ids = fields
+                  .map((item) => item.id)
+                  .filter((id) => next.has(id));
+                onChange(ids.length === fields.length ? undefined : ids);
+              }}
+            />
+            {getEntityFieldDisplayName(field)}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function withScope(
   access: EntityAccess,
   scope: DataScope,
@@ -618,6 +734,14 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
 
   const entitiesAll = role.permissions.entities === "*";
   const menuAll = role.permissions.menuItemIds === "*";
+  const listedMenuIds =
+    role.permissions.menuItemIds === "*"
+      ? menuItems.map((item) => item.id)
+      : role.permissions.menuItemIds;
+  const selectedMenuIds = listedMenuIds.filter(
+    (id) => systemMenuItemAllowed(role, id) !== false,
+  );
+  const automationOpen = systemSectionOn(role, AUTOMATION_TASKS_ITEM_ID);
   const settingsAll = role.permissions.settingsTabs === "*";
   const entityAccessList = getEntityAccessList(role, entities);
   const accessByEntityId = useMemo(() => {
@@ -653,8 +777,14 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
       if (patch.scopeFilter === undefined && "scopeFilter" in patch) {
         delete next.scopeFilter;
       }
+      if ("ownFieldIds" in patch && patch.ownFieldIds === undefined) {
+        delete next.ownFieldIds;
+      }
       if (next.scope !== "filter") {
         delete next.scopeFilter;
+      }
+      if (next.scope !== "own") {
+        delete next.ownFieldIds;
       }
       // Turning on CRUD with an empty field map used to blank create forms.
       return normalizeEntityAccess(next);
@@ -849,11 +979,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
           entries={entries}
           menuAll={menuAll}
           menuFlat={role.permissions.menuFlat === true}
-          selectedIds={
-            role.permissions.menuItemIds === "*"
-              ? menuItems.map((item) => item.id)
-              : role.permissions.menuItemIds
-          }
+          selectedIds={selectedMenuIds}
           onToggleAll={(checked) =>
             onChange(
               patchPermissions(roleRef.current, {
@@ -864,26 +990,22 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
           onMenuFlatChange={(flat) =>
             onChange(patchPermissions(roleRef.current, { menuFlat: flat }))
           }
-          onToggleItem={(itemId, checked) => {
-            const current =
-              role.permissions.menuItemIds === "*"
-                ? menuItems.map((item) => item.id)
-                : [...role.permissions.menuItemIds];
-            const ids = checked
-              ? [...new Set([...current, itemId])]
-              : current.filter((id) => id !== itemId);
-            onChange(patchPermissions(roleRef.current, { menuItemIds: ids }));
-          }}
-          onToggleItems={(itemIds, checked) => {
-            const current =
-              role.permissions.menuItemIds === "*"
-                ? menuItems.map((item) => item.id)
-                : [...role.permissions.menuItemIds];
-            const ids = checked
-              ? [...new Set([...current, ...itemIds])]
-              : current.filter((id) => !itemIds.includes(id));
-            onChange(patchPermissions(roleRef.current, { menuItemIds: ids }));
-          }}
+          onToggleItem={(itemId, checked) =>
+            onChange(
+              patchPermissions(
+                roleRef.current,
+                menuSelectionPatch(roleRef.current, [itemId], checked),
+              ),
+            )
+          }
+          onToggleItems={(itemIds, checked) =>
+            onChange(
+              patchPermissions(
+                roleRef.current,
+                menuSelectionPatch(roleRef.current, itemIds, checked),
+              ),
+            )
+          }
         />
 
         <div className="divide-y divide-border rounded-xl border border-border px-4">
@@ -894,45 +1016,57 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
           </div>
           <ToggleRow
             label="История изменений"
-            checked={role.permissions.canAccessHistory}
+            checked={systemSectionOn(role, HISTORY_ITEM_ID)}
             onCheckedChange={(checked) =>
               onChange(
-                patchPermissions(roleRef.current, {
-                  canAccessHistory: checked,
-                }),
+                patchPermissions(
+                  roleRef.current,
+                  menuSelectionPatch(
+                    roleRef.current,
+                    [HISTORY_ITEM_ID],
+                    checked,
+                  ),
+                ),
               )
             }
           />
           <ToggleRow
             label="Уведомления"
-            checked={role.permissions.canAccessNotifications}
+            checked={systemSectionOn(role, NOTIFICATIONS_ITEM_ID)}
             onCheckedChange={(checked) =>
               onChange(
-                patchPermissions(roleRef.current, {
-                  canAccessNotifications: checked,
-                }),
+                patchPermissions(
+                  roleRef.current,
+                  menuSelectionPatch(
+                    roleRef.current,
+                    [NOTIFICATIONS_ITEM_ID],
+                    checked,
+                  ),
+                ),
               )
             }
           />
           <ToggleRow
             label="Чаты"
-            checked={role.permissions.canAccessMessenger}
+            checked={systemSectionOn(role, CHATS_ITEM_ID)}
             onCheckedChange={(checked) =>
               onChange(
-                patchPermissions(roleRef.current, {
-                  canAccessMessenger: checked,
-                }),
+                patchPermissions(
+                  roleRef.current,
+                  menuSelectionPatch(roleRef.current, [CHATS_ITEM_ID], checked),
+                ),
               )
             }
           />
           <ToggleRow
             label="Лента"
-            checked={role.permissions.canAccessNewsFeed}
+            checked={systemSectionOn(role, FEED_ITEM_ID)}
             onCheckedChange={(checked) =>
               onChange(
-                patchPermissions(roleRef.current, {
-                  canAccessNewsFeed: checked,
-                }),
+                patchPermissions(
+                  roleRef.current,
+                  menuSelectionPatch(roleRef.current, [FEED_ITEM_ID], checked),
+                ),
               )
             }
           />
@@ -1093,8 +1227,13 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                         (item) => item.id === row.entity.parentEntityId,
                       )
                     : null;
-                  const inheritsParentView =
-                    findParentVisibilityLinks(row.entity, entities).length > 0;
+                  const visibilityParentNames = [
+                    ...new Set(
+                      findParentVisibilityLinks(row.entity, entities)
+                        .map((link) => link.parentEntity.name.trim())
+                        .filter((name) => name.length > 0),
+                    ),
+                  ];
 
                   return (
                     <Fragment key={row.entity.id}>
@@ -1109,7 +1248,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                             </span>
                             {isSystemEntity(row.entity) ||
                             parent ||
-                            inheritsParentView ? (
+                            visibilityParentNames.length > 0 ? (
                               <span className="flex flex-wrap gap-1 text-[10px] font-normal text-muted-foreground">
                                 {isSystemEntity(row.entity) ? (
                                   <span className="rounded border border-border/80 px-1 py-px">
@@ -1121,10 +1260,11 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                                     Вкладка: {parent.name.trim() || "родитель"}
                                   </span>
                                 ) : null}
-                                {inheritsParentView ? (
+                                {visibilityParentNames.length > 0 ? (
                                   <span className="rounded border border-border/80 px-1 py-px">
-                                    Видимость наследует родителя, если запись
-                                    связана
+                                    Видимость наследует{" "}
+                                    {visibilityParentNames.join(", ")}, если
+                                    запись связана
                                   </span>
                                 ) : null}
                               </span>
@@ -1193,20 +1333,47 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                           </Select>
                         </PermissionCell>
                       </tr>
-                      {access.scope === "department" &&
-                      !entitySupportsDepartmentScope(row.entity, entities) ? (
+                      {access.scope === "department" ? (
                         <tr className="border-b border-border bg-muted/10">
                           <td
                             colSpan={6}
-                            className="px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400"
+                            className="px-3 py-2 text-[11px] text-muted-foreground"
                           >
                             <span
-                              className="block"
+                              className="block space-y-1"
                               style={rowIndent(row.depth)}
                             >
-                              У сущности нет связи с отделом — при области
-                              «Своего отдела» записи скрыты.
+                              <span className="block">
+                                {DATA_SCOPE_DESCRIPTIONS.department}
+                              </span>
+                              {!entitySupportsDepartmentScope(
+                                row.entity,
+                                entities,
+                              ) ? (
+                                <span className="block text-amber-700 dark:text-amber-400">
+                                  У сущности нет связи с отделом — при области
+                                  «Своего отдела» записи скрыты.
+                                </span>
+                              ) : null}
                             </span>
+                          </td>
+                        </tr>
+                      ) : null}
+                      {access.scope === "own" ? (
+                        <tr className="border-b border-border bg-muted/10">
+                          <td colSpan={6} className="px-3 py-3">
+                            <div style={rowIndent(row.depth)}>
+                              <OwnScopeFields
+                                entity={row.entity}
+                                entities={entities}
+                                access={access}
+                                onChange={(ownFieldIds) =>
+                                  updateEntityAccess(row.entity.id, {
+                                    ownFieldIds,
+                                  })
+                                }
+                              />
+                            </div>
                           </td>
                         </tr>
                       ) : null}
@@ -1218,6 +1385,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                                 entity={row.entity}
                                 entities={entities}
                                 conditions={access.scopeFilter ?? []}
+                                description={`${DATA_SCOPE_DESCRIPTIONS.filter}. Для полей-связей с пользователями доступны условия «роль — один из / не из». Без условий записи не показываются.`}
                                 onChange={(conditions) =>
                                   updateEntityAccess(row.entity.id, {
                                     scope: "filter",
@@ -1281,7 +1449,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
               <Fragment>
                 <tr
                   className={
-                    role.permissions.canAccessAutomationTasks &&
+                    automationOpen &&
                     role.permissions.automationTasksScope === "filter"
                       ? "border-b border-border"
                       : undefined
@@ -1295,15 +1463,17 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                   </td>
                   <PermissionCell>
                     <Switch
-                      checked={role.permissions.canAccessAutomationTasks}
+                      checked={automationOpen}
                       onCheckedChange={(checked) =>
                         onChange(
-                          patchPermissions(roleRef.current, {
-                            canAccessAutomationTasks: checked,
-                            ...(!checked
-                              ? { canDeleteAutomationTasks: false }
-                              : {}),
-                          }),
+                          patchPermissions(
+                            roleRef.current,
+                            menuSelectionPatch(
+                              roleRef.current,
+                              [AUTOMATION_TASKS_ITEM_ID],
+                              checked,
+                            ),
+                          ),
                         )
                       }
                     />
@@ -1317,10 +1487,10 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                   <PermissionCell>
                     <Switch
                       checked={
-                        role.permissions.canAccessAutomationTasks &&
+                        automationOpen &&
                         role.permissions.canDeleteAutomationTasks
                       }
-                      disabled={!role.permissions.canAccessAutomationTasks}
+                      disabled={!automationOpen}
                       onCheckedChange={(checked) =>
                         onChange(
                           patchPermissions(roleRef.current, {
@@ -1331,7 +1501,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                     />
                   </PermissionCell>
                   <PermissionCell>
-                    {role.permissions.canAccessAutomationTasks ? (
+                    {automationOpen ? (
                       <Select
                         value={role.permissions.automationTasksScope}
                         onValueChange={(value) => {
@@ -1392,7 +1562,7 @@ export function RoleEditor({ role, onChange: onChangeProp }: RoleEditorProps) {
                     )}
                   </PermissionCell>
                 </tr>
-                {role.permissions.canAccessAutomationTasks &&
+                {automationOpen &&
                 role.permissions.automationTasksScope === "filter" ? (
                   <tr>
                     <td colSpan={6} className="px-3 py-3">

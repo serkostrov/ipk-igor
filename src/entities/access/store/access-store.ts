@@ -3,7 +3,9 @@ import {
   SYSTEM_USERS_ENTITY_ID,
   SYSTEM_USERS_FIELD_ROLE_ID,
   findSystemUserByAuthId,
+  getCurrentUserRecordId,
   getEntityConfig,
+  getEntityValueContext,
   parseEntityListValueIds,
   setEntityRecordMutationGuard,
   syncUsersRoleOptions,
@@ -15,7 +17,11 @@ import {
   ensureSystemRoles,
   toRolesDocument,
 } from "../lib/parse-roles-config";
-import { canEntity } from "../model/permissions";
+import {
+  canEntity,
+  canViewRecordForDataScope,
+  canViewRecordForLegalEntities,
+} from "../model/permissions";
 import {
   ROLE_ADMIN_ID,
   ROLE_EMPLOYEE_ID,
@@ -34,9 +40,32 @@ function resolveProfileRoleId(
 }
 
 function installRecordMutationGuard() {
-  setEntityRecordMutationGuard((entityId, action) =>
-    canEntity(currentRole, entityId, action),
-  );
+  setEntityRecordMutationGuard(async (entityId, action, record) => {
+    if (!canEntity(currentRole, entityId, action)) return false;
+    if (action === "create") return true;
+    if (!record) return false;
+    const entities = getEntityConfig().entities;
+    const entity = entities.find((item) => item.id === entityId);
+    if (!entity) return false;
+    const currentUserRecordId = getCurrentUserRecordId();
+    const scopeOptions = {
+      entities,
+      authUserId: currentAuthUserId,
+      currentUserRecordId,
+      valueContext: getEntityValueContext(entities, currentUserRecordId),
+    };
+    if (
+      !(await canViewRecordForDataScope(
+        currentRole,
+        entity,
+        record,
+        scopeOptions,
+      ))
+    ) {
+      return false;
+    }
+    return canViewRecordForLegalEntities(currentRole, entity, record, entities);
+  });
 }
 
 export type AccessStatus = "idle" | "loading" | "ready" | "error";
@@ -97,9 +126,11 @@ function healProfileRoleEncoding(
   const roleId = resolveProfileRoleId(values);
   if (!roleId || raw === roleId) return;
   if (!config.roles.some((role) => role.id === roleId)) return;
-  updateEntityRecord(SYSTEM_USERS_ENTITY_ID, profileId, {
+  void updateEntityRecord(SYSTEM_USERS_ENTITY_ID, profileId, {
     ...values,
     [SYSTEM_USERS_FIELD_ROLE_ID]: roleId,
+  }).catch((error: unknown) => {
+    console.error("[access] profile role repair skipped", error);
   });
 }
 
@@ -137,9 +168,11 @@ async function ensureProfileRole(authUserId: string) {
     return;
   }
 
-  updateEntityRecord(SYSTEM_USERS_ENTITY_ID, profile.id, {
+  void updateEntityRecord(SYSTEM_USERS_ENTITY_ID, profile.id, {
     ...profile.values,
     [SYSTEM_USERS_FIELD_ROLE_ID]: ROLE_EMPLOYEE_ID,
+  }).catch((error: unknown) => {
+    console.error("[access] default role assignment skipped", error);
   });
 }
 

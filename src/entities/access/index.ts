@@ -40,6 +40,7 @@ export {
   canInviteUsers,
   canMenuItem,
   canSettingsTab,
+  systemMenuItemAllowed,
   canTab,
   canViewAutomationTask,
   canViewRecordForDataScope,
@@ -55,7 +56,11 @@ export {
   roleLegalEntityIds,
   roleMenuFlat,
 } from "./model/permissions";
-export { readVisibleEntityRecords } from "./model/visible-records";
+export {
+  readVisibleEntityRecords,
+  retainVisibleEntityRecords,
+  scopeValueContext,
+} from "./model/visible-records";
 export {
   cloneDefaultRolesConfig,
   ensureSystemRoles,
@@ -106,6 +111,7 @@ export {
   useIsAdmin,
   useRoles,
 } from "./hooks/use-access";
+export { useDisplayValueContext } from "./hooks/use-display-value-context";
 export {
   CanAccessAutomationTasks,
   CanAccessHistory,

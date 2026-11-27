@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { useCurrentRole } from "@/entities/access";
+import { retainVisibleEntityRecords, useCurrentRole } from "@/entities/access";
 import { collectRecordsLinkedToParent } from "@/entities/automation";
 import {
   filterDeptCalculationRecordsForAssignee,
@@ -128,8 +128,9 @@ export function TkpReviewHardcodeSlot({
       host: liveEntity,
     });
     const idSet = new Set(ids);
-    const linked = (await getEntityRecords(deptEntity)).filter((item) =>
-      idSet.has(item.id),
+    const linked = await retainVisibleEntityRecords(
+      deptEntity,
+      (await getEntityRecords(deptEntity)).filter((item) => idSet.has(item.id)),
     );
     if (!visibility.showDepartmentRestrictedTotals) return linked;
     const sessionId = getSessionUser()?.id ?? null;

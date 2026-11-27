@@ -1,3 +1,5 @@
+import { canViewRecordForDataScope, getCurrentRole } from "@/entities/access";
+import { getSessionUser } from "@/entities/session";
 import {
   fromDayNumber,
   todayIsoDate,
@@ -400,6 +402,16 @@ async function nestTimelineRowGroupsByTableParent(
       if (!parentId || byId.has(parentId)) continue;
       const record = await getEntityRecordById(target, parentId);
       if (!record) continue;
+      if (
+        !(await canViewRecordForDataScope(getCurrentRole(), target, record, {
+          entities: ctx.entities,
+          authUserId: getSessionUser()?.id ?? null,
+          currentUserRecordId: ctx.currentUserRecordId,
+          valueContext: ctx,
+        }))
+      ) {
+        continue;
+      }
       if (
         ancestors.length > 0 &&
         !relatedMatchesAncestors(ctx, record, target, ancestors)

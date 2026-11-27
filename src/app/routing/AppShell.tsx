@@ -13,7 +13,17 @@ import {
   type Entity,
   type EntityStatus,
 } from "@/entities/entity";
-import { initMenuConfig, useMenuConfig, useMenuStatus } from "@/entities/menu";
+import {
+  AUTOMATION_TASKS_ITEM_ID,
+  CHATS_ITEM_ID,
+  FEED_ITEM_ID,
+  HISTORY_ITEM_ID,
+  NOTIFICATIONS_ITEM_ID,
+  SETTINGS_ITEM_ID,
+  initMenuConfig,
+  useMenuConfig,
+  useMenuStatus,
+} from "@/entities/menu";
 import {
   menuLooksUnnested,
   restoreDepartmentMenu,
@@ -21,12 +31,6 @@ import {
 import { initAutomationConfig } from "@/entities/automation";
 import { initNotificationConfig } from "@/entities/notification";
 import {
-  canAccessAutomationTasks,
-  canAccessHistory,
-  canAccessMessenger,
-  canAccessNewsFeed,
-  canAccessNotifications,
-  canAccessSettings,
   canEntity,
   canMenuItem,
   getRolesConfig,
@@ -86,16 +90,18 @@ function isLocationAllowed(
   role: ReturnType<typeof useCurrentRole>,
 ): boolean {
   if (!role) return true;
-  if (location.type === "settings") return canAccessSettings(role);
-  if (location.type === "history") return canAccessHistory(role);
+  if (location.type === "settings") return canMenuItem(role, SETTINGS_ITEM_ID);
+  if (location.type === "history") return canMenuItem(role, HISTORY_ITEM_ID);
   if (location.type === "tasks" || location.type === "task") {
-    return canAccessAutomationTasks(role);
+    return canMenuItem(role, AUTOMATION_TASKS_ITEM_ID);
   }
-  if (location.type === "notifications") return canAccessNotifications(role);
+  if (location.type === "notifications") {
+    return canMenuItem(role, NOTIFICATIONS_ITEM_ID);
+  }
   if (location.type === "feed" || location.type === "feed-post") {
-    return canAccessNewsFeed(role);
+    return canMenuItem(role, FEED_ITEM_ID);
   }
-  if (location.type === "chats") return canAccessMessenger(role);
+  if (location.type === "chats") return canMenuItem(role, CHATS_ITEM_ID);
   if (location.type === "opiu") return canMenuItem(role, "opiu");
   if (location.type === "finance-dashboards") {
     return canMenuItem(role, "finance-dashboards");
@@ -119,12 +125,16 @@ function firstAllowedLocation(
   role: ReturnType<typeof useCurrentRole>,
   entities: Entity[],
 ): AppLocation {
-  if (role && canAccessSettings(role)) return { type: "settings" };
-  if (role && canAccessHistory(role)) return { type: "history" };
-  if (role && canAccessAutomationTasks(role)) return { type: "tasks" };
-  if (role && canAccessNotifications(role)) return { type: "notifications" };
-  if (role && canAccessNewsFeed(role)) return { type: "feed" };
-  if (role && canAccessMessenger(role)) return { type: "chats" };
+  if (role && canMenuItem(role, SETTINGS_ITEM_ID)) return { type: "settings" };
+  if (role && canMenuItem(role, HISTORY_ITEM_ID)) return { type: "history" };
+  if (role && canMenuItem(role, AUTOMATION_TASKS_ITEM_ID)) {
+    return { type: "tasks" };
+  }
+  if (role && canMenuItem(role, NOTIFICATIONS_ITEM_ID)) {
+    return { type: "notifications" };
+  }
+  if (role && canMenuItem(role, FEED_ITEM_ID)) return { type: "feed" };
+  if (role && canMenuItem(role, CHATS_ITEM_ID)) return { type: "chats" };
   for (const entity of entities) {
     if (
       role &&

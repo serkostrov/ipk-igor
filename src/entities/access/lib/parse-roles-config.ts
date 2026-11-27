@@ -75,6 +75,18 @@ function parseEntityAccess(value: unknown): EntityAccess | null {
   if (scope === "filter") {
     access.scopeFilter = normalizeEntityConditions(value.scopeFilter);
   }
+  if (scope === "own" && Array.isArray(value.ownFieldIds)) {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const item of value.ownFieldIds) {
+      if (typeof item !== "string") continue;
+      const id = item.trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+    access.ownFieldIds = ids;
+  }
   return normalizeEntityAccess(access);
 }
 

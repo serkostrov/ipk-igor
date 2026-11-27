@@ -114,7 +114,9 @@ import {
   canEntity,
   canField,
   filterVisibleEntityRecords,
+  readVisibleEntityRecords,
   useCurrentRole,
+  useDisplayValueContext,
   type Role,
 } from "@/entities/access";
 import { getSessionUser } from "@/entities/session";
@@ -476,7 +478,7 @@ function RecordsTable({
 }) {
   const canMutate = onEdit != null || onDelete != null;
   const { entities } = useEntityConfig();
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const role = useCurrentRole();
   const nestedTarget = flat
     ? null
@@ -493,14 +495,23 @@ function RecordsTable({
   /** `null` — all groups expanded by default until the user toggles. */
   const [expandedIds, setExpandedIds] = useState<Set<string> | null>(null);
 
+  const visibleNestedValue = useAsyncValue(async () => {
+    if (!nestedTarget) return null;
+    return readVisibleEntityRecords(nestedTarget.entity);
+  }, [nestedTarget]);
+  const visibleNested =
+    visibleNestedValue.status === "ready" ? visibleNestedValue.value : null;
+
   const hierarchyGroupIdsValue = useAsyncValue(async () => {
     if (nestedTarget) {
+      if (!visibleNested) return [] as string[];
       return (
         await flattenEntityTableNestedRows(
           records,
           nestedTarget,
           new Set(),
           (record) => getEntityRecordTitle(valueContext, entity, record),
+          visibleNested,
         )
       )
         .filter((row) => row.kind === "group")
@@ -550,6 +561,7 @@ function RecordsTable({
     records,
     subgroupField,
     valueContext,
+    visibleNested,
   ]);
   const hierarchyGroupIds =
     hierarchyGroupIdsValue.status === "ready"
@@ -563,11 +575,13 @@ function RecordsTable({
 
   const hierarchyRowsValue = useAsyncValue(async () => {
     if (nestedTarget) {
+      if (!visibleNested) return [];
       return await flattenEntityTableNestedRows(
         records,
         nestedTarget,
         effectiveExpandedIds,
         (record) => getEntityRecordTitle(valueContext, entity, record),
+        visibleNested,
       );
     }
     if (!parentField) return null;
@@ -588,17 +602,17 @@ function RecordsTable({
     records,
     subgroupField,
     valueContext,
+    visibleNested,
   ]);
   const hierarchyRows =
     hierarchyRowsValue.status === "ready" ? hierarchyRowsValue.value : null;
 
   /** Child counts for nested groups (even when collapsed). */
   const nestedChildCountByParentIdValue = useAsyncValue(async () => {
-    if (!nestedTarget) return null;
+    if (!nestedTarget || !visibleNested) return null;
     const map = new Map<string, number>();
-    const nestedRecords = await getEntityRecords(nestedTarget.entity);
     for (const parent of records) {
-      const count = nestedRecords.filter((record) =>
+      const count = visibleNested.filter((record) =>
         entityRelationIncludesId(
           record.values[nestedTarget.parentLinkFieldId],
           parent.id,
@@ -607,7 +621,7 @@ function RecordsTable({
       map.set(parent.id, count);
     }
     return map;
-  }, [nestedTarget, records]);
+  }, [nestedTarget, records, visibleNested]);
   const nestedChildCountByParentId =
     nestedChildCountByParentIdValue.status === "ready"
       ? nestedChildCountByParentIdValue.value
@@ -1534,7 +1548,7 @@ function RecordCard({
   onDelete?: () => void;
 }) {
   const { entities } = useEntityConfig();
-  const valueContext = useEntityValueContext();
+  const valueContext = useDisplayValueContext(entity);
   const fields = getRecordCardFields(entity, parentLinkFieldId);
   const groups = groupEntityFields(fields, entity.fieldGroups).filter(
     (group) => group.fields.length > 0,
@@ -2052,39 +2066,17 @@ export function RecordEntityTabPanel({
   );
 
   const availableExistingOptionsValue = useAsyncValue(async () => {
-    if (!parentLinkFieldId) return [] as Array<{ id: string; label: string }>;
+    if (!parentLinkFieldId || !role) {
+      return [] as Array<{ id: string; label: string }>;
+    }
     const options = getRelationRecordOptions(linkedEntity).filter(
       (option) =>
         option.id !== parentRecordId && !linkedRecordIds.has(option.id),
     );
-    const candidates = options
-      .map((option) =>
-        linkedEntity.records.find((record) => record.id === option.id),
-      )
-      .filter((record): record is EntityRecord => record != null);
-    const visible = await filterVisibleEntityRecords(
-      role,
-      linkedEntity,
-      candidates,
-      {
-        entities,
-        authUserId: getSessionUser()?.id ?? null,
-        currentUserRecordId,
-        valueContext,
-      },
-    );
+    const visible = await readVisibleEntityRecords(linkedEntity);
     const ids = new Set(visible.map((record) => record.id));
     return options.filter((option) => ids.has(option.id));
-  }, [
-    currentUserRecordId,
-    entities,
-    linkedEntity,
-    linkedRecordIds,
-    parentLinkFieldId,
-    parentRecordId,
-    role,
-    valueContext,
-  ]);
+  }, [linkedEntity, linkedRecordIds, parentLinkFieldId, parentRecordId, role]);
   const availableExistingOptions =
     availableExistingOptionsValue.status === "ready"
       ? availableExistingOptionsValue.value

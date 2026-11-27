@@ -2,6 +2,7 @@
  * Build a ProjectGanttSnapshot from linked «Задачи» entity_records.
  */
 
+import { retainVisibleEntityRecords } from "@/entities/access";
 import {
   collectLinkedTabRecordIds,
   collectRecordsLinkedToParent,
@@ -110,9 +111,10 @@ async function collectTaskRecords(
   const byId = new Map(
     (await getEntityRecords(tasksEntity)).map((record) => [record.id, record]),
   );
-  return ids
+  const linked = ids
     .map((id) => byId.get(id))
     .filter((record): record is EntityRecord => record != null);
+  return retainVisibleEntityRecords(tasksEntity, linked);
 }
 
 export async function resolveProjectGanttTasksBinding(input: {

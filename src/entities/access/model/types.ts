@@ -16,6 +16,12 @@ export type EntityAccess = {
   delete: boolean;
   scope: DataScope;
   /**
+   * When `scope === "own"`: user-link fields that make the record "own".
+   * `undefined` — every field that participates in own scope.
+   * `[]` — creator only, no relation fields.
+   */
+  ownFieldIds?: string[];
+  /**
    * When `scope === "filter"`: record must match all conditions
    * (same model as entity field filters / relation filters).
    */

@@ -68,6 +68,11 @@ type RelationGroupsFieldControlProps = {
     fieldIds: readonly string[];
     defaultExtras: string;
   }) => string | null;
+  /**
+   * When set, a level's options are limited to these record ids.
+   * Missing entity id — no options (still loading or denied).
+   */
+  allowedRecordIds?: ReadonlyMap<string, ReadonlySet<string>>;
 };
 
 function formatRecordExtras(
@@ -309,8 +314,13 @@ export function RelationGroupsFieldControl({
   hiddenNestedRecordIds,
   catalogFilterSource = null,
   resolveRecordExtras,
+  allowedRecordIds,
 }: RelationGroupsFieldControlProps) {
   const hiddenNested = hiddenNestedRecordIds ?? EMPTY_HIDDEN_NESTED;
+  const recordAllowed = (entityId: string, recordId: string) => {
+    if (!allowedRecordIds) return true;
+    return allowedRecordIds.get(entityId)?.has(recordId) ?? false;
+  };
   function extrasFor(
     entity: Entity,
     recordId: string,
@@ -477,6 +487,7 @@ export function RelationGroupsFieldControl({
   const rootOptions = enrichOptions(
     getRelationRecordOptions(rootEntity, ctx.entities, ctx).filter(
       (option) =>
+        recordAllowed(rootEntity.id, option.id) &&
         isSelectableRecord(rootEntity, option.id, ctx) &&
         passesLevelCatalogFilter(
           ctx,
@@ -530,6 +541,7 @@ export function RelationGroupsFieldControl({
               getRelationRecordOptions(entity, ctx.entities, ctx).filter(
                 (option) =>
                   !hiddenNested.has(option.id) &&
+                  recordAllowed(entity.id, option.id) &&
                   isSelectableRecord(entity, option.id, ctx) &&
                   (allowed ? allowed.has(option.id) : true) &&
                   passesLevelCatalogFilter(

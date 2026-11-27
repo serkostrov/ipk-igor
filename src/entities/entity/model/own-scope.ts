@@ -65,6 +65,11 @@ export function recordMatchesOwnScope(
     currentUserRecordId: string | null;
     entities: readonly Entity[];
     valueContext?: EntityValueContext;
+    /**
+     * When set, only these participating user fields count.
+     * `undefined` — every participating field. `[]` — none of them.
+     */
+    ownFieldIds?: readonly string[];
   },
 ): boolean {
   const viewerIds = viewerIdentityIds(options);
@@ -79,7 +84,10 @@ export function recordMatchesOwnScope(
     return true;
   }
 
+  const allowedFields =
+    options.ownFieldIds != null ? new Set(options.ownFieldIds) : null;
   for (const field of entity.fields) {
+    if (allowedFields && !allowedFields.has(field.id)) continue;
     if (!fieldParticipatesInOwnScope(entity, field, options.entities)) continue;
 
     if (field.type === "relation" || field.type === "belonging") {

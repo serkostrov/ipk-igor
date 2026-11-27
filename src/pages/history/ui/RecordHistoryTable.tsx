@@ -1,3 +1,10 @@
+import { useAsyncValue } from "@/shared/hooks/use-async-value";
+import {
+  canEntity,
+  filterVisibleEntityRecords,
+  useCurrentRole,
+} from "@/entities/access";
+import { getSessionUser } from "@/entities/session";
 import {
   Table,
   TableBody,
@@ -12,7 +19,9 @@ import {
   HistoryStatusRow,
 } from "./HistoryTableControls";
 import {
+  getCurrentUserRecordId,
   getEntityDisplayName,
+  getEntityRecordById,
   isEntityNameField,
   RecordChangeList,
   useEntityConfig,
@@ -49,8 +58,38 @@ export function RecordHistoryTable({
 }) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
+  const role = useCurrentRole();
   const { events, hasMore, status, error, loadingMore, loadMore, labels } =
     useEntityRecordEvents(query);
+  const visibleEvents = useAsyncValue(async () => {
+    const authUserId = getSessionUser()?.id ?? null;
+    const currentUserRecordId = getCurrentUserRecordId();
+    const kept = [];
+    for (const event of events) {
+      const eventEntity = entities.find((item) => item.id === event.entityId);
+      if (!eventEntity || !canEntity(role, eventEntity.id, "read")) continue;
+      const record = await getEntityRecordById(eventEntity, event.recordId);
+      if (!record) {
+        if (event.action === "delete") kept.push(event);
+        continue;
+      }
+      const visible = await filterVisibleEntityRecords(
+        role,
+        eventEntity,
+        [record],
+        {
+          entities,
+          authUserId,
+          currentUserRecordId,
+          valueContext,
+        },
+      );
+      if (visible.length > 0) kept.push(event);
+    }
+    return kept;
+  }, [entities, events, role, valueContext]);
+  if (visibleEvents.status === "error") throw visibleEvents.error;
+  const rows = visibleEvents.status === "ready" ? visibleEvents.value : [];
   return (
     <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card shadow-xs">
       <Table className="table-fixed text-[13px]">
@@ -71,10 +110,22 @@ export function RecordHistoryTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {status !== "ready" || events.length === 0 ? (
-            <HistoryStatusRow status={status} error={error} colSpan={5} />
+          {status !== "ready" ||
+          visibleEvents.status !== "ready" ||
+          rows.length === 0 ? (
+            <HistoryStatusRow
+              status={
+                status === "error"
+                  ? status
+                  : status !== "ready" || visibleEvents.status !== "ready"
+                    ? "loading"
+                    : status
+              }
+              error={error}
+              colSpan={5}
+            />
           ) : (
-            events.map((event) => {
+            rows.map((event) => {
               const eventEntity = entities.find(
                 (item) => item.id === event.entityId,
               );
