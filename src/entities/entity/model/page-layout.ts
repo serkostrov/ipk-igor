@@ -1,5 +1,9 @@
 import { getEntityRelationTargetId } from "./field";
-import { getRecordFieldIds, getRecordFieldNumber } from "./field-value";
+import {
+  getRecordFieldIds,
+  getRecordFieldNumber,
+  resolveEntityFieldSource,
+} from "./field-value";
 import {
   getEntityListOption,
   parseEntityListValueIds,
@@ -491,7 +495,7 @@ export function buildEntityCashFlowRows(
       return buckets.map((valueId) => ({
         fieldId: field.id,
         valueId,
-        label: groupKeyLabel(ctx, field, valueId),
+        label: groupKeyLabel(ctx, entity, field, valueId),
       }));
     });
     let combos: EntityAggregateGroupKey[][] = [[]];
@@ -585,21 +589,31 @@ export function buildEntityCashFlowRows(
 
 function groupKeyLabel(
   ctx: EntityValueContext,
+  entity: Entity,
   field: EntityField,
   valueId: string,
 ): string {
   if (!valueId) return "Без значения";
-  if (field.type === "list") {
+  // Lookups group by the target field's id; the caption comes from that field.
+  const source =
+    resolveEntityFieldSource(entity, field, ctx.entities ?? []) ?? {
+      entity,
+      field,
+    };
+  if (source.field.type === "list") {
     const option = getEntityListOption(
-      resolveEntityListFieldOptions(field, ctx.entities),
+      resolveEntityListFieldOptions(source.field, ctx.entities),
       valueId,
     );
     return option?.name ?? "Без названия";
   }
-  if (field.type === "relation" || field.type === "belonging") {
-    const targetId = getEntityRelationTargetId(field) ?? "";
+  if (source.field.type === "relation" || source.field.type === "belonging") {
+    const targetId = getEntityRelationTargetId(source.field) ?? "";
     const target = ctx.entityById.get(targetId) ?? null;
-    return resolveRelationRecordLabel(target, valueId) ?? "Без названия";
+    return (
+      resolveRelationRecordLabel(target, valueId, ctx.entities, ctx) ??
+      "Без названия"
+    );
   }
   return valueId;
 }
@@ -635,7 +649,7 @@ export function buildEntityAggregateRows(
       return buckets.map((valueId) => ({
         fieldId: field.id,
         valueId,
-        label: groupKeyLabel(ctx, field, valueId),
+        label: groupKeyLabel(ctx, entity, field, valueId),
       }));
     });
 

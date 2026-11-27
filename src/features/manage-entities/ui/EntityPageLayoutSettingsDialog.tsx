@@ -30,9 +30,9 @@ import {
 } from "@/shared/lib/drag-selection";
 import {
   createSummaryBoardLayout,
+  getEntityAggregateValueFields,
   getEntityFieldOptions,
   getEntityFieldValueKind,
-  getEntitySummableFields,
   hasEntityPageLayout,
   normalizeEntityPageLayout,
   resizeEntityPageLayoutRowColumn,
@@ -561,9 +561,8 @@ function PageLayoutSettingsForm({
       return kind === "list" || kind === "relation";
     }),
   );
-  const valueOptions = getEntityFieldOptions(
-    getEntitySummableFields(entity.fields),
-  );
+  const aggregateValueFields = getEntityAggregateValueFields(entity.fields);
+  const valueOptions = getEntityFieldOptions(aggregateValueFields);
   const filterOptions = getEntityFieldOptions(
     entity.fields.filter((field) => field.showInFilters !== false),
   );
@@ -573,9 +572,7 @@ function PageLayoutSettingsForm({
   const directionFieldOptions = getEntityFieldOptions(
     entity.fields.filter((field) => field.type === "list"),
   );
-  const amountFieldOptions = getEntityFieldOptions(
-    getEntitySummableFields(entity.fields),
-  );
+  const amountFieldOptions = getEntityFieldOptions(aggregateValueFields);
   const cashFlow = draft?.aggregate.cashFlow;
   const cashFlowEnabled = Boolean(cashFlow);
   const directionField = cashFlow
@@ -746,11 +743,11 @@ function PageLayoutSettingsForm({
 
               <FieldChecklist
                 title="Суммировать"
-                description="Числовые поля в колонках сводки"
+                description="Числовые поля и формулы в колонках сводки"
                 options={valueOptions}
                 selectedIds={draft.aggregate.valueFieldIds}
                 onChange={(valueFieldIds) => patchAggregate({ valueFieldIds })}
-                emptyHint="Нет числовых полей для сумм — сводка покажет только количество."
+                emptyHint="Нет числовых полей и формул для сумм — сводка покажет только количество."
               />
 
               <SettingSwitch
@@ -838,11 +835,11 @@ function PageLayoutSettingsForm({
                   <SettingSelect
                     id="layout-cash-flow-amount"
                     title="Сумма"
-                    description="Числовое поле операции (без знака)"
+                    description="Числовое поле или формула операции (без знака)"
                     value={cashFlow.amountFieldId || null}
                     options={amountFieldOptions}
                     emptyLabel="Не выбрано"
-                    noOptionsLabel="Добавьте числовое поле суммы"
+                    noOptionsLabel="Добавьте числовое поле или формулу суммы"
                     onChange={(amountFieldId) =>
                       patchCashFlow({ amountFieldId: amountFieldId ?? "" })
                     }

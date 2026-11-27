@@ -818,6 +818,29 @@ export function getEntitySummableFields<
   );
 }
 
+/**
+ * Stored numbers and numeric formulas. Summary columns and cash-flow amounts
+ * read them through `getRecordFieldNumber`. Date formulas stay with dates.
+ */
+export function isEntityAggregateValueField(field: {
+  type: EntityFieldType;
+  formula?: { resultType?: EntityFormulaResultType } | null;
+}): boolean {
+  if (field.type === "number") return true;
+  return (
+    field.type === "formula" && getEntityFormulaResultType(field) === "number"
+  );
+}
+
+export function getEntityAggregateValueFields<
+  T extends {
+    type: EntityFieldType;
+    formula?: { resultType?: EntityFormulaResultType } | null;
+  },
+>(fields: readonly T[]): T[] {
+  return fields.filter((field) => isEntityAggregateValueField(field));
+}
+
 export function normalizeEntitySumFieldIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [

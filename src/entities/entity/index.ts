@@ -117,6 +117,7 @@ export {
   entityListValueIncludesId,
   entityRelationIncludesId,
   getEntityRelationTargetId,
+  getEntityAggregateValueFields,
   getEntitySummableFields,
   getEntityTableFields,
   getEntityUrlHref,
