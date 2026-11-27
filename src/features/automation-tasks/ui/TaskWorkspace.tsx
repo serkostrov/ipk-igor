@@ -76,7 +76,8 @@ import {
 } from "../lib/task-form-persist";
 import {
   countMissingRelatedRequired,
-  resolveRelatedAskLayout,
+  relatedAskLayoutDepKey,
+  resolveLiveRelatedAskLayout,
   seedRelatedAskValues,
   syncRelatedAskValuesAfterLocalChange,
   validateRelatedAskRequired,
@@ -477,23 +478,38 @@ function TaskWorkspaceBody({
     ...templateAsk.relatedRequiredIds,
     ...(ask?.relatedRequiredIds ?? []),
   ];
+  // Record loads notify the store and rewrite `entities`. Depending on that
+  // (or on the form seed) cancels the child lookup before it can finish, so
+  // the fill form stays empty until the store goes quiet.
+  const { ready: recordsReady } = usePageRecordScope([task.entityId]);
+  const relatedLayoutKey = relatedAskLayoutDepKey(
+    relatedFieldsForForm,
+    record?.values,
+    values,
+  );
+  const relatedRequiredKey = relatedRequiredForForm.join("\0");
 
   const relatedLayoutValue = useAsyncValue(
     () =>
-      entity && relatedFieldsForForm.length > 0
-        ? resolveRelatedAskLayout({
-            triggerEntity: entity,
-            entities,
-            relatedFields: relatedFieldsForForm,
-            relatedRequiredIds: relatedRequiredForForm,
-            triggerValues: { ...(record?.values ?? {}), ...values },
-            triggerRecordId: record?.id ?? task.recordId,
-            ctx: previewContext,
-          })
-        : Promise.resolve({ groups: [], emptyRelations: [] }),
-    // relatedFields/required derive purely from these.
+      resolveLiveRelatedAskLayout({
+        entityId: task.entityId,
+        recordId: record?.id ?? task.recordId,
+        relatedFields: relatedFieldsForForm,
+        relatedRequiredIds: relatedRequiredForForm,
+        draftValues: values,
+      }),
+    // Key covers the asks and the trigger relation values. Live store is
+    // read inside the resolver. `recordsReady` retries once the page scope
+    // has the child rows, if the first lookup raced an empty cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entity, entities, selectedOutcome, task, record, previewContext, values],
+    [
+      task.entityId,
+      task.recordId,
+      record?.id,
+      relatedLayoutKey,
+      relatedRequiredKey,
+      recordsReady,
+    ],
   );
   const relatedLayout =
     relatedLayoutValue.status === "ready"
@@ -677,6 +693,10 @@ function TaskWorkspaceBody({
   const earlyViewTabIds = taskAsk.viewTabIds;
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
+  const relatedLayoutLoading =
+    relatedFieldsForForm.length > 0 &&
+    (relatedLayoutValue.status !== "ready" ||
+      (!hasRelatedAsk && !recordsReady));
   const hasViewContext =
     viewFields.length > 0 ||
     viewRelatedLayout.groups.length > 0 ||
@@ -692,6 +712,7 @@ function TaskWorkspaceBody({
   const showFillTab =
     fields.length > 0 ||
     hasRelatedAsk ||
+    relatedLayoutLoading ||
     hasCreateAsk ||
     hasViewContext ||
     showPinnedGipDuration;
@@ -1321,6 +1342,12 @@ function TaskWorkspaceBody({
                     readOnly={busy}
                     required
                   />
+                ) : null}
+
+                {relatedLayoutLoading && !hasRelatedAsk ? (
+                  <p className="text-sm text-muted-foreground">
+                    Загрузка полей…
+                  </p>
                 ) : null}
 
                 {hasRelatedAsk ? (

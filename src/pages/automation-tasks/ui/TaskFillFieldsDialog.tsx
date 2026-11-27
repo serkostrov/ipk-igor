@@ -47,6 +47,7 @@ import {
   sanitizeEntityRelationDependencies,
   updateEntityRecord,
   useEntityConfig,
+  usePageRecordScope,
   type EntityField,
 } from "@/entities/entity";
 import { useSessionUser } from "@/entities/session";
@@ -85,7 +86,8 @@ import {
 import {
   countMissingRelatedRequired,
   persistRelatedAskUpdates,
-  resolveRelatedAskLayout,
+  relatedAskLayoutDepKey,
+  resolveLiveRelatedAskLayout,
   seedRelatedAskValues,
   syncRelatedAskValuesAfterLocalChange,
   validateRelatedAskRequired,
@@ -413,22 +415,36 @@ function TaskFillFieldsDialogBody({
       ? ask.viewEntityFields
       : []),
   ];
+  const { ready: recordsReady } = usePageRecordScope(
+    task?.entityId ? [task.entityId] : [],
+  );
+  const relatedLayoutKey = relatedAskLayoutDepKey(
+    relatedFieldsForForm,
+    record?.values,
+    values,
+  );
+  const relatedRequiredKey = relatedRequiredForForm.join("\0");
   const relatedLayoutValue = useAsyncValue(
     () =>
-      entity && relatedFieldsForForm.length > 0
-        ? resolveRelatedAskLayout({
-            triggerEntity: entity,
-            entities,
+      task
+        ? resolveLiveRelatedAskLayout({
+            entityId: task.entityId,
+            recordId: record?.id ?? task.recordId,
             relatedFields: relatedFieldsForForm,
             relatedRequiredIds: relatedRequiredForForm,
-            triggerValues: { ...(record?.values ?? {}), ...values },
-            triggerRecordId: record?.id ?? task?.recordId ?? "",
-            ctx: previewContext,
+            draftValues: values,
           })
         : Promise.resolve({ groups: [], emptyRelations: [] }),
-    // relatedFields/required derive purely from these (see createAskSlots).
+    // Store updates and the form seed must not cancel this lookup.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entity, entities, selectedOutcome, task, record, previewContext, values],
+    [
+      task?.entityId,
+      task?.recordId,
+      record?.id,
+      relatedLayoutKey,
+      relatedRequiredKey,
+      recordsReady,
+    ],
   );
   const relatedLayout =
     relatedLayoutValue.status === "ready"
@@ -444,22 +460,35 @@ function TaskFillFieldsDialogBody({
   );
   const hasRelatedAsk =
     relatedLayout.groups.length > 0 || relatedLayout.emptyRelations.length > 0;
+  const relatedLayoutLoading =
+    relatedFieldsForForm.length > 0 &&
+    (relatedLayoutValue.status !== "ready" ||
+      (!hasRelatedAsk && !recordsReady));
 
+  const viewRelatedLayoutKey = relatedAskLayoutDepKey(
+    viewRelatedFieldsForFormMerged,
+    record?.values,
+    values,
+  );
   const viewRelatedLayoutValue = useAsyncValue(
     () =>
-      entity && viewRelatedFieldsForFormMerged.length > 0
-        ? resolveRelatedAskLayout({
-            triggerEntity: entity,
-            entities,
+      task
+        ? resolveLiveRelatedAskLayout({
+            entityId: task.entityId,
+            recordId: record?.id ?? task.recordId,
             relatedFields: viewRelatedFieldsForFormMerged,
             relatedRequiredIds: [],
-            triggerValues: { ...(record?.values ?? {}), ...values },
-            triggerRecordId: record?.id ?? task?.recordId ?? "",
-            ctx: previewContext,
+            draftValues: values,
           })
         : Promise.resolve({ groups: [], emptyRelations: [] }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entity, entities, selectedOutcome, task, record, previewContext, values],
+    [
+      task?.entityId,
+      task?.recordId,
+      record?.id,
+      viewRelatedLayoutKey,
+      recordsReady,
+    ],
   );
   const viewRelatedLayout =
     viewRelatedLayoutValue.status === "ready"
@@ -550,7 +579,11 @@ function TaskFillFieldsDialogBody({
 
   const hasCreateAsk = createAskSlots.length > 0;
   const hasEditableFill =
-    fields.length > 0 || hasRelatedAsk || hasCreateAsk || hasTemplateFill;
+    fields.length > 0 ||
+    hasRelatedAsk ||
+    relatedLayoutLoading ||
+    hasCreateAsk ||
+    hasTemplateFill;
   const hasEarlyView =
     (showViewBefore && hasViewContext) || (hasTemplateView && !formUpfront);
   const hasEarlyFill = hasTemplateFill && !formUpfront;
@@ -965,6 +998,7 @@ function TaskFillFieldsDialogBody({
                 fields.length > 0 ||
                 hasViewContext ||
                 hasRelatedAsk ||
+                relatedLayoutLoading ||
                 hasCreateAsk ? (
                   <div className="flex flex-col gap-4">
                     {autosaveLabel || autosave.error ? (
@@ -1082,6 +1116,11 @@ function TaskFillFieldsDialogBody({
                       </div>
                     ) : null}
 
+                    {relatedLayoutLoading && !hasRelatedAsk ? (
+                      <p className="text-sm text-muted-foreground">
+                        Загрузка полей…
+                      </p>
+                    ) : null}
                     {hasRelatedAsk ? (
                       <TaskRelatedAskFields
                         groups={relatedLayout.groups}
