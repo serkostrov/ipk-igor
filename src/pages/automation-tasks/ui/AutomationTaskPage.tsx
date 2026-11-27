@@ -1,11 +1,13 @@
 import { AsyncValue } from "@/shared/ui/async-value";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import { ConfirmDialog } from "@/shared/ui/confirm-dialog";
 import {
   canViewAutomationTask,
+  inspectAutomationTaskAccess,
+  logAutomationTaskAccessDenied,
   useCanDeleteAutomationTasks,
   useCurrentRole,
 } from "@/entities/access";
@@ -49,6 +51,7 @@ export function AutomationTaskPage({
   const [error, setError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const loggedDenialRef = useRef<string | null>(null);
 
   // Load only when the task id changes. Entity store updates (uploads, field
   // saves, timers) must not remount the workspace — same pattern as the fill dialog.
@@ -62,15 +65,28 @@ export function AutomationTaskPage({
         if (cancelled) return;
         if (next) {
           const entitiesNow = getEntityConfig().entities;
-          const valueContextNow = getEntityValueContext(entitiesNow);
-          const allowed = await canViewAutomationTask(role, next, {
+          const valueContextNow = getEntityValueContext(
+            entitiesNow,
+            getCurrentUserRecordId(),
+          );
+          const accessOptions = {
             authUserId: sessionUser?.id ?? null,
             userRecordId: getCurrentUserRecordId(),
             entities: entitiesNow,
             valueContext: valueContextNow,
-          });
+          };
+          const report = await inspectAutomationTaskAccess(
+            role,
+            next,
+            accessOptions,
+          );
           if (cancelled) return;
-          if (!allowed) {
+          if (!report.allowed) {
+            const key = `${next.id}\n${report.reason}`;
+            if (loggedDenialRef.current !== key) {
+              loggedDenialRef.current = key;
+              logAutomationTaskAccessDenied(report);
+            }
             setTask(null);
             setError("Нет доступа к этому заданию");
             return;
@@ -139,6 +155,40 @@ export function AutomationTaskPage({
         : Promise.resolve(true),
     [role, task, sessionUser?.id, entities, valueContext],
   );
+
+  // Role or scope can change while the task stays open. Explain a new denial
+  // once; the list filter must not log every hidden row.
+  useEffect(() => {
+    if (!task) return;
+    let cancelled = false;
+    void access
+      .then(async (allowed) => {
+        if (cancelled || allowed) {
+          if (!cancelled && allowed) loggedDenialRef.current = null;
+          return;
+        }
+        const report = await inspectAutomationTaskAccess(role, task, {
+          authUserId: sessionUser?.id ?? null,
+          userRecordId: getCurrentUserRecordId(),
+          entities,
+          valueContext,
+        });
+        if (cancelled || report.allowed) return;
+        const key = `${task.id}\n${report.reason}`;
+        if (loggedDenialRef.current === key) return;
+        loggedDenialRef.current = key;
+        logAutomationTaskAccessDenied(report);
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          "[access] Не удалось выяснить причину отказа в задании",
+          err,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [access, task, role, sessionUser?.id, entities, valueContext]);
 
   return (
     <AsyncValue promise={access}>

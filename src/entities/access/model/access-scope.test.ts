@@ -24,7 +24,12 @@ import {
   type EntityTab,
 } from "@/entities/entity/model/types";
 import { FEED_ITEM_ID, HISTORY_ITEM_ID, OPIU_ITEM_ID } from "@/entities/menu";
-import { canMenuItem, canViewRecordForDataScope } from "./permissions";
+import {
+  canMenuItem,
+  canViewAutomationTask,
+  canViewRecordForDataScope,
+} from "./permissions";
+import { inspectAutomationTaskAccess } from "./explain-automation-task-access";
 import { createEmployeeRole, type EntityAccess, type Role } from "./types";
 
 function field(
@@ -556,6 +561,8 @@ async function main() {
     "isCurrentUser ignores a session id that was not passed",
   );
 
+  await automationTaskDenialReasons();
+
   console.log("ok: own scope, parent visibility, locked tabs, menu items");
 }
 
@@ -583,6 +590,102 @@ function roleFor(entitiesAccess: EntityAccess[]): Role {
     name: "ГИП",
     permissions: { ...base.permissions, entities: entitiesAccess },
   };
+}
+
+async function automationTaskDenialReasons() {
+  const users = entity({
+    id: SYSTEM_USERS_ENTITY_ID,
+    name: "Пользователи",
+    fields: [field({ id: "field-user-name", name: "Имя", type: "text" })],
+    records: [
+      record("user-me", { "field-user-name": "Я" }),
+      record("user-other", { "field-user-name": "Другой" }),
+    ],
+  });
+  const manager = field({
+    id: "field-lead-manager",
+    name: "Менеджер",
+    type: "relation",
+    relationEntityId: SYSTEM_USERS_ENTITY_ID,
+  });
+  const leads = entity({
+    id: "entity-leads",
+    name: "Лиды",
+    fields: [manager],
+    records: [
+      record(
+        "lead-foreign",
+        { "field-lead-manager": "user-other" },
+        "user-other",
+      ),
+    ],
+  });
+  const entities = [users, leads];
+  const options = {
+    authUserId: null,
+    userRecordId: "user-me",
+    entities,
+    valueContext: getEntityValueContext(entities, "user-me"),
+  };
+  const task = {
+    id: "task-1",
+    name: "Согласовать",
+    assigneeUserId: "user-other",
+    entityId: leads.id,
+    recordId: "lead-foreign",
+  };
+
+  const closed = roleFor([entityAccess(leads.id, true, "all")]);
+  closed.permissions.canAccessAutomationTasks = false;
+  const closedReport = await inspectAutomationTaskAccess(closed, task, options);
+  assert(!closedReport.allowed, "automation off denies the task");
+  assert(closedReport.reason.includes("выключен доступ"), closedReport.reason);
+  assert(
+    closedReport.allowed ===
+      (await canViewAutomationTask(closed, task, options)),
+    "inspect matches canView when automation is off",
+  );
+
+  const ownTasks = roleFor([entityAccess(leads.id, true, "all")]);
+  ownTasks.permissions.canAccessAutomationTasks = true;
+  ownTasks.permissions.automationTasksScope = "own";
+  const ownReport = await inspectAutomationTaskAccess(ownTasks, task, options);
+  assert(!ownReport.allowed, "another assignee is denied");
+  assert(ownReport.reason.includes("Только свои"), ownReport.reason);
+  assert(ownReport.reason.includes("user-other"), ownReport.reason);
+  assert(
+    ownReport.allowed ===
+      (await canViewAutomationTask(ownTasks, task, options)),
+    "inspect matches canView for own task scope",
+  );
+
+  const ownRecords = roleFor([entityAccess(leads.id, true, "own")]);
+  ownRecords.permissions.canAccessAutomationTasks = true;
+  ownRecords.permissions.automationTasksScope = "all";
+  const ownRecordTask = { ...task, assigneeUserId: "user-me" };
+  const recordReport = await inspectAutomationTaskAccess(
+    ownRecords,
+    ownRecordTask,
+    options,
+  );
+  assert(!recordReport.allowed, "foreign record is denied");
+  assert(recordReport.reason.includes("Лиды"), recordReport.reason);
+  assert(recordReport.reason.includes("Только свои"), recordReport.reason);
+  assert(
+    recordReport.allowed ===
+      (await canViewAutomationTask(ownRecords, ownRecordTask, options)),
+    "inspect matches canView for record scope",
+  );
+
+  const open = roleFor([entityAccess(leads.id, true, "all")]);
+  open.permissions.canAccessAutomationTasks = true;
+  open.permissions.automationTasksScope = "all";
+  const openReport = await inspectAutomationTaskAccess(open, task, options);
+  assert(openReport.allowed, openReport.reason);
+  assert(
+    openReport.allowed === (await canViewAutomationTask(open, task, options)),
+    "inspect matches canView when the task is allowed",
+  );
 }
 
 main().catch((error) => {
