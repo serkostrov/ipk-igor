@@ -521,14 +521,14 @@ export function TaskRelatedAskFields({
                 field,
               );
               const relatedRecord = group.relatedRecord;
+              const draftOverlay: Record<string, string> = {};
+              for (const item of group.fields) {
+                const draft = values[item.valueKey];
+                if (draft !== undefined) draftOverlay[item.field.id] = draft;
+              }
               const relatedMerged = {
                 ...(relatedRecord?.values ?? {}),
-                ...Object.fromEntries(
-                  group.fields.map((item) => [
-                    item.field.id,
-                    values[item.valueKey] ?? "",
-                  ]),
-                ),
+                ...draftOverlay,
               };
               const groupsField =
                 findDeptCalculationsGroupsField(relatedEntity);

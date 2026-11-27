@@ -12,9 +12,13 @@ import {
   createEntityDraftRecord,
   filterDeptCalculationRecordsForAssignee,
   findDeptCalculationsGroupsField,
+  getCurrentUserRecordId,
+  getEntityConfig,
+  getEntityPreviewValueContext,
   getEntityRecordById,
   getEntityRecordsByIds,
   getEntityRecordTitle,
+  getEntityValueContext,
   isDeptCalculationsEntity,
   isEntityFieldVisibleByConditions,
   normalizeEntityFieldInputValue,
@@ -55,6 +59,69 @@ export type RelatedAskEmptyRelation = {
   relationFieldId: string;
   relationLabel: string;
 };
+
+/**
+ * Stable input for the related-ask layout. Record loads rewrite `entities`
+ * and the form seed rewrites `values`; neither changes which child records
+ * the asks point at, and restarting the lookup on each of them leaves the
+ * form blank until the store goes quiet.
+ */
+export function relatedAskLayoutDepKey(
+  fields: readonly AutomationAskRelatedField[],
+  recordValues: Record<string, string> | undefined,
+  draftValues?: Record<string, string>,
+): string {
+  return fields
+    .map((item) => {
+      const relationId = item.relationFieldId?.trim() ?? "";
+      const linkedTabId = item.linkedTabId?.trim() ?? "";
+      const raw = relationId
+        ? (draftValues?.[relationId] ?? recordValues?.[relationId] ?? "")
+        : "";
+      return [item.id, item.fieldId, relationId, linkedTabId, raw].join("\t");
+    })
+    .join("\n");
+}
+
+/**
+ * Resolve related asks against the live store, not the `entities` snapshot
+ * from the render that scheduled the read.
+ */
+export async function resolveLiveRelatedAskLayout(options: {
+  entityId: string;
+  recordId: string;
+  relatedFields: readonly AutomationAskRelatedField[];
+  relatedRequiredIds: readonly string[];
+  draftValues?: Record<string, string>;
+}): Promise<{
+  groups: RelatedAskGroup[];
+  emptyRelations: RelatedAskEmptyRelation[];
+}> {
+  const empty = { groups: [], emptyRelations: [] };
+  if (options.relatedFields.length === 0) return empty;
+  const entities = getEntityConfig().entities;
+  const entity = entities.find((item) => item.id === options.entityId);
+  if (!entity) return empty;
+  const record = await getEntityRecordById(entity, options.recordId);
+  const triggerValues = { ...(record?.values ?? {}) };
+  for (const ask of options.relatedFields) {
+    const relationId = ask.relationFieldId?.trim();
+    if (!relationId) continue;
+    const draft = options.draftValues?.[relationId];
+    if (draft !== undefined) triggerValues[relationId] = draft;
+  }
+  return resolveRelatedAskLayout({
+    triggerEntity: entity,
+    entities,
+    relatedFields: [...options.relatedFields],
+    relatedRequiredIds: [...options.relatedRequiredIds],
+    triggerValues,
+    triggerRecordId: options.recordId,
+    ctx: getEntityPreviewValueContext(
+      getEntityValueContext(entities, getCurrentUserRecordId()),
+    ),
+  });
+}
 
 export async function resolveRelatedAskLayout(options: {
   triggerEntity: Entity;
