@@ -56,13 +56,16 @@ type TimelineGroupRecordsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   entity: Entity;
-  /** Ids of operations in the cell — resolved per page only. */
-  recordIds: readonly string[];
   groupLabel: string;
   cellLabel?: string | null;
-};
+} & (
+  | { recordIds: readonly string[]; cellRows?: never }
+  | { cellRows: readonly TimelineCellRow[]; recordIds?: never }
+);
 
-type RowModel = {
+export type TimelineCellRow = {
+  onOpen?: (() => void) | null;
+  action?: { label: string; run: () => void };
   record: EntityRecord;
   title: string;
   amount: string | null;
@@ -74,7 +77,7 @@ function buildRowModel(
   record: EntityRecord,
   setup: EntityTimelineSetup | null,
   valueContext: EntityValueContext,
-): RowModel {
+): TimelineCellRow {
   const title = resolveRelationRecordLabel(entity, record.id) ?? "Без названия";
   const amount =
     setup?.labelField != null
@@ -98,7 +101,8 @@ export function TimelineGroupRecordsDialog({
   open,
   onOpenChange,
   entity,
-  recordIds,
+  recordIds: sourceIds,
+  cellRows,
   groupLabel,
   cellLabel,
 }: TimelineGroupRecordsDialogProps) {
@@ -108,6 +112,15 @@ export function TimelineGroupRecordsDialog({
   const filterFields = useMemo(
     () => getEntityBrowseFilterFields(entity),
     [entity],
+  );
+
+  const suppliedRows = useMemo(
+    () => cellRows && new Map(cellRows.map((row) => [row.record.id, row])),
+    [cellRows],
+  );
+  const recordIds = useMemo(
+    () => sourceIds ?? cellRows.map((row) => row.record.id),
+    [sourceIds, cellRows],
   );
 
   const [editing, setEditing] = useState<EntityRecord | null>(null);
@@ -126,12 +139,13 @@ export function TimelineGroupRecordsDialog({
   }
 
   const recordsByIdValue = useAsyncValue(async () => {
+    if (!open || suppliedRows) return EMPTY_RECORDS_BY_ID;
     const map = new Map<string, EntityRecord>();
     for (const record of await getEntityRecords(entity)) {
       map.set(record.id, record);
     }
     return map;
-  }, [entity]);
+  }, [entity, open, suppliedRows]);
   const recordsById =
     recordsByIdValue.status === "ready"
       ? recordsByIdValue.value
@@ -155,7 +169,7 @@ export function TimelineGroupRecordsDialog({
 
     const next: string[] = [];
     for (const id of recordIds) {
-      const record = recordsById.get(id);
+      const record = suppliedRows?.get(id)?.record ?? recordsById.get(id);
       if (!record) continue;
       if (!recordMatchesSearch(valueContext, entity, record, search)) continue;
       if (
@@ -178,6 +192,7 @@ export function TimelineGroupRecordsDialog({
     filters,
     recordIds,
     recordsById,
+    suppliedRows,
     search,
     valueContext,
   ]);
@@ -192,8 +207,13 @@ export function TimelineGroupRecordsDialog({
 
   const rows = useMemo(() => {
     const pageIds = filteredIds.slice(pageStart, pageStart + pageSize);
-    const next: RowModel[] = [];
+    const next: TimelineCellRow[] = [];
     for (const id of pageIds) {
+      const supplied = suppliedRows?.get(id);
+      if (supplied) {
+        next.push(supplied);
+        continue;
+      }
       const record = recordsById.get(id);
       if (!record) continue;
       next.push(buildRowModel(entity, record, setup, valueContext));
@@ -206,6 +226,7 @@ export function TimelineGroupRecordsDialog({
     pageStart,
     recordsById,
     setup,
+    suppliedRows,
     valueContext,
   ]);
 
@@ -247,7 +268,7 @@ export function TimelineGroupRecordsDialog({
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {recordsByIdValue.status === "loading" ? (
+              {!suppliedRows && recordsByIdValue.status === "loading" ? (
                 <Loader block label="Загрузка…" />
               ) : rows.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-muted-foreground">
@@ -257,33 +278,47 @@ export function TimelineGroupRecordsDialog({
                 </p>
               ) : (
                 <ul className="divide-y divide-border">
-                  {rows.map(({ record, title, amount, period }) => (
-                    <li key={record.id}>
-                      <button
-                        type="button"
-                        className={cn(
-                          "flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
-                        )}
-                        onClick={() => setEditing(record)}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium leading-none text-foreground">
-                            {title}
+                  {rows.map(
+                    ({ record, title, amount, period, onOpen, action }) => (
+                      <li key={record.id} className="flex items-center">
+                        <button
+                          type="button"
+                          className={cn(
+                            "flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
+                          )}
+                          disabled={onOpen === null}
+                          onClick={onOpen ?? (() => setEditing(record))}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium leading-none text-foreground">
+                              {title}
+                            </span>
+                            {period ? (
+                              <span className="mt-1 block truncate text-[11px] leading-none text-muted-foreground tabular-nums">
+                                {period}
+                              </span>
+                            ) : null}
                           </span>
-                          {period ? (
-                            <span className="mt-1 block truncate text-[11px] leading-none text-muted-foreground tabular-nums">
-                              {period}
+                          {amount && amount !== "—" ? (
+                            <span className="shrink-0 text-sm font-medium tabular-nums text-foreground">
+                              {amount}
                             </span>
                           ) : null}
-                        </span>
-                        {amount && amount !== "—" ? (
-                          <span className="shrink-0 text-sm font-medium tabular-nums text-foreground">
-                            {amount}
-                          </span>
-                        ) : null}
-                      </button>
-                    </li>
-                  ))}
+                        </button>
+                        {action && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mr-2.5"
+                            onClick={action.run}
+                          >
+                            {action.label}
+                          </Button>
+                        )}
+                      </li>
+                    ),
+                  )}
                 </ul>
               )}
             </div>

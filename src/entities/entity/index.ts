@@ -808,3 +808,10 @@ export {
   type TkpGipLeadContext,
 } from "./lib/use-tkp-gip-extras";
 export { parseEntityStructureRow } from "./api/entity-config-api";
+
+export {
+  createTimelineOptionGroup,
+  type TimelineGroup,
+  type TimelineGroupKind,
+  type TimelineItem,
+} from "./model/timeline-group";

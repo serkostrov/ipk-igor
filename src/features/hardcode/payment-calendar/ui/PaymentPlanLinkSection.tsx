@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import {
   useEntityConfig,
@@ -14,9 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { roundMoney } from "../../deal-card/model/calculations";
 import { dateOrDash, moneyOrDash } from "../../deal-card/model/format";
 import { usePaymentAllocations } from "../lib/use-payment-allocations";
 import { usePaymentCalendar } from "../lib/use-payment-calendar";
+import {
+  paymentReceiptPreset,
+  reconcileReceiptPreset,
+} from "../model/plan-records";
 import { KIND_LABELS } from "../model/labels";
 import { readDdsOperationFromValues } from "../model/operation-draft";
 import {
@@ -31,6 +36,14 @@ const MAX_OPTIONS = 100;
 
 function rowKey(row: PaymentRow) {
   return `${row.stage.id}:${row.kind}`;
+}
+
+function availableAmount(row: PaymentRow, recordId: string) {
+  const coveredByOthers = row.receipts.reduce(
+    (sum, share) => sum + (share.receiptId === recordId ? 0 : share.amount),
+    0,
+  );
+  return Math.max(0, roundMoney(row.amount - coveredByOthers));
 }
 
 function rowTitle(row: PaymentRow) {
@@ -48,18 +61,23 @@ export function PaymentPlanLinkSection({
   values,
   items,
   onChange,
+  onFill,
+  initialPreset,
 }: {
   entity: Entity;
   recordId: string;
   values: Record<string, string>;
   /** `null` — untouched: show the links saved earlier. */
   items: PlanLinkItem[] | null;
+  initialPreset?: Record<string, string>;
+  onFill?: (values: Record<string, string>) => void;
   onChange: (items: PlanLinkItem[]) => void;
 }) {
   const { entities } = useEntityConfig();
   const ctx = useEntityValueContext();
-  const { ready, calendar } = usePaymentCalendar();
+  const { ready, calendar, sources, today } = usePaymentCalendar();
   const allocations = usePaymentAllocations();
+  const automaticValues = useRef<Record<string, string>>(initialPreset ?? {});
   const [search, setSearch] = useState("");
 
   const saved = useMemo(
@@ -89,12 +107,6 @@ export function PaymentPlanLinkSection({
     () => new Map((calendar?.rows ?? []).map((row) => [rowKey(row), row])),
     [calendar],
   );
-  // What this operation already covers (it is part of the rows' paid amount).
-  const ownSaved = useMemo(
-    () => new Map(saved.map((item) => [planLinkKey(item), item.amount])),
-    [saved],
-  );
-
   const chosen = useMemo(
     () => new Set(current.map((item) => planLinkKey(item))),
     [current],
@@ -104,7 +116,7 @@ export function PaymentPlanLinkSection({
     return (calendar?.rows ?? [])
       .filter((row) => {
         if (chosen.has(rowKey(row))) return false;
-        if (row.remaining + (ownSaved.get(rowKey(row)) ?? 0) <= 0) return false;
+        if (availableAmount(row, recordId) <= 0) return false;
         return (
           !needle || rowTitle(row).toLocaleLowerCase("ru").includes(needle)
         );
@@ -118,24 +130,45 @@ export function PaymentPlanLinkSection({
         return mine(a) - mine(b);
       })
       .slice(0, MAX_OPTIONS);
-  }, [calendar, chosen, operation, ownSaved, search]);
+  }, [calendar, chosen, operation, recordId, search]);
 
-  if (!operation?.income) return null;
+  if (!operation?.income && !current.length) return null;
 
-  const operationAmount = operation.amount;
+  const operationAmount = operation?.amount ?? null;
   const linked = sumPlanLinks(current);
   const left =
     operationAmount == null
       ? null
       : Math.round((operationAmount - linked) * 100) / 100;
 
+  function changeSelection(next: PlanLinkItem[]) {
+    if (onFill && sources) {
+      const presets = next.map((item) => {
+        const row = rowByKey.get(planLinkKey(item));
+        return row
+          ? paymentReceiptPreset(entity, sources, row, entities, today)
+          : {};
+      });
+      const { patch, automatic } = reconcileReceiptPreset(
+        entity,
+        values,
+        automaticValues.current,
+        presets,
+        current.length === 0,
+      );
+      automaticValues.current = automatic;
+      onFill(patch);
+    }
+    onChange(next);
+  }
+
   function add(key: string) {
     const row = rowByKey.get(key);
     if (!row) return;
-    const available = row.remaining + (ownSaved.get(key) ?? 0);
+    const available = availableAmount(row, recordId);
     const suggested =
       left == null ? available : Math.min(available, Math.max(left, 0));
-    onChange([
+    changeSelection([
       ...current,
       {
         stageId: row.stage.id,
@@ -202,7 +235,7 @@ export function PaymentPlanLinkSection({
                     size="icon-sm"
                     aria-label="Убрать привязку"
                     onClick={() =>
-                      onChange(
+                      changeSelection(
                         current.filter((entry) => planLinkKey(entry) !== key),
                       )
                     }
@@ -242,9 +275,7 @@ export function PaymentPlanLinkSection({
                     candidates.map((row) => (
                       <SelectItem key={rowKey(row)} value={rowKey(row)}>
                         {rowTitle(row)} · {dateOrDash(row.dueDate)} · ост.{" "}
-                        {moneyOrDash(
-                          row.remaining + (ownSaved.get(rowKey(row)) ?? 0),
-                        )}
+                        {moneyOrDash(availableAmount(row, recordId))}
                       </SelectItem>
                     ))
                   )}

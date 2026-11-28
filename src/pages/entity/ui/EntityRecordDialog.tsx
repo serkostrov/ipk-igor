@@ -85,6 +85,7 @@ type EntityRecordDialogProps = {
   record?: EntityRecord | null;
   entities?: Entity[];
   presetValues?: Record<string, string>;
+  presetPlanLinks?: PlanLinkItem[];
   /**
    * Parent host record for product soft-fill hardcodes
    * (e.g. «Разбор ТКП» → «Расчёты отделов» / ГИП).
@@ -216,6 +217,7 @@ function EntityRecordForm({
   record,
   entities,
   presetValues,
+  presetPlanLinks,
   softFillParent = null,
   hiddenFieldIds,
   titleOverride,
@@ -230,6 +232,7 @@ function EntityRecordForm({
   record?: EntityRecord | null;
   entities: Entity[];
   presetValues?: Record<string, string>;
+  presetPlanLinks?: PlanLinkItem[];
   softFillParent?: { entity: Entity; record: EntityRecord } | null;
   hiddenFieldIds?: Set<string>;
   titleOverride?: string;
@@ -362,7 +365,10 @@ function EntityRecordForm({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   /** ДДС: planned payments this operation covers (`null` — not touched). */
-  const [planLinks, setPlanLinks] = useState<PlanLinkItem[] | null>(null);
+  const [createdBeforeLinkRetry, setCreatedBeforeLinkRetry] = useState(false);
+  const [planLinks, setPlanLinks] = useState<PlanLinkItem[] | null>(
+    presetPlanLinks ?? null,
+  );
   const isDdsOperation = isDdsOperationsEntity(entity);
   const formulaSoftFill = useMemo(
     () =>
@@ -679,6 +685,28 @@ function EntityRecordForm({
             values={values}
             items={planLinks}
             onChange={setPlanLinks}
+            initialPreset={presetPlanLinks ? presetValues : undefined}
+            onFill={
+              isEdit
+                ? undefined
+                : (preset) =>
+                    setValues((current) => {
+                      const next = { ...current };
+                      for (const field of editableFields) {
+                        if (preset[field.id] !== undefined) {
+                          next[field.id] = normalizeEntityFieldInputValue(
+                            field,
+                            preset[field.id]!,
+                          );
+                        }
+                      }
+                      return sanitizeEntityRelationDependencies(
+                        entity,
+                        next,
+                        entities,
+                      );
+                    })
+            }
           />
         ) : null}
 
@@ -709,7 +737,7 @@ function EntityRecordForm({
         <Button
           type="button"
           disabled={!canSubmit || pending}
-          onClick={() => {
+          onClick={async () => {
             const fieldValues = reconcileEntityScheduleValues(entity, {
               ...buildRecordValues(
                 editableFields,
@@ -742,36 +770,39 @@ function EntityRecordForm({
               recordId: draftRecordId,
               values: nextValues,
             };
-            const planError =
-              isDdsOperation && planLinks
-                ? validatePaymentPlanLinks(planForm, planLinks)
-                : null;
-            if (planError) {
-              setSubmitError(planError);
-              return;
-            }
             setPending(true);
             setSubmitError(null);
-            void Promise.resolve(onSubmit(nextValues, meta))
-              .then(async () => {
-                if (isDdsOperation && planLinks) {
-                  try {
-                    await savePaymentPlanLinks(planForm, planLinks);
-                  } catch (error: unknown) {
-                    throw new Error(
-                      `Операция сохранена, но привязка к плану не записана: ${getErrorMessage(error, "ошибка")}`,
-                      { cause: error },
-                    );
-                  }
+            try {
+              if (isDdsOperation && (planLinks || isEdit)) {
+                const error = await validatePaymentPlanLinks(
+                  planForm,
+                  planLinks,
+                );
+                if (error) {
+                  setSubmitError(error);
+                  return;
                 }
-                onCancel();
-              })
-              .catch((error: unknown) => {
-                setSubmitError(getErrorMessage(error, "Не удалось сохранить"));
-              })
-              .finally(() => {
-                setPending(false);
-              });
+              }
+              if (createdBeforeLinkRetry)
+                await updateEntityRecord(entity.id, draftRecordId, nextValues);
+              else await onSubmit(nextValues, meta);
+              if (isDdsOperation && planLinks) {
+                try {
+                  await savePaymentPlanLinks(planForm, planLinks);
+                } catch (error: unknown) {
+                  if (!isEdit) setCreatedBeforeLinkRetry(true);
+                  throw new Error(
+                    `Операция сохранена, но привязка к плану не записана: ${getErrorMessage(error, "ошибка")}`,
+                    { cause: error },
+                  );
+                }
+              }
+              onCancel();
+            } catch (error: unknown) {
+              setSubmitError(getErrorMessage(error, "Не удалось сохранить"));
+            } finally {
+              setPending(false);
+            }
           }}
         >
           {pending
@@ -790,6 +821,7 @@ export function EntityRecordDialog({
   record = null,
   entities: entitiesProp,
   presetValues,
+  presetPlanLinks,
   softFillParent = null,
   hiddenFieldIds,
   titleOverride,
@@ -814,6 +846,7 @@ export function EntityRecordDialog({
             record={record}
             entities={entities}
             presetValues={presetValues}
+            presetPlanLinks={presetPlanLinks}
             softFillParent={softFillParent}
             hiddenFieldIds={hiddenFieldIds}
             titleOverride={titleOverride}

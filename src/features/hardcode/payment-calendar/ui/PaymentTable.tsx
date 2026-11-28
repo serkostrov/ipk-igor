@@ -7,6 +7,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
+import { Button } from "@/shared/ui/button";
+import type { PaymentRow } from "../model/types";
 import { cn } from "@/shared/lib/cn";
 import { dateOrDash, moneyOrDash } from "../../deal-card/model/format";
 import { DealRecordLink, DealStatusBadge } from "../../deal-card/ui/shared";
@@ -37,6 +39,7 @@ const COLUMNS = [
   { label: "Просрочка, дн.", width: 128 },
   { label: "Статус", width: 160 },
   { label: "Операции ДДС", width: 224 },
+  { label: "Поступление", width: 140 },
 ] as const;
 
 const TABLE_WIDTH = COLUMNS.reduce((sum, column) => sum + column.width, 0);
@@ -63,8 +66,12 @@ export function PaymentTable({
   stageEntityId,
   ddsEntityId,
   totals,
+  onReceive,
   onOpenRecord,
-}: PaymentTableProps & { totals: PaymentTableTotals }) {
+}: PaymentTableProps & {
+  totals: PaymentTableTotals;
+  onReceive?: (row: PaymentRow) => void;
+}) {
   const footTotals: Record<number, number> = {
     [PLAN_COLUMN]: totals.planned,
     [FACT_COLUMN]: totals.received,
@@ -190,6 +197,17 @@ export function PaymentTable({
                   </span>
                 ) : (
                   <span className="text-muted-foreground/50">—</span>
+                )}
+              </TableCell>
+              <TableCell className={tableCellClass}>
+                {onReceive && row.remaining > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onReceive(row)}
+                  >
+                    Оформить
+                  </Button>
                 )}
               </TableCell>
             </TableRow>

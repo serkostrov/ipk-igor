@@ -1,3 +1,7 @@
+import { canEntity, useCurrentRole } from "@/entities/access";
+import { paymentReceiptPreset } from "../model/plan-records";
+import type { PlanLinkItem } from "../model/plan-links";
+import type { PaymentRow } from "../model/types";
 import { useMemo, useState } from "react";
 import { ChartGantt, Table2 } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
@@ -10,6 +14,8 @@ import {
   DEFAULT_ENTITY_TABLE_PAGE_SIZE,
   ENTITY_TABLE_PAGE_SIZES,
   ENTITY_TABLE_PAGE_SIZE_STORAGE_KEY,
+  useEntityConfig,
+  type Entity,
   isEntityTablePageSize,
   parseEntityTablePageSize,
 } from "@/entities/entity";
@@ -80,12 +86,22 @@ function ScaleTabs({
   );
 }
 
+export type ReceiptDraft = {
+  entity: Entity;
+  values: Record<string, string>;
+  links: PlanLinkItem[];
+};
+
 export function PaymentCalendarPage({
   onOpenRecord,
+  onCreateReceipt,
 }: {
   onOpenRecord?: OpenRecord;
+  onCreateReceipt?: (draft: ReceiptDraft) => void;
 }) {
-  const { sources, ready, calendar } = usePaymentCalendar();
+  const { entities } = useEntityConfig();
+  const role = useCurrentRole();
+  const { sources, ready, calendar, today } = usePaymentCalendar();
   const { records: ddsRecords } = useEntityRecordScope(sources?.dds ?? null);
   const [view, setView] = useState<CalendarView>("table");
   const [scale, setScale] = useState<GraphScale>("month");
@@ -149,9 +165,28 @@ export function PaymentCalendarPage({
 
   const missing = listMissingPaymentCalendarSources(sources);
   const isGraph = view === "graph";
+  const dds = sources?.dds;
+  const receive =
+    dds && canEntity(role, dds.id, "create") && onCreateReceipt
+      ? (row: PaymentRow) => {
+          const entity = dds;
+          onCreateReceipt({
+            entity,
+            values: paymentReceiptPreset(entity, sources, row, entities, today),
+            links: [
+              {
+                stageId: row.stage.id,
+                partKind: row.kind,
+                amountText: String(row.remaining),
+              },
+            ],
+          });
+        }
+      : undefined;
   const tableProps =
     ready && calendar && sources
       ? {
+          onReceive: receive,
           receiptsById: calendar.receiptsById,
           stageEntityId: sources.stage?.id,
           ddsEntityId: sources.dds?.id,
@@ -207,6 +242,7 @@ export function PaymentCalendarPage({
               rows={calendar!.rows}
               receiptsById={tableProps.receiptsById}
               unallocated={calendar!.unallocated}
+              onReceive={receive}
               scale={scale}
               onOpenRecord={onOpenRecord}
             />
