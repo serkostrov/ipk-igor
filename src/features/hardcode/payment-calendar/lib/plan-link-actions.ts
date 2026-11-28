@@ -1,4 +1,5 @@
 import type { Entity, EntityValueContext } from "@/entities/entity";
+import { fetchPaymentAllocations } from "../api/allocations-api";
 import { readDdsOperationFromValues } from "../model/operation-draft";
 import {
   parsePlanLinkAmount,
@@ -16,10 +17,18 @@ type FormOperation = {
 };
 
 /** Error text for the links of the ДДС form, or `null` when they can be saved. */
-export function validatePaymentPlanLinks(
+export async function validatePaymentPlanLinks(
   form: FormOperation,
-  items: readonly PlanLinkItem[],
-): string | null {
+  draftItems: readonly PlanLinkItem[] | null,
+): Promise<string | null> {
+  const items =
+    draftItems ??
+    (await fetchPaymentAllocations(form.recordId)).map((item) => ({
+      stageId: item.stageId,
+      partKind: item.partKind,
+      amountText: String(item.amount),
+    }));
+  if (!items.length) return null;
   const operation = readDdsOperationFromValues(
     form.ctx,
     form.entities,
@@ -27,7 +36,10 @@ export function validatePaymentPlanLinks(
     form.recordId,
     form.values,
   );
-  if (!operation?.income) return null;
+  if (!operation?.income)
+    return "Выберите тип движения или статью ДДС для поступления.";
+  if (!operation.date) return "Укажите дату поступления.";
+  if (operation.amount == null) return "Укажите сумму операции.";
   return validatePlanLinks(items, operation.amount);
 }
 

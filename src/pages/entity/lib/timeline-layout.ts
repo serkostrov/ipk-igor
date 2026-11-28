@@ -7,18 +7,18 @@ import {
 } from "@/shared/lib/business-days";
 import { formatDateDisplay } from "@/shared/lib/format-date";
 import {
+  createTimelineOptionGroup,
+  type TimelineItem,
+  type TimelineGroupKind,
+  type TimelineGroup,
   ENTITY_KANBAN_EMPTY_COLUMN_ID,
   getEntityKanbanColumns,
-  getEntityListOption,
   getEntityRecordById,
   getEntityRecords,
-  getEntityRelationTargetId,
   getEntityTimelineDates,
   getRecordFieldIds,
   getTimelineRowTargetEntity,
   parseEntityTableParentId,
-  resolveEntityFieldSource,
-  resolveEntityListFieldOptions,
   resolveEntityTableParentField,
   resolveRelationRecordLabel,
   type Entity,
@@ -45,28 +45,11 @@ export function parseTimelineScale(value: unknown): TimelineScale | null {
     : null;
 }
 
-export type TimelineItem = {
-  record: EntityRecord;
-  /** Day numbers (see `toDayNumber`); `null` — no dates. */
-  start: number | null;
-  end: number | null;
-};
-
-export type TimelineGroupKind = "cluster" | "split" | "row";
-
-export type TimelineGroup = {
-  key: string;
-  label: string;
-  color: string | null;
-  kind: TimelineGroupKind;
-  /** Option / related record id for this node (`__none__` when empty). */
-  optionId: string;
-  /** All leaf items under this node (for period sums). */
-  items: TimelineItem[];
-  /** Nested groups; empty for leaf «Строки» groups. */
-  children: TimelineGroup[];
-  depth: number;
-};
+export type {
+  TimelineItem,
+  TimelineGroupKind,
+  TimelineGroup,
+} from "@/entities/entity";
 
 const MONTHS = [
   "Январь",
@@ -82,37 +65,6 @@ const MONTHS = [
   "Ноябрь",
   "Декабрь",
 ];
-
-function describeOption(
-  ctx: EntityValueContext,
-  owner: Pick<Entity, "id" | "fields">,
-  field: EntityField,
-  id: string,
-) {
-  if (!id) return { label: "Без значения", color: null as string | null };
-  const source = resolveEntityFieldSource(owner, field, ctx.entities);
-  const resolved = source?.field ?? field;
-  if (resolved.type === "list") {
-    const option = getEntityListOption(
-      resolveEntityListFieldOptions(resolved, ctx.entities),
-      id,
-    );
-    return {
-      label: option?.name ?? "Без названия",
-      color: option?.color ?? null,
-    };
-  }
-  if (resolved.type === "relation" || resolved.type === "belonging") {
-    const target = ctx.entityById.get(
-      getEntityRelationTargetId(resolved) ?? "",
-    );
-    return {
-      label: resolveRelationRecordLabel(target, id) ?? "Без названия",
-      color: null as string | null,
-    };
-  }
-  return { label: id, color: null as string | null };
-}
 
 async function relatedRowRecord(
   ctx: EntityValueContext,
@@ -294,18 +246,15 @@ async function nestItems(
     for (const bucket of buckets) {
       let group = groups.get(bucket);
       if (!group) {
-        const optionId = bucket === "__none__" ? "" : bucket;
-        const meta = describeOption(ctx, level.owner, level.field, optionId);
-        group = {
-          key: `${path}${level.kind}:${bucket}`,
-          label: meta.label,
-          color: meta.color,
-          kind: level.kind,
-          optionId: bucket,
-          items: [],
-          children: [],
+        group = createTimelineOptionGroup(
+          ctx,
+          level.owner,
+          level.field,
+          level.kind,
+          bucket,
+          path,
           depth,
-        };
+        );
         groups.set(bucket, group);
       }
       group.items.push(item);

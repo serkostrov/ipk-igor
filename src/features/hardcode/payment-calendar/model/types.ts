@@ -15,6 +15,8 @@ export type RecordRef = { id: string; name: string; entityId: string | null };
 export type CalendarStage = {
   id: string;
   name: string;
+  articleId: string | null;
+  activityId: string | null;
   contract: RecordRef | null;
   dealId: string | null;
   legal: RecordRef | null;

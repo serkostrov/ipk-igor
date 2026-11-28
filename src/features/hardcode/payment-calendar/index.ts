@@ -1,4 +1,7 @@
-export { PaymentCalendarPage } from "./ui/PaymentCalendarPage";
+export {
+  PaymentCalendarPage,
+  type ReceiptDraft,
+} from "./ui/PaymentCalendarPage";
 export { PaymentPlanLinkSection } from "./ui/PaymentPlanLinkSection";
 export {
   savePaymentPlanLinks,

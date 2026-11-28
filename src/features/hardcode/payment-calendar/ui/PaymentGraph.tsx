@@ -49,6 +49,7 @@ import {
   type GraphScale,
 } from "../model/graph";
 import { STATUS_COLORS, STATUS_VIEW } from "../model/labels";
+import { groupCalendarPlans } from "../lib/group-calendar-plans";
 import { buildPlanGraph, type PlanNode } from "../model/plan-graph";
 import { createPlanRecordFactory } from "../model/plan-records";
 import type {
@@ -56,6 +57,7 @@ import type {
   PaymentRow,
   UnallocatedReceipt,
 } from "../model/types";
+import { GraphCellDetails, type GraphCellSelection } from "./GraphCellDetails";
 import type { OpenRecord } from "./types";
 
 const ROW_HEIGHT = 28;
@@ -151,6 +153,7 @@ export function PaymentGraph({
   unallocated,
   scale,
   onOpenRecord,
+  onReceive,
 }: {
   /** The ДДС operations entity. */
   entity: Entity;
@@ -162,6 +165,7 @@ export function PaymentGraph({
   unallocated: readonly UnallocatedReceipt[];
   scale: GraphScale;
   onOpenRecord?: OpenRecord;
+  onReceive?: (row: PaymentRow) => void;
 }) {
   const { entities } = useEntityConfig();
   const valueContext = useEntityValueContext();
@@ -175,6 +179,7 @@ export function PaymentGraph({
   const scrolledScale = useRef<GraphScale | null>(null);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<EntityFiltersState>({});
+  const [selection, setSelection] = useState<GraphCellSelection | null>(null);
   const [browse, setBrowse] = useState<{
     recordIds: string[];
     title: string;
@@ -225,17 +230,23 @@ export function PaymentGraph({
       }),
     [rows, planRecordOf, valueContext, entity, search, filterFields, filters],
   );
-  const visibleUnallocated = useMemo(
+  const visibleReceiptIds = useMemo(
+    () => new Set(filteredRecords.map((record) => record.id)),
+    [filteredRecords],
+  );
+  const visibleFactRows = useMemo(
     () =>
-      unallocated.filter(
-        (item) =>
-          Object.keys(filters).length === 0 &&
-          (search.trim() === "" ||
-            item.receipt.title
-              .toLocaleLowerCase("ru")
-              .includes(search.trim().toLocaleLowerCase("ru"))),
-      ),
-    [unallocated, filters, search],
+      rows.flatMap((row) => {
+        const receipts = row.receipts.filter((share) =>
+          visibleReceiptIds.has(share.receiptId),
+        );
+        return receipts.length ? [{ ...row, receipts }] : [];
+      }),
+    [rows, visibleReceiptIds],
+  );
+  const visibleUnallocated = useMemo(
+    () => unallocated.filter((item) => visibleReceiptIds.has(item.receipt.id)),
+    [unallocated, visibleReceiptIds],
   );
 
   const walletSetup = useMemo(
@@ -289,6 +300,8 @@ export function PaymentGraph({
     }
     for (const row of visiblePlanRows) {
       if (row.dueDate) dates.push(row.dueDate);
+    }
+    for (const row of visibleFactRows) {
       for (const share of row.receipts) {
         const date = receiptsById.get(share.receiptId)?.date;
         if (date) dates.push(date);
@@ -301,23 +314,46 @@ export function PaymentGraph({
     setup,
     filteredRecords,
     visiblePlanRows,
+    visibleFactRows,
     visibleUnallocated,
     receiptsById,
   ]);
 
-  const planRoot = useMemo(
-    () =>
-      buildPlanGraph({
-        rows: visiblePlanRows,
-        receiptsById,
-        unallocated: visibleUnallocated,
-        columns,
-      }),
-    [visiblePlanRows, receiptsById, visibleUnallocated, columns],
-  );
+  const calendarGroups = useMemo(() => {
+    const placed = groupCalendarPlans(
+      valueContext,
+      entity,
+      sources.article,
+      setup,
+      groups,
+      visiblePlanRows,
+      visibleFactRows,
+      visibleUnallocated,
+    );
+    const byGroup = new Map<string, PlanNode>();
+    for (const [key, payments] of placed.byGroup) {
+      byGroup.set(key, buildPlanGraph({ ...payments, receiptsById, columns }));
+    }
+    return {
+      groups: placed.groups,
+      byGroup,
+      fallback: buildPlanGraph({ ...placed.fallback, receiptsById, columns }),
+    };
+  }, [
+    valueContext,
+    entity,
+    sources.article,
+    setup,
+    groups,
+    visiblePlanRows,
+    visibleFactRows,
+    visibleUnallocated,
+    receiptsById,
+    columns,
+  ]);
 
   const showBand = scale === "day" || scale === "week";
-  const headerHeight = showBand ? HEADER_ROW * 2 : HEADER_ROW;
+  const headerHeight = HEADER_ROW * (showBand ? 3 : 2);
   const chartWidth = columns.length * COLUMN_WIDTH;
 
   useEffect(() => {
@@ -402,9 +438,10 @@ export function PaymentGraph({
   const displayRows: DisplayRow[] = [];
 
   // --- Plan vs fact block (юрлицо → контрагент → договор → этап) -----------
-  function appendPlanNode(node: PlanNode, depth: number) {
+  function appendPlanNode(node: PlanNode, depth: number, prefix = "") {
+    const key = prefix + node.key;
     const expandable = node.children.length > 0;
-    const collapsed = expandable && collapsedKeys.has(node.key);
+    const collapsed = expandable && collapsedKeys.has(key);
     const open =
       node.ref && node.kind === "stage"
         ? () => onOpenRecord?.(sources.stage?.id ?? "", node.ref!.id)
@@ -416,16 +453,14 @@ export function PaymentGraph({
               )
           : undefined;
     displayRows.push({
-      key: node.key,
+      key,
       label: node.label,
       depth,
       expandable,
       collapsed,
       strong: node.kind === "root" || node.kind === "legal",
       tint: node.kind === "root" ? SECTION_TINT : undefined,
-      onLabelClick: expandable
-        ? () => toggle(setCollapsedKeys, node.key)
-        : open,
+      onLabelClick: expandable ? () => toggle(setCollapsedKeys, key) : open,
       renderCell: (column) => {
         const plan = node.plan[column.key];
         const fact = node.fact[column.key];
@@ -436,17 +471,33 @@ export function PaymentGraph({
               {plan ? (
                 <CellValue
                   label={formatEntityDecimalTotal(plan.amount)}
+                  onClick={() =>
+                    setSelection({
+                      kind: "plan",
+                      rows: plan.rows,
+                      label: node.label,
+                      period: column.label,
+                    })
+                  }
                   color={STATUS_COLORS[plan.status]}
-                  title={`План: ${moneyOrDash(plan.amount)} · ${STATUS_VIEW[plan.status].label}${plan.count > 1 ? ` · платежей: ${plan.count}` : ""}`}
+                  title={`План: ${moneyOrDash(plan.amount)} · ${STATUS_VIEW[plan.status].label}${plan.rows.length > 1 ? ` · платежей: ${plan.rows.length}` : ""}`}
                 />
               ) : null}
             </div>
             <div className="flex w-1/2 min-w-0 items-stretch">
               {fact ? (
                 <CellValue
-                  label={formatEntityDecimalTotal(fact)}
+                  label={formatEntityDecimalTotal(fact.amount)}
+                  onClick={() =>
+                    setSelection({
+                      kind: "fact",
+                      receipts: fact.receipts,
+                      label: node.label,
+                      period: column.label,
+                    })
+                  }
                   color={FACT_COLOR}
-                  title={`Факт: ${moneyOrDash(fact)}`}
+                  title={`Факт: ${moneyOrDash(fact.amount)}`}
                 />
               ) : null}
             </div>
@@ -455,13 +506,16 @@ export function PaymentGraph({
       },
     });
     if (collapsed) return;
-    for (const childNode of node.children) appendPlanNode(childNode, depth + 1);
+    for (const childNode of node.children)
+      appendPlanNode(childNode, depth + 1, prefix);
   }
-  if (planRoot.children.length > 0) appendPlanNode(planRoot, 0);
+  if (calendarGroups.fallback.children.length > 0)
+    appendPlanNode(calendarGroups.fallback, 0);
 
   // --- DDS facts: the same stepped tree as the DDS graph --------------------
   function appendGroup(group: TimelineGroup) {
-    const hasChildren = group.children.length > 0;
+    const plan = calendarGroups.byGroup.get(group.key);
+    const hasChildren = group.children.length > 0 || !!plan;
     const isCollapsed =
       hasChildren &&
       (group.kind === "row"
@@ -525,6 +579,7 @@ export function PaymentGraph({
       });
     }
     if (isCollapsed) return;
+    if (plan) appendPlanNode(plan, group.depth + 1, group.key + "/");
     if (hasChildren) {
       for (const childGroup of group.children) appendGroup(childGroup);
       return;
@@ -553,7 +608,7 @@ export function PaymentGraph({
       }
     }
   }
-  for (const group of groups) appendGroup(group);
+  for (const group of calendarGroups.groups) appendGroup(group);
 
   const todayDay = toDayNumber(todayIsoDate());
 
@@ -645,10 +700,22 @@ export function PaymentGraph({
                     top: showBand ? HEADER_ROW : 0,
                     left: index * COLUMN_WIDTH,
                     width: COLUMN_WIDTH,
-                    height: HEADER_ROW,
+                    height: HEADER_ROW * 2,
                   }}
                 >
-                  {column.label}
+                  <div className="flex size-full flex-col text-center">
+                    <span className="flex flex-1 items-center justify-center">
+                      {column.label}
+                    </span>
+                    <div className="grid flex-1 grid-cols-2 items-stretch border-t border-border/50 text-[10px] font-normal text-muted-foreground">
+                      <span className="flex items-center justify-center border-r border-border/30">
+                        План
+                      </span>
+                      <span className="flex items-center justify-center">
+                        Факт
+                      </span>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -748,6 +815,18 @@ export function PaymentGraph({
         </div>
       </div>
 
+      {selection && (
+        <GraphCellDetails
+          selection={selection}
+          onClose={() => setSelection(null)}
+          entity={entity}
+          stageEntityId={sources.stage?.id}
+          planRecordOf={planRecordOf}
+          receiptsById={receiptsById}
+          onOpenRecord={onOpenRecord}
+          onReceive={onReceive}
+        />
+      )}
       <TimelineGroupRecordsDialog
         open={browse != null && browse.recordIds.length > 0}
         onOpenChange={(open) => {

@@ -33,13 +33,17 @@ function isMissingTable(error: { code?: string } | null) {
 }
 
 /** All manual links «операция ДДС → плановый платёж». */
-export async function fetchPaymentAllocations(): Promise<PaymentAllocation[]> {
+export async function fetchPaymentAllocations(
+  ddsRecordId?: string,
+): Promise<PaymentAllocation[]> {
   if (!isSupabaseConfigured || !supabase) return [];
   const out: PaymentAllocation[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error } = await supabase
+    const query = supabase
       .from("payment_allocations")
-      .select("id, dds_record_id, stage_id, part_kind, amount")
+      .select("id, dds_record_id, stage_id, part_kind, amount");
+    if (ddsRecordId) query.eq("dds_record_id", ddsRecordId);
+    const { data, error } = await query
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);

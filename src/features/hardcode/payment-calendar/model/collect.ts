@@ -1,5 +1,8 @@
 import {
   getEntityRecordTitle,
+  getRecordFieldIds,
+  resolveEntityFieldSource,
+  type Entity,
   getEntityRelationTargetId,
   type EntityField,
   type EntityRecord,
@@ -27,6 +30,7 @@ import type {
 } from "./types";
 
 const NOT_FOUND = "Запись не найдена";
+const MOVEMENT_NAMES = ["Тип движения", "Движение", "Вид движения"] as const;
 const INCOME_MARKERS = ["поступ", "приход", "доход"] as const;
 
 /**
@@ -79,6 +83,30 @@ function days(value: number | null): number {
   return Math.max(0, Math.round(value ?? 0));
 }
 
+/** A named receipt article wins; an unlabelled relation is safe only if unique. */
+function planArticleField(
+  owner: Entity | null,
+  article: Entity | null,
+  entities: readonly Entity[],
+) {
+  if (!owner || !article) return null;
+  const fields = owner.fields.filter((field) => {
+    const source = resolveEntityFieldSource(owner, field, entities);
+    return source && getEntityRelationTargetId(source.field) === article.id;
+  });
+  return (
+    findNamedField({ ...owner, fields }, [
+      "Статья планового поступления",
+      "Статья поступления",
+      "Статья ДДС",
+      "Статья",
+    ]) ??
+    (fields.length === 1 && !/расход|выбыти|затрат/i.test(fields[0]!.name)
+      ? fields[0]!
+      : null)
+  );
+}
+
 function readStages(
   ctx: EntityValueContext,
   sources: PaymentCalendarSources,
@@ -104,6 +132,18 @@ function readStages(
 
   // Links are found by their target entity (created in the entity settings),
   // names only break ties between several relations to the same entity.
+  const articleMovement = findNamedField(sources.article, MOVEMENT_NAMES);
+  const owners = [entity, contract, deal];
+  const articleFields = owners.map((owner) =>
+    planArticleField(owner, sources.article, ctx.entities),
+  );
+  const activityFields = owners.map((owner) =>
+    findNamedField(
+      owner,
+      ["Вид деятельности", "Деятельность"],
+      ["list", "relation", "lookup", "belonging"],
+    ),
+  );
   const stageContract = findRelationTo(entity, contract, ["Договор"]);
   const stageDeal = findRelationTo(entity, deal, ["Сделка"]);
   const contractDeal = findRelationTo(contract, deal, ["Сделка"]);
@@ -134,9 +174,9 @@ function readStages(
         ? ctx.getRecord(deal.id, dealRef.id)
         : undefined;
 
+    const holders = [record, contractRecord, dealRecord];
     // Stage → contract → deal: the nearest record that has the link wins.
     const inherited = (fields: ReadonlyArray<EntityField | null>) => {
-      const holders = [record, contractRecord, dealRecord];
       for (const [index, link] of fields.entries()) {
         const holder = holders[index];
         const ref = holder ? readRef(ctx, holder, link) : null;
@@ -145,6 +185,27 @@ function readStages(
       return null;
     };
 
+    function inheritedId(fields: readonly (EntityField | null)[]) {
+      for (const [index, field] of fields.entries()) {
+        const owner = owners[index];
+        const holder = holders[index];
+        if (!holder || !owner || !field) continue;
+        const ids = getRecordFieldIds(ctx, owner, holder, field);
+        if (ids.length) return ids.length === 1 ? ids[0]! : null;
+      }
+      return null;
+    }
+
+    const articleId = inheritedId(articleFields);
+    const article = sources.article;
+    const articleRecord =
+      article && articleId ? ctx.getRecord(article.id, articleId) : null;
+    const outgoing =
+      article &&
+      articleRecord &&
+      /расход|выбыти/iu.test(
+        readText(ctx, article, articleRecord, articleMovement),
+      );
     const number = (target: EntityField | null) =>
       readNumber(ctx, entity, record, target);
     const vatFactor = 1 + (number(columns.rate) ?? 0) / 100;
@@ -158,6 +219,8 @@ function readStages(
       id: record.id,
       name: getEntityRecordTitle(ctx, entity, record),
       contract: contractRef,
+      articleId: outgoing ? null : articleId,
+      activityId: outgoing ? null : inheritedId(activityFields),
       dealId: dealRef?.id ?? null,
       legal: inherited(links.legal),
       counterparty: inherited(links.counterparty),
@@ -202,11 +265,11 @@ export function createDdsOperationReader(
   const { dds: entity, deal, contract, stage, legal, counterparty } = sources;
   const { article } = sources;
   if (!entity) return null;
-  const movement = findNamedField(entity, ["Тип движения", "Движение"]);
-  const articleMovement = findNamedField(article, ["Тип движения"]);
+  const movement = findNamedField(entity, MOVEMENT_NAMES);
+  const articleMovement = findNamedField(article, MOVEMENT_NAMES);
   const articleLink = findRelationTo(entity, article, ["Статья"]);
   const date = findNamedField(entity, ["Дата"]);
-  const amount = findNamedField(entity, ["Сумма с НДС", "Сумма"]);
+  const amount = findNamedField(entity, ["Сумма с НДС", "Сумма", "С НДС"]);
   const links = {
     deal: findRelationTo(entity, deal, ["Сделка"]),
     contract: findRelationTo(entity, contract, ["Договор"]),
